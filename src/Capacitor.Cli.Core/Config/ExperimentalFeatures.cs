@@ -38,7 +38,8 @@ public static class ExperimentalFeatures {
         "Choose Auto, Light, or Dark in Settings → Appearance.",
         AppliesLive: true,
         DesktopAppOnly: true,
-        OnByDefault: true);
+        OnByDefault: true,
+        AppWide: true);
 
     public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance];
 

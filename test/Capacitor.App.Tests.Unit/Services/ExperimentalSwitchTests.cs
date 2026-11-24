@@ -53,14 +53,14 @@ public class ExperimentalSwitchTests {
         var sut = new ExperimentalSwitch(store, "work", ExperimentalFeatures.DesktopAppearance);
         await Assert.That(sut.IsOn).IsTrue();
 
-        var disabled = """{"work":{"desktop-appearance-preview":false}}""";
-        await File.WriteAllTextAsync(store.Path, new string('x', disabled.Length));
-        var written = File.GetLastWriteTimeUtc(store.Path);
+        var disabled = """{"desktop-appearance-preview":false}""";
+        await File.WriteAllTextAsync(store.AppWidePath, new string('x', disabled.Length));
+        var written = File.GetLastWriteTimeUtc(store.AppWidePath);
 
         await Assert.That(sut.IsOn).IsTrue();
 
-        await File.WriteAllTextAsync(store.Path, disabled);
-        File.SetLastWriteTimeUtc(store.Path, written);
+        await File.WriteAllTextAsync(store.AppWidePath, disabled);
+        File.SetLastWriteTimeUtc(store.AppWidePath, written);
         await Assert.That(sut.IsOn).IsFalse();
     }
 

@@ -28,6 +28,21 @@ public class ExperimentalSettingsStoreTests {
         await Assert.That(Store.Load("work").IsEnabled("codex-app-server")).IsFalse();
     }
 
+    [Test]
+    public async Task The_desktop_preview_is_shared_while_other_experiments_follow_the_profile() {
+        var preview = ExperimentalFeatures.DesktopAppearance;
+        await Assert.That(Store.LoadAppWide().IsOn(preview)).IsTrue();
+        await Assert.That(await Store.SetAsync("work", ExperimentalFeatures.InAppPages.Id, true, CancellationToken.None)).IsTrue();
+        await Assert.That(await Store.SetAsync("work", preview.Id, false, CancellationToken.None)).IsTrue();
+        await Assert.That(Store.LoadAppWide().IsOn(preview)).IsFalse();
+        await Assert.That(Store.Load("work").IsSet(preview.Id)).IsFalse();
+        await Assert.That(Store.Load("work").IsOn(ExperimentalFeatures.InAppPages)).IsTrue();
+        await Assert.That(Store.Load("personal").IsOn(ExperimentalFeatures.InAppPages)).IsFalse();
+
+        await Assert.That(await Store.SetAsync("personal", preview.Id, true, CancellationToken.None)).IsTrue();
+        await Assert.That(Store.LoadAppWide().IsOn(preview)).IsTrue();
+    }
+
     /// <summary>The desktop switch saves from the UI thread, so waiting out another writer's lock must
     /// happen after <c>SetAsync</c> has returned its task.</summary>
     [Test]

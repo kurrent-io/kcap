@@ -452,6 +452,7 @@ public partial class App : Application {
                 if (RunInstallLocationGuard(desktop)) return; // the guard window owns the rest of this run
                 if (await RunLegacyInstallGuardAsync(desktop)) return;
             }
+            ConfigureDesktopAppearance();
             _updater = CreateUpdater(_betaUpdates);
             if (UpdateCoordinator.TryApplyPendingAtStartup(_updater, Program.Host.UpdateRelaunch,
                     HandOver(AppUpdateTransition.PendingAtStartup), LifecycleLog)) return; // the process is being replaced
@@ -1120,6 +1121,51 @@ public partial class App : Application {
         gate is GateResult.Incomplete || firstRunAfterInstall || args?.Contains("--setup", StringComparer.Ordinal) == true;
 
     // The steady-state graph, over the resolution the gate was evaluated on (never a second resolve).
+    void ConfigureDesktopAppearance() {
+        var flag = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profile: null, ExperimentalFeatures.DesktopAppearance);
+        var palette = new ClassicPreviewPalette(this);
+        var platform = PlatformSettings;
+        var systemChanges = platform is null ? Observable.Never<Unit>() :
+            Observable.FromEventPattern<PlatformColorValues>(h => platform.ColorValuesChanged += h, h => platform.ColorValuesChanged -= h)
+                .Select(_ => Unit.Default).ObserveOn(RxSchedulers.MainThreadScheduler);
+        var preview = new ClassicAppearancePreview(_appState, _openingDesktopColorScheme,
+            palette.TryApply, () => platform?.GetColorValues().ThemeVariant != PlatformThemeVariant.Light, systemChanges);
+        var reading = new DesktopReadingResources(this);
+        var contrastWatch = new SerialDisposable();
+        var zoomWatch = new SerialDisposable();
+        var appearance = new DesktopAppearanceSettings(_appState, _openingDesktopAppearance, preferences => {
+            reading.Apply(preferences);
+            var highContrast = preferences?.HighContrast == true;
+            void ApplyContrast() => palette.SetHigherContrast(highContrast ||
+                platform?.GetColorValues().ContrastPreference == ColorContrastPreference.High);
+            contrastWatch.Disposable = preferences is not null && !highContrast
+                ? systemChanges.Subscribe(_ => ApplyContrast()) : null;
+            if (preferences is null) palette.SetHigherContrast(false);
+            else ApplyContrast();
+        });
+        void SetEnabled(bool enabled) {
+            if (appearance.Enabled == enabled) return;
+            if (enabled) {
+                zoomWatch.Disposable = _uiScale.Changes.ObserveOn(RxSchedulers.MainThreadScheduler)
+                    .Subscribe(reading.SetZoom);
+                appearance.SetEnabled(true);
+                preview.SetEnabled(true);
+            } else {
+                preview.SetEnabled(false);
+                appearance.SetEnabled(false);
+                zoomWatch.Disposable = null;
+            }
+        }
+
+        SetEnabled(flag.IsOn);
+        _classicPreview = preview;
+        _desktopAppearance = appearance;
+        _classicPreviewSubscription = new CompositeDisposable(contrastWatch, zoomWatch, _experimentalSaved.Merge(
+                Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default))
+            .ObserveOn(TaskPoolScheduler.Default).Select(_ => flag.IsOn).DistinctUntilChanged()
+            .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(SetEnabled));
+    }
+
     void BuildDaemonGraph(
             IClassicDesktopStyleApplicationLifetime desktop, DaemonMutationLane lane, OutcomeChannel channel, ILoginShellProbe probe,
             GateResult gate, ProfileContext? profiles, bool laneQuiesced) {
@@ -1442,50 +1488,6 @@ public partial class App : Application {
                 && vm.OpenSession(AgentLinkLabels.HeldIdOf(directory.Rows, agentId) ?? agentId));
         var pageLinks = new PageLinkRouter(() => profiles?.Resolution.ServerUrl);
         var webView = new WebViewAvailability();
-        if (profiles?.Resolution is { ProfileName: { Length: > 0 } previewProfile }) {
-            var flag = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), previewProfile, ExperimentalFeatures.DesktopAppearance);
-            var palette = new ClassicPreviewPalette(this);
-            var platform = PlatformSettings;
-            var systemChanges = platform is null ? Observable.Never<Unit>() :
-                Observable.FromEventPattern<PlatformColorValues>(h => platform.ColorValuesChanged += h, h => platform.ColorValuesChanged -= h)
-                    .Select(_ => Unit.Default).ObserveOn(RxSchedulers.MainThreadScheduler);
-            var preview = new ClassicAppearancePreview(_appState, _openingDesktopColorScheme,
-                palette.TryApply, () => platform?.GetColorValues().ThemeVariant != PlatformThemeVariant.Light, systemChanges);
-            var reading = new DesktopReadingResources(this);
-            var contrastWatch = new SerialDisposable();
-            var zoomWatch = new SerialDisposable();
-            var appearance = new DesktopAppearanceSettings(_appState, _openingDesktopAppearance, preferences => {
-                reading.Apply(preferences);
-                var highContrast = preferences?.HighContrast == true;
-                void ApplyContrast() => palette.SetHigherContrast(highContrast ||
-                    platform?.GetColorValues().ContrastPreference == ColorContrastPreference.High);
-                contrastWatch.Disposable = preferences is not null && !highContrast
-                    ? systemChanges.Subscribe(_ => ApplyContrast()) : null;
-                if (preferences is null) palette.SetHigherContrast(false);
-                else ApplyContrast();
-            });
-            void SetEnabled(bool enabled) {
-                if (appearance.Enabled == enabled) return;
-                if (enabled) {
-                    zoomWatch.Disposable = _uiScale.Changes.ObserveOn(RxSchedulers.MainThreadScheduler)
-                        .Subscribe(reading.SetZoom);
-                    appearance.SetEnabled(true);
-                    preview.SetEnabled(true);
-                } else {
-                    preview.SetEnabled(false);
-                    appearance.SetEnabled(false);
-                    zoomWatch.Disposable = null;
-                }
-            }
-
-            SetEnabled(flag.IsOn);
-            _classicPreview = preview;
-            _desktopAppearance = appearance;
-            _classicPreviewSubscription = new CompositeDisposable(contrastWatch, zoomWatch, _experimentalSaved.Merge(
-                    Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default))
-                .ObserveOn(TaskPoolScheduler.Default).Select(_ => flag.IsOn).DistinctUntilChanged()
-                .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(SetEnabled));
-        }
         var inAppPages = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.InAppPages);
         var launcherNextWork = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.LauncherNextWork);
         var drafts = new ComposerDrafts();

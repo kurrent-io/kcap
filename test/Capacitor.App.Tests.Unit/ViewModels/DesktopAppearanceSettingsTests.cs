@@ -82,7 +82,7 @@ public class DesktopAppearanceSettingsTests {
     public async Task Unreadable_state_opens_with_safe_defaults_and_the_next_save_recovers() {
         var store = new AppStateStore(Tmp.CreateFile("state.json", "{"));
         var initial = await store.LoadAsync();
-        await Assert.That(DesktopAppearancePreferences.Read(initial.DesktopAppearanceByProfile?.GetValueOrDefault("profile")))
+        await Assert.That(DesktopAppearancePreferences.Read(initial.DesktopAppearance))
             .IsEqualTo(new DesktopAppearancePreferences());
         await Assert.That(await store.UpdateAsync(state => state with { UiScale = 1.25 })).IsTrue();
         await Assert.That((await store.LoadAsync()).UiScale).IsEqualTo(1.25);

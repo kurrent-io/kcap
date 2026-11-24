@@ -199,69 +199,6 @@
                 </ScrollViewer>
             </TabItem>
 
-            <TabItem x:Name="ExperimentalTab" Classes="settingsNav" AutomationProperties.Name="Experimental"
-                     IsVisible="{Binding Experimental, Converter={x:Static ObjectConverters.IsNotNull}}">
-                <TabItem.Header>
-                    <StackPanel Orientation="Horizontal" Spacing="10">
-                        <views:AppIcon Kind="FlaskConical" Size="16" />
-                        <TextBlock Text="Experimental" VerticalAlignment="Center" />
-                    </StackPanel>
-                </TabItem.Header>
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                    <views:SettingsPage Classes="settingsPage">
-                        <StackPanel Classes="settingsHeader">
-                            <TextBlock Classes="kcapTitle" Text="Experimental" />
-                            <TextBlock Classes="kcapSubtitle" TextWrapping="Wrap"
-                                       Text="Try features that are still in development. Changes save for this profile. They also apply to the kcap command line." />
-                            <Border Classes="settingsContextChip" ToolTip.Tip="These settings apply only to this profile">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <views:AppIcon Kind="UserRound" Size="12" />
-                                    <TextBlock Text="Profile" />
-                                    <TextBlock Classes="scopeName" Text="{Binding ProfileName}" />
-                                </StackPanel>
-                            </Border>
-                        </StackPanel>
-
-                        <Border Classes="settingsNotice"
-                                IsVisible="{Binding Experimental.Problem, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}">
-                            <TextBlock x:Name="ExperimentalProblem" Classes="kcapHint" TextWrapping="Wrap"
-                                       Foreground="{StaticResource KcapTextBrush}"
-                                       Text="{Binding Experimental.Problem, FallbackValue={x:Null}}" />
-                        </Border>
-
-                        <Border Classes="settingsCard">
-                            <ItemsControl ItemsSource="{Binding Experimental.Features, FallbackValue={x:Null}}">
-                                <ItemsControl.ItemTemplate>
-                                    <DataTemplate x:DataType="vm:ExperimentalFeatureRowViewModel">
-                                        <Border Classes="settingsListRow">
-                                            <Grid Classes="settingsRow" ColumnDefinitions="*,Auto">
-                                                <StackPanel Classes="settingsRowText">
-                                                    <TextBlock Classes="kcapLabel" Text="{Binding DisplayName}" />
-                                                    <TextBlock Classes="kcapHint" TextWrapping="Wrap" Text="{Binding Description}" />
-                                                    <TextBlock Classes="kcapHint" TextWrapping="Wrap" Text="{Binding StatusText}"
-                                                               Classes.attention="{Binding StatusIsWarning}"
-                                                               IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
-                                                        <TextBlock.Styles>
-                                                            <Style Selector="TextBlock.attention">
-                                                                <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
-                                                            </Style>
-                                                        </TextBlock.Styles>
-                                                    </TextBlock>
-                                                </StackPanel>
-                                                <ToggleSwitch Grid.Column="1" Classes="kcapSwitch" VerticalAlignment="Center"
-                                                              AutomationProperties.Name="{Binding DisplayName}"
-                                                              IsEnabled="{Binding CanChange}"
-                                                              IsChecked="{Binding IsEnabled, Mode=TwoWay}" />
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ItemsControl.ItemTemplate>
-                            </ItemsControl>
-                        </Border>
-                    </views:SettingsPage>
-                </ScrollViewer>
-            </TabItem>
-
             <views:SettingsSectionHeader Classes="settingsNavHeader" Header="This computer" />
 
             <TabItem x:Name="AppearanceTab" Classes="settingsNav" AutomationProperties.Name="Appearance"
@@ -550,6 +487,81 @@
                                 </StackPanel>
                             </Grid>
                         </Border>
+                    </views:SettingsPage>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem x:Name="ExperimentalTab" Classes="settingsNav" AutomationProperties.Name="Experimental"
+                     IsVisible="{Binding Experimental, Converter={x:Static ObjectConverters.IsNotNull}}">
+                <TabItem.Resources>
+                    <DataTemplate x:Key="ExperimentalSwitchRow" x:DataType="vm:ExperimentalFeatureRowViewModel">
+                        <Border Classes="settingsListRow">
+                            <Grid Classes="settingsRow" ColumnDefinitions="*,Auto">
+                                <StackPanel Classes="settingsRowText">
+                                    <TextBlock Classes="kcapLabel" Text="{Binding DisplayName}" />
+                                    <TextBlock Classes="kcapHint" TextWrapping="Wrap" Text="{Binding Description}" />
+                                    <TextBlock Classes="kcapHint" TextWrapping="Wrap" Text="{Binding StatusText}"
+                                               Classes.attention="{Binding StatusIsWarning}"
+                                               IsVisible="{Binding StatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                        <TextBlock.Styles>
+                                            <Style Selector="TextBlock.attention">
+                                                <Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" />
+                                            </Style>
+                                        </TextBlock.Styles>
+                                    </TextBlock>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" Classes="kcapSwitch" VerticalAlignment="Center"
+                                              AutomationProperties.Name="{Binding DisplayName}"
+                                              IsEnabled="{Binding CanChange}"
+                                              IsChecked="{Binding IsEnabled, Mode=TwoWay}" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </TabItem.Resources>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <views:AppIcon Kind="FlaskConical" Size="16" />
+                        <TextBlock Text="Experimental" VerticalAlignment="Center" />
+                    </StackPanel>
+                </TabItem.Header>
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <views:SettingsPage Classes="settingsPage">
+                        <StackPanel Classes="settingsHeader">
+                            <TextBlock Classes="kcapTitle" Text="Experimental" />
+                            <TextBlock Classes="kcapSubtitle" TextWrapping="Wrap" Text="Try features that are still in development." />
+                        </StackPanel>
+
+                        <Border Classes="settingsNotice"
+                                IsVisible="{Binding Experimental.Problem, Converter={x:Static StringConverters.IsNotNullOrEmpty}, FallbackValue=False}">
+                            <TextBlock x:Name="ExperimentalProblem" Classes="kcapHint" TextWrapping="Wrap"
+                                       Foreground="{StaticResource KcapTextBrush}"
+                                       Text="{Binding Experimental.Problem, FallbackValue={x:Null}}" />
+                        </Border>
+
+                        <StackPanel Spacing="8">
+                            <WrapPanel ItemSpacing="8" LineSpacing="6">
+                                <TextBlock Classes="kcapLabel" Text="Profile-wide" VerticalAlignment="Center"
+                                           AutomationProperties.HeadingLevel="2" />
+                                <Border Classes="settingsContextChip">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <views:AppIcon Kind="UserRound" Size="12" />
+                                        <TextBlock Classes="scopeName" Text="{Binding ProfileName}" />
+                                    </StackPanel>
+                                </Border>
+                            </WrapPanel>
+                            <Border Classes="settingsCard">
+                                <ItemsControl x:Name="ProfileExperiments" ItemTemplate="{StaticResource ExperimentalSwitchRow}"
+                                              ItemsSource="{Binding Experimental.ProfileWide, FallbackValue={x:Null}}" />
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="kcapLabel" Text="App-wide" AutomationProperties.HeadingLevel="2" />
+                            <Border Classes="settingsCard">
+                                <ItemsControl x:Name="AppExperiments" ItemTemplate="{StaticResource ExperimentalSwitchRow}"
+                                              ItemsSource="{Binding Experimental.AppWide, FallbackValue={x:Null}}" />
+                            </Border>
+                        </StackPanel>
                     </views:SettingsPage>
                 </ScrollViewer>
             </TabItem>

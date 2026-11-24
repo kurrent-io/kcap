@@ -57,17 +57,20 @@ public sealed class ExperimentalCommand {
     async Task<int> ListAsync() {
         var (profile, daemonName) = Resolve();
         var store = new ExperimentalSettingsStore(_config);
-        var saved = store.Load(profile);
-        if (!saved.Readable) return await RefuseCorruptAsync(store, saved);
+        var profileSettings = store.Load(profile);
+        if (!profileSettings.Readable) return await RefuseCorruptAsync(store.Path, profileSettings);
+        var appSettings = store.LoadAppWide();
+        if (!appSettings.Readable) return await RefuseCorruptAsync(store.AppWidePath, appSettings);
 
         var probe = await _probe(daemonName, CancellationToken.None);
 
         await Console.Out.WriteLineAsync($"Profile: {profile}");
         foreach (var feature in _features) {
+            var saved = feature.AppWide ? appSettings : profileSettings;
             var on = saved.IsOn(feature);
             var state = feature.DesktopAppOnly ? DesktopAppOnlyText : StateText(Classify(saved.IsEnabled(feature.Id), on, probe, feature.Id));
             await Console.Out.WriteLineAsync($"{feature.Id}  {SwitchText(on, saved.IsSet(feature.Id))}  {state}");
-            await Console.Out.WriteLineAsync($"  {feature.Description}");
+            await Console.Out.WriteLineAsync($"  {(feature.AppWide ? "App-wide. " : "")}{feature.Description}");
         }
 
         return 0;
@@ -88,9 +91,11 @@ public sealed class ExperimentalCommand {
         var store = new ExperimentalSettingsStore(_config);
 
         if (!await store.SetAsync(profile, feature.Id, enable, CancellationToken.None))
-            return await RefuseCorruptAsync(store, store.Load(profile));
+            return await RefuseCorruptAsync(feature.AppWide ? store.AppWidePath : store.Path,
+                feature.AppWide ? store.LoadAppWide() : store.Load(profile));
 
-        await Console.Out.WriteLineAsync($"{(enable ? "Enabled" : "Disabled")} {feature.Id} (profile: {profile})");
+        var scope = feature.AppWide ? "app-wide" : $"profile: {profile}";
+        await Console.Out.WriteLineAsync($"{(enable ? "Enabled" : "Disabled")} {feature.Id} ({scope})");
         await Console.Out.WriteLineAsync(feature.DesktopAppOnly ? AppliesInDesktopAppText : await ConfirmAsync(enable, daemonName, feature.Id));
 
         return 0;
@@ -152,8 +157,8 @@ public sealed class ExperimentalCommand {
         _                                             => state.Kind.ToString()
     };
 
-    static async Task<int> RefuseCorruptAsync(ExperimentalSettingsStore store, ExperimentalSettingsRead read) {
-        await Console.Error.WriteLineAsync($"{read.Problem} ({store.Path}). Fix or remove the file, then try again");
+    static async Task<int> RefuseCorruptAsync(string path, ExperimentalSettingsRead read) {
+        await Console.Error.WriteLineAsync($"{read.Problem} ({path}). Fix or remove the file, then try again");
 
         return 1;
     }
