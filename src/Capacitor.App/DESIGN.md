@@ -48,3 +48,9 @@ Appearance offers Comfortable and Compact density. Compact reduces padding and r
 Pilot questions remain around recognition of lightly filled selections, separation of raised surfaces in Light, and distinguishing a filled destructive action from a primary action. Test those with readers on Windows, macOS and Linux before widening the preview.
 
 Compare the stock app, preview-off and default appearance under Light and Dark with the same native synthetic transcript. Compare startup, typing, scrolling and jumps independently.
+
+## Transcript selection
+
+With **Desktop redesign preview** enabled, drag across message bodies or enter the transcript with Tab or F6. From a message action, Shift with the arrow keys starts a selection. Left and Right extend by grapheme. Up and Down extend to the previous or next selectable message. Use the system Copy shortcut or the text context menu. Copy message still carries Markdown source and HTML.
+
+The selection follows transcript message keys across scrolling and row reuse. A collapsed tool group contributes the summary and any calls it still shows. Reading above the tail or holding a range pauses live scrolling. Escape clears the range and returns keyboard focus to a visible message action. **Jump to latest** resumes following new messages and focuses the latest visible action. Plain transcript text and rich message copies preserve request order.

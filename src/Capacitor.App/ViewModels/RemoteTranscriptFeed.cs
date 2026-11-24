@@ -75,6 +75,13 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     readonly List<ProjectedLine>? _loaded;
     /// The session refused this reader, so what it loaded is not kept.
     bool _lost;
+    int _copyRevision;
+    bool _copyDenied;
+    readonly Func<bool>? _canCopySession;
+
+    internal bool CanCopy(int revision) {
+        lock (_lock) return !_disposed && !_copyDenied && revision == _copyRevision && (_canCopySession?.Invoke() ?? true);
+    }
     /// The cache's stamp when the loaded lines were read.
     (int Generation, int Refusals) _stamp;
     /// A snapshot taken from the cache, with the stamp it was handed out under, until a resume publishes or rejects
@@ -109,8 +116,9 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
     public RemoteTranscriptFeed(
             string sessionId, string vendor, IObservable<SessionAccessState> access, SessionEventsReader readEvents,
             IServerLane lane, TimeProvider time, Action<string> log, int? window = Window, RemoteTranscriptCache? cache = null,
-            int prefetch = Prefetch) {
+            int prefetch = Prefetch, Func<bool>? canCopySession = null) {
         _sessionId = sessionId;
+        _canCopySession = canCopySession;
         _window = window;
         _prefetch = prefetch;
         _cache = cache;
@@ -122,8 +130,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         _log = log;
         _access = access.Subscribe(state => {
             if (state == SessionAccessState.Established) Restart();
-            else StopTail();
-            if (state == SessionAccessState.Denied) Forget();
+            else StopTail(state == SessionAccessState.Denied);
         });
     }
 
@@ -133,6 +140,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
 
     public FeedRead ReadAppended() {
         lock (_lock) {
+            var copyRevision = _position is not null && !_copyDenied ? _copyRevision : (int?)null;
             if (_pendingStatus == FeedStatus.Reset) {
                 var seed = _pending.GetRange(0, _resetCount);
                 _pending.RemoveRange(0, _resetCount);
@@ -141,7 +149,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
                 _resetCount = 0;
                 _seedBoundary = null;
                 _pendingStatus = FeedStatus.Ok;
-                return new(FeedStatus.Reset, seed, boundary);
+                return new(FeedStatus.Reset, seed, boundary) { CopyRevision = copyRevision };
             }
             if (_pending.Count > 0 || _older.Count > 0) {
                 var lines = _pending.ToArray();
@@ -149,13 +157,13 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
                 if (lines.Length > 0) _delivered = Math.Max(_delivered, lines[^1].Offset);
                 _pending.Clear();
                 _older.Clear();
-                return new(FeedStatus.Ok, lines) { Older = older };
+                return new(FeedStatus.Ok, lines) { Older = older, CopyRevision = copyRevision };
             }
             if (_verdict is { } verdict) {
                 _verdictRead = true;
                 return new(verdict.Status, [], null, verdict.Failure);
             }
-            return new(FeedStatus.Ok, []);
+            return new(FeedStatus.Ok, []) { CopyRevision = copyRevision };
         }
     }
 
@@ -167,6 +175,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             _tailCts?.Cancel();
             _verdict = null;
             _olderRefused = false;
+            _copyDenied = false;
             var cts = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             _tailCts = cts;
             var attempt = ++_attempt;
@@ -179,12 +188,16 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         Changed?.Invoke();
     }
 
-    void StopTail() {
+    void StopTail(bool denied) {
         lock (_lock) {
             _tailCts?.Cancel();
             _tailCts = null;
             _attempt++;
+            if (denied) ForgetLocked();
         }
+        if (!denied) return;
+        _cache?.Drop(_sessionId);
+        Changed?.Invoke();
     }
 
     bool IsCurrent(int attempt) { lock (_lock) return _attempt == attempt; }
@@ -508,8 +521,10 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
         lock (_lock) {
             if (_attempt != attempt) return null;
             _olderRefused = true;
+            ForgetLocked();
         }
-        Forget();
+        _cache?.Drop(_sessionId);
+        Changed?.Invoke();
         _log($"remote transcript: older events: {(fetch.NotFound ? "not found" : "not signed in")}");
         return null;
     }
@@ -638,17 +653,17 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             if (_attempt != attempt) return;
             _verdict = (status, failure);
             _verdictRead = false;
+            if (status is FeedStatus.Missing or FeedStatus.Failed) ForgetLocked();
         }
-        if (status is FeedStatus.Missing or FeedStatus.Failed) Forget();
+        if (status is FeedStatus.Missing or FeedStatus.Failed) _cache?.Drop(_sessionId);
         Changed?.Invoke();
     }
 
-    void Forget() {
-        lock (_lock) {
-            _lost = true;
-            _resume = null;
-        }
-        _cache?.Drop(_sessionId);
+    void ForgetLocked() {
+        _lost = true;
+        _copyDenied = true;
+        _copyRevision++;
+        _resume = null;
     }
 
     /// The newest lines up to the cache's limit; the stream events before the oldest kept one count as unloaded.

@@ -1,6 +1,7 @@
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
+using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
@@ -19,15 +20,21 @@ public static class TextContextMenu {
         new("Select all", c => !string.IsNullOrEmpty(((TextBox)c).Text), c => ((TextBox)c).SelectAll()));
 
     public static FlyoutBase ForSelectableTextBlock { get; } = Build<SelectableTextBlock>(
-        new("Copy", c => ((SelectableTextBlock)c).CanCopy, c => ((SelectableTextBlock)c).Copy()),
-        new("Select all", c => !string.IsNullOrEmpty(((SelectableTextBlock)c).Text), c => ((SelectableTextBlock)c).SelectAll()));
+        new("Copy", c => ((SelectableTextBlock)c).CanCopy || c.FindAncestorOfType<ChatTabView>()?.HasTranscriptSelection == true, c => {
+            var plain = (SelectableTextBlock)c;
+            if (plain.FindAncestorOfType<ChatTabView>()?.TranscriptSelectionCopy(plain) is null) plain.Copy();
+        }),
+        new("Select all", c => !string.IsNullOrEmpty(((SelectableTextBlock)c).Text), c => {
+            c.FindAncestorOfType<ChatTabView>()?.ClearTranscriptSelection();
+            ((SelectableTextBlock)c).SelectAll();
+        }));
 
     public static FlyoutBase ForMarkdown { get; } = Build<MarkdownView>(
         new("Copy image", _ => true, c => _ = ((MarkdownView)c).CopyImageAsync(), c => ((MarkdownView)c).ContextImage is not null),
         new("Copy link", _ => true, c => _ = ((MarkdownView)c).CopyLinkAsync(), c => ((MarkdownView)c).ContextLinkUrl is not null),
         new("Copy", c => ((MarkdownView)c).HasSelection, c => _ = ((MarkdownView)c).CopySelectionAsync()),
         new("Select all", _ => true, c => ((MarkdownView)c).SelectAll()),
-        new("Bookmark selection", c => ((MarkdownView)c).HasSelection, c => ((MarkdownView)c).BookmarkSelection(),
+        new("Bookmark selection", c => ((MarkdownView)c).CanBookmarkSelection, c => ((MarkdownView)c).BookmarkSelection(),
             c => ((MarkdownView)c).Bookmarks is not null),
         new("Bookmark each list item", _ => true, c => ((MarkdownView)c).BookmarkListItems(),
             c => ((MarkdownView)c).Bookmarks is not null && ((MarkdownView)c).ContextListItems is not null),

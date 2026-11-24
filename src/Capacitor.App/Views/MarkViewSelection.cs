@@ -9,6 +9,7 @@ using Avalonia.Input;
 using Avalonia.VisualTree;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Capacitor.App.Services;
 using MarkView.Avalonia;
 using MarkView.Avalonia.Rendering;
 
@@ -131,6 +132,14 @@ static class MarkViewSelection {
         return (text, occurrence);
     }
 
+    internal static IEnumerable<(TextBlock Block, string Text, int Marker)> SelectionBlocks(MarkdownViewer viewer) {
+        if (LayerOf(viewer) is not { } layer) yield break;
+        foreach (var entry in Entries(layer)) {
+            var plain = PlainText(entry);
+            yield return (TextBlockOf(entry), plain, MarkerLength(entry, plain));
+        }
+    }
+
     static string Unmarked(object entry) {
         var plain = PlainText(entry);
         return plain[MarkerLength(entry, plain)..];
@@ -141,7 +150,7 @@ static class MarkViewSelection {
     public static async Task CopyAsync(MarkdownViewer viewer) {
         var text = SelectedText(viewer);
         if (text.Length == 0 || TopLevel.GetTopLevel(viewer)?.Clipboard is not { } clipboard) return;
-        await clipboard.SetTextAsync(text);
+        await MarkdownClipboard.InOrder(() => clipboard.SetTextAsync(text));
     }
 
     static void OnPressed(MarkdownViewer viewer, PointerPressedEventArgs e) {

@@ -46,7 +46,7 @@ public static class ChatTranscriptKeyboard {
         return null;
     }
 
-    static Control? FocusFirst(Control container) {
+    internal static Control? FocusFirst(Control container) {
         foreach (var control in container.GetSelfAndVisualDescendants().OfType<Control>()) {
             if (control is not { Focusable: true, IsEffectivelyVisible: true, IsEffectivelyEnabled: true } or TextBox
                 || !control.Focus(NavigationMethod.Directional)) continue;

@@ -1,3 +1,4 @@
+using System.Reactive.Subjects;
 using System.Text.Json;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
@@ -149,4 +150,35 @@ public class RemoteSubagentFeedTests {
         clock.Advance(RemoteSubagentFeed.PollInterval);
         await Assert.That(Texts(feed.ReadAppended())).IsEqualTo("c");
     }
+
+    [Test]
+    public async Task A_child_copy_revision_requires_parent_access_and_an_admitted_child_read() {
+        var server = new Server();
+        server.Events.Add(Text(0, "one"));
+        var clock = new FakeTimeProvider();
+        using var access = new BehaviorSubject<SessionAccessState>(SessionAccessState.Established);
+        var currentSession = true;
+        using var feed = new RemoteSubagentFeed("s1", "a1", "claude", server.Read, () => true, clock, _ => { }, access, () => currentSession);
+
+        var initial = feed.ReadAppended();
+        await Assert.That(initial.Status).IsEqualTo(FeedStatus.Ok);
+        await Assert.That(initial.CopyRevision).IsNotNull();
+        var previous = initial.CopyRevision!.Value;
+        await Assert.That(feed.CanCopy(previous)).IsTrue();
+
+        access.OnNext(SessionAccessState.Denied);
+        await Assert.That(feed.CanCopy(previous)).IsFalse();
+        access.OnNext(SessionAccessState.Established);
+        await Assert.That(feed.CanCopy(previous)).IsFalse();
+
+        clock.Advance(RemoteSubagentFeed.PollInterval);
+        var fresh = feed.ReadAppended().CopyRevision;
+        await Assert.That(fresh).IsNotNull();
+        await Assert.That(feed.CanCopy(previous)).IsFalse();
+        await Assert.That(feed.CanCopy(fresh!.Value)).IsTrue();
+
+        currentSession = false;
+        await Assert.That(feed.CanCopy(fresh.Value)).IsFalse();
+    }
+
 }

@@ -29,7 +29,17 @@ public partial class ChatTabView : UserControl {
     ScrollViewer? _scroll;
     TextPresenter? _composerPresenter;
     readonly Composer _composer;
-    bool _followTail = true;
+    bool FollowTail {
+        get;
+        set {
+            if (field == value) return;
+            field = value;
+            // ScrollToEnd leaves an infinite requested offset, which follows a growing extent on its own.
+            if (!value && _range is not null && _scroll is { } scroll)
+                scroll.SetCurrentValue(ScrollViewer.OffsetProperty, scroll.Offset);
+            RefreshJumpToLatest();
+        }
+    } = true;
     /// Armed by a gesture inside the list and released once the dispatcher queue drains past
     /// layout, so it covers exactly the scroll changes that gesture produced — an expansion click
     /// or a wheel notch — and not the appends that land later.
@@ -59,6 +69,7 @@ public partial class ChatTabView : UserControl {
 
     public ChatTabView() {
         InitializeComponent();
+        Bind(TranscriptSelectionEnabledProperty, this.GetResourceObservable("KcapTranscriptSelection"));
         _composer = Composer.Attach(ComposerCard, ComposerInput, AttachButton);
         // Tunnel, not bubble: TextBox's own class handler runs first on the bubbling route, where
         // it inserts the newline and marks Enter handled before any instance handler sees it.
@@ -129,6 +140,7 @@ public partial class ChatTabView : UserControl {
     /// the same view, and a behaviour disposed on the way out has to come back with it.
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e) {
         base.OnAttachedToVisualTree(e);
+        ObserveTranscriptSelection();
         ObserveSending();
         ObserveFind();
         ObserveTopics();
@@ -153,8 +165,9 @@ public partial class ChatTabView : UserControl {
         _selectedMarkdown.Clear();
         _primaryPointer = null;
         _tailDeferred = false;
-        _followTail = true;
+        FollowTail = true;
         base.OnDataContextChanged(e);
+        ObserveTranscriptSelection();
         ObserveSending();
         ObserveFind();
         ObserveTopics();
@@ -162,6 +175,7 @@ public partial class ChatTabView : UserControl {
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {
+        DetachTranscriptSelection();
         DropToggleAnchor();
         CancelSmoothScroll();
         _thumbDragging = false;
@@ -202,6 +216,7 @@ public partial class ChatTabView : UserControl {
     }, DispatcherPriority.Input);
 
     void ResumeFollowing() {
+        ClearTranscriptSelection();
         DropToggleAnchor();
         CancelSmoothScroll();
         _thumbDragging = false;
@@ -212,14 +227,15 @@ public partial class ChatTabView : UserControl {
         _primaryPointer = null;
         _tailDeferred = false;
         foreach (var markdown in _selectedMarkdown.ToArray()) markdown.ClearSelection();
-        _followTail = true;
+        FollowTail = true;
         EnsureChatScroll();
         _scroll?.ScrollToEnd();
+        RefreshJumpToLatest();
     }
 
     internal int ListInputVersion { get; private set; }
     internal bool IsSmoothScrolling => _smoothFrameQueued || Math.Abs(_smoothRemaining) > 0.5;
-    internal bool CanPreserveReadingPosition => !_followTail && _anchorItem is null && _thumbFraction is null;
+    internal bool CanPreserveReadingPosition => !FollowTail && _anchorItem is null && _thumbFraction is null;
     internal bool ShouldAnchorReadingLayout => CanPreserveReadingPosition || ListTextBoxOwnsFocus();
 
     void OnReaderGesture(object? sender, RoutedEventArgs e) {
@@ -261,7 +277,10 @@ public partial class ChatTabView : UserControl {
         if (ReferenceEquals(e.Pointer, _primaryPointer)) CompletePrimaryPress();
     }
 
-    void OnWindowDeactivated(object? sender, EventArgs e) => CompletePrimaryPress();
+    void OnWindowDeactivated(object? sender, EventArgs e) {
+        EndTranscriptDrag();
+        CompletePrimaryPress();
+    }
 
     void CompletePrimaryPress() {
         _primaryPointer = null;
@@ -270,7 +289,7 @@ public partial class ChatTabView : UserControl {
         _tailDeferred = false;
         var context = DataContext;
         Dispatcher.UIThread.Post(() => {
-            if (PrimaryDown || !_followTail || _dragSelecting || _anchorItem is not null
+            if (PrimaryDown || !FollowTail || _dragSelecting || _anchorItem is not null
                 || _thumbFraction is not null || ListTextBoxOwnsFocus()
                 || SelectionHeld() || !ReferenceEquals(context, DataContext) || _pointerRoot is null) return;
             _scroll?.ScrollToEnd();
@@ -435,7 +454,7 @@ public partial class ChatTabView : UserControl {
 
     // The warning grows the row the way a toggle does, so the reading position is held the same way.
     void HoldRowForWarning(Control source) {
-        _followTail = false;
+        FollowTail = false;
         CancelSmoothScroll();
         if (_anchorItem is null) CaptureToggleAnchor(source);
         ArmToggleRestore();
@@ -454,13 +473,13 @@ public partial class ChatTabView : UserControl {
         // A topic unfolding at the bottom of the chat keeps the chat at the bottom, as new rows would.
         if (sender is Control { DataContext: ChatTopicItem } && _scroll is { } scroll
             && scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - BottomTolerance) {
-            _followTail = true;
+            FollowTail = true;
             CancelSmoothScroll();
             DropToggleAnchor();
             Dispatcher.UIThread.Post(() => _scroll?.ScrollToEnd(), DispatcherPriority.Background);
             return;
         }
-        _followTail = false;
+        FollowTail = false;
         CancelSmoothScroll();
         if (_anchorItem is null) CaptureToggleAnchor(sender);
         ArmToggleRestore();
@@ -505,7 +524,7 @@ public partial class ChatTabView : UserControl {
             || point.Y >= 0 && point.Y + button.Bounds.Height <= _scroll.Viewport.Height) return;
         // Chat disables automatic focus scrolling; returning from output must still expose
         // the row's collapse action without changing pointer-driven reading positions.
-        _followTail = false;
+        FollowTail = false;
         CancelSmoothScroll();
         DropToggleAnchor();
         button.BringIntoView();
@@ -629,13 +648,13 @@ public partial class ChatTabView : UserControl {
         if (_thumbFraction is { } fraction) {
             var range = Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height);
             var target = fraction * range;
-            _followTail = range - target <= BottomTolerance;
+            FollowTail = range - target <= BottomTolerance && !HasTranscriptSelection;
             if (Math.Abs(scroll.Offset.Y - target) > 0.5) scroll.Offset = new Vector(scroll.Offset.X, target);
             return;
         }
         if (ListTextBoxOwnsFocus()) return;
         if (IsSmoothScrolling && _smoothRemaining < -0.5) {
-            _followTail = false;
+            FollowTail = false;
             return;
         }
         var atBottom = scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - BottomTolerance;
@@ -643,11 +662,11 @@ public partial class ChatTabView : UserControl {
         // same layout pass. That still counts as the reader returning to the bottom.
         var reachedEstimatedEnd = e.OffsetDelta.Y > 0 && e.ExtentDelta.Y > 0
             && ChatItems.ItemsPanelRoot is ChatVirtualizingPanel { MeasuredAtEstimatedEnd: true };
-        var extentOnlyWhilePressed = PrimaryDown && _followTail
+        var extentOnlyWhilePressed = PrimaryDown && FollowTail
             && e.ExtentDelta.Y > 0 && Math.Abs(e.OffsetDelta.Y) <= 0.5;
-        _followTail = extentOnlyWhilePressed || (_readerGesture ? atBottom || reachedEstimatedEnd : _followTail || atBottom || reachedEstimatedEnd);
-        if (SelectionHeld()) _followTail = false;
-        else if (_followTail && !atBottom) {
+        FollowTail = !SelectionHeld() && (extentOnlyWhilePressed
+            || (_readerGesture ? atBottom || reachedEstimatedEnd : FollowTail || atBottom || reachedEstimatedEnd));
+        if (FollowTail && !atBottom) {
             if (PrimaryDown) _tailDeferred = true;
             else scroll.ScrollToEnd();
         }
@@ -661,6 +680,7 @@ public partial class ChatTabView : UserControl {
     }
 
     void OnSelectionDrag(object? sender, PointerEventArgs e) {
+        if (_rangePointer is not null) return;
         EnsureChatScroll();
         if (_scroll is null) return;
         if (!e.GetCurrentPoint(ChatItems).Properties.IsLeftButtonPressed || OriginatesFromTextBox(e)) {
@@ -676,7 +696,7 @@ public partial class ChatTabView : UserControl {
         } else if (view is { IsSelecting: true }) {
             _dragView = view;
         }
-        if (_dragView is { HasSelection: true }) _followTail = false;
+        if (_dragView is { HasSelection: true }) FollowTail = false;
         _dragInScroll = e.GetPosition(_scroll);
         QueueEdgeScroll();
     }
@@ -709,9 +729,10 @@ public partial class ChatTabView : UserControl {
             _scroll.Offset = new Vector(_scroll.Offset.X, next);
             if (!wasGesture) Dispatcher.UIThread.Post(() => _readerGesture = false, DispatcherPriority.Background);
         }
-        if (_dragView?.TranslatePoint(default, _scroll) is { } origin) {
+        if (_rangePointer is not null) ExtendTranscriptDrag(_dragInScroll);
+        else if (_dragView?.TranslatePoint(default, _scroll) is { } origin) {
             _dragView.ExtendSelection(new Point(_dragInScroll.X - origin.X, _dragInScroll.Y - origin.Y));
-            if (_dragView.HasSelection) _followTail = false;
+            if (_dragView.HasSelection) FollowTail = false;
         }
         QueueEdgeScroll();
     }
@@ -723,19 +744,19 @@ public partial class ChatTabView : UserControl {
 
     void RefreshSelectionFollowTail() {
         if (SelectionHeld()) {
-            _followTail = false;
+            FollowTail = false;
             return;
         }
         if (_scroll is null || _anchorItem is not null || _thumbFraction is not null
             || IsSmoothScrolling || ListTextBoxOwnsFocus()) return;
         if (_scroll.Offset.Y + _scroll.Viewport.Height >= _scroll.Extent.Height - BottomTolerance)
-            _followTail = true;
+            FollowTail = true;
     }
 
     internal void UpdateSelection(MarkdownView view) {
-        if (view.HasSelection) {
+        if (view.HasLocalSelection) {
             _selectedMarkdown.Add(view);
-            if (view.IsEffectivelyVisible) _followTail = false;
+            if (view.IsEffectivelyVisible) FollowTail = false;
         } else RemoveSelection(view);
     }
 
@@ -743,7 +764,8 @@ public partial class ChatTabView : UserControl {
         if (_selectedMarkdown.Remove(view)) RefreshSelectionFollowTail();
     }
 
-    bool SelectionHeld() => _selectedMarkdown.Any(static view => view.IsEffectivelyVisible);
+    bool SelectionHeld() => HasTranscriptSelection || _rangePointer is not null
+        || _selectedMarkdown.Any(static view => view.IsEffectivelyVisible);
 
     static bool OriginatesFromMarkdown(RoutedEventArgs e) =>
         e.Source is Visual visual && visual.GetSelfAndVisualAncestors().OfType<MarkdownView>().Any();
@@ -875,7 +897,7 @@ public partial class ChatTabView : UserControl {
         DropToggleAnchor();
         CancelSmoothScroll();
         _thumbFraction = null;
-        _followTail = false;
+        FollowTail = false;
         EnsureChatScroll();
         if (_scroll is null) return;
         ChatItems.ScrollIntoView(index);
@@ -994,7 +1016,7 @@ public partial class ChatTabView : UserControl {
         DropToggleAnchor();
         CancelSmoothScroll();
         _thumbFraction = null;
-        _followTail = false;
+        FollowTail = false;
         EnsureChatScroll();
         if (_scroll is null) return;
         if (Locate(index, match.Ordinal) is { } shown && Within(shown.View, shown.Bounds)) {

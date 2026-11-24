@@ -244,9 +244,14 @@ public sealed class MarkdownView : ContentControl {
     /// Where this text bookmarks to; null outside a chat that lists bookmarks.
     internal ChatBookmarks? Bookmarks => _selectionHost?.BookmarksFor(this);
 
+    internal bool CanBookmarkSelection => HasLocalSelection
+        || DataContext is ChatItemViewModel row && _selectionHost?.HasTranscriptSelectionIn(row) == true;
+
     public void BookmarkSelection() {
-        var text = Content is SelectableTextBlock plain ? plain.SelectedText ?? "" : MarkViewSelection.SelectedText(_viewer);
-        if (Bookmarks is { } bookmarks && DataContext is ChatItemViewModel source) bookmarks.Add([text], source);
+        if (Bookmarks is not { } bookmarks || DataContext is not ChatItemViewModel source) return;
+        var text = _selectionHost?.TranscriptSelectionIn(source)
+            ?? (Content is SelectableTextBlock plain ? plain.SelectedText : MarkViewSelection.SelectedText(_viewer));
+        if (!string.IsNullOrEmpty(text)) bookmarks.Add([text], source);
     }
 
     public void BookmarkListItems() {
@@ -286,7 +291,7 @@ public sealed class MarkdownView : ContentControl {
 
     public async Task CopyLinkAsync() {
         if (ContextLinkUrl is not { } url || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
-        await clipboard.SetTextAsync(url);
+        await MarkdownClipboard.InOrder(() => clipboard.SetTextAsync(url));
     }
 
     static MarkdownImage? ImageUnder(Visual? visual) {
@@ -298,18 +303,27 @@ public sealed class MarkdownView : ContentControl {
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "FindHyperlinkAt")]
     static extern MarkdownHyperlink? FindHyperlinkAt(MarkdownViewer viewer, Point point);
 
-    public bool HasSelection => Content is SelectableTextBlock plain
+    internal IEnumerable<(TextBlock Block, string Text, int Marker)> SelectionBlocks() =>
+        Content is SelectableTextBlock plain ? [(plain, plain.Text ?? "", 0)] : MarkViewSelection.SelectionBlocks(_viewer);
+
+    internal bool HasLocalSelection => Content is SelectableTextBlock plain
         ? !string.IsNullOrEmpty(plain.SelectedText)
         : MarkViewSelection.HasSelection(_viewer);
 
+    public bool HasSelection => _selectionHost?.HasTranscriptSelection == true || HasLocalSelection;
+
     /// The fallback's own Copy is fire-and-forget, so its clipboard write is awaited here instead.
     public async Task CopySelectionAsync() {
+        if (_selectionHost?.TranscriptSelectionCopy() is { } copy) {
+            await copy;
+            return;
+        }
         if (Content is not SelectableTextBlock plain) {
             await MarkViewSelection.CopyAsync(_viewer);
             return;
         }
         if (plain.SelectedText is not { Length: > 0 } text || TopLevel.GetTopLevel(plain)?.Clipboard is not { } clipboard) return;
-        await clipboard.SetTextAsync(text);
+        await MarkdownClipboard.InOrder(() => clipboard.SetTextAsync(text));
     }
 
     internal void ClearSelection() {
@@ -319,6 +333,7 @@ public sealed class MarkdownView : ContentControl {
     }
 
     public void SelectAll() {
+        _selectionHost?.ClearTranscriptSelection();
         if (Content is SelectableTextBlock plain) plain.SelectAll();
         else _viewer.SelectAll();
         _selectionHost?.UpdateSelection(this);

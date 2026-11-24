@@ -151,6 +151,25 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     long? CurrentOffset => _lease?.Feed.CurrentOffset;
 
     public IAvaloniaReadOnlyList<ChatItemViewModel> Items => _items;
+
+    ChatSelection? _selection;
+    object? _selectionFeed;
+    int _selectionAccess;
+    bool _hasSelectionFeed;
+    internal ChatSelection Selection => _selection ??= new(_items, () =>
+        _hasSelectionFeed && !_feedReleased && _lease is not null && (_lease.Feed switch {
+            RemoteTranscriptFeed remote => remote.CanCopy(_selectionAccess),
+            RemoteSubagentFeed child => child.CanCopy(_selectionAccess),
+            _ => true,
+        }) ? _selectionFeed ??= new() : null);
+
+    void ResetSelectionFeed(bool seeded = false, int? access = null) {
+        _hasSelectionFeed = seeded;
+        _selectionFeed = null;
+        _selectionAccess = access ?? -1;
+        _selection?.Clear();
+    }
+
     public ChatTopics Topics { get; }
     public ChatBookmarks Bookmarks { get; }
 
@@ -1553,6 +1572,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     void SwitchFeed(string key, Func<string, IChatTranscriptFeed> open) {
         // A released tab's runs belong to the monitor that took its feed; this tab reads nothing more.
         if (_feedReleased) return;
+        ResetSelectionFeed();
         Topics.Reset(key);
         Bookmarks.Reset(key);
         HasProgressiveDisclosureMarks = false;
@@ -2000,8 +2020,16 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     bool Prepare(int generation, FeedRead read) {
         if (generation != Volatile.Read(ref _generation)) return false;
 
+        _selection?.CheckFeed();
         switch (read.Status) {
+            case FeedStatus.Ok when read.CopyRevision is { } access:
+                if (_selectionAccess != access) ResetSelectionFeed(seeded: true, access);
+                break;
+            case FeedStatus.Ok when _lease?.Feed is not (RemoteTranscriptFeed or RemoteSubagentFeed) && read.Lines.Count > 0:
+                _hasSelectionFeed = true;
+                break;
             case FeedStatus.Missing:
+                ResetSelectionFeed();
                 Phase = ChatTabPhase.Missing;
                 return false;
             case FeedStatus.Failed:
@@ -2018,6 +2046,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 }
                 return false;
             case FeedStatus.Reset:
+                ResetSelectionFeed(seeded: true, read.CopyRevision);
                 HasSeed = true;
                 // Skip everything the new source replays: it may be history, not receipts. The feed
                 // names where that history ends — anything past it arrived after and can acknowledge.
@@ -2077,11 +2106,12 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 }
             }
             var message = 0;
+            var other = int.MinValue;
             foreach (var e in projected.Envelopes) {
                 switch (e.Kind) {
                     case AcpEventKind.UserMessage when e.ToolKind == ChatDisplayKind.Shell:
                         cursor.OpenGroup = null;
-                        cursor.OpenShell = new ShellCommandItem(e.Text ?? "", SenderOf(e, offset));
+                        cursor.OpenShell = new ShellCommandItem(e.Text ?? "", SenderOf(e, offset)) { SelectionKey = new(offset, other++) };
                         cursor.Fresh.Add(cursor.OpenShell);
                         break;
                     case AcpEventKind.UserMessage:
@@ -2099,7 +2129,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                     case AcpEventKind.AssistantThinking when !string.IsNullOrWhiteSpace(e.Text):
                         cursor.OpenGroup = null;
                         cursor.OpenShell = null;
-                        cursor.Fresh.Add(new AssistantThinkingItem(e.Text));
+                        cursor.Fresh.Add(new AssistantThinkingItem(e.Text) { SelectionKey = new(offset, other++) });
                         break;
                     case AcpEventKind.SystemNote when e.ToolKind == ChatDisplayKind.Shell && cursor.OpenShell is { HasOutput: false } shell:
                         cursor.OpenGroup = null;
@@ -2108,7 +2138,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                     case AcpEventKind.SystemNote when e.ToolKind == ChatDisplayKind.Shell:
                         cursor.OpenGroup = null;
                         cursor.OpenShell = null;
-                        cursor.Fresh.Add(new ShellCommandItem("") { Output = e.Text ?? "" });
+                        cursor.Fresh.Add(new ShellCommandItem("") { Output = e.Text ?? "", SelectionKey = new(offset, other++) });
                         break;
                     case AcpEventKind.SystemNote:
                         cursor.OpenGroup = null;
@@ -2121,7 +2151,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                             ChatDisplayKind.Interrupted      => SystemNoteItem.InterruptedLabel,
                             ChatDisplayKind.Trigger or ChatDisplayKind.PeerSession => e.ToolName is { Length: > 0 } trigger ? trigger : SystemNoteItem.NoteLabel,
                             _                                => SystemNoteItem.NoteLabel,
-                        }, e.ToolKind == ChatDisplayKind.PeerSession ? ToolCategoryIcons.AgentMessageIcon : null));
+                        }, e.ToolKind == ChatDisplayKind.PeerSession ? ToolCategoryIcons.AgentMessageIcon : null) { SelectionKey = new(offset, other++) });
                         break;
                     case AcpEventKind.ToolCall: {
                         cursor.OpenShell = null;
@@ -2145,7 +2175,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                             if (name == ClaudeElicitation.ToolName) NoteQuestionCall(cursor, id, e.ToolInputJson);
                         }
                         if (cursor.OpenGroup is null) {
-                            cursor.OpenGroup = new ToolGroupItem();
+                            cursor.OpenGroup = new ToolGroupItem { SelectionKey = new(offset, other++) };
                             cursor.Fresh.Add(cursor.OpenGroup);
                         }
                         cursor.OpenGroup.Add(item);
@@ -2508,11 +2538,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         if (Interlocked.CompareExchange(ref _readInFlight, 1, 0) != 0) return null;
         Interlocked.Increment(ref _generation);
         _feedReleased = true;
+        ResetSelectionFeed();
         _lease = null;
         return new TranscriptFeedHandoff(lease.Feed, key, _runs);
     }
 
     public Task TeardownAsync() {
+        ResetSelectionFeed();
         PreserveStash();
         Interlocked.Increment(ref _generation);
         var lease = _lease;

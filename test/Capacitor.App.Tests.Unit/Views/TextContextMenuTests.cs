@@ -5,6 +5,7 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Capacitor.App.Services;
 using Capacitor.App.Views;
 using static Capacitor.App.Tests.Unit.AvaloniaSession;
 using static Capacitor.App.Tests.Unit.Views.MarkdownViewHarness;
@@ -90,6 +91,38 @@ public class TextContextMenuTests {
             } finally { window.Close(); }
         });
     }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Markdown_link_and_selection_copy_preserve_request_order() => RunOnUiAsync(async () => {
+        var (window, view, _) = Show("See [docs](https://example.com/docs) now.");
+        var unblock = new TaskCompletionSource();
+        try {
+            var clipboard = window.Clipboard!;
+            await clipboard.SetTextAsync("before");
+            var paragraph = Paragraphs(view).Single();
+            var glyph = paragraph.TextLayout.HitTestTextPosition("See ".Length);
+            var link = paragraph.TranslatePoint(new Point(glyph.X + paragraph.Padding.Left + 2, glyph.Height / 2 + paragraph.Padding.Top), view)!.Value;
+            var presenter = RightClick(window, paragraph, view, at: link);
+            await Assert.That(Row(presenter, "Copy link").IsVisible).IsTrue();
+
+            var earlier = MarkdownClipboard.InOrder(async () => {
+                await unblock.Task;
+                await clipboard.SetTextAsync("earlier");
+            });
+            var linkCopy = view.CopyLinkAsync();
+            view.SelectAll();
+            var selectionCopy = view.CopySelectionAsync();
+            view.ClearSelection();
+            await Assert.That(await clipboard.TryGetTextAsync()).IsEqualTo("before");
+            unblock.SetResult();
+            await Task.WhenAll(earlier, linkCopy, selectionCopy);
+            await Assert.That(await clipboard.TryGetTextAsync()).IsEqualTo("See docs now.");
+        } finally {
+            unblock.TrySetResult();
+            window.Close();
+        }
+    });
 
     [Test]
     [NotInParallel("AvaloniaSession")]
