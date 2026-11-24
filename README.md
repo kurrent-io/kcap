@@ -1078,7 +1078,7 @@ Stdio MCP server for reading retained facts and curated skills, then fine-tuning
 - **`adjust_skill_members`** — exclude or include members for the next approval, or add, remove or clear assignment pins for the topic sweep to settle.
 - **`curate_fact_cluster`** — curate a fact cluster by its `curation_key`.
 
-Reads default to the current repository and refuse to widen when none resolves. List responses include `next_cursor` for the next page. Writes carry an `operation_id`; skill writes use the `doc_revision` from `get_skill` or the last write as `expected_doc_revision`. Server refusals pass through with their codes and any current revision they return so an agent can recover. To move a cluster out of a serving skill, exclude it, approve a body without it, then remove its pin before adding it to the destination skill.
+Reads default to the current repository and refuse to widen when none resolves. List responses include `next_cursor` for the next page. Writes carry an `operation_id`; skill writes use the `doc_revision` from `get_skill` or the last write as `expected_doc_revision`, except `adjust_skill_members` `add`, `remove` and `clear`, which take none. Server refusals pass through with their codes and any current revision they return so an agent can recover. To move a cluster out of a serving skill, exclude it, approve a body without it, then remove its pin before adding it to the destination skill.
 
 This server can change knowledge, so it is not pre-approved for unattended reviewers. It requires `kcap login` and a server with `/api/knowledge` endpoints.
 
