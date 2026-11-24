@@ -9,6 +9,7 @@ sealed class GradedInlineRenderer : AvaloniaObjectRenderer<GradedInline> {
         var span = new Span();
         span.Classes.Add(ProgressiveDisclosureHover.FadedClass);
         span.Classes.Add(obj.Level == ProgressiveDisclosureLevel.Footnote ? "progressive-disclosure-footnote" : "progressive-disclosure-detail");
+        ProgressiveDisclosureHover.SetGroup(span, obj.Group);
         renderer.Push(span.Inlines);
         renderer.WriteChildren(obj);
         renderer.Pop();

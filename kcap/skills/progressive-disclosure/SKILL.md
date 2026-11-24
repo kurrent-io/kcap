@@ -33,7 +33,7 @@ most of the text is detail or footnote.
 
 ## Writing the marks
 
-- Every paragraph, bullet, heading and table cell starts at must know.
+- Text is must know unless a span covers it.
 - A marked span must be removable: start and end it at sentence or clause
   boundaries, so what is left still reads correctly when it is hidden. Wrap a
   whole paragraph or bullet to grade all of it.
