@@ -93,7 +93,7 @@ public sealed partial class WorkContextViewModel {
             var state = StateLabel?.ToLowerInvariant();
             var status = string.IsNullOrEmpty(state) ? null : char.ToUpperInvariant(state[0]) + state[1..];
             return new(title, status, IsClosed ? "danger" : state == "in flight" ? "active" : null,
-                KcapTip.Present(string.Equals(title, Key, StringComparison.OrdinalIgnoreCase) ? null : Key),
+                KcapTipDetail.Present(string.Equals(title, Key, StringComparison.OrdinalIgnoreCase) ? null : KcapTipDetail.Note(Key)),
                 _canOpenWorkItem.Value ? "Open work item in web" : null);
         }
     }

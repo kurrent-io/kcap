@@ -59,8 +59,8 @@ public sealed class WorkContextLinkViewModel : ReactiveObject {
             var hasTitle = !string.IsNullOrWhiteSpace(Title);
             var identity = string.IsNullOrWhiteSpace(Key) ? (Eyebrow == "ISSUE" ? "Issue" : "Pull request") : Key;
             return new(hasTitle ? Title : identity, string.IsNullOrWhiteSpace(state) ? null : state, tone,
-                KcapTip.Present(hasTitle ? KcapTip.Join(destination, identity) : destination,
-                    CanOpen ? null : "Link unavailable"), action);
+                KcapTipDetail.Present(KcapTipDetail.Note(hasTitle ? KcapTip.Join(destination, identity) : destination),
+                    CanOpen ? null : KcapTipDetail.Note("Link unavailable")), action);
         }
     }
     public ReactiveCommand<Unit, Unit> OpenCommand { get; }

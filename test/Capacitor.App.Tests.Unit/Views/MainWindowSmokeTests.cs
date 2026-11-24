@@ -1030,7 +1030,7 @@ public class MainWindowSmokeTests {
             await WorkspaceFixtures.WaitUntilAsync(() => ToolTip.GetIsOpen(row), what: "rail session hover tooltip");
             TooltipPreviewScope.Pump(window);
             await Assert.That(TooltipPreviewScope.Text(row)).IsEquivalentTo(
-                new[] { title, "Done", "Harness · Claude Code", $"Checkout · {checkout}", "Open session" },
+                new[] { title, "Done", "Harness", "Claude Code", "Checkout", checkout, "Open session" },
                 CollectionOrdering.Matching);
 
             window.MouseMove(new Point(window.Bounds.Width - 3, 3));
@@ -1039,9 +1039,9 @@ public class MainWindowSmokeTests {
             TooltipPreviewScope.Pump(window);
             await Assert.That(ToolTip.GetIsOpen(row)).IsFalse();
             await Assert.That(TooltipPreviewScope.Text(pr)).IsEquivalentTo(
-                new[] { link.Title!, "Merged", "example/repo · Pull request #142", $"Linked session · {title}", "Open pull request details" },
+                new[] { link.Title!, "Merged", "example/repo · Pull request #142", "Linked session", title, "Open pull request details" },
                 CollectionOrdering.Matching);
-            await Assert.That(AutomationProperties.GetHelpText(pr)).Contains("Merged");
+            await Assert.That(AutomationProperties.GetHelpText(pr)).Contains("Merged").And.Contains($"Linked session · {title}");
 
             window.MouseMove(new Point(window.Bounds.Width - 3, 3));
             row.Focus(NavigationMethod.Directional);
@@ -1056,7 +1056,7 @@ public class MainWindowSmokeTests {
             summaries.OnNext(new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([single with { Title = null }]) });
             TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
             await Assert.That(TooltipPreviewScope.Text(pr)).IsEquivalentTo(
-                new[] { "Pull request #142", "Merged", "example/repo", $"Linked session · {title}", "Open pull request details" },
+                new[] { "Pull request #142", "Merged", "example/repo", "Linked session", title, "Open pull request details" },
                 CollectionOrdering.Matching);
             TooltipPreviewScope.Press(window, PhysicalKey.Escape);
 
@@ -1066,7 +1066,7 @@ public class MainWindowSmokeTests {
             preview.Enable(ClassicAppearance.Light);
             TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
             await Assert.That(TooltipPreviewScope.Text(pr)).IsEquivalentTo(
-                new[] { "2 pull requests", $"Linked session · {title}", "Choose a pull request" }, CollectionOrdering.Matching);
+                new[] { "2 pull requests", "Linked session", title, "Choose a pull request" }, CollectionOrdering.Matching);
             TooltipPreviewScope.Press(window, PhysicalKey.Escape);
             TooltipPreviewScope.Press(window, PhysicalKey.Enter);
             await Assert.That(window.FocusManager.GetFocusedElement()).IsTypeOf<Button>();

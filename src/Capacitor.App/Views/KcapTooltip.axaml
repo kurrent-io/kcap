@@ -16,14 +16,32 @@
                        Classes.danger="{Binding IsDanger}" Classes.active="{Binding IsActive}"
                        IsVisible="{Binding State, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         </StackPanel>
-        <ItemsControl ItemsSource="{Binding Details}" IsVisible="{Binding HasDetails}">
+        <ItemsControl ItemsSource="{Binding Details}" IsVisible="{Binding HasDetails}" Grid.IsSharedSizeScope="True">
+            <ItemsControl.Styles>
+                <Style Selector="TextBlock.tipValue">
+                    <Setter Property="Grid.ColumnSpan" Value="2" />
+                    <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+                </Style>
+                <Style Selector="Grid.labelledTipRow > TextBlock.tipValue">
+                    <Setter Property="Grid.Column" Value="1" />
+                    <Setter Property="Grid.ColumnSpan" Value="1" />
+                </Style>
+            </ItemsControl.Styles>
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate><StackPanel Spacing="2" /></ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
             <ItemsControl.ItemTemplate>
-                <DataTemplate x:DataType="x:String">
-                    <TextBlock Text="{Binding}" TextWrapping="Wrap" FontSize="{StaticResource KcapFontSizeSmall}"
-                               Foreground="{StaticResource KcapMutedBrush}" />
+                <DataTemplate x:DataType="vm:KcapTipDetail">
+                    <Grid ColumnSpacing="8" Classes.labelledTipRow="{Binding HasLabel}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" SharedSizeGroup="TipLabel" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding Label}" IsVisible="{Binding HasLabel}" FontWeight="SemiBold"
+                                   FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapTextBrush}" />
+                        <TextBlock Text="{Binding Value}" TextWrapping="Wrap" Classes="tipValue"
+                                   FontSize="{StaticResource KcapFontSizeSmall}" />
+                    </Grid>
                 </DataTemplate>
             </ItemsControl.ItemTemplate>
         </ItemsControl>

@@ -24,7 +24,7 @@ public sealed partial class PullRequestContextViewModel {
 
     KcapTip? LinkTip(string? action) => LinkTipContent is { } content
         ? KcapTip.PullRequest(content.Identity, content.Title, content.Lifecycle, content.Repository, action,
-            content.Context, content.Checks)
+            KcapTipDetail.Note(content.Context), content.Checks)
         : null;
 
     public bool HasNumberLabel => NumberLabel.Length > 0;
