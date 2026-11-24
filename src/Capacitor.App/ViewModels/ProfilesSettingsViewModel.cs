@@ -309,6 +309,11 @@ public sealed class ProfilesSettingsViewModel : ReactiveObject, IDisposable {
                 Message = "Update kcap to switch profiles from here. Nothing was changed.";
                 return;
             }
+            // An agent can start during the probe; the lane does not check for one.
+            if (SwitchBlocker(current) is { } blockedAfterProbe) {
+                Message = blockedAfterProbe;
+                return;
+            }
 
             Message = $"Switching to {current.Name}. Restarting the daemon…";
             var outcome = await s.RunMutation(request!, _lifetime);

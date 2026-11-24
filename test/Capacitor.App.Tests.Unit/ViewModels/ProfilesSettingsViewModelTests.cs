@@ -283,6 +283,7 @@ public class ProfilesSettingsViewModelTests {
         public HashSet<string> Replying = [];
         public ServiceSnapshot? BoundService = new("daemon-a", true, "running", null, null, 111, 111, false, false);
         public bool CanActivate = true;
+        public Action? DuringProbe;
         public bool Confirms = true;
         public bool RestartRequired;
         public int Relaunches;
@@ -304,7 +305,7 @@ public class ProfilesSettingsViewModelTests {
             Settled.Task,
             (name, _) => Task.FromResult(Replying.Contains(name)),
             (_, _) => Task.FromResult(BoundService),
-            (_, _) => Task.FromResult(CanActivate),
+            (_, _) => { DuringProbe?.Invoke(); return Task.FromResult(CanActivate); },
             () => RestartRequired,
             profileOverridden, platformSupported);
     }
@@ -552,5 +553,21 @@ public class ProfilesSettingsViewModelTests {
 
         await Assert.That(vm.Message!).StartsWith("The switch to target did not finish");
         await Assert.That(vm.Message!).Contains("The profile configuration could not be read.");
+    });
+
+    [Test]
+    public Task An_agent_that_starts_during_the_capability_probe_stops_the_switch() => AvaloniaSession.RunOnUiAsync(async () => {
+        var daemon = IdleDaemon();
+        var fake = new SwitchFake();
+        fake.DuringProbe = () => {
+            daemon.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap(active: 1, profile: "work"));
+            Dispatcher.UIThread.RunJobs();
+        };
+        using var vm = MakeSwitching(await SeedSwitch(), fake.Services(), daemon);
+
+        await vm.SwitchCommand.Execute(await Row(vm, "target")).ToTask();
+
+        await Assert.That(fake.Requests).IsEmpty();
+        await Assert.That(vm.Message).IsEqualTo("Wait for the active agent to finish before switching.");
     });
 }
