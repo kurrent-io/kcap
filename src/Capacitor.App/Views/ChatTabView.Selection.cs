@@ -22,6 +22,7 @@ public partial class ChatTabView {
 
     ChatTabViewModel? _selectionChat;
     ChatSelection? _range;
+    IDisposable? _selectionLabels;
     (IPointer Pointer, Point Position, ChatSelection.Point Anchor)? _rangePress;
     IPointer? _rangePointer;
     long _rangeLimit;
@@ -40,6 +41,8 @@ public partial class ChatTabView {
         _range = chat.Selection;
         _range.Labels = GetValue(MarkdownView.AgentLinksProperty);
         _range.Changed += OnRangeChanged;
+        _range.EndpointTextChanged += OnSelectionEndpointTextChanged;
+        _selectionLabels = _range.Labels?.Titled.Subscribe(_ => _range?.InvalidateEndpointText());
         chat.Items.CollectionChanged += OnSelectionItemsChanged;
         ChatItems.AddHandler(PointerPressedEvent, OnTranscriptPress, RoutingStrategies.Tunnel);
         ChatItems.AddHandler(PointerMovedEvent, OnTranscriptMove, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -59,7 +62,10 @@ public partial class ChatTabView {
         if (_selectionChat is not { } chat || _range is not { } range) return;
         EndTranscriptDrag();
         range.Changed -= OnRangeChanged;
+        range.EndpointTextChanged -= OnSelectionEndpointTextChanged;
         range.Clear();
+        _selectionLabels?.Dispose();
+        _selectionLabels = null;
         range.Labels = null;
         chat.Items.CollectionChanged -= OnSelectionItemsChanged;
         _selectionChat = null;
@@ -88,6 +94,10 @@ public partial class ChatTabView {
         _range?.CheckFeed();
         if (_range?.HasRange == true) SelectionOverlay.InvalidateVisual();
         RefreshJumpToLatest();
+    }
+
+    void OnSelectionEndpointTextChanged() {
+        if (HasTranscriptSelection) SelectionOverlay.InvalidateVisual();
     }
 
     void OnRangeChanged() {
@@ -150,9 +160,15 @@ public partial class ChatTabView {
             ChatItems.Focusable = false;
             return;
         }
-        if (JumpToLatest.IsEffectivelyVisible) JumpToLatest.Focus(NavigationMethod.Tab);
-        else ComposerInput.Focus(NavigationMethod.Tab);
-        ChatItems.Focusable = false;
+        if (TryFocus(JumpToLatest) || TryFocus(ComposerInput)) {
+            ChatItems.Focusable = false;
+            return;
+        }
+        ChatItems.Focusable = true;
+        ChatItems.Focus(NavigationMethod.Tab);
+
+        static bool TryFocus(Control control) =>
+            control.IsEffectivelyVisible && control.IsEffectivelyEnabled && control.Focus(NavigationMethod.Tab);
     }
 
     void OnTranscriptPress(object? sender, PointerPressedEventArgs e) {
@@ -166,7 +182,7 @@ public partial class ChatTabView {
         var point = e.GetPosition(_scroll);
         var container = source.GetSelfAndVisualAncestors().OfType<Control>().FirstOrDefault(c => ChatItems.IndexFromContainer(c) >= 0);
         if (container?.DataContext is not ChatItemViewModel { SelectionKey: not null } row) return;
-        if (ChatSelectionOverlay.Hit(container, row, _range.Read(row), _scroll, point, ChatItems.IndexFromContainer(container)) is { } anchor)
+        if (ChatSelectionOverlay.Hit(container, row, _range.Read(row), _scroll, point, ChatItems.IndexFromContainer(container), out _) is { } anchor)
             _rangePress = (e.Pointer, point, anchor);
         _rangeLimit = _range.LatestLine;
     }
@@ -209,23 +225,38 @@ public partial class ChatTabView {
 
     void ExtendTranscriptDrag(Point point) {
         if (_range is not { } range || _scroll is null) return;
-        // Keep hit testing inside the viewport while edge scrolling brings in the next rows.
-        point = new Point(point.X, Math.Clamp(point.Y, 0, Math.Max(0, _scroll.Viewport.Height - 1)));
-        if (NearestSelectionRow(_scroll, point.Y, _rangeLimit) is not { } container
-            || container.DataContext is not ChatItemViewModel row) return;
-        var text = range.TextOf(row);
-        if (ChatSelectionOverlay.Hit(container, row, text, _scroll, point, ChatItems.IndexFromContainer(container)) is { } focus)
-            range.Extend(focus);
+        var viewport = new Rect(_scroll.Viewport);
+        point = new Point(point.X, Math.Clamp(point.Y, 0, Math.Max(0, viewport.Bottom - 1)));
+        ChatSelection.Point? nearest = null;
+        var distance = double.PositiveInfinity;
+        var candidates = new List<(Control Container, ChatItemViewModel Row, double Gap)>();
+        foreach (var container in ChatItems.GetRealizedContainers()) {
+            if (!container.IsEffectivelyVisible || container.DataContext is not ChatItemViewModel { SelectionKey.Line: var line } row
+                || line > _rangeLimit || ChatSelectionOverlay.BoundsIn(container, _scroll) is not { } bounds
+                || !bounds.Intersects(viewport)) continue;
+            candidates.Add((container, row, VerticalGap(point.Y, bounds)));
+        }
+        candidates.Sort(static (a, b) => a.Gap.CompareTo(b.Gap));
+        foreach (var (container, row, rowGap) in candidates) {
+            if (rowGap >= distance) break;
+            var text = range.TextOf(row);
+            if (text.Length > 0 && ChatSelectionOverlay.Hit(container, row, text, _scroll, point,
+                    ChatItems.IndexFromContainer(container), out var gap, viewport) is { } focus && gap < distance)
+                (nearest, distance) = (focus, gap);
+        }
+        if (nearest is { } endpoint) range.Extend(endpoint);
     }
 
-    Control? NearestSelectionRow(Visual relativeTo, double y, long latestLine = long.MaxValue) {
+    static double VerticalGap(double y, Rect bounds) => Math.Abs(y - Math.Clamp(y, bounds.Top, bounds.Bottom));
+
+    Control? NearestSelectionRow(Visual relativeTo, double y) {
         Control? best = null;
         var distance = double.PositiveInfinity;
         foreach (var container in ChatItems.GetRealizedContainers()) {
-            if (!container.IsEffectivelyVisible || container.DataContext is not ChatItemViewModel { SelectionKey.Line: var line } || line > latestLine
+            if (!container.IsEffectivelyVisible || container.DataContext is not ChatItemViewModel { SelectionKey: not null } row
                 || ChatSelectionOverlay.BoundsIn(container, relativeTo) is not { } bounds || bounds.Height <= 1) continue;
-            var gap = Math.Abs(y - Math.Clamp(y, bounds.Top, bounds.Bottom));
-            if (gap >= distance) continue;
+            var gap = VerticalGap(y, bounds);
+            if (gap >= distance || _range?.Read(row) is not { Length: > 0 }) continue;
             (best, distance) = (container, gap);
         }
         return best;
@@ -266,7 +297,8 @@ public partial class ChatTabView {
         var onJump = ReferenceEquals(sender, JumpToLatest);
         if (onJump ? !range.HasRange : IsInteractive(source) && e.KeyModifiers != KeyModifiers.Shift) return;
         var hotkeys = Application.Current?.PlatformSettings?.HotkeyConfiguration;
-        if (hotkeys?.Copy.Any(g => g.Matches(e)) == true && TranscriptSelectionCopy() is not null) {
+        if (hotkeys?.Copy.Any(g => g.Matches(e)) == true
+            && TranscriptSelectionCopy(source as SelectableTextBlock) is not null) {
             e.Handled = true;
             return;
         }
@@ -324,12 +356,26 @@ public partial class ChatTabView {
         if (Math.Abs(delta) > 0.5) scroll.Offset = new Vector(scroll.Offset.X, scroll.Offset.Y + delta);
     }
 
-    internal Task? TranscriptSelectionCopy() {
-        if (_range is not { HasRange: true } range || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return null;
-        var request = range.Revision;
+    internal Task? TranscriptSelectionCopy(SelectableTextBlock? plain = null) {
+        if (_range is not { } range || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard
+            || plain is not null && !ChatItems.IsVisualAncestorOf(plain)) return null;
+
+        Func<string?> read;
+        if (range.HasRange) {
+            var revision = range.Revision;
+            read = () => range.Revision == revision ? range.CopyText() : null;
+        } else if (plain?.SelectedText is { Length: > 0 } selected) {
+            var feed = range.CurrentFeed;
+            var row = plain.DataContext;
+            var source = plain.Text;
+            read = () => feed is not null && ReferenceEquals(feed, range.CurrentFeed)
+                && plain.IsEffectivelyVisible && ChatItems.IsVisualAncestorOf(plain)
+                && ReferenceEquals(row, plain.DataContext) && source == plain.Text ? selected : null;
+        } else {
+            return null;
+        }
         return MarkdownClipboard.InOrder(async () => {
-            if (!IsEffectivelyVisible || !ReferenceEquals(range, _range) || range.Revision != request
-                || range.CopyText() is not { } text) return;
+            if (!IsEffectivelyVisible || !ReferenceEquals(range, _range) || read() is not { } text) return;
             try {
                 await clipboard.SetTextAsync(text);
                 LiveAnnouncer.Polite(ChatItems, "Copied");
@@ -341,8 +387,12 @@ public partial class ChatTabView {
     }
 
     void PaintTranscriptSelection(DrawingContext context) {
-        if (_range is not { HasRange: true } range || !range.TryRange(out var start, out var end, validateText: false)
-            || SelectionOverlay.Foreground is not { } brush || _scroll is null) return;
+        if (_range is not { HasRange: true } range || SelectionOverlay.Foreground is not { } brush || _scroll is null) return;
+        if (!range.TryRange(out var start, out var end, forPaint: true)) {
+            // Clearing the range invalidates the overlay, which is illegal during Render.
+            Dispatcher.UIThread.Post(() => range.TryRange(out _, out _));
+            return;
+        }
         var viewport = new Rect(0, 0, _scroll.Viewport.Width, _scroll.Viewport.Height);
         using var clip = context.PushClip(viewport);
         foreach (var container in ChatItems.GetRealizedContainers()) {

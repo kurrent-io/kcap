@@ -95,18 +95,27 @@ public sealed class ChatSelectionOverlay : Avalonia.Controls.Primitives.Template
         return target.Block.TextLayout.HitTestTextPosition(native).Translate(origin);
     }
 
-    internal static ChatSelection.Point? Hit(Control container, ChatItemViewModel row, string text, Visual relativeTo, Point point, int index) {
+    internal static ChatSelection.Point? Hit(Control container, ChatItemViewModel row, string text, Visual relativeTo, Point point,
+            int index, out double verticalGap, Rect? viewport = null) {
+        verticalGap = double.PositiveInfinity;
         var closest = double.PositiveInfinity;
         var offset = -1;
         foreach (var run in Runs(container, text)) {
-            if (BoundsIn(run.Block, relativeTo) is not { } bounds) continue;
+            if (BoundsIn(run.Block, relativeTo) is not { } bounds || viewport is { } clip && !bounds.Intersects(clip)) continue;
             var x = Math.Clamp(point.X, bounds.Left, bounds.Right);
             var y = Math.Clamp(point.Y, bounds.Top, bounds.Bottom);
+            var gap = Math.Abs(point.Y - y);
             var distance = new Vector(point.X - x, point.Y - y).SquaredLength;
+            if (viewport is not null) {
+                if (gap > verticalGap) continue;
+                if (gap < verticalGap) closest = double.PositiveInfinity;
+            }
             if (distance >= closest) continue;
             var local = new Point(x - bounds.X - run.Block.Padding.Left, y - bounds.Y - run.Block.Padding.Top);
-            var hit = run.Block.TextLayout.HitTestPoint(local);
-            offset = run.ToProjection(hit.TextPosition);
+            offset = viewport is not null && point.Y < bounds.Top ? run.ToProjection(0)
+                : viewport is not null && point.Y >= bounds.Bottom ? run.Start + run.Length
+                : run.ToProjection(run.Block.TextLayout.HitTestPoint(local).TextPosition);
+            verticalGap = gap;
             closest = distance;
         }
         return offset >= 0 ? ChatSelection.Point.At(row, text, offset, index) : null;

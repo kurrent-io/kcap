@@ -21,7 +21,8 @@ public static class TextContextMenu {
 
     public static FlyoutBase ForSelectableTextBlock { get; } = Build<SelectableTextBlock>(
         new("Copy", c => ((SelectableTextBlock)c).CanCopy || c.FindAncestorOfType<ChatTabView>()?.HasTranscriptSelection == true, c => {
-            if (c.FindAncestorOfType<ChatTabView>()?.TranscriptSelectionCopy() is not { }) ((SelectableTextBlock)c).Copy();
+            var plain = (SelectableTextBlock)c;
+            if (plain.FindAncestorOfType<ChatTabView>()?.TranscriptSelectionCopy(plain) is null) plain.Copy();
         }),
         new("Select all", c => !string.IsNullOrEmpty(((SelectableTextBlock)c).Text), c => {
             c.FindAncestorOfType<ChatTabView>()?.ClearTranscriptSelection();

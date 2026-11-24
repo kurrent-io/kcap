@@ -12,6 +12,7 @@ using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.Views;
+using DynamicData;
 using Microsoft.Extensions.Time.Testing;
 using static Capacitor.App.Tests.Unit.AvaloniaSession;
 using static Capacitor.App.Tests.Unit.WorkspaceFixtures;
@@ -113,8 +114,7 @@ public partial class ChatTabViewSmokeTests {
             host.Settle();
             await Assert.That(await clipboard.TryGetTextAsync()).IsNotEqualTo("latest action sentinel");
         } finally {
-            await host.CloseAsync();
-            reading.Apply(null);
+            await CloseSelectionHostAsync(host, reading);
         }
     });
 
@@ -193,8 +193,7 @@ public partial class ChatTabViewSmokeTests {
             await Assert.That(await clipboard.TryGetTextAsync()).IsEqualTo("after rollback");
             await Assert.That(jump.IsVisible).IsFalse();
         } finally {
-            await host.CloseAsync();
-            reading.Apply(null);
+            await CloseSelectionHostAsync(host, reading);
         }
     });
 
@@ -227,11 +226,135 @@ public partial class ChatTabViewSmokeTests {
             await Assert.That(host.View.HasTranscriptSelection).IsTrue();
             InvokeMenu("Select all");
             await Assert.That(host.View.HasTranscriptSelection).IsFalse();
-            InvokeMenu("Copy");
-            await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo("! printf shown");
+            var clipboard = host.Window.Clipboard!;
+            async Task VerifyCopyOrder(Action copy) {
+                await clipboard.SetTextAsync("before");
+                var release = new TaskCompletionSource();
+                var earlier = MarkdownClipboard.InOrder(async () => {
+                    await release.Task;
+                    await clipboard.SetTextAsync("earlier");
+                });
+                try {
+                    copy();
+                    await Assert.That(await clipboard.TryGetTextAsync()).IsEqualTo("before");
+                } finally {
+                    release.TrySetResult();
+                    await earlier;
+                    await MarkdownClipboard.InOrder(() => Task.CompletedTask);
+                }
+                await Assert.That(await clipboard.TryGetTextAsync()).IsEqualTo("! printf shown");
+            }
+            await VerifyCopyOrder(() => InvokeMenu("Copy"));
+            await Assert.That(plain.Focus()).IsTrue();
+            await VerifyCopyOrder(() => CopyShortcut(host.Window));
         } finally {
-            await host.CloseAsync();
-            reading.Apply(null);
+            await CloseSelectionHostAsync(host, reading);
+        }
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Dragging_onto_a_trailing_attachment_selects_through_the_last_visible_text() => RunOnUiAsync(async () => {
+        var reading = new DesktopReadingResources(Application.Current!);
+        var host = new Host(marks: false);
+        try {
+            reading.Apply(new());
+            await host.LoadAsync(Tmp.CreateFile("attachment-selection.jsonl", [SelectionFirst, SelectionSecond]));
+            var first = host.Chat.Items.OfType<AssistantTextItem>().Single();
+            var last = host.Chat.Items.OfType<UserTurnItem>().Single();
+            var rows = (Avalonia.Collections.AvaloniaList<ChatItemViewModel>)host.Chat.Items;
+            rows.Insert(1, new UserTurnItem("", [new UserAttachment("middle.png", null)]) {
+                Key = new(first.Key!.Value.Line, first.Key.Value.Index + 1),
+            });
+            rows.Add(new UserTurnItem("", [new UserAttachment("trailing.png", null)]) {
+                Key = new(last.Key!.Value.Line, last.Key.Value.Index + 1),
+            });
+            host.Settle();
+            var from = TranscriptTextPosition(host, first, 0);
+            var to = PresentAndLocate(host, host.View.GetVisualDescendants().OfType<TextBlock>()
+                .Single(block => block.Text == "trailing.png"));
+            var clipboard = host.Window.Clipboard!;
+            await clipboard.SetTextAsync("before drag");
+
+            host.Window.MouseMove(from);
+            host.Window.MouseDown(from, MouseButton.Left);
+            host.Window.MouseMove(to, RawInputModifiers.LeftMouseButton);
+            host.Window.MouseUp(to, MouseButton.Left);
+            CopyShortcut(host.Window);
+            await Assert.That(await clipboard.TryGetTextAsync()).IsEqualTo($"Alpha café.\n{last.Text}");
+        } finally {
+            await CloseSelectionHostAsync(host, reading);
+        }
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Folding_a_thinking_endpoint_clears_the_range_before_copy() => RunOnUiAsync(async () => {
+        var reading = new DesktopReadingResources(Application.Current!);
+        var host = new Host(marks: false);
+        try {
+            reading.Apply(new());
+            await host.LoadAsync(Tmp.CreateFile("fold-selection.jsonl", [ThinkingLine, SelectionSecond]));
+            var first = host.Chat.Items.OfType<AssistantThinkingItem>().Single();
+            var last = host.Chat.Items.OfType<UserTurnItem>().Single();
+            var summary = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("thinkingSummary"));
+            var from = TranscriptTextPosition(host, first, 0);
+            var to = TranscriptTextPosition(host, last, 3);
+            host.Window.MouseMove(from);
+            host.Window.MouseDown(from, MouseButton.Left);
+            host.Window.MouseMove(to, RawInputModifiers.LeftMouseButton);
+            host.Window.MouseUp(to, MouseButton.Left);
+            host.Settle();
+            await Assert.That(host.View.HasTranscriptSelection).IsTrue();
+
+            await Assert.That(summary.Focus(NavigationMethod.Tab)).IsTrue();
+            host.Window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            host.Window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            host.Settle();
+            using var after = host.Window.CaptureRenderedFrame();
+
+            await Assert.That(after).IsNotNull();
+            await Assert.That(first.IsExpanded).IsFalse();
+            await Assert.That(host.View.HasTranscriptSelection).IsFalse();
+        } finally {
+            await CloseSelectionHostAsync(host, reading);
+        }
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Jump_to_latest_in_an_ended_session_without_row_actions_keeps_transcript_focus() => RunOnUiAsync(async () => {
+        var reading = new DesktopReadingResources(Application.Current!);
+        var host = new Host(marks: false);
+        try {
+            reading.Apply(new());
+            var path = Tmp.CreateFile("ended-selection.jsonl", [SelectionFirst]);
+            await host.LoadAsync(path);
+            host.Daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { TranscriptPath = path, Status = "Completed" });
+            var first = host.Chat.Items.OfType<AssistantTextItem>().Single();
+            var rows = (Avalonia.Collections.AvaloniaList<ChatItemViewModel>)host.Chat.Items;
+            rows.AddRange(Enumerable.Range(0, 45).Select(_ => new SystemNoteItem("", "Session note")));
+            host.Settle();
+            host.Scroll.ScrollToEnd();
+            host.Settle();
+            var list = host.View.FindControl<ItemsControl>("ChatItems")!;
+            var jump = host.View.FindControl<Button>("JumpToLatest")!;
+            var text = host.Chat.Selection.Read(first);
+            host.Chat.Selection.Set(ChatSelection.Point.At(first, text, 0), ChatSelection.Point.At(first, text, text.Length));
+            host.Settle();
+            await Assert.That(host.Composer.IsEffectivelyVisible).IsFalse();
+            await Assert.That(list.ContainerFromIndex(0)).IsNull();
+            await Assert.That(jump.Focus()).IsTrue();
+
+            host.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            host.Window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            host.Settle();
+
+            await Assert.That(jump.IsVisible).IsFalse();
+            await Assert.That(host.Window.FocusManager.GetFocusedElement()).IsSameReferenceAs(list);
+            await Assert.That(list.Focus()).IsTrue();
+        } finally {
+            await CloseSelectionHostAsync(host, reading);
         }
     });
 
@@ -277,9 +400,20 @@ public partial class ChatTabViewSmokeTests {
             await Assert.That(chat.Selection.CopyText()).IsNull();
         } finally {
             unblock.TrySetResult();
-            window.Close();
-            await chat.TeardownAsync();
-            reading.Apply(null);
+            try {
+                window.Close();
+                await chat.TeardownAsync();
+            } finally {
+                reading.Apply(null);
+            }
         }
     });
+
+    static async Task CloseSelectionHostAsync(Host host, DesktopReadingResources reading) {
+        try {
+            await host.CloseAsync();
+        } finally {
+            reading.Apply(null);
+        }
+    }
 }

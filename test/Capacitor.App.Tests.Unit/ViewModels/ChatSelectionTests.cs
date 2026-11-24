@@ -72,6 +72,24 @@ public class ChatSelectionTests {
     }
 
     [Test]
+    public async Task Moving_back_to_a_shell_anchor_keeps_its_text_snapshot() {
+        var shell = new ShellCommandItem("! printf shown") { Key = new(1, 0) };
+        var reply = new AssistantTextItem("Later reply") { Key = new(2, 0) };
+        var feed = new object();
+        var range = new ChatSelection([shell, reply], () => feed);
+        var anchor = ChatSelection.Point.At(shell, shell.Command, 2);
+        range.Set(anchor, anchor);
+
+        await Assert.That(range.Move(1, message: true)).IsTrue();
+        shell.Output = "late output";
+        await Assert.That(range.Move(1, message: false)).IsTrue();
+        await Assert.That(range.Move(-1, message: true)).IsTrue();
+        await Assert.That(range.CopyText()).IsEqualTo("p");
+        await Assert.That(range.Move(1, message: false)).IsTrue();
+        await Assert.That(range.CopyText()).IsEqualTo("pr");
+    }
+
+    [Test]
     [NotInParallel]
     public Task Hidden_inline_text_is_omitted_and_a_disclosure_change_invalidates_offsets() => RunOnUiAsync(async () => {
         var before = ProgressiveDisclosureBasis.Current;

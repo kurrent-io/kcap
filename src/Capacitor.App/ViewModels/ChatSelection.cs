@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Globalization;
 using System.Text;
 using Capacitor.App.ProgressiveDisclosure;
@@ -15,10 +16,13 @@ internal sealed class ChatSelection(IReadOnlyList<ChatItemViewModel> rows, Func<
     ProgressiveDisclosureBasis? _basis;
     Point? _anchor;
     Point? _focus;
+    bool _endpointTextDirty;
 
     public AgentLinkLabels? Labels { get; set; }
     public event Action? Changed;
+    public event Action? EndpointTextChanged;
     public int Revision { get; private set; }
+    public object? CurrentFeed => currentFeed();
     public bool HasRange => _anchor is { } anchor && _focus is { } focus
         && (anchor.Key != focus.Key || anchor.Offset != focus.Offset);
     public Point? Focus => _focus;
@@ -46,8 +50,12 @@ internal sealed class ChatSelection(IReadOnlyList<ChatItemViewModel> rows, Func<
         if (_anchor == anchor && _focus == focus && ReferenceEquals(_feed, feed)) return;
         _feed = feed;
         _basis = ProgressiveDisclosureBasis.Current;
+        var rowsChanged = !ReferenceEquals(_anchor?.Row, anchor.Row) || !ReferenceEquals(_focus?.Row, focus.Row);
+        if (rowsChanged) ObserveEndpoints(observe: false);
+        _endpointTextDirty |= rowsChanged || _anchor?.Text != anchor.Text || _focus?.Text != focus.Text;
         _anchor = anchor;
         _focus = focus;
+        if (rowsChanged) ObserveEndpoints(observe: true);
         Revision++;
         Changed?.Invoke();
     }
@@ -56,15 +64,36 @@ internal sealed class ChatSelection(IReadOnlyList<ChatItemViewModel> rows, Func<
         if (_anchor is null) return;
         _feed = null;
         _basis = null;
+        ObserveEndpoints(observe: false);
         _anchor = _focus = null;
         Revision++;
         Changed?.Invoke();
     }
 
-    public void CheckFeed() {
-        if (_anchor is not null && (!ReferenceEquals(_feed, currentFeed()) || _basis != ProgressiveDisclosureBasis.Current))
-            Clear();
+    void ObserveEndpoints(bool observe) {
+        Observe(_anchor?.Row);
+        if (!ReferenceEquals(_anchor?.Row, _focus?.Row)) Observe(_focus?.Row);
+
+        void Observe(ChatItemViewModel? row) {
+            if (row is null) return;
+            if (observe) row.PropertyChanged += OnEndpointChanged;
+            else row.PropertyChanged -= OnEndpointChanged;
+        }
     }
+
+    void OnEndpointChanged(object? sender, PropertyChangedEventArgs e) => InvalidateEndpointText();
+
+    public void InvalidateEndpointText() {
+        if (_endpointTextDirty) return;
+        _endpointTextDirty = true;
+        EndpointTextChanged?.Invoke();
+    }
+
+    public void CheckFeed() {
+        if (_anchor is not null && !IsCurrent()) Clear();
+    }
+
+    bool IsCurrent() => ReferenceEquals(_feed, currentFeed()) && _basis == ProgressiveDisclosureBasis.Current;
 
     public int IndexOf(Point point) {
         if (point.IndexHint >= 0 && point.IndexHint < rows.Count && ReferenceEquals(rows[point.IndexHint], point.Row))
@@ -74,16 +103,19 @@ internal sealed class ChatSelection(IReadOnlyList<ChatItemViewModel> rows, Func<
         return -1;
     }
 
-    public bool TryRange(out (int Index, Point Point) start, out (int Index, Point Point) end, bool validateText = true) {
+    public bool TryRange(out (int Index, Point Point) start, out (int Index, Point Point) end, bool forPaint = false) {
         start = end = default;
-        CheckFeed();
         if (_anchor is not { } anchor || _focus is not { } focus) return false;
         var a = IndexOf(anchor);
         var b = ReferenceEquals(focus.Row, anchor.Row) ? a : IndexOf(focus);
-        if (a < 0 || b < 0 || (validateText && (!Valid(anchor) || (a == b ? focus.Text != anchor.Text : !Valid(focus))))) {
-            Clear();
+        var checkText = !forPaint || _endpointTextDirty;
+        // Tool call details can change without a notification from their group row.
+        if (!IsCurrent() || a < 0 || b < 0 || ((checkText || anchor.Row is ToolGroupItem) && !Valid(anchor))
+            || (a == b ? focus.Text != anchor.Text : (checkText || focus.Row is ToolGroupItem) && !Valid(focus))) {
+            if (!forPaint) Clear();
             return false;
         }
+        _endpointTextDirty = false;
         _anchor = anchor = anchor with { IndexHint = a };
         _focus = focus = focus with { IndexHint = b };
         (start, end) = a < b || (a == b && anchor.Offset <= focus.Offset)
@@ -127,7 +159,7 @@ internal sealed class ChatSelection(IReadOnlyList<ChatItemViewModel> rows, Func<
         }
         for (index += direction; index >= 0 && index < rows.Count; index += direction) {
             var row = rows[index];
-            if (row.SelectionKey is null || Read(row) is not { Length: > 0 } nextText) continue;
+            if (row.SelectionKey is null || TextOf(row) is not { Length: > 0 } nextText) continue;
             var offset = message ? Math.Min(focus.Offset, nextText.Length) : direction < 0 ? nextText.Length : 0;
             var next = Point.At(row, nextText, offset, index);
             Extend(next);
