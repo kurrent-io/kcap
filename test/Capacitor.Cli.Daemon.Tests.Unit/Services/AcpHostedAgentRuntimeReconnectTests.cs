@@ -134,20 +134,24 @@ public class AcpHostedAgentRuntimeReconnectTests {
 
         (Stream Input, Stream Output, IAcpProcess Process) SpawnCandidate() {
             var fake = new FakeAcpAgent();
-            var proc = new FakeAcpProcess { Pid = 5000 + Incarnations.Count };
+            FakeAcpProcess proc;
 
-            ConfigureCandidate?.Invoke(fake, Incarnations.Count);
-            lock (Events) Events.Add($"spawn:{proc.Pid}");
-            lock (Incarnations) Incarnations.Add((fake, proc));
-            _fakeLoops.Add(fake.RunAsync(Cts.Token));
+            // The reconnect owner spawns on its own thread, concurrently with a test's reads and its dispose
+            lock (Incarnations) {
+                proc = new FakeAcpProcess { Pid = 5000 + Incarnations.Count };
+                ConfigureCandidate?.Invoke(fake, Incarnations.Count);
+                lock (Events) Events.Add($"spawn:{proc.Pid}");
+                Incarnations.Add((fake, proc));
+                _fakeLoops.Add(fake.RunAsync(Cts.Token));
+            }
 
             return (fake.ClientWriteStream, fake.ClientReadStream, proc);
         }
 
-        public int CandidateSpawns => Incarnations.Count - 1;
+        public int CandidateSpawns { get { lock (Incarnations) return Incarnations.Count - 1; } }
 
         public async Task StartAsync(string? initialPrompt = null) {
-            _fakeLoops.Add(Incarnations[0].Fake.RunAsync(Cts.Token));
+            lock (Incarnations) _fakeLoops.Add(Incarnations[0].Fake.RunAsync(Cts.Token));
             _envelopeDrain = DrainEnvelopesAsync();
 
             await Runtime.StartAsync("/abs/worktree", initialPrompt, Cts.Token).WaitAsync(HangGuard);
@@ -185,18 +189,30 @@ public class AcpHostedAgentRuntimeReconnectTests {
         public async ValueTask DisposeAsync() {
             Cts.Cancel();
 
-            foreach (var loop in _fakeLoops) {
-                try { await loop.WaitAsync(HangGuard); } catch { /* crashed/cancelled fakes */ }
-            }
+            await AwaitFakeLoopsAsync();
             try { await _envelopeDrain.WaitAsync(HangGuard); } catch { /* cancelled */ }
 
+            // Stops the reconnect owner, so no candidate spawns after this
             await Runtime.DisposeAsync();
+            await AwaitFakeLoopsAsync();
 
-            foreach (var (fake, _) in Incarnations) {
+            (FakeAcpAgent Fake, FakeAcpProcess Process)[] incarnations;
+            lock (Incarnations) incarnations = [.. Incarnations];
+
+            foreach (var (fake, _) in incarnations) {
                 try { await fake.DisposeAsync(); } catch { /* a crashed fake may hold a dispatch fault */ }
             }
 
             Cts.Dispose();
+        }
+
+        async Task AwaitFakeLoopsAsync() {
+            Task[] loops;
+            lock (Incarnations) loops = [.. _fakeLoops];
+
+            foreach (var loop in loops) {
+                try { await loop.WaitAsync(HangGuard); } catch { /* crashed/cancelled fakes */ }
+            }
         }
     }
 
@@ -335,13 +351,18 @@ public class AcpHostedAgentRuntimeReconnectTests {
     [Test]
     public async Task Pid_record_failure_still_kills_the_candidates_listed_agent() {
         await using var h = new Harness();
+        string[] events;
         h.Tree.DescendantsOf[5001] = [(6001, "start:6001")];
 
         await h.StartAsync();
         h.FailPidRecord = true;
+
+        var terminal = h.RuntimeTerminalAsync();
         h.CrashOriginal();
 
-        await Harness.PollUntilAsync(() => { lock (h.Events) return h.Events.Contains("kill:6001"); });
+        await terminal.WaitAsync(HangGuard);
+        lock (h.Events) events = [.. h.Events];
+        await Assert.That(events).Contains("kill:6001");
     }
 
     /// <summary>A candidate whose wrapper dies during initialize fails its attempt, and the agent it re-execed,
