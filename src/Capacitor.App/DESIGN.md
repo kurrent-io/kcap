@@ -45,6 +45,27 @@ On the graphite canvas, primary text measures 12.42:1 and secondary text 8.64:1.
 
 Appearance offers Comfortable and Compact density. Compact reduces padding and row gaps while preserving minimum targets. Transcript prose uses 24 DIP line height in Comfortable and 22 DIP in Compact. Density and font changes remeasure visible rows and preserve the user's reading anchor. Inter is the default reading face. Monospace uses embedded Spline Sans Mono with platform fallbacks and leaves code and terminal metrics intact. Higher contrast strengthens text and edges and honors system contrast when the OS reports it. These preferences apply across profiles.
 
+## Transcript message metadata
+
+Right-aligned inset prompts and left-aligned assistant prose distinguish roles by shape and placement. In the preview, ordinary author labels are visually hidden at rest. When the transcript identifies a different participant, their name stays visible beside their prompt.
+
+Hover the message body or move keyboard focus into it to reveal the timestamp and Copy together. The pointer can move from the body onto the revealed controls. The timestamp tooltip, accessibility metadata and context menu carry the full sender and time. The context menu opens by right click, Shift+F10 or touch long press and keeps the existing selection, link and image actions. Whole-message Copy retains the message's Markdown flavor.
+
+In sessions that support bookmarks and topics, unmarked actions share the timestamp reveal. Existing marks remain visible and actionable at rest. The side slot reserves space for the two optional targets so revealing them keeps prose and link positions stable. In a 644 DIP Light Comfortable test row with marks enabled, the assistant prose has 447 DIP and stays fixed as the pointer moves from the message onto the actions.
+
+Two layouts were measured in the same 1400 × 760 synthetic workspace in Light Comfortable. Heights include the item gaps.
+
+| Layout | “ok” prompt | One-line assistant reply | System note / tool group |
+| --- | ---: | ---: | ---: |
+| Reserved header with hover-only time and copy | 92 DIP | 70 DIP | 87 / 81 DIP |
+| Side slot with standard metadata hidden at rest | 66 DIP | 44 DIP | 87 / 81 DIP |
+
+Both layouts hold their measured bounds on hover. The reserved header leaves a separate line above every body. The side slot gives the controls their own horizontal space and removes that line. In the 644 DIP assistant item, the prose has 523 DIP and the metadata begins 12 DIP beyond it. In Dark Compact at 130% zoom, the prompt, one-line reply and three-line reply with a code link measure 53, 39 and 81 DIP. Turning off the preview restores the 92 and 70 DIP rows and the stock header controls.
+
+The preview toggles the state of the message rows while their styles stay attached. Inline and fenced code keep their own typography when switching reading faces or turning the preview off. In the same Dark Compact sample, the longer reply wraps to four lines and measures 103 DIP with Monospace prose.
+
+## Baseline measurements
+
 Pilot questions remain around recognition of lightly filled selections, separation of raised surfaces in Light, and distinguishing a filled destructive action from a primary action. Test those with readers on Windows, macOS and Linux before widening the preview.
 
 Compare the stock app, preview-off and default appearance under Light and Dark with the same native synthetic transcript. Compare startup, typing, scrolling and jumps independently.

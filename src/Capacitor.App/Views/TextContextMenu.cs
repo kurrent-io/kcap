@@ -1,6 +1,8 @@
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
+using Avalonia.Media;
+using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
@@ -12,17 +14,17 @@ public static class TextContextMenu {
     /// A row `IsShown` withholds is left out of the menu rather than greyed.
     sealed record Row(string Label, Func<Control, bool> CanRun, Action<Control> Run, Func<Control, bool>? IsShown = null);
 
-    public static FlyoutBase ForTextBox { get; } = Build<TextBox>(
+    public static FlyoutBase ForTextBox { get; } = Build<TextBox>(false,
         new("Cut", c => ((TextBox)c).CanCut, c => ((TextBox)c).Cut()),
         new("Copy", c => ((TextBox)c).CanCopy, c => ((TextBox)c).Copy()),
         new("Paste", c => ((TextBox)c).CanPaste, c => ((TextBox)c).Paste()),
         new("Select all", c => !string.IsNullOrEmpty(((TextBox)c).Text), c => ((TextBox)c).SelectAll()));
 
-    public static FlyoutBase ForSelectableTextBlock { get; } = Build<SelectableTextBlock>(
+    public static FlyoutBase ForSelectableTextBlock { get; } = Build<SelectableTextBlock>(false,
         new("Copy", c => ((SelectableTextBlock)c).CanCopy, c => ((SelectableTextBlock)c).Copy()),
         new("Select all", c => !string.IsNullOrEmpty(((SelectableTextBlock)c).Text), c => ((SelectableTextBlock)c).SelectAll()));
 
-    public static FlyoutBase ForMarkdown { get; } = Build<MarkdownView>(
+    public static FlyoutBase ForMarkdown { get; } = Build<MarkdownView>(true,
         new("Copy image", _ => true, c => _ = ((MarkdownView)c).CopyImageAsync(), c => ((MarkdownView)c).ContextImage is not null),
         new("Copy link", _ => true, c => _ = ((MarkdownView)c).CopyLinkAsync(), c => ((MarkdownView)c).ContextLinkUrl is not null),
         new("Copy", c => ((MarkdownView)c).HasSelection, c => _ = ((MarkdownView)c).CopySelectionAsync()),
@@ -34,10 +36,12 @@ public static class TextContextMenu {
         new("Bookmark message", _ => true, c => ((MarkdownView)c).BookmarkMessage(),
             c => ((MarkdownView)c) is { Bookmarks: not null, DataContext: ChatItemViewModel { Bookmark: null } }));
 
-    public static FlyoutBase ForImage { get; } = Build<ToolImagePreview>(
+    public static FlyoutBase ForImage { get; } = Build<ToolImagePreview>(true,
         new Row("Copy image", c => ((ToolImagePreview)c).CanCopyImage, c => _ = ((ToolImagePreview)c).CopyImageAsync()));
 
-    static Flyout Build<T>(params Row[] rows) where T : Control {
+    public static FlyoutBase ForMessageRow { get; } = Build<ChatMessageRow>(true);
+
+    static Flyout Build<T>(bool messageDetails, params Row[] rows) where T : Control {
         var flyout = new Flyout();
         flyout.FlyoutPresenterClasses.Add("kcapPanel");
         var panel = new StackPanel { Spacing = 2, Margin = new(6), MinWidth = 160 };
@@ -60,6 +64,7 @@ public static class TextContextMenu {
             buttons.Add((button, row));
         }
         flyout.Content = panel;
+        if (messageDetails) AddMessageDetails(flyout, panel);
         flyout.Opening += (_, _) => {
             foreach (var (button, row) in buttons) {
                 button.IsVisible = row.IsShown is null || flyout.Target is T shown && row.IsShown(shown);
@@ -67,5 +72,46 @@ public static class TextContextMenu {
             }
         };
         return flyout;
+    }
+
+    static void AddMessageDetails(Flyout flyout, StackPanel panel) {
+        var details = new TextBlock {
+            Margin = new(10, 6),
+            MaxWidth = 240,
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = TypeScale.Small,
+            IsVisible = false,
+        };
+        var copy = new Button {
+            Content = "Copy message",
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Left,
+            Padding = new(10, 6),
+            FontSize = TypeScale.Body,
+            IsVisible = false,
+        };
+        copy.Classes.Add("kcapGhost");
+        panel.Children.Insert(0, details);
+        panel.Children.Add(copy);
+
+        ChatMessageRow? current = null;
+        flyout.Opening += (_, _) => {
+            current = flyout.Target?.FindAncestorOfType<ChatMessageRow>(includeSelf: true) is { InlineChrome: true } row
+                ? row : null;
+            details.Text = current?.AccessibleMetadata;
+            details.IsVisible = !string.IsNullOrEmpty(details.Text);
+            copy.IsVisible = current?.CopyAction is not null;
+        };
+        flyout.Opened += (_, _) => current?.SetOpenMenu(flyout);
+        flyout.Closed += (_, _) => {
+            current?.SetOpenMenu(null);
+            current = null;
+            details.Text = null;
+        };
+        copy.Click += (_, _) => {
+            var action = current?.CopyAction;
+            flyout.Hide();
+            if (action is not null) _ = action.CopyFromMenuAsync();
+        };
     }
 }
