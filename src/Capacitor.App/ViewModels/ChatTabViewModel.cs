@@ -1624,14 +1624,17 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     }
 
     /// A daemon refusal arrives after the hub has already taken the send, which is when the composer
-    /// was cleared. Put the text and chips back when the user has not started another message, and
-    /// drop the row: the composer is now the copy they resend.
+    /// was cleared. A reason written as a sentence is one the sender can resend: the text goes back
+    /// only when the composer and the tray are both empty, and the chips go back only when the tray
+    /// is empty and the composer is that text. The row drops once both are back. A token stays a notice.
     void NoteRefused(QueuedChatMessage message) {
         if (message.IsForeign || message.Acknowledged || message.DeliveryState != "rejected" || message.RefusalNoted) return;
+        if (message.DeliveryReason is not { Length: > 0 } reason || !reason.Contains(' ')) return;
         message.RefusalNoted = true;
         var composerFree = ComposerText.Length == 0;
-        if (composerFree && message.Text.Length > 0) ComposerText = message.Text;
-        if (Tray.Count == 0 && message.Files.Count > 0 && (composerFree || ComposerText == message.Text))
+        var trayFree = Tray.Count == 0;
+        if (composerFree && trayFree && message.Text.Length > 0) ComposerText = message.Text;
+        if (trayFree && message.Files.Count > 0 && (composerFree || ComposerText == message.Text))
             Tray.AddAll(message.Files);
         Notice(message.DeliveryNote ?? AttachedAgentCopy.SendAgain);
         var filesBack = message.Files.All(file => Tray.Items.Any(staged => staged.Id == file.Id));

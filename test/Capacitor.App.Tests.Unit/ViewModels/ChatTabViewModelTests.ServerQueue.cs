@@ -776,6 +776,32 @@ public partial class ChatTabViewModelTests {
         });
     }
 
+    /// <summary>A file staged with no text is a new draft. The refused text must not land beside it.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_refused_remote_send_leaves_a_file_the_user_staged() {
+        await RunOnUiAsync(async () => {
+            var (chat, queue) = RemoteChat();
+            await WaitUntilAsync(() => chat.HasSeed, what: "the seed");
+            chat.Tray.AddAll([new StagedAttachment("notes.txt", "text/plain", "hi"u8.ToArray())]);
+            chat.ComposerText = "see this";
+            await chat.SendCommand.Execute().ToTask();
+            var id = Guid.NewGuid();
+            queue.OnNext([Item("see this", id)]);
+            var later = new StagedAttachment("other.txt", "text/plain", "no"u8.ToArray());
+            chat.Tray.AddAll([later]);
+
+            queue.OnNext([Refused("see this", id, "attachments need a daemon-owned worktree")]);
+
+            await Assert.That(chat.ComposerText).IsEqualTo("");
+            await Assert.That(chat.Tray.Items.Single().Id).IsEqualTo(later.Id);
+            await Assert.That(chat.ComposerHint).IsEqualTo("attachments need a daemon-owned worktree");
+            await Assert.That(chat.QueuedMessages).IsEmpty();
+            await Assert.That(chat.DeliveryNotices.Single().DeliveryNote).IsEqualTo("attachments need a daemon-owned worktree");
+            await chat.TeardownAsync();
+        });
+    }
+
     static (ChatTabViewModel Chat, Subject<IReadOnlyList<QueuedInputItem>> Queue) RemoteChat() {
         var session = new BehaviorSubject<ChatSessionInfo>(Session("s1"));
         var queue = new Subject<IReadOnlyList<QueuedInputItem>>();
