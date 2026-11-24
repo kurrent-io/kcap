@@ -112,9 +112,9 @@
                                   DragDelta="OnRailSplitterDragDelta" DragCompleted="OnRailSplitterDragCompleted" />
                 </Grid>
 
-                <!-- Window controls that never move: over the rail's chrome row while it shows, over
-                     the content's top-left corner once it collapses to nothing, where each header
-                     pads clear of them through RailClearance. -->
+                <!-- Window controls that never move: over the rail's chrome row while it shows, in a
+                     title-bar row over the content once it collapses to nothing, which each header
+                     starts below through RailClearance. -->
                 <StackPanel x:Name="WindowControls" Orientation="Horizontal"
                             HorizontalAlignment="Left" VerticalAlignment="Top">
                     <!-- Off macOS, where no menu bar is drawn: the app's menus, opened by a tap of Alt too. -->
