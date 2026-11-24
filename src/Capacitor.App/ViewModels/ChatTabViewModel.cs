@@ -1209,7 +1209,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             if (outcome is null or ChatSendOutcome.Rejected) {
                 _superseded.RemoveAll(pair => ReferenceEquals(pair.Old, message));
                 message.RetriedAs = null;
-                if (replacement?.Acknowledged == true) message.Acknowledged = true;
+                if (replacement?.Acknowledged == true) {
+                    message.Acknowledged = true;
+                    message.ReleaseFiles();
+                }
                 else if (replacement is not null) RetargetSuperseded(replacement, message);
                 RestoreQueuedRow(message);
             }
@@ -1624,22 +1627,18 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     }
 
     /// A daemon refusal arrives after the hub has already taken the send, which is when the composer
-    /// was cleared. A reason written as a sentence is one the sender can resend: the text goes back
-    /// only when the composer and the tray are both empty, and the chips go back only when the tray
-    /// is empty and the composer is that text. The row drops once both are back. A token stays a notice.
+    /// was cleared. A reason written as a sentence is one the sender can resend. The text and chips
+    /// go back only when the composer and the tray are both empty, and the row drops once they are.
+    /// Text the user typed again is a new draft, even when it reads the same. A token stays a notice.
     void NoteRefused(QueuedChatMessage message) {
         if (message.IsForeign || message.Acknowledged || message.DeliveryState != "rejected" || message.RefusalNoted) return;
         if (message.DeliveryReason is not { Length: > 0 } reason || !reason.Contains(' ')) return;
         message.RefusalNoted = true;
-        var composerFree = ComposerText.Length == 0;
-        var trayFree = Tray.Count == 0;
-        if (composerFree && trayFree && message.Text.Length > 0) ComposerText = message.Text;
-        if (trayFree && message.Files.Count > 0 && (composerFree || ComposerText == message.Text))
-            Tray.AddAll(message.Files);
+        var owned = ComposerText.Length == 0 && Tray.Count == 0;
+        if (owned && message.Text.Length > 0) ComposerText = message.Text;
+        if (owned && message.Files.Count > 0) Tray.AddAll(message.Files);
         Notice(message.DeliveryNote ?? AttachedAgentCopy.SendAgain);
-        var filesBack = message.Files.All(file => Tray.Items.Any(staged => staged.Id == file.Id));
-        var textBack = message.Text.Length == 0 || ComposerText == message.Text;
-        if (filesBack && textBack) RetireDiscarded(message);
+        if (owned) RetireDiscarded(message);
     }
 
     void RestoreQueuedRow(QueuedChatMessage message, bool isPredecessor = false) {
@@ -1680,6 +1679,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     void Acknowledge(QueuedChatMessage queued) {
         queued.Acknowledged = true;
+        queued.ReleaseFiles();
         _queuedMessages.Remove(queued);
         ConfirmDelivery(queued);
     }
@@ -1758,6 +1758,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     void AbsorbSuperseded(QueuedChatMessage old) {
         old.Acknowledged = true;
+        old.ReleaseFiles();
         _superseded.RemoveAll(pair => ReferenceEquals(pair.Old, old));
     }
 

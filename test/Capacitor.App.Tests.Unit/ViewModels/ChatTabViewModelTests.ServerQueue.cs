@@ -776,6 +776,31 @@ public partial class ChatTabViewModelTests {
         });
     }
 
+    /// <summary>Retyping the same words is a new draft. The refused chips stay out of it.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_refused_remote_send_leaves_text_the_user_retyped() {
+        await RunOnUiAsync(async () => {
+            var (chat, queue) = RemoteChat();
+            await WaitUntilAsync(() => chat.HasSeed, what: "the seed");
+            chat.Tray.AddAll([new StagedAttachment("notes.txt", "text/plain", "hi"u8.ToArray())]);
+            chat.ComposerText = "see this";
+            await chat.SendCommand.Execute().ToTask();
+            var id = Guid.NewGuid();
+            queue.OnNext([Item("see this", id)]);
+            chat.ComposerText = "see this";
+
+            queue.OnNext([Refused("see this", id, "attachments need a daemon-owned worktree")]);
+
+            await Assert.That(chat.ComposerText).IsEqualTo("see this");
+            await Assert.That(chat.Tray.Count).IsEqualTo(0);
+            await Assert.That(chat.ComposerHint).IsEqualTo("attachments need a daemon-owned worktree");
+            await Assert.That(chat.QueuedMessages).IsEmpty();
+            await Assert.That(chat.DeliveryNotices.Single().DeliveryNote).IsEqualTo("attachments need a daemon-owned worktree");
+            await chat.TeardownAsync();
+        });
+    }
+
     /// <summary>A file staged with no text is a new draft. The refused text must not land beside it.</summary>
     [Test]
     [NotInParallel("AvaloniaSession")]

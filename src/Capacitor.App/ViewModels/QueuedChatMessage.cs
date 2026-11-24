@@ -22,7 +22,10 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     public string DisplayText => string.IsNullOrWhiteSpace(Text) ? AttachmentsOnlyText : Text;
     public IReadOnlyList<Guid> AttachmentIds { get; } = attachmentIds;
     /// The chips this send took out of the tray. Empty for a row the server listed that this pane did not send.
-    internal IReadOnlyList<StagedAttachment> Files { get; init; } = [];
+    /// Acknowledgment drops them: a refusal is the only reason they are still here.
+    internal IReadOnlyList<StagedAttachment> Files { get => _files; init => _files = value; }
+    IReadOnlyList<StagedAttachment> _files = [];
+    internal void ReleaseFiles() => _files = [];
     internal bool RefusalNoted { get; set; }
     internal int ComposerEdits { get; } = composerEdits;
     internal bool Acknowledged { get; set; }
