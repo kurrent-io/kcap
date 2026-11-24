@@ -2281,18 +2281,6 @@ public class DaemonMutationLaneTests {
         await Assert.That(await lane.RunAsync(Req(MutationVerb.Replace), CancellationToken.None)).IsTypeOf<MutationOutcome.Succeeded>();
     }
 
-    [Test]
-    public async Task A_switch_whose_executor_throws_before_spawning_does_not_latch() {
-        var cli = new FakeKcapCli { InstallVerifiedBehavior = (_, _) => Task.FromException<ProcessResult>(new System.ComponentModel.Win32Exception(2)) };
-        await using var lane = MakeLane(new RecordingExecutorFactory { Behavior = (_, _) => cli });
-
-        var outcome = await lane.RunAsync(SwitchReq(), CancellationToken.None);
-
-        await Assert.That(outcome).IsTypeOf<MutationOutcome.Failed>();
-        await Assert.That(outcome.Activation).IsEqualTo(ActivationEvidence.NotActivated);
-        await Assert.That(lane.RestartRequired).IsFalse();
-    }
-
     /// The latch is set where the switch detaches, so an identical switch arriving as it finishes runs afresh
     /// and is refused, rather than joining the finished switch's outcome.
     [Test]
@@ -2312,8 +2300,11 @@ public class DaemonMutationLaneTests {
     }
 
     [Test]
-    public async Task A_switch_whose_executor_throws_after_the_cli_started_still_latches() {
-        var cli = new FakeKcapCli { InstallVerifiedBehavior = (_, _) => Task.FromException<ProcessResult>(new IOException("pipe closed")) };
+    [Arguments("start_failed")]
+    [Arguments("pipe_closed")]
+    public async Task A_switch_whose_executor_throws_latches_since_nothing_proves_the_cli_never_ran(string mode) {
+        Exception fault = mode == "start_failed" ? new System.ComponentModel.Win32Exception(2) : new IOException("pipe closed");
+        var cli = new FakeKcapCli { InstallVerifiedBehavior = (_, _) => Task.FromException<ProcessResult>(fault) };
         await using var lane = MakeLane(new RecordingExecutorFactory { Behavior = (_, _) => cli });
 
         var outcome = await lane.RunAsync(SwitchReq(), CancellationToken.None);
