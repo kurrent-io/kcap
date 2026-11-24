@@ -11,7 +11,13 @@
                 <views:PullRequestStatusLabel DataContext="{Binding LifecycleStatus}" VerticalAlignment="Center"
                     IsVisible="{Binding $parent[views:PullRequestReader].((vm:PullRequestContextViewModel)DataContext).CanDisplay}" />
                 <TextBlock Grid.Column="1" Classes="prMuted" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                           ToolTip.Tip="{Binding RepositoryLabel}">
+                           views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True">
+                    <ToolTip.Tip>
+                        <MultiBinding StringFormat="{}{0} {1}">
+                            <Binding Path="RepositoryLabel" />
+                            <Binding Path="NumberLabel" />
+                        </MultiBinding>
+                    </ToolTip.Tip>
                     <Run Text="{Binding RepositoryLabel}" /><Run Text=" " /><Run Text="{Binding NumberLabel}" />
                 </TextBlock>
                 <!-- Only while something keeps the pull request from merging: it fills the composer, and sending stays the user's call. -->
@@ -28,8 +34,8 @@
                 </Button>
             </Grid>
             <TextBlock Text="{Binding Title}" FontSize="{StaticResource KcapFontSizeTitle}" FontWeight="SemiBold" TextWrapping="Wrap"
-                       MaxLines="3" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" Foreground="{StaticResource KcapTextBrush}" />
-            <TextBlock Text="{Binding Branches}" Classes="prMuted" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Branches}"
+                       MaxLines="3" TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Title}" Foreground="{StaticResource KcapTextBrush}" />
+            <TextBlock Text="{Binding Branches}" Classes="prMuted" TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Branches}"
                        IsVisible="{Binding HasBranches}" />
             <Border IsVisible="{Binding HasNotice}" HorizontalAlignment="Left" Background="{StaticResource KcapWarningDimBrush}" CornerRadius="6" Padding="10,8">
                 <TextBlock Text="{Binding Notice}" Classes="prNote" Foreground="{StaticResource KcapWarningBrush}" />
@@ -129,7 +135,7 @@
                                         </Panel>
                                     </Border>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
-                                        <TextBlock Text="{Binding Title}" Foreground="{StaticResource KcapTextBrush}" FontSize="{StaticResource KcapFontSizeBody}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
+                                        <TextBlock Text="{Binding Title}" Foreground="{StaticResource KcapTextBrush}" FontSize="{StaticResource KcapFontSizeBody}" TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Title}" />
                                         <TextBlock Text="Review re-requested" Classes="prNote" IsVisible="{Binding ReRequested}" />
                                     </StackPanel>
                                     <views:PullRequestStatusLabel Grid.Column="2" DataContext="{Binding Status}" VerticalAlignment="Center" />

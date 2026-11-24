@@ -30,7 +30,7 @@ public sealed record KcapTip(string Title, string? State = null, string? Tone = 
     }
 
     public static KcapTip PullRequest(int number, string? title, PullRequestStatus? lifecycle,
-            string? repository, KcapTipDetail? context = null, string? checks = null) {
+            string? repository, KcapTipDetail? context = null) {
         var numberLabel = "#" + number.ToString(CultureInfo.InvariantCulture);
         title = string.IsNullOrWhiteSpace(title) ? null : title;
         var reference = title is null ? Field("Repository", repository)
@@ -38,7 +38,7 @@ public sealed record KcapTip(string Title, string? State = null, string? Tone = 
         return new(title ?? $"Pull request {numberLabel}",
             lifecycle?.Text,
             lifecycle is { IsDanger: true } ? "danger" : null,
-            Present(reference, Note(checks), context));
+            Present(reference, context));
     }
 
     public static string? Join(string? label, string? value) =>

@@ -33,10 +33,10 @@
                         <TextBlock Text="·" Classes="prMuted" VerticalAlignment="Center"
                                    IsVisible="{Binding HasNumberLabel}" />
                         <TextBlock x:Name="LifecycleNumber" Text="{Binding NumberLabel}" Classes="prMuted" VerticalAlignment="Center"
-                                   IsVisible="{Binding HasNumberLabel}" ToolTip.Tip="{Binding NumberLabel}" />
+                                   IsVisible="{Binding HasNumberLabel}" />
                     </StackPanel>
                     <TextBlock Text="{Binding RepositoryLabel}" Classes="prMuted" TextTrimming="CharacterEllipsis"
-                               ToolTip.Tip="{Binding RepositoryLabel}" />
+                               views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding RepositoryLabel}" />
                 </StackPanel>
                 <Button x:Name="OpenGitHubButton" Grid.Column="1" Command="{Binding OpenGitHubCommand}" IsEnabled="{Binding CanOpenSource}"
                         IsVisible="{Binding ShowsOpenSource}" Classes="kcapGhost kcapQuiet prLinkTip" VerticalAlignment="Center"
@@ -57,7 +57,7 @@
             <TextBlock x:Name="SelectionLoading" Text="Loading…" IsVisible="{Binding IsSelectionLoading}" Classes="prNote" />
             <StackPanel IsVisible="{Binding CanDisplay}">
                 <Button x:Name="SidebarConflictsButton" Classes="prStatusRow" Command="{Binding ShowSectionCommand}" CommandParameter="conflicts"
-                        IsEnabled="{Binding CanNavigate}" IsVisible="{Binding HasConflicts}" ToolTip.Tip="{Binding ConflictsStatus.Tip}"
+                        IsEnabled="{Binding CanNavigate}" IsVisible="{Binding HasConflicts}" ToolTip.Tip="{Binding ConflictsStatus.LabelTip}"
                         AutomationProperties.Name="Open merge conflicts">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                         <views:PullRequestStatusLabel DataContext="{Binding ConflictsStatus}" />
@@ -65,7 +65,7 @@
                     </Grid>
                 </Button>
                 <Button x:Name="SidebarChecksButton" Classes="prStatusRow" Command="{Binding ShowSectionCommand}" CommandParameter="checks"
-                        IsEnabled="{Binding CanNavigate}" ToolTip.Tip="{Binding ChecksStatus.Tip}"
+                        IsEnabled="{Binding CanNavigate}" ToolTip.Tip="{Binding ChecksStatus.LabelTip}"
                         AutomationProperties.Name="{Binding ChecksStatus.Text, StringFormat='Open checks: {0}'}">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                         <views:PullRequestStatusLabel DataContext="{Binding ChecksStatus}" />
@@ -73,7 +73,7 @@
                     </Grid>
                 </Button>
                 <Button x:Name="SidebarReviewsButton" Classes="prStatusRow" Command="{Binding ShowSectionCommand}" CommandParameter="reviewers"
-                        IsEnabled="{Binding CanNavigate}" ToolTip.Tip="{Binding ReviewStatus.Tip}"
+                        IsEnabled="{Binding CanNavigate}" ToolTip.Tip="{Binding ReviewStatus.LabelTip}"
                         AutomationProperties.Name="{Binding ReviewStatus.Text, StringFormat='Open reviews: {0}'}">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                         <views:PullRequestStatusLabel DataContext="{Binding ReviewStatus}" />
@@ -81,7 +81,7 @@
                     </Grid>
                 </Button>
                 <Button x:Name="SidebarThreadsButton" Classes="prStatusRow" Command="{Binding ShowSectionCommand}" CommandParameter="threads"
-                        IsEnabled="{Binding CanNavigate}" IsVisible="{Binding HasThreadsStatus}" ToolTip.Tip="{Binding ThreadsStatus.Tip}"
+                        IsEnabled="{Binding CanNavigate}" IsVisible="{Binding HasThreadsStatus}" ToolTip.Tip="{Binding ThreadsStatus.LabelTip}"
                         AutomationProperties.Name="{Binding ThreadsStatus.Text, StringFormat='Open review threads: {0}'}">
                     <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
                         <views:PullRequestStatusLabel DataContext="{Binding ThreadsStatus}" />

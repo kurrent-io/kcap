@@ -1,11 +1,44 @@
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Media;
 using Avalonia.Threading;
 using Capacitor.App.Views;
 
 namespace Capacitor.App.Tests.Unit.Views;
 
 public class ToolTipFocusGateTests {
+    [Test]
+    [Arguments(TextWrapping.NoWrap)]
+    [Arguments(TextWrapping.Wrap)]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_label_only_shows_its_text_tooltip_when_truncated(TextWrapping wrapping) =>
+        AvaloniaSession.RunOnUiAsync(async () => {
+            var label = new TextBlock {
+                Text = "A label with enough words to be clipped on either one or two lines.",
+                Width = 450,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = wrapping,
+                MaxLines = 2,
+            };
+            TrimmedTextTooltip.SetShowOnlyWhenTrimmed(label, true);
+            ToolTip.SetTip(label, label.Text);
+            var window = new Window { Content = label, Width = 550, Height = 150 };
+            window.Show();
+            try {
+                TooltipPreviewScope.Pump(window);
+                ToolTip.SetIsOpen(label, true);
+                await Assert.That(ToolTip.GetIsOpen(label)).IsFalse();
+
+                label.Width = 90;
+                TooltipPreviewScope.Pump(window);
+                ToolTip.SetIsOpen(label, true);
+                await Assert.That(ToolTip.GetIsOpen(label)).IsTrue();
+            } finally {
+                window.Close();
+                Dispatcher.UIThread.RunJobs();
+            }
+        });
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task A_focused_option_can_show_help_in_a_native_dropdown_of_the_active_window() =>

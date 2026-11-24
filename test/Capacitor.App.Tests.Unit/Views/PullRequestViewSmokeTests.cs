@@ -3,6 +3,7 @@ using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.Views;
@@ -17,20 +18,33 @@ namespace Capacitor.App.Tests.Unit.Views;
 [NotInParallel("AvaloniaSession")]
 public class PullRequestViewSmokeTests {
     [Test]
-    public Task Structured_PR_card_tip_keeps_lifecycle_and_checks_separate() => RunOnUiAsync(async () => {
+    [Arguments("merged", "success", "Merged", "Checks passing")]
+    [Arguments("open", "failure", "Open", "Checks failing")]
+    public Task Structured_PR_card_tip_leaves_check_results_in_the_card(
+            string lifecycle, string rollup, string stateText, string checksText) => RunOnUiAsync(async () => {
         using var preview = new TooltipPreviewScope();
         preview.Enable(ClassicAppearance.Dark);
         await using var host = new PullRequestViewTestHost();
-        host.Source.RollupFor = _ => "failure";
+        foreach (var link in host.Source.Links) host.Source.Lifecycles[link.Number] = lifecycle;
+        host.Source.RollupFor = _ => rollup;
         await host.ShowAsync();
+        var checks = host.Card.FindControl<Button>("SidebarChecksButton")!;
+        await Assert.That(checks.GetVisualDescendants().OfType<TextBlock>()
+            .Any(text => text.IsEffectivelyVisible && text.Text == checksText)).IsTrue();
+        var number = host.Card.FindControl<TextBlock>("LifecycleNumber")!;
+        var repository = host.Card.GetVisualDescendants().OfType<TextBlock>().Single(text =>
+            text.IsEffectivelyVisible && text.Text == host.Model.RepositoryLabel);
+        foreach (var label in new[] { number, repository }) {
+            ToolTip.SetIsOpen(label, true);
+            await Assert.That(ToolTip.GetIsOpen(label)).IsFalse();
+        }
         var title = host.Card.FindControl<Button>("PullRequestTitleButton")!;
         title.Focus(NavigationMethod.Directional);
         TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
-        var lines = TooltipPreviewScope.Text(title);
-        await Assert.That(lines[0]).IsEqualTo("Private PR");
-        await Assert.That(lines[1]).IsEqualTo("Open");
-        await Assert.That(lines).Contains(host.Model.ChecksStatus.Text);
-        await Assert.That(lines.Contains("Open pull request overview")).IsFalse();
+        await Assert.That(TooltipPreviewScope.Text(title)).IsEquivalentTo(
+            new[] { "Private PR", stateText, "Pull request", $"{host.Model.RepositoryLabel} {host.Model.NumberLabel}" },
+            CollectionOrdering.Matching);
+        await Assert.That(AutomationProperties.GetHelpText(title)!.Contains(checksText, StringComparison.Ordinal)).IsFalse();
         await Assert.That(AutomationProperties.GetName(title)).IsEqualTo("Open pull request overview");
         var select = host.Card.FindControl<ComboBox>("PullRequestSelector")!;
         await Assert.That(select.IsEffectivelyVisible).IsTrue();

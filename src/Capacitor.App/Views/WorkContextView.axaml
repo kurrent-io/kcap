@@ -252,9 +252,9 @@
                 </Panel>
                 <StackPanel Grid.Column="1" Spacing="2">
                     <TextBlock Text="{Binding Title}" Classes="planTask" Classes.settled="{Binding IsSettled}"
-                               TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
+                               TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Title}" />
                     <TextBlock Text="{Binding Note}" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="16" Foreground="{StaticResource KcapFaintBrush}"
-                               TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Note}"
+                               TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Note}"
                                IsVisible="{Binding Note, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 </StackPanel>
             </Grid>
@@ -306,9 +306,9 @@
                     </Panel>
                     <StackPanel Grid.Column="1" Spacing="2">
                         <TextBlock Text="{Binding Name}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="16" FontWeight="SemiBold" Foreground="{StaticResource KcapTextBrush}"
-                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" ToolTip.ShowOnDisabled="True" />
+                                   TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Name}" ToolTip.ShowOnDisabled="True" />
                         <TextBlock Text="{Binding Description}" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}"
-                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Description}" ToolTip.ShowOnDisabled="True"
+                                   TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Description}" ToolTip.ShowOnDisabled="True"
                                    IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         <TextBlock Text="{Binding StateText}" Classes="kcapStatusWord" Classes.inflight="{Binding IsRunning}" Classes.danger="{Binding IsFailed}" TextWrapping="Wrap"
                                    ToolTip.Tip="{Binding UnopenableReason}" ToolTip.ShowOnDisabled="True" />
@@ -600,7 +600,7 @@
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:WorkContextPersonViewModel">
                                             <Button Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding Name}"
-                                                    HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Name}" AutomationProperties.Name="{Binding Name, StringFormat='Copy {0}'}">
+                                                    HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Name, StringFormat='Copy {0}'}" AutomationProperties.Name="{Binding Name, StringFormat='Copy {0}'}">
                                                 <StackPanel>
                                                     <TextBlock x:Name="ContributorNameText" Text="{Binding Name}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
                                                                Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
@@ -621,7 +621,7 @@
                                     </Panel>
                                 </Border>
                                 <Button x:Name="RequesterName" Grid.Row="1" Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding Requester}"
-                                        HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Requester}" IsVisible="{Binding PeopleExpanded}"
+                                        HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Requester, StringFormat='Copy {0}'}" IsVisible="{Binding PeopleExpanded}"
                                         AutomationProperties.Name="{Binding Requester, StringFormat='Copy {0}'}">
                                     <StackPanel>
                                         <TextBlock Text="{Binding Requester}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
@@ -1044,7 +1044,7 @@
                                     <Button x:Name="BranchButton" Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding Branch}"
                                             IsVisible="{Binding CanCopyBranch}"
                                             AutomationProperties.Name="Copy branch name"
-                                            ToolTip.Tip="{Binding Branch}">
+                                            ToolTip.Tip="{Binding Branch, StringFormat='Copy branch {0}'}">
                                         <TextBlock Text="{Binding Branch}" Classes="factValue" TextWrapping="Wrap" />
                                     </Button>
                                     <SelectableTextBlock Text="{Binding Branch}" Classes="factValue"

@@ -918,10 +918,10 @@
                                                 </Panel>
                                                 <DockPanel Grid.Column="1" VerticalAlignment="Center">
                                                     <TextBlock DockPanel.Dock="Left" Text="{Binding Name}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
-                                                               TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" ToolTip.ShowOnDisabled="True"
+                                                               TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Name}" ToolTip.ShowOnDisabled="True"
                                                                Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
                                                     <TextBlock Text="{Binding Description}" Classes="runDetail" Classes.shell="{Binding IsShell}"
-                                                               ToolTip.Tip="{Binding Description}" ToolTip.ShowOnDisabled="True"
+                                                               views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Description}" ToolTip.ShowOnDisabled="True"
                                                                IsVisible="{Binding HasDescription}" />
                                                 </DockPanel>
                                                 <TextBlock Grid.Column="2" Margin="4,0,0,0" Text="{Binding ElapsedText}" FontSize="{StaticResource KcapFontSizeSmall}"
@@ -969,7 +969,7 @@
                                                    AutomationProperties.LiveSetting="Assertive"
                                                    Classes.needsSender="{Binding DeliveryNeedsSender}" Classes.delivered="{Binding IsDelivered}"
                                                    FontSize="{StaticResource KcapFontSizeSmall}" Margin="12,0,0,0" MaxWidth="320" TextWrapping="Wrap" VerticalAlignment="Center" />
-                                        <TextBlock Text="{Binding DisplayText}" ToolTip.Tip="{Binding DisplayText}" FontSize="{StaticResource KcapFontSizeBody}"
+                                        <TextBlock Text="{Binding DisplayText}" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding DisplayText}" FontSize="{StaticResource KcapFontSizeBody}"
                                                    TextTrimming="CharacterEllipsis" MaxLines="1" VerticalAlignment="Center"
                                                    Foreground="{StaticResource KcapMutedBrush}" />
                                     </DockPanel>
@@ -991,7 +991,7 @@
                                     <DataTemplate x:DataType="vm:QueuedChatMessage">
                                         <Grid Margin="0,2" ColumnDefinitions="*,Auto">
                                             <StackPanel Spacing="2">
-                                                <TextBlock Text="{Binding DisplayText}" ToolTip.Tip="{Binding DisplayText}" FontSize="{StaticResource KcapFontSizeBody}"
+                                                <TextBlock Text="{Binding DisplayText}" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding DisplayText}" FontSize="{StaticResource KcapFontSizeBody}"
                                                            TextTrimming="CharacterEllipsis" MaxLines="1"
                                                            Foreground="{StaticResource KcapMutedBrush}" />
                                                 <TextBlock Text="{Binding PickupNote}"
@@ -1048,7 +1048,7 @@
                                                     <Run Text=" · " />
                                                     <Run Text="{Binding StatusText}" />
                                                 </TextBlock>
-                                                <TextBlock Text="{Binding Text}" ToolTip.Tip="{Binding Text}" FontSize="{StaticResource KcapFontSizeBody}"
+                                                <TextBlock Text="{Binding Text}" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Text}" FontSize="{StaticResource KcapFontSizeBody}"
                                                            TextTrimming="CharacterEllipsis" MaxLines="2" TextWrapping="Wrap"
                                                            Foreground="{StaticResource KcapMutedBrush}" />
                                                 <TextBlock Text="{Binding AttachmentNames}" FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapFaintBrush}"
@@ -1086,7 +1086,7 @@
                 <StackPanel x:Name="ChatActivityBand" Grid.Row="4" Margin="14,0,14,8" Spacing="2"
                             IsVisible="{Binding ShowsActivityNote}">
                     <TextBlock x:Name="ChatActivityNote"
-                               Text="{Binding ActivityNote}" ToolTip.Tip="{Binding ActivityNote}"
+                               Text="{Binding ActivityNote}" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding ActivityNote}"
                                Foreground="{StaticResource KcapMutedBrush}" FontSize="{StaticResource KcapFontSizeBody}"
                                TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" />
                     <StackPanel x:Name="ChatActivityTerminalOffer" Orientation="Horizontal"

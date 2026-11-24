@@ -19,7 +19,7 @@
         <Grid x:Name="TitleDisplay" ColumnDefinitions="*,Auto" HorizontalAlignment="Left" IsVisible="{Binding !IsEditing}">
             <TextBlock x:Name="TitleText" Grid.Column="0" Text="{Binding Title}" AutomationProperties.HeadingLevel="1" FontWeight="SemiBold" FontSize="{StaticResource KcapFontSizeLarge}"
                        Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                       ToolTip.Tip="{Binding Title}" />
+                       views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Title}" />
             <Button x:Name="RenameButton" Grid.Column="1" Classes="kcapGhost titleAction" Margin="4,0,0,0"
                     Command="{Binding BeginEditCommand}" IsVisible="{Binding ShowsPencil}"
                     AutomationProperties.Name="Rename session" ToolTip.Tip="Rename session">
