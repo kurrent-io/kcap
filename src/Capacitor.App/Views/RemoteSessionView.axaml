@@ -26,7 +26,7 @@
                     </Grid>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                    <Border x:Name="SurfaceSwitch" Classes="kcapSegment" IsVisible="{Binding ShowsSurfaceSwitch}">
+                    <Border x:Name="SurfaceSwitch" Classes="kcapSegment workspaceSegment" IsVisible="{Binding ShowsSurfaceSwitch}">
                         <StackPanel Orientation="Horizontal" Spacing="2">
                             <Button x:Name="ChatTabButton" Content="Chat" Classes="kcapSegmentItem"
                                     Classes.active="{Binding IsChatActive}" Command="{Binding ShowChatCommand}" />
