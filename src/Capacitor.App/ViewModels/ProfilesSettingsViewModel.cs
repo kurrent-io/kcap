@@ -315,11 +315,16 @@ public sealed class ProfilesSettingsViewModel : ReactiveObject, IDisposable {
             if (outcome.Activation is not ActivationEvidence.NotActivated) Switched = true;
             if (outcome is MutationOutcome.Succeeded) {
                 Message = $"Switched to {current.Name}. Restart this app to use it.";
-                if (await s.Relaunch(_lifetime)) Message = $"Switched to {current.Name}. Relaunching the app…";
+                try {
+                    if (await s.Relaunch(_lifetime)) Message = $"Switched to {current.Name}. Relaunching the app…";
+                } catch (Exception ex) when (ex is not OperationCanceledException) {
+                    Console.Error.WriteLine($"kcap: relaunch after a profile switch failed: {ex.Message}");
+                }
                 return;
             }
-            Message = SwitchFailure(current.Name, outcome, ActiveNow());
+            // The report is set after the refresh, which would replace it with its own unreadable-config message.
             await RefreshAsync();
+            Message = SwitchFailure(current.Name, outcome, ActiveNow());
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
             Message = $"Could not finish the switch: {ex.Message} Restart the app to see where it stopped.";

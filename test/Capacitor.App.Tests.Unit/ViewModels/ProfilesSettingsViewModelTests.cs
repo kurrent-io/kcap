@@ -294,11 +294,13 @@ public class ProfilesSettingsViewModelTests {
             return tcs;
         }
 
+        public Func<Task<bool>>? RelaunchBehavior;
+
         public ProfileSwitchServices Services(bool profileOverridden = false, bool platformSupported = true) => new(
             "daemon-a",
             (request, _) => { Requests.Add(request); return Task.FromResult(Outcome(request)); },
             (text, _) => { Prompts.Add(text); return Task.FromResult(Confirms); },
-            _ => { Relaunches++; return Task.FromResult(true); },
+            _ => { Relaunches++; return RelaunchBehavior?.Invoke() ?? Task.FromResult(true); },
             Settled.Task,
             (name, _) => Task.FromResult(Replying.Contains(name)),
             (_, _) => Task.FromResult(BoundService),
@@ -525,5 +527,30 @@ public class ProfilesSettingsViewModelTests {
 
         await Assert.That(target.UsageLabel).IsEqualTo("Command line");
         await Assert.That(target.CanSwitch).IsTrue();
+    });
+
+    [Test]
+    public Task A_relaunch_that_fails_after_a_successful_switch_still_reports_the_switch() => AvaloniaSession.RunOnUiAsync(async () => {
+        var fake = new SwitchFake { RelaunchBehavior = () => Task.FromException<bool>(new InvalidOperationException("no relaunch")) };
+        using var vm = MakeSwitching(await SeedSwitch(), fake.Services());
+
+        await vm.SwitchCommand.Execute(await Row(vm, "target")).ToTask();
+
+        await Assert.That(vm.Message).IsEqualTo("Switched to target. Restart this app to use it.");
+    });
+
+    [Test]
+    public Task A_failed_switch_keeps_its_report_when_the_config_has_become_unreadable() => AvaloniaSession.RunOnUiAsync(async () => {
+        var fake = new SwitchFake();
+        fake.Outcome = _ => {
+            File.WriteAllText(AppConfig.GetConfigPath(Config.Root), "{ not json");
+            return new MutationOutcome.Failed(VerifyExitCodes.ReadinessTimeout, null, RecoverySurface.Attention) { Activation = ActivationEvidence.Unknown };
+        };
+        using var vm = MakeSwitching(await SeedSwitch(), fake.Services());
+
+        await vm.SwitchCommand.Execute(await Row(vm, "target")).ToTask();
+
+        await Assert.That(vm.Message!).StartsWith("The switch to target did not finish");
+        await Assert.That(vm.Message!).Contains("The profile configuration could not be read.");
     });
 }
