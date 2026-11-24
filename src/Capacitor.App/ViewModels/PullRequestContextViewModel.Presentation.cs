@@ -141,7 +141,7 @@ public sealed partial class PullRequestContextViewModel {
             if (overview.Mergeable == false) asks.Add("resolve the merge conflicts with the base branch");
             if (overview.Threads is { Availability.Status: "ready", Unresolved: { Value: > 0 and var count } unresolved })
                 asks.Add($"address the {count}{(unresolved.Kind == "exact" ? "" : "+")} unresolved review thread{(count == 1 && unresolved.Kind == "exact" ? "" : "s")}");
-            if (ChecksStatus.Kind == "failure") asks.Add("fix the failing checks");
+            if ((UnifiedReaderVisible ? UnifiedChecksStatus : ChecksStatus).Kind == "failure") asks.Add("fix the failing checks");
             return asks.Count == 0 ? null : $"Get pull request {NumberLabel} ready to merge: {string.Join("; ", asks)}.";
         }
     }

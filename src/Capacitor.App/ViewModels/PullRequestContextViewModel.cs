@@ -108,7 +108,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
     public bool CanDisplay => _foreground && !_masked && (Remaining > 0
         || (_grace || RenewingSnapshot) && SnapshotDisplayRemaining > 0);
     public bool CanNavigate => CanDisplay && !_legacy;
-    bool CanDisplayReader => _readerVisible && CanDisplay && (CanReveal || !ReadsRows || _sections.ContainsKey(SectionKey));
+    bool CanDisplayReader => !_usesUnifiedReader && _readerVisible && CanDisplay && (CanReveal || !ReadsRows || _sections.ContainsKey(SectionKey));
     double Remaining => Math.Max(0, _accessSeconds - _time.GetElapsedTime(_accessStarted).TotalSeconds);
     bool RenewingSnapshot => _hasDisplayed && _accessSeconds > 0 && _overviewPending;
     // Both in-flight renewal and failed-renewal grace end at the same access-based deadline.
@@ -116,7 +116,12 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
     DateTime? HostRateLimitRetryAt => _selected is { } choice && _rateLimits.TryGetValue(RateLimitKey(choice.Subject), out var rateLimit) ? rateLimit : null;
     DateTime? ReadRetryAt => HostRateLimitRetryAt is { } rateLimit && (_retryAt is null || rateLimit > _retryAt) ? rateLimit : _retryAt;
     static string RateLimitKey(PullRequestSubjectDto subject) => (subject.Provider + "|" + subject.Host).ToLowerInvariant();
-    string SectionKey => _section == "thread_comments" ? _section + ":" + _thread : _section == "threads" ? _section + ":" + _resolved : _section;
+    string SectionKey => PageKey(_section, _resolved, _thread);
+    internal static string PageKey(string section, string? resolved, string? thread) => section switch {
+        "thread_comments" => section + ":" + thread,
+        "threads" => section + ":" + resolved,
+        _ => section,
+    };
     string _resolved = "unresolved";
     public bool IncludeResolved {
         get => _resolved == "all";
@@ -161,7 +166,10 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
         _readers = source as IPullRequestReaders;
         RefreshCommand = ReactiveCommand.Create(Refresh);
         OpenReaderCommand = ReactiveCommand.Create(OpenReader);
-        ShowSectionCommand = ReactiveCommand.Create<string>(ShowSection);
+        ShowSectionCommand = ReactiveCommand.Create<string>(section => {
+            if (CanNavigate) _unifiedPage?.RememberShortcut(section);
+            ShowSection(section);
+        });
         LoadMoreCommand = ReactiveCommand.Create(() => { if (CurrentSection?.Next is { } cursor) RequestPage(cursor); });
         ReloadEarlierCommand = ReactiveCommand.Create(() => { if (CurrentSection?.Evicted is { } cursor) RequestPage(cursor, earlier: true); });
         ExpandThreadCommand = ReactiveCommand.Create<PullRequestRow>(row => {
@@ -170,10 +178,10 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
             ShowSection("thread_comments");
         });
         OpenRowCommand = ReactiveCommand.Create<PullRequestRow>(row => {
-            if (CanDisplayReader) LinkPolicy.Open(_opener, row.IsCheck ? PullRequestWire.CheckLink(row.Url) : _selected is null ? null : PrLink(row.Url, _selected.Subject));
+            if (CanDisplayReader || UnifiedCanDisplay) LinkPolicy.Open(_opener, row.IsCheck ? PullRequestWire.CheckLink(row.Url) : _selected is null ? null : PrLink(row.Url, _selected.Subject));
         });
         OpenGitHubCommand = ReactiveCommand.Create(OpenSource);
-        OpenBodyLinkCommand = ReactiveCommand.Create<string>(url => { if (CanDisplayReader) LinkPolicy.Open(_opener, PullRequestWire.BodyLink(url)); });
+        OpenBodyLinkCommand = ReactiveCommand.Create<string>(url => { if (CanDisplayReader || UnifiedCanDisplay) LinkPolicy.Open(_opener, PullRequestWire.BodyLink(url)); });
         SignInCommand = ReactiveCommand.Create(() => signIn?.Invoke());
         LinkGitHubCommand = ReactiveCommand.Create(() => linkGitHub?.Invoke());
         InstallToolCommand = ReactiveCommand.Create(() => LinkPolicy.Open(_opener, _readerNote?.InstallUrl));
@@ -202,6 +210,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
             _explicitSelection = false;
             _restoredPick = null;
             _positions.Clear();
+            ResetUnifiedReader();
             _lifecycles.Clear();
             ClearProtected();
             _stopped = false;
@@ -221,6 +230,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
             if (_session is null || _disposed) return;
             // Lifecycles came from the previous account's reads; kept, the next snapshot would hand them to this one.
             _lifecycles.Clear();
+            ResetUnifiedReader();
             CancelReads(); ClearProtected(); _source.ResetSession(_session); _stopped = false; _lastRefresh = null; RequestRefresh(manual: true);
         }).DisposeWith(_subscriptions);
     }
@@ -236,6 +246,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
         _explicitSelection = false;
         _restoredPick = null;
         _positions.Clear();
+        ResetUnifiedReader();
         _lifecycles.Clear();
         _hasListed = true;
         _queuedRefresh = false;
@@ -296,6 +307,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
     /// Title opens Overview; checks/reviews rows use <see cref="ShowSection"/> for their tabs.
     public void OpenReader() {
         if (_disposed || !CanOpenReader) return;
+        _unifiedPage?.RememberShortcut("overview");
         if (CanReveal) { ShowSection("overview"); return; }
         _section = "overview";
         _thread = null;
@@ -311,7 +323,8 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
         if (_readerVisible == visible) return;
         _readerVisible = visible;
         Notify();
-        if (visible && CanReveal && ReadsRows) LoadOrRefreshSection();
+        if (visible && CanReveal && ReadsRows && !_usesUnifiedReader) LoadOrRefreshSection();
+        if (visible && _usesUnifiedReader) _unifiedPage?.LoadVisited();
     }
     public void SelectSubject(PullRequestSubjectDto subject) {
         if (_disposed) return;
@@ -359,10 +372,12 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
             if (_positions.Count >= 20 && !_positions.ContainsKey(_selected.Subject)) _positions.Remove(_positions.MinBy(x => x.Value.Touched).Key);
             _positions[_selected.Subject] = new(_section, _thread, _resolved, ScrollOffset, _time.GetTimestamp());
         }
+        SaveUnifiedPages();
         CancelReads();
         _selected = choice;
         ClearProtected();
         _retryAt = null;
+        RestoreUnifiedPages();
         _section = "overview"; _thread = null; _resolved = "unresolved"; ScrollOffset = 0;
         if (choice is not null && _positions.TryGetValue(choice.Subject, out var position)) {
             _section = position.Section; _thread = position.Thread; _resolved = position.Resolved; ScrollOffset = position.Scroll;
@@ -381,6 +396,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
         _openReader();
         _readerVisible = true;
         Notify();
+        if (_usesUnifiedReader) return;
         if (!ReadsRows) return;
         if (CanReveal) LoadOrRefreshSection();
         else if (CurrentSection is null && !(ReadRetryAt > _time.GetUtcNow().UtcDateTime)) { _lastOverview = null; RequestOverview(); }
@@ -442,8 +458,14 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
         if (reason is not null) _staleReason = reason;
         SetNotice("");
     }
-    bool AcceptAccess<T>(PullRequestRead<T> read) where T : class {
+    bool AcceptAccess<T>(PullRequestRead<T> read, bool fromPage = false) where T : class {
         if (!read.CanReveal(_time) || read.Subject != _selected?.Subject) return false;
+        // An older peer response can supply rows, but cannot replace a current access grant.
+        if (_usesUnifiedReader && fromPage && _hasDisplayed
+            && (read.RequestStarted < _accessStarted || read.Kind == PullRequestReadKind.Stale)) {
+            RememberRetry(read);
+            return CanReveal;
+        }
         _accessStarted = read.RequestStarted;
         _accessSeconds = read.AccessValidForSeconds;
         _masked = false;
@@ -478,6 +500,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
         // The once-only head recovery belongs to the read just cancelled. A later subject
         // has to be allowed its own, or its section stops instead of reloading.
         _headRestartSection = null;
+        _unifiedHeadRestarts?.Clear();
     }
     void Start(Func<CancellationToken, Task<Action>> operation, Action settled) {
         var generation = _generation;
@@ -513,7 +536,7 @@ public sealed partial class PullRequestContextViewModel : ReactiveObject {
         _timer.Dispose(); _subscriptions.Dispose(); _cancel.Cancel();
         try { await Task.WhenAll(_tasks.ToArray()); } catch (OperationCanceledException) { }
         _cancel.Dispose(); foreach (var retired in _retired) retired.Dispose();
-        _tasks.Clear(); _retired.Clear(); _positions.Clear(); _choices.Clear(); ClearProtected();
+        _tasks.Clear(); _retired.Clear(); _positions.Clear(); _choices.Clear(); ResetUnifiedReader(); ClearProtected();
         _hasPullRequest.Dispose();
         _notified.Clear();
     }

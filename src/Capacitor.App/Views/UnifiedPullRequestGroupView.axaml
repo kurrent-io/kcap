@@ -1,0 +1,72 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             x:Class="Capacitor.App.Views.UnifiedPullRequestGroupView" x:DataType="vm:UnifiedPullRequestGroup">
+    <UserControl.Resources>
+        <DataTemplate x:Key="ReaderItem" x:DataType="vm:UnifiedPullRequestItem">
+            <Border Classes="prRow" Classes.prDiscussion="{Binding Row.IsThread}" Classes.thread="{Binding Row.IsThread}">
+                <StackPanel Spacing="7">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="{Binding Row.Title}" Foreground="{StaticResource KcapTextBrush}"
+                                       FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding Row.Detail}" Classes="prNote" IsVisible="{Binding ShowDetail}" />
+                            <TextBlock Text="Review re-requested" Classes="prNote" IsVisible="{Binding Row.ReRequested}" />
+                            <views:PullRequestStatusLabel DataContext="{Binding Row.Status}"
+                                IsVisible="{Binding $parent[StackPanel].((vm:UnifiedPullRequestItem)DataContext).HasStatus}" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Classes="kcapGhost kcapIcon" IsVisible="{Binding Row.HasLink}" VerticalAlignment="Top"
+                                Command="{Binding Group.Page.Context.OpenRowCommand}" CommandParameter="{Binding Row}"
+                                AutomationProperties.Name="{Binding Row.Title, StringFormat='Open {0} in browser'}" ToolTip.Tip="Open in browser">
+                            <views:AppIcon Kind="ExternalLink" Size="14" Classes="prExternal" />
+                        </Button>
+                    </Grid>
+                    <Border IsVisible="{Binding Row.HasHunk}" Background="{StaticResource KcapSurfaceRaisedBrush}" Padding="10" CornerRadius="5">
+                        <SelectableTextBlock Text="{Binding Row.Hunk}" FontFamily="{StaticResource KcapFontFamilyMono}"
+                                             FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}" />
+                    </Border>
+                    <views:MarkdownView Text="{Binding Row.Body}" IsVisible="{Binding Row.HasBody}" Flavor="GitHub"
+                                        OpenSourceCommand="{Binding Group.Page.Context.OpenRowCommand}" OpenSourceCommandParameter="{Binding Row}"
+                                        CanOpenSource="{Binding Row.HasLink}" ReferenceBase="{Binding Group.Page.Context.ReferenceBase}"
+                                        OpenLink="{Binding Group.Page.Context.OpenBodyLinkCommand}" />
+                    <TextBlock Text="{Binding Row.ItemNote}" IsVisible="{Binding Row.HasItemNote}" Classes="prNote" />
+                    <ToggleButton Classes="readerDisclosure" Content="{Binding RepliesLabel}" IsVisible="{Binding Row.IsThread}"
+                                  IsEnabled="{Binding CanToggleReplies}" IsChecked="{Binding RepliesExpanded, Mode=TwoWay}"
+                                  AutomationProperties.Name="{Binding RepliesAccessibleName}" />
+                    <ContentControl Content="{Binding Replies}" IsVisible="{Binding HasReplies}">
+                        <ContentControl.ContentTemplate>
+                            <DataTemplate x:DataType="vm:UnifiedPullRequestGroup">
+                                <Border Margin="4,0,0,0" Padding="12,0,0,0" BorderBrush="{StaticResource KcapBorderStrongBrush}" BorderThickness="1,0,0,0">
+                                    <views:UnifiedPullRequestGroupView />
+                                </Border>
+                            </DataTemplate>
+                        </ContentControl.ContentTemplate>
+                    </ContentControl>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+    <StackPanel Spacing="6">
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="{Binding !IsReplies}">
+            <TextBlock x:Name="GroupHeading" Text="{Binding Title}" Classes="readerHeading" AutomationProperties.HeadingLevel="3" />
+            <ToggleButton Grid.Column="1" Content="Show resolved" Classes="readerDisclosure" IsVisible="{Binding IsThreads}"
+                      IsEnabled="{Binding CanFilter}" IsChecked="{Binding Page.IncludeResolved, Mode=TwoWay}"
+                      AutomationProperties.Name="Show resolved threads" />
+        </Grid>
+        <TextBlock Classes="prNote" Text="{Binding Updated}" IsVisible="{Binding Updated, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        <TextBlock Text="Loading…" Classes="prNote" IsVisible="{Binding IsLoading}" AutomationProperties.LiveSetting="Polite" />
+        <TextBlock Classes="prNote" Text="{Binding Note}" IsVisible="{Binding Note, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                   AutomationProperties.LiveSetting="Polite" />
+        <Button Content="{Binding LoadLabel}" Command="{Binding FirstCommand}" IsVisible="{Binding CanLoad}" HorizontalAlignment="Left"
+                Classes="kcapGhost kcapQuiet prFlushLeft" />
+        <Button Content="Reload earlier" Command="{Binding EarlierCommand}" IsVisible="{Binding HasEarlier}" IsEnabled="{Binding CanPage}"
+                AutomationProperties.Name="{Binding EarlierAccessibleName}" HorizontalAlignment="Left" Classes="kcapGhost kcapQuiet prFlushLeft" />
+        <ItemsControl x:Name="GroupRows" ItemsSource="{Binding Rows}" ItemTemplate="{StaticResource ReaderItem}" />
+        <ToggleButton Content="{Binding PassingLabel}" IsChecked="{Binding PassingExpanded, Mode=TwoWay}" IsVisible="{Binding HasPassing}"
+                      Classes="readerDisclosure" />
+        <ItemsControl x:Name="PassedRows" ItemsSource="{Binding PassingRows}" ItemTemplate="{StaticResource ReaderItem}" IsVisible="{Binding PassingExpanded}" />
+        <Button Content="Load more" Command="{Binding MoreCommand}" IsVisible="{Binding HasMore}" IsEnabled="{Binding CanPage}"
+                AutomationProperties.Name="{Binding MoreAccessibleName}" HorizontalAlignment="Left" Classes="kcapGhost kcapQuiet prFlushLeft" />
+    </StackPanel>
+</UserControl>

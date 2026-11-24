@@ -160,7 +160,7 @@
                     </StackPanel>
                 </Border>
             </Grid>
-            <ContentControl x:Name="PullRequestPane" IsVisible="{Binding ShowsPullRequestPane}" />
+            <views:PullRequestReaderHost x:Name="PullRequestPane" IsVisible="{Binding ShowsPullRequestPane}" />
             <ContentControl x:Name="ArtefactsPane" IsVisible="{Binding ShowsArtefactsPane}" />
         </Grid>
     </Grid>

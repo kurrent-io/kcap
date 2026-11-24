@@ -9,6 +9,7 @@ public sealed partial class PullRequestContextViewModel {
     bool _refreshPage;
     PullRequestSubjectDto? _restoredPick;
     string? _headRestartSection;
+    HashSet<string>? _unifiedHeadRestarts;
     PullRequestSectionState? CurrentSection => _sections.GetValueOrDefault(SectionKey);
 
     void RequestRefresh(bool manual = false) {
@@ -109,6 +110,7 @@ public sealed partial class PullRequestContextViewModel {
             var read = await _source.OverviewAsync(session, choice.Subject, ct).ConfigureAwait(false);
             return () => {
                 if (read.Kind is PullRequestReadKind.Ready or PullRequestReadKind.Stale && read.Data is not null && AcceptAccess(read)) {
+                    ValidateUnifiedOverview(read);
                     var headChanged = _overview?.HeadSha is { } old && old != read.Data.HeadSha;
                     var rollupMoved = _overview?.Checks?.Rollup != read.Data.Checks?.Rollup;
                     _overview = read.Data; _overviewRead = read;
@@ -116,12 +118,18 @@ public sealed partial class PullRequestContextViewModel {
                     _snapshots?.Set(session, SnapshotOf([.. _sessionItems], read), cacheGeneration);
                     _notice = "";
                     if (learned && ReconsiderDefault()) return;
-                    // Check rows are a snapshot while the summary tracks the overview: reload them while
-                    // any is still running, or the summary goes green beside rows that still say pending.
+                    if (_usesUnifiedReader) {
+                        TrimUnifiedPageCache(ActivePageBytes);
+                        var refresh = _refreshPage;
+                        _refreshPage = false;
+                        Notify();
+                        _unifiedPage?.LoadVisited(refresh, rollupMoved, renewDiscussions: true);
+                        return;
+                    }
+                    // Pending check rows can disagree with the refreshed summary.
                     var checksLive = _section == "checks" && CurrentSection is { } checks
                         && (headChanged || rollupMoved || checks.Pages.Any(page => page.Rows.Any(row => row.Outcome == "pending")));
-                    // The open tab follows the poll too, unless the reader paged past the first page:
-                    // a reload restarts at page one and would pull the rows they were reading away.
+                    // A reload would pull paginated rows out from under the reader.
                     var onePage = CurrentSection is { Pages.Count: 1, Earlier.Count: 0 };
                     var stoppedChecks = _section == "checks" && CurrentSection is { Stopped: true };
                     var reload = _refreshPage || _headRestartSection == SectionKey || checksLive || onePage || stoppedChecks;
@@ -134,19 +142,19 @@ public sealed partial class PullRequestContextViewModel {
     }
 
     void RequestPage(string? cursor, bool refresh = false, bool earlier = false) {
-        if (_disposed || !CanReveal || _session is not { } session || _selected is not { } choice || !ReadsRows
+        if (ReadsRows) RequestPage(_section, _section == "threads" ? _resolved : null, _thread, cursor, refresh, earlier);
+    }
+
+    void RequestPage(string section, string? filter, string? thread, string? cursor, bool refresh, bool earlier) {
+        if (_disposed || !_readerVisible || !CanReveal || _session is not { } session || _selected is not { } choice
             || ReadRetryAt > _time.GetUtcNow().UtcDateTime) return;
-        var key = SectionKey;
-        if (_pageRequests.Contains(key)) return;
-        if (!refresh && CurrentSection is { Stopped: true }) return;
-        var section = _section;
-        var filter = section == "threads" ? _resolved : null;
-        var thread = _thread;
+        var key = PageKey(section, filter, thread);
+        if (_pageRequests.Contains(key) || !refresh && _sections.GetValueOrDefault(key) is { Stopped: true }) return;
         _pageRequests.Add(key);
         Notify();
-        // Set by a head_changed restart; the overview it asks for goes out once this read has settled,
-        // or its apply would find this request still in flight and skip the reload.
+        // Release the section's request slot before an overview can trigger its reload.
         var restartOverview = false;
+        var threadsLoaded = false;
         switch (section) {
             case "checks": Page<PullRequestCheckDto>(ToRow); break;
             case "reviewers": Page<PullRequestReviewerDto>(ToRow); break;
@@ -157,7 +165,15 @@ public sealed partial class PullRequestContextViewModel {
         void Page<T>(Func<T, PullRequestSubjectDto, PullRequestRow> project) where T : class => Start(async ct => {
             var read = await _source.PageAsync<T>(session, choice.Subject, section, cursor, filter, thread, ct).ConfigureAwait(false);
             return () => {
-                if (read.Kind is PullRequestReadKind.Ready or PullRequestReadKind.Stale && read.Data is { } page && AcceptAccess(read)) {
+                if (_usesUnifiedReader && read.Subject == choice.Subject && read.AccessFailure is null
+                    && read.Kind is PullRequestReadKind.Ready or PullRequestReadKind.Stale && read.Data is { } payload) {
+                    if (CanReveal && read.RequestStarted < _accessStarted && !read.CanReveal(_time)) return;
+                    if (!IsUnifiedReadCurrent(key, payload.HeadSha)) {
+                        RestartUnifiedPage();
+                        return;
+                    }
+                }
+                if (read.Kind is PullRequestReadKind.Ready or PullRequestReadKind.Stale && read.Data is { } page && AcceptAccess(read, fromPage: true)) {
                     var state = _sections.GetValueOrDefault(key) ?? new PullRequestSectionState(key);
                     if (state.Snapshot is not null && state.Snapshot != page.SnapshotId && cursor is not null) { FailProtocol(read.Reader); return; }
                     if (refresh || state.Snapshot != page.SnapshotId) { state.Pages.Clear(); state.Earlier.Clear(); }
@@ -172,16 +188,20 @@ public sealed partial class PullRequestContextViewModel {
                         state.Pages.Add(saved);
                     }
                     if (_headRestartSection == key) _headRestartSection = null;
+                    _unifiedHeadRestarts?.Remove(key);
                     state.Snapshot = page.SnapshotId; state.Completed = page.SnapshotCompletedAt;
                     state.Head = page.HeadSha; state.Coverage = page.Coverage;
                     state.Total = page.Total; state.Excluded = page.ExcludedByFilter; state.Stopped = false; state.Error = null;
+                    state.StaleReason = read.Kind == PullRequestReadKind.Stale ? Reason(read) : null;
                     _sections[key] = state;
                     EnforcePageBudget(state, saved, earlier);
                     state.Next = state.Pages.LastOrDefault()?.Next;
                     _notice = "";
+                    threadsLoaded = section == "threads";
+                } else if (_usesUnifiedReader && read is { Kind: PullRequestReadKind.Restart, Reason: "head_changed" }) {
+                    RestartUnifiedPage();
                 } else if (read is { Kind: PullRequestReadKind.Restart, Reason: "head_changed" } && _headRestartSection is null) {
-                    // Learn the new head from a fresh overview, whose apply reloads this section. Once
-                    // only for that section: an overview still on the old head would bounce straight back here.
+                    // Retry once. An overview on the old head could bounce back here.
                     _headRestartSection = key;
                     if (_sections.TryGetValue(key, out var state)) state.Stopped = true;
                     _lastOverview = null;
@@ -192,14 +212,33 @@ public sealed partial class PullRequestContextViewModel {
                     _sections[key] = state;
                 } else Fail(read);
             };
-        }, () => { _pageRequests.Remove(key); if (restartOverview) RequestOverview(); });
+        }, () => {
+            _pageRequests.Remove(key);
+            if (restartOverview) RequestOverview();
+            if (threadsLoaded && _usesUnifiedReader) {
+                Notify();
+                _unifiedPage?.LoadUnloadedReplies();
+            }
+        });
+
+        void RestartUnifiedPage() {
+            var retry = (_unifiedHeadRestarts ??= new(StringComparer.Ordinal)).Add(key);
+            _sections[key] = new(key) {
+                Head = _overview?.HeadSha,
+                Stopped = !retry,
+                Error = retry ? "Updating for a new commit…" : "This section is waiting for the current commit. Refresh to try again.",
+            };
+            if (!retry) return;
+            _lastOverview = null;
+            restartOverview = true;
+        }
     }
     void EnforcePageBudget(PullRequestSectionState state, PullRequestSectionState.Page newest, bool earlier) {
         while (state.Pages.Count > 8) {
             var evict = earlier ? state.Pages.Last(page => !ReferenceEquals(page, newest)) : state.Pages.First(page => !ReferenceEquals(page, newest));
             Evict(state, evict, rememberEarlier: !earlier);
         }
-        while (_sections.Values.Sum(section => section.Bytes) + 2L * (_overview?.Description?.Length ?? 0) > 32 * 1024 * 1024) {
+        while (ActivePageBytes > PageCacheBudget) {
             var empty = _sections.Values.FirstOrDefault(section => section.Key != SectionKey && section.Pages.Count == 0);
             if (empty is not null) { _sections.Remove(empty.Key); continue; }
             var candidates = _sections.Values.Where(section => section.Pages.Count > 0)
@@ -208,7 +247,10 @@ public sealed partial class PullRequestContextViewModel {
             if (candidates.Length == 0) break;
             var evict = candidates[0]; Evict(evict.Section, evict.Page, rememberEarlier: true);
         }
+        if (_usesUnifiedReader) TrimUnifiedPageCache(ActivePageBytes);
     }
+    internal const long PageCacheBudget = 32 * 1024 * 1024;
+    long ActivePageBytes => _sections.Values.Sum(section => section.Bytes) + 2L * (_overview?.Description?.Length ?? 0);
     static void Evict(PullRequestSectionState section, PullRequestSectionState.Page page, bool rememberEarlier) {
         section.Pages.Remove(page);
         if (rememberEarlier) {
@@ -220,13 +262,13 @@ public sealed partial class PullRequestContextViewModel {
         RememberRetry(read);
         var reason = Reason(read);
         // Access loss invalidates peer reads too; a late page must not reopen protected content.
-        if (read is { Kind: PullRequestReadKind.Restart, Reason: "identity_changed" or "integration_changed" } || read.Reason == "no_reader") { CancelReads(); ClearProtected(); ForgetOverview(); }
+        if (read is { Kind: PullRequestReadKind.Restart, Reason: "identity_changed" or "integration_changed" } || read.Reason == "no_reader") { ResetUnifiedReader(); CancelReads(); ClearProtected(); ForgetOverview(); }
         else if (read.AccessFailure == "transient" || read.Kind is PullRequestReadKind.Ready or PullRequestReadKind.Stale
             || read.AccessFailure is null && read.Reason is "timeout" or "provider_unavailable" or "rate_limited" or "budget_exhausted" or "capacity_exhausted") {
             EnterGrace(reason);
             if (_grace) return;
         }
-        else { CancelReads(); ClearProtected(); ForgetOverview(); }
+        else { ResetUnifiedReader(); CancelReads(); ClearProtected(); ForgetOverview(); }
         SetNotice(reason);
     }
     /// A session reopened shows its last list at once, and its overview only while that read's
@@ -242,6 +284,7 @@ public sealed partial class PullRequestContextViewModel {
     }
     void ShowLastOverview() {
         if (_session is not { } session || _snapshots?.Get(session)?.Overview is not { Data: { } overview } read || !AcceptAccess(read)) return;
+        ValidateUnifiedOverview(read);
         _overview = overview; _overviewRead = read;
         Notify();
     }
@@ -338,6 +381,7 @@ public sealed partial class PullRequestContextViewModel {
     void ForgetChoices() {
         if (_session is { } session) _snapshots?.Forget(session);
         if (_explicitSelection && _selected is not null) _requestedSubject = _selected.Subject;
+        ResetUnifiedReader();
         CancelReads(); _choices.Clear(); _sessionItems.Clear(); _selected = null;
     }
     void FailProtocol(string? reader) {

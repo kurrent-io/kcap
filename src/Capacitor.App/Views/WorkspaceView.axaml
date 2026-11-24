@@ -104,7 +104,7 @@
                     </DataTemplate>
                 </ContentControl.ContentTemplate>
             </ContentControl>
-            <ContentControl x:Name="PullRequestHost" IsVisible="{Binding IsPullRequestActive}" />
+            <views:PullRequestReaderHost x:Name="PullRequestHost" IsVisible="{Binding IsPullRequestActive}" />
             <ContentControl x:Name="ArtefactsHost" IsVisible="{Binding IsArtefactsActive}" />
 
             <!-- Over the (still empty) chat host while the daemon is starting the runtime: the

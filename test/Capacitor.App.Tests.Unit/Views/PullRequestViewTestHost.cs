@@ -14,18 +14,22 @@ internal sealed class PullRequestViewTestHost : IAsyncDisposable {
     public FakeTimeProvider Time { get; } = new();
     public FakePullRequestSource Source { get; }
     public PullRequestContextViewModel Model { get; }
-    public PullRequestReader Reader { get; }
+    public PullRequestReader Reader { get; } = new();
+    public PullRequestReaderHost? ReaderHost { get; }
     public PullRequestCard Card { get; }
     public Window Window { get; }
     public int Opened { get; private set; }
 
-    public PullRequestViewTestHost(double readerWidth = 700) {
+    public PullRequestViewTestHost(double readerWidth = 700, bool unified = false) {
         Source = new(Time) { TotalPages = 1 };
         Model = new(_presence, Source, Time, new RecordingOpener(), () => Opened++);
-        Reader = new() { DataContext = Model };
+        Reader.DataContext = Model;
         Card = new() { DataContext = Model, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Top };
         var grid = new Grid { ColumnDefinitions = new("*,320") };
-        grid.Children.Add(Reader);
+        if (unified) {
+            ReaderHost = new();
+            grid.Children.Add(ReaderHost);
+        } else grid.Children.Add(Reader);
         Grid.SetColumn(Card, 1);
         grid.Children.Add(Card);
         Window = new() { Content = grid, Width = readerWidth + 320, Height = 850 };
@@ -33,6 +37,10 @@ internal sealed class PullRequestViewTestHost : IAsyncDisposable {
 
     public async Task ShowAsync() {
         Window.Show();
+        if (ReaderHost is not null) {
+            Window.Resources[PullRequestReaderHost.UnifiedReaderResource] = true;
+            ReaderHost.Show(Model, active: true);
+        }
         Model.SetForeground(true);
         _presence.OnNext(Agent("agent", "claude", false, sessionId: "session"));
         Model.SetReaderVisible(true);
@@ -46,6 +54,7 @@ internal sealed class PullRequestViewTestHost : IAsyncDisposable {
     }
 
     public async ValueTask DisposeAsync() {
+        ReaderHost?.Reset();
         Window.Close();
         await Model.TeardownAsync();
         _presence.Dispose();

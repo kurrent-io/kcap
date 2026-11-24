@@ -14,6 +14,7 @@ using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.Views;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core.PullRequests;
 using Capacitor.Cli.Core.WorkItems;
 using Capacitor.Remote.Models;
 using DynamicData;
@@ -30,6 +31,36 @@ namespace Capacitor.App.Tests.Unit.Views;
 /// scheduler marshals that onto the UI thread before it reaches a binding.
 [NotInParallel(nameof(AvaloniaSession))]
 public class RemoteSessionViewSmokeTests {
+    [Test]
+    public Task Unified_reader_opens_from_the_remote_workspace_and_masks_content_while_away() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var preview = new TooltipPreviewScope();
+        preview.Enable(ClassicAppearance.Dark);
+        var source = new FakePullRequestSource(new FakeTimeProvider()) { TotalPages = 1 };
+        using var host = new Host(pullRequests: source);
+        try {
+            host.Window.Resources[PullRequestReaderHost.UnifiedReaderResource] = true;
+            host.Vm.PullRequests!.SetForeground(true);
+            await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready && host.Vm.PullRequests.CanReveal, "PR access");
+            var tab = host.View.FindControl<Button>("PullRequestTabButton")!;
+            await Assert.That(tab.Focus(NavigationMethod.Tab)).IsTrue();
+            TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
+            await host.SettleUntilAsync(() => host.Vm.IsPullRequestActive &&
+                host.View.GetVisualDescendants().OfType<UnifiedPullRequestReader>().Any(), "unified reader");
+            var reader = host.View.GetVisualDescendants().OfType<UnifiedPullRequestReader>().Single();
+            var page = (UnifiedPullRequestPage)reader.DataContext!;
+            await Assert.That(page.Description).IsEqualTo("Private description");
+
+            await host.Vm.ShowChatCommand.Execute();
+            host.Settle();
+            await Assert.That(reader.IsEffectivelyVisible).IsFalse();
+            await Assert.That(page.Description).IsNull();
+            await host.Vm.ShowPullRequestCommand.Execute();
+            host.Settle();
+            await Assert.That(reader.IsEffectivelyVisible).IsTrue();
+            await Assert.That(page.Description).IsEqualTo("Private description");
+        } finally { await host.Vm.TeardownAsync(); }
+    });
+
     [Test]
     public async Task An_unresolved_server_attempt_can_be_discarded_without_sending_a_prompt() {
         await AvaloniaSession.DispatchAsync(async () => {
@@ -302,7 +333,7 @@ public class RemoteSessionViewSmokeTests {
 
         public Host(IPlanArtifactSource? planArtifacts = null, string sessionId = "s1", IWindowImpl? windowImpl = null, bool realTerminal = false,
                 AgentRow? row = null, Func<AgentRow, HandoffComposerViewModel>? handoff = null, FakeWorkContextSource? workSource = null, SessionDetailDto? detail = null, Func<Task>? retryConnection = null,
-                Func<FakeServerLane, LocalServerRecoveryViewModel>? localServer = null) {
+                Func<FakeServerLane, LocalServerRecoveryViewModel>? localServer = null, IPullRequestSource? pullRequests = null) {
             _access = new SessionAccessService(Lane, Time);
             Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: "u1", Epoch: 1));
             row ??= AgentRow.FromRemote(new AgentInstanceDto {
@@ -315,7 +346,7 @@ public class RemoteSessionViewSmokeTests {
                 FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(detail ?? Detail()))), new RecordingOpener(), Time, workSource ?? new FakeWorkContextSource(),
                 () => realTerminal ? new XtermTerminalSurface(130, 54) : new FakeTerminalSurface(), planArtifacts,
                 remoteAgents: Remote, notifier: new RecordingNotifier(), handoff: handoff, retryConnection: retryConnection,
-                localServer: _localServer);
+                localServer: _localServer, pullRequests: pullRequests);
             View = new RemoteSessionView { DataContext = Vm };
             Window = windowImpl is null ? new Window() : new Window(windowImpl);
             Window.Content = View;

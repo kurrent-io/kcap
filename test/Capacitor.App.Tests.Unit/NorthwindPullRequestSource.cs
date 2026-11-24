@@ -68,6 +68,8 @@ sealed class NorthwindPullRequestSource(FakeTimeProvider time) : IPullRequestSou
 
     public Task<PullRequestRead<PullRequestPageDto<T>>> PageAsync<T>(string sessionId, PullRequestSubjectDto subject, string section,
             string? cursor, string? resolved, string? threadId, CancellationToken ct) where T : class {
+        var root = new PullRequestCommentDto { Id = "t1c", Availability = "available", Author = Dana, CreatedAt = At(12),
+            Body = "Treat 429 as transient as well, and wait for Retry-After before the next attempt." };
         object[] items = section switch {
             "checks" => [
                 Check("c1", "build", "success", 9),
@@ -89,15 +91,22 @@ sealed class NorthwindPullRequestSource(FakeTimeProvider time) : IPullRequestSou
                 new PullRequestThreadDto { Id = "t1", Availability = "available", IsResolved = false, IsOutdated = false,
                     Path = "src/Payments.Gateway/GatewayClient.cs", Line = 48, DiffSide = "RIGHT",
                     DiffHunk = "@@ -45,3 +45,4 @@\n+    static bool IsTransient(HttpStatusCode code) =>\n+        code is HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout;",
-                    RootComment = new() { Id = "t1c", Availability = "available", Author = Dana, CreatedAt = At(12),
-                        Body = "Treat 429 as transient as well, and wait for Retry-After before the next attempt." } },
+                    RootComment = root },
             ],
-            _ => [
+            "thread_comments" when threadId == "t1" => [
+                root,
+                new PullRequestCommentDto { Id = "t1c2", Availability = "available", Author = Maya, CreatedAt = At(10),
+                    Body = "The retry now honors Retry-After on 429 responses." },
+                new PullRequestCommentDto { Id = "t1c3", Availability = "available", Author = Sam, CreatedAt = At(8),
+                    Body = "I added a replay test for a date-form Retry-After header." },
+            ],
+            "conversation" => [
                 new PullRequestCommentDto { Id = "m1", Availability = "available", Author = Maya, CreatedAt = At(40),
                     Body = "Ready for review. The integration suite replays the 503 burst from last Tuesday." },
                 new PullRequestCommentDto { Id = "m2", Availability = "available", Author = Sam, CreatedAt = At(28),
                     Body = "Ran it against staging: the burst now clears on the second attempt." },
             ],
+            _ => [],
         };
         var page = new PullRequestPageDto<T> {
             SnapshotId = new string('n', 64), SnapshotStartedAt = time.GetUtcNow().UtcDateTime, SnapshotCompletedAt = time.GetUtcNow().UtcDateTime,

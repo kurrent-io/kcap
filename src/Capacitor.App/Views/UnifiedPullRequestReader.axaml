@@ -1,0 +1,158 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             x:Class="Capacitor.App.Views.UnifiedPullRequestReader" x:DataType="vm:UnifiedPullRequestPage"
+             Background="{StaticResource KcapCanvasBrush}" AutomationProperties.LandmarkType="Main">
+    <UserControl.Styles>
+        <Style Selector="TextBlock.readerHeading">
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeLarge}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+            <Setter Property="Focusable" Value="True" />
+            <Setter Property="KeyboardNavigation.IsTabStop" Value="False" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+        </Style>
+        <Style Selector="TextBlock.readerHeading:focus-visible">
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+        </Style>
+        <Style Selector="Button.readerJump">
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="Padding" Value="8,4" />
+        </Style>
+        <Style Selector="ToggleButton.readerDisclosure">
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="MinHeight" Value="26" />
+            <Setter Property="CornerRadius" Value="5" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
+        </Style>
+        <Style Selector="ToggleButton.readerDisclosure /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
+        <Style Selector="ToggleButton.readerDisclosure:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         ToggleButton.readerDisclosure:pressed /template/ ContentPresenter#PART_ContentPresenter,
+                         ToggleButton.readerDisclosure:checked /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+        </Style>
+        <Style Selector="ToggleButton.readerDisclosure:focus-visible /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapTextBrush}" />
+            <Setter Property="BorderThickness" Value="2" />
+        </Style>
+    </UserControl.Styles>
+    <Grid RowDefinitions="*,Auto">
+        <ScrollViewer x:Name="PageScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      AutomationProperties.Name="Pull request">
+            <StackPanel MaxWidth="820" Margin="24,20,24,28" Spacing="20">
+                <StackPanel x:Name="Overview" Spacing="10">
+                    <StackPanel Spacing="7" IsVisible="{Binding Context.HasChoice}">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                            <TextBlock Classes="prMuted" TextWrapping="Wrap" VerticalAlignment="Center">
+                                <Run Text="{Binding Context.RepositoryLabel}" /><Run Text=" " /><Run Text="{Binding Context.NumberLabel}" />
+                            </TextBlock>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                                <Button Command="{Binding Context.OpenGitHubCommand}"
+                                        Classes="kcapGhost kcapQuiet" IsEnabled="{Binding Context.CanOpenSource}"
+                                        AutomationProperties.Name="Open pull request in browser">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock Text="{Binding Context.ProviderLabel}" VerticalAlignment="Center" />
+                                        <views:AppIcon Kind="ExternalLink" Size="14" Classes="prExternal" />
+                                    </StackPanel>
+                                </Button>
+                                <Button Content="Fix it" Command="{Binding Context.FixCommand}" Classes="kcapPrimary"
+                                        IsVisible="{Binding Context.ShowsFix}" AutomationProperties.Name="Ask the agent to fix this pull request"
+                                        ToolTip.Tip="Draft a fix request in the session composer" />
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock x:Name="OverviewHeading" Classes="readerHeading" Text="{Binding Context.Title}" AutomationProperties.HeadingLevel="1"
+                                   FontSize="{StaticResource KcapFontSizeTitle}" />
+                        <WrapPanel ItemSpacing="12" LineSpacing="6" IsVisible="{Binding ShowContent}">
+                            <views:PullRequestStatusLabel DataContext="{Binding Context.LifecycleStatus}" />
+                            <TextBlock Text="{Binding Context.Branches}" Classes="prNote" IsVisible="{Binding Context.HasBranches}" />
+                        </WrapPanel>
+                    </StackPanel>
+                    <TextBlock Text="Loading pull request…" Classes="prNote" IsVisible="{Binding Context.IsSelectionLoading}"
+                               AutomationProperties.LiveSetting="Polite" />
+                    <TextBlock Text="{Binding Context.Notice}" Classes="prNote" IsVisible="{Binding Context.HasNotice}" AutomationProperties.LiveSetting="Polite" />
+                    <WrapPanel ItemSpacing="8" LineSpacing="6">
+                        <Button Content="Sign in" Classes="kcapPrimary" Command="{Binding Context.SignInCommand}" IsVisible="{Binding Context.ShowsSignIn}" />
+                        <Button Content="Link GitHub" Classes="kcapPrimary" Command="{Binding Context.LinkGitHubCommand}" IsVisible="{Binding Context.ShowsLinkGitHub}" />
+                        <Button Content="{Binding Context.InstallToolLabel}" Classes="kcapPrimary" Command="{Binding Context.InstallToolCommand}"
+                                IsVisible="{Binding Context.ShowsInstallTool}" />
+                    </WrapPanel>
+                    <TextBlock Text="{Binding Context.ReaderNote}" Classes="prNote" IsVisible="{Binding Context.HasReaderNote}" />
+                    <TextBlock Text="{Binding StaleNote}" Classes="prNote" AutomationProperties.LiveSetting="Polite"
+                               IsVisible="{Binding StaleNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    <TextBlock Text="GitHub reads are paused. Retry after the cooldown." Classes="prNote" IsVisible="{Binding CoolingDown}" />
+                    <Border IsVisible="{Binding ShowContent}" Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="12,9">
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="Merge status" FontWeight="SemiBold" Foreground="{StaticResource KcapTextBrush}" />
+                            <WrapPanel ItemSpacing="8" LineSpacing="4">
+                                <Button Classes="kcapGhost readerJump" Tag="checks" Click="OnJump" AutomationProperties.Name="{Binding ChecksStatus.PreviewText, StringFormat='Checks, {0}'}">
+                                    <views:PullRequestStatusLabel DataContext="{Binding ChecksStatus}" />
+                                </Button>
+                                <Button Classes="kcapGhost readerJump" Tag="reviewers" Click="OnJump" AutomationProperties.Name="{Binding Context.ReviewStatus.PreviewText, StringFormat='Reviews, {0}'}">
+                                    <views:PullRequestStatusLabel DataContext="{Binding Context.ReviewStatus}" />
+                                </Button>
+                                <Button Classes="kcapGhost readerJump" Tag="threads" Click="OnJump" AutomationProperties.Name="{Binding ThreadStatus.PreviewText, StringFormat='File discussions, {0}'}">
+                                    <views:PullRequestStatusLabel DataContext="{Binding ThreadStatus}" />
+                                </Button>
+                                <Button Classes="kcapGhost readerJump" Tag="conflicts" Click="OnJump" IsVisible="{Binding ShowConflictDetails}"
+                                        AutomationProperties.Name="{Binding Mergeability.PreviewText}">
+                                    <views:PullRequestStatusLabel DataContext="{Binding Mergeability}" />
+                                </Button>
+                                <Panel IsVisible="{Binding ShowCleanMergeability}" VerticalAlignment="Center" Margin="8,0">
+                                    <views:PullRequestStatusLabel DataContext="{Binding Mergeability}" />
+                                </Panel>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+                <StackPanel Spacing="22" IsVisible="{Binding ShowContent}">
+                    <StackPanel x:Name="Conflicts" Spacing="6" IsVisible="{Binding ShowConflictDetails}">
+                        <TextBlock x:Name="ConflictsHeading" Text="{Binding Mergeability.Text}" Classes="readerHeading" AutomationProperties.HeadingLevel="2" />
+                        <TextBlock Text="{Binding Context.ConflictsNote}" Classes="prNote" />
+                    </StackPanel>
+                    <StackPanel x:Name="DescriptionSection" Spacing="8">
+                        <TextBlock x:Name="DescriptionHeading" Text="Description" Classes="readerHeading" AutomationProperties.HeadingLevel="2" />
+                        <TextBlock Text="{Binding Context.DescriptionNote}" Classes="prNote"
+                                   IsVisible="{Binding Context.DescriptionNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <views:MarkdownView Text="{Binding Description}" Flavor="GitHub" OpenLink="{Binding Context.OpenBodyLinkCommand}"
+                                            OpenSourceCommand="{Binding Context.OpenGitHubCommand}" CanOpenSource="{Binding Context.CanOpenSource}"
+                                            ReferenceBase="{Binding Context.ReferenceBase}" />
+                        <TextBlock Text="Description preview truncated. Open the pull request in your browser for the full text."
+                                   IsVisible="{Binding DescriptionTruncated}" Classes="prNote" />
+                    </StackPanel>
+                    <Border BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,1,0,0" Padding="0,16,0,0">
+                        <StackPanel Spacing="14">
+                            <TextBlock Text="Reviews &amp; discussion" Classes="readerHeading" AutomationProperties.HeadingLevel="2" />
+                            <views:UnifiedPullRequestGroupView x:Name="Reviewers" DataContext="{Binding Reviewers}" />
+                            <views:UnifiedPullRequestGroupView x:Name="SubmittedReviews" DataContext="{Binding Reviews}" />
+                            <views:UnifiedPullRequestGroupView x:Name="FileThreads" DataContext="{Binding Threads}" />
+                            <views:UnifiedPullRequestGroupView x:Name="GeneralComments" DataContext="{Binding Conversation}" />
+                        </StackPanel>
+                    </Border>
+                    <Border BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,1,0,0" Padding="0,16,0,0">
+                        <views:UnifiedPullRequestGroupView x:Name="Checks" DataContext="{Binding Checks}" />
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+        <Border Grid.Row="1" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,1,0,0" Padding="18,4">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                <TextBlock Text="{Binding Context.OverviewFreshnessLabel}" IsVisible="{Binding !Context.ShowsRefreshing}" Classes="prNote" VerticalAlignment="Center"
+                           ToolTip.Tip="{Binding Context.AccessLabel}" />
+                <Button Grid.Column="1" Content="Overview" Classes="kcapGhost kcapQuiet" Tag="overview" Click="OnJump" IsVisible="{Binding ShowContent}" />
+                <Button Grid.Column="2" Content="Refresh" Classes="kcapGhost kcapQuiet" Command="{Binding Context.RefreshCommand}"
+                        IsEnabled="{Binding !CoolingDown}" />
+                <TextBlock Grid.Column="0" Text="Refreshing…" Classes="prNote" VerticalAlignment="Center"
+                           IsVisible="{Binding Context.ShowsRefreshing}" AutomationProperties.LiveSetting="Polite" />
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

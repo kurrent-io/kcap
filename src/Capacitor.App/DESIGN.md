@@ -67,3 +67,9 @@ The separate Desktop status redesign switch applies the GitHub lifecycle and neu
 | Verified outcome or health | Green check for completed work, a successful operation or **Connected**. Red cross for a failed operation. Recorded session history renders **Ended** when the source establishes only that the session is over. |
 
 Session rollups prioritize direct input requests, then failures and blockers, then live work. The accessible name uses the visible state or count, with more context in the tooltip. Multi-PR buttons name the number requiring attention and show incomplete coverage when some evidence is unavailable. Access-scoped evidence expires with the overview. Earlier snapshots remain labeled while still revealable. The card and reader expose checks, review and conflicts independently of lifecycle.
+
+## Pull request reader
+
+Enable **Unified pull request reader** in Settings → Experimental with Desktop redesign preview on. The work-context card keeps the linked PR picker and status shortcuts. Each shortcut focuses its section on the page. The header shows lifecycle, checks, review decision, unresolved threads and mergeability separately. **Fix it** adds to the session's draft. GitHub handles replies, reviews and the full diff.
+
+Reviews, comments and checks load as their headings come into view. File replies open beneath their thread. Failed and running checks lead, with passing checks collapsed. Groups page independently, and each linked PR keeps its reading position, filter and open replies. The reader masks protected rows when access is lost and refreshes check evidence for the current head. Turning off the experiment returns to the stock reader and moves focus there if it was inside the page.
