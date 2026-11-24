@@ -350,7 +350,7 @@
             </Panel>
         </DataTemplate>
     </UserControl.Resources>
-    <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto">
         <!-- What the hand-off carried over from the previous session, in its own row above the transcript; absent for any other session or once dismissed. -->
         <Border x:Name="HandoffOutcomeCard" Grid.Row="0" Margin="22,14,22,0" Padding="13,10"
                 DataContext="{Binding HandoffOutcome}" x:DataType="vm:HandoffOutcomeViewModel"
@@ -818,9 +818,6 @@
         <views:ChatSelectionOverlay x:Name="SelectionOverlay" Grid.Row="2" ClipToBounds="True"
                                     IsHitTestVisible="False" IsVisible="False" Foreground="{DynamicResource KcapInfoBrush}"
                                     Opacity="{DynamicResource KcapTranscriptSelectionOpacity}" />
-        <Button x:Name="JumpToLatest" Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                Margin="0,0,0,12" Classes="kcapChip" Content="Jump to latest" IsVisible="False"
-                AutomationProperties.Name="Jump to latest" Click="OnJumpToLatest" />
         <Border x:Name="ChatColumnLeftHandle" Grid.Row="2" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the chat. Double-click to reset" />
         <Border x:Name="ChatColumnRightHandle" Grid.Row="2" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the chat. Double-click to reset" />
         <views:YieldingHandle x:Name="ChatLaneHandle" Grid.Row="2" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the agent's messages. Double-click to reset" />
@@ -856,7 +853,10 @@
 
         <!-- Everything about the next turn — runs, queue, in-flight note, composer — shares one band,
              so the transcript's last card never reads as part of the input area. -->
-        <Border x:Name="ComposerBand" Grid.Row="3" Padding="22,15,22,16"
+        <Button x:Name="JumpToLatest" Grid.Row="3" HorizontalAlignment="Center"
+                Margin="0,4,0,6" Classes="kcapPrimary" Content="Jump to latest" IsVisible="False"
+                AutomationProperties.Name="Jump to latest" Click="OnJumpToLatest" />
+        <Border x:Name="ComposerBand" Grid.Row="4" Padding="22,15,22,16"
                 Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
                 BorderThickness="0,1,0,0">
             <Grid x:Name="ComposerColumn" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"

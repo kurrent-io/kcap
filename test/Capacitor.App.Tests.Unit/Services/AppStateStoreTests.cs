@@ -1,4 +1,6 @@
+using System.Reactive.Linq;
 using Capacitor.App.Services;
+using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Tests.Unit.Services;
 
@@ -146,4 +148,39 @@ public class AppStateStoreTests {
         await Assert.That(reloaded.WindowY).IsEqualTo(80);
         await Assert.That(reloaded.WindowMaximized).IsTrue();
     }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Reading_positions_retry_after_write_failure_and_keep_a_bounded_metadata_history() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var tmp = new TempDir();
+        var path = tmp.CreateDir("app-state.json");
+        var state = new AppStateStore(path);
+        var subjects = Observable.Return<string?>("reader");
+        var positions = new ChatReadingPositions(state, "first profile", subjects);
+        var key = positions.Key("reader", AgentOrigin.Local, "session", "private/transcript.jsonl");
+        var position = new ChatReadingPosition(new ChatMessageKey(114, 0), 13, new string('A', 32));
+        await positions.ReadAsync(key);
+        positions.Remember(key, position);
+        await positions.FlushAsync();
+        await Assert.That(await positions.ReadAsync(key)).IsEqualTo(position);
+
+        Directory.Delete(path);
+        await state.UpdateAsync(old => old with { UiScale = 1.3 });
+        await positions.FlushAsync();
+        var fresh = new ChatReadingPositions(new AppStateStore(path), "first profile", subjects);
+        await Assert.That(await fresh.ReadAsync(key)).IsEqualTo(position);
+        var other = new ChatReadingPositions(state, "second profile", subjects);
+        await Assert.That(await other.ReadAsync(other.Key("reader", AgentOrigin.Local, "session", "private/transcript.jsonl"))).IsNull();
+        var json = File.ReadAllText(path);
+        await Assert.That(json.Contains("private/transcript.jsonl", StringComparison.Ordinal)).IsFalse();
+        await Assert.That(json.Contains("reader", StringComparison.Ordinal)).IsFalse();
+
+        for (var i = 0; i < ChatReadingPositions.Capacity + 1; i++)
+            fresh.Remember(fresh.Key("reader", AgentOrigin.Remote, $"session-{i}", $"session-{i}"), ChatReadingPosition.Live);
+        await fresh.FlushAsync();
+        var saved = await state.LoadAsync();
+        await Assert.That(saved.UiScale).IsEqualTo(1.3);
+        await Assert.That(saved.ChatReadingPositions!.Count).IsEqualTo(ChatReadingPositions.Capacity);
+        await Assert.That(saved.ChatReadingPositions!.ContainsKey(key)).IsFalse();
+    });
 }

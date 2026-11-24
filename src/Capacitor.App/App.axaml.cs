@@ -114,6 +114,7 @@ public partial class App : Application {
     // The app's one store over app-state.json. Its lock is per instance, so a second store lets
     // two read-modify-write cycles interleave and drop an update.
     readonly AppStateStore _appState;
+    ChatReadingPositions? _chatReadingPositions;
 
     readonly UiScaleSetting _uiScale;
     readonly string? _openingDesktopColorScheme;
@@ -1135,6 +1136,7 @@ public partial class App : Application {
         var contrastWatch = new SerialDisposable();
         var zoomWatch = new SerialDisposable();
         var appearance = new DesktopAppearanceSettings(_appState, _openingDesktopAppearance, preferences => {
+            if (_chatReadingPositions is { } positions) positions.PreviewEnabled = preferences is not null;
             reading.Apply(preferences);
             var highContrast = preferences?.HighContrast == true;
             void ApplyContrast() => palette.SetHigherContrast(highContrast ||
@@ -1366,7 +1368,9 @@ public partial class App : Application {
         // A pending ping is evidence the listing and summary can trail, so neither answers for it.
         var attention = new SessionAttentionTracker(serverLane, new SessionInterruptLog(readEvents, serverLane, readPending: readPending), _time);
         _sessionAccess = sessionAccess;
-        var remoteTranscripts = new RemoteTranscriptCache(SignedInSubject.From(serverLane.Status), sessionAccess.Transitions);
+        var appSubject = SignedInSubject.From(serverLane.Status);
+        var readingSubject = appSubject.Replay(1).RefCount();
+        var remoteTranscripts = new RemoteTranscriptCache(readingSubject, sessionAccess.Transitions);
         _remoteTranscripts = remoteTranscripts;
         // Sessions the rail hides are not read: nothing would show their PRs.
         var railShown = new ReplaySubject<Func<AgentRow, bool>>(1);
@@ -1475,7 +1479,10 @@ public partial class App : Application {
             : category => OpenFeedback(feedbackApi, feedbackTrailer, requestSignIn, category, feedbackMail);
         _menuBar?.SetFeedbackAction(openFeedback);
 
-        var appSubject = SignedInSubject.From(serverLane.Status);
+        var readingPositions = _chatReadingPositions =
+            profiles?.Resolution is { ProfileName: { Length: > 0 } readingProfile, ServerUrl: { Length: > 0 } readingServer }
+                ? new ChatReadingPositions(_appState, RailPreferencesStore.ProfileKey(ServerIdentity.Canonicalize(readingServer) ?? readingServer, readingProfile), readingSubject) { PreviewEnabled = _desktopAppearance?.Enabled == true }
+                : null;
         var commands = new SessionRunActivity((key, report, ended, handoff) =>
             new SessionRunMonitor(key, report, ended, service, directory, sessionAccess, readEvents, serverLane, _time, handoff));
         _commands = commands;
@@ -1520,7 +1527,7 @@ public partial class App : Application {
             appSubject: appSubject, notifier: notifier, serverLane: serverLane.Status, workContextLayout: workContextLayout,
             handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
             pickers: pickers,
-            inAppPages: () => inAppPages.IsOn, chatMarks: ChatMarksIfOn());
+            inAppPages: () => inAppPages.IsOn, chatMarks: ChatMarksIfOn(), readingPositions: readingPositions);
         // The origin lookup below and this call are two reads of a cache the directory's own
         // background recompute mutates, so the row can be gone by the time this runs: no row, no
         // host, and the click opens nothing.
@@ -1535,7 +1542,7 @@ public partial class App : Application {
                     serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes,
                     heldMessages: heldMessages, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
                     inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer,
-                    uploader: uploader, chatMarks: ChatMarksIfOn())
+                    uploader: uploader, chatMarks: ChatMarksIfOn(), readingPositions: readingPositions)
                 : null;
         // One for the app's life: a failed hand-off's draft outlives the composer that sent it.
         var handoffDrafts = new HandoffDrafts(serverLane.LaunchFailures, directory, _time);
@@ -1573,7 +1580,7 @@ public partial class App : Application {
                     workContextLayout: workContextLayout, handoff: BuildHandoff, localMachine: localMachine,
                     handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
                     inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer,
-                    chatMarks: ChatMarksIfOn())
+                    chatMarks: ChatMarksIfOn(), readingPositions: readingPositions)
                 : null;
 
         // Windows hides the main window to the notification area on close, where nothing else says kcap is still there.
@@ -3530,6 +3537,8 @@ public partial class App : Application {
     // teardown REGISTERED here, so the drain below can only ever seal a set that already contains
     // it. The gate is latched even with no window ever built — a window built later still sees it.
     void LatchNavigation() {
+        // Unhook the workspace while the reading preview can still capture its viewport.
+        (_coordinator?.Window?.DataContext as MainWindowViewModel)?.LatchShutdown();
         _notificationAccessPrompt?.Dispose();
         _desktopNotifications?.Dispose();
         _classicPreviewSubscription?.Dispose();
@@ -3537,7 +3546,6 @@ public partial class App : Application {
         _desktopAppearance?.Dispose();
         _notificationBadgeSubscription?.Dispose();
         _windowLifecycle?.SetPendingNotificationCount(0);
-        (_coordinator?.Window?.DataContext as MainWindowViewModel)?.LatchShutdown();
         _navigation.Latch();
     }
 
@@ -3551,6 +3559,9 @@ public partial class App : Application {
         // Keep the UI context for the dialog closes below. Later quiesce awaits may resume on a
         // worker thread; the final UI disposal explicitly returns to the dispatcher.
         await _workspaceTeardown.DrainAsync();
+        if (_chatReadingPositions is { } positions) {
+            try { await positions.FlushAsync().WaitAsync(TimeSpan.FromSeconds(2), _time); } catch (TimeoutException) { }
+        }
         // Mark saves run in the background, and a background write does not hold the process open.
         if (_chatMarksFiles is { } marks) {
             try { await marks.FlushAsync().WaitAsync(TimeSpan.FromSeconds(2), _time); } catch (TimeoutException) { }

@@ -38,6 +38,7 @@ public partial class ChatTabView : UserControl {
             if (!value && _range is not null && _scroll is { } scroll)
                 scroll.SetCurrentValue(ScrollViewer.OffsetProperty, scroll.Offset);
             RefreshJumpToLatest();
+            if (_readingKey is not null) QueueReadingCapture();
         }
     } = true;
     /// Armed by a gesture inside the list and released once the dispatcher queue drains past
@@ -141,6 +142,7 @@ public partial class ChatTabView : UserControl {
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e) {
         base.OnAttachedToVisualTree(e);
         ObserveTranscriptSelection();
+        ObserveReadingPosition();
         ObserveSending();
         ObserveFind();
         ObserveTopics();
@@ -152,9 +154,8 @@ public partial class ChatTabView : UserControl {
         if (_pointerRoot is not null) _pointerRoot.ScalingChanged += OnScalingChanged;
     }
 
-    /// The window reuses this view for every session it opens, so the reading position belongs to
-    /// the session it was showing: the next one starts at the tail.
     protected override void OnDataContextChanged(EventArgs e) {
+        StopReadingPosition();
         DropToggleAnchor();
         CancelSmoothScroll();
         _thumbDragging = false;
@@ -168,6 +169,7 @@ public partial class ChatTabView : UserControl {
         FollowTail = true;
         base.OnDataContextChanged(e);
         ObserveTranscriptSelection();
+        ObserveReadingPosition();
         ObserveSending();
         ObserveFind();
         ObserveTopics();
@@ -175,6 +177,7 @@ public partial class ChatTabView : UserControl {
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {
+        StopReadingPosition();
         DetachTranscriptSelection();
         DropToggleAnchor();
         CancelSmoothScroll();
@@ -216,6 +219,7 @@ public partial class ChatTabView : UserControl {
     }, DispatcherPriority.Input);
 
     void ResumeFollowing() {
+        if (_readingChat is not null) ReadingNavigation();
         ClearTranscriptSelection();
         DropToggleAnchor();
         CancelSmoothScroll();
@@ -259,6 +263,7 @@ public partial class ChatTabView : UserControl {
         // scrolling up, that would stop following exactly when the next question lands below the
         // fold. Any other key stays the reader's: Page Up from a focused option pages the list.
         if (IsActivation(e) && OriginatesFromPendingCard(e)) return;
+        if (_readingChat is not null) OnReadingNavigation(e);
         if (e.RoutedEvent == PointerPressedEvent) CaptureToggleAnchor(e.Source);
         if (_readerGesture) return;
         _readerGesture = true;
@@ -636,6 +641,8 @@ public partial class ChatTabView : UserControl {
     static bool KeepsPlace(Button button) => button.Classes.Contains("toolSummary") || button.Classes.Contains("topicHere");
 
     void OnScrollChanged(object? sender, ScrollChangedEventArgs e) {
+        if (_readingPending || _readingApplying) return;
+        if (_readingKey is not null) QueueReadingCapture();
         if (ChatItems.ItemsPanelRoot is ChatVirtualizingPanel { ReadingLayoutAnchorPending: true }) return;
         // Only the reader's own scrolling asks for older rows: the offset an insertion moves is still
         // near the top until the panel shifts it. A transcript shorter than the view pages until it fills.
@@ -664,7 +671,7 @@ public partial class ChatTabView : UserControl {
             && ChatItems.ItemsPanelRoot is ChatVirtualizingPanel { MeasuredAtEstimatedEnd: true };
         var extentOnlyWhilePressed = PrimaryDown && FollowTail
             && e.ExtentDelta.Y > 0 && Math.Abs(e.OffsetDelta.Y) <= 0.5;
-        FollowTail = !SelectionHeld() && (extentOnlyWhilePressed
+        FollowTail = !_holdRestoredPosition && !SelectionHeld() && (extentOnlyWhilePressed
             || (_readerGesture ? atBottom || reachedEstimatedEnd : FollowTail || atBottom || reachedEstimatedEnd));
         if (FollowTail && !atBottom) {
             if (PrimaryDown) _tailDeferred = true;
@@ -747,7 +754,7 @@ public partial class ChatTabView : UserControl {
             FollowTail = false;
             return;
         }
-        if (_scroll is null || _anchorItem is not null || _thumbFraction is not null
+        if (_readingPending || _readingApplying || _holdRestoredPosition || _scroll is null || _anchorItem is not null || _thumbFraction is not null
             || IsSmoothScrolling || ListTextBoxOwnsFocus()) return;
         if (_scroll.Offset.Y + _scroll.Viewport.Height >= _scroll.Extent.Height - BottomTolerance)
             FollowTail = true;
@@ -840,6 +847,7 @@ public partial class ChatTabView : UserControl {
     /// Page Up/Down typed in the composer page the transcript as the reader's own move, so
     /// following stops where they paged and resumes once they page back to the bottom.
     bool PageTranscript(bool up) {
+        if (_readingChat is not null) ReadingNavigation();
         EnsureChatScroll();
         if (_scroll is null) return false;
         DropToggleAnchor();
@@ -847,7 +855,11 @@ public partial class ChatTabView : UserControl {
         CancelSmoothScroll();
         var wasGesture = _readerGesture;
         _readerGesture = true;
-        if (up) _scroll.PageUp();
+        if (up) {
+            if (_scroll.Offset.Y <= BottomTolerance && DataContext is ChatTabViewModel { Items.Count: > 0 } chat)
+                chat.RequestOlder();
+            _scroll.PageUp();
+        }
         else _scroll.PageDown();
         if (!wasGesture) Dispatcher.UIThread.Post(() => _readerGesture = false, DispatcherPriority.Background);
         return true;
@@ -894,14 +906,14 @@ public partial class ChatTabView : UserControl {
         if (ChatItems.Items is not { } items) return;
         var index = items.IndexOf(target);
         if (index < 0) return;
+        if (_readingChat is not null) ReadingNavigation();
         DropToggleAnchor();
         CancelSmoothScroll();
         _thumbFraction = null;
         FollowTail = false;
         EnsureChatScroll();
         if (_scroll is null) return;
-        ChatItems.ScrollIntoView(index);
-        ChatItems.UpdateLayout();
+        RevealTranscriptRow(index);
         if (ChatItems.ContainerFromIndex(index) is not { } row || row.TranslatePoint(default, _scroll) is not { } top) return;
         var max = Math.Max(0, _scroll.Extent.Height - _scroll.Viewport.Height);
         _scroll.Offset = new Vector(_scroll.Offset.X, Math.Clamp(_scroll.Offset.Y + top.Y - RevealGap, 0, max));
@@ -914,6 +926,11 @@ public partial class ChatTabView : UserControl {
                 _scroll.Offset = new Vector(_scroll.Offset.X, Math.Clamp(_scroll.Offset.Y + at.Y - _scroll.Viewport.Height / 3, 0, max));
             return;
         }
+    }
+
+    void RevealTranscriptRow(int index) {
+        ChatItems.ScrollIntoView(index);
+        ChatItems.UpdateLayout();
     }
 
     const double RevealGap = 8;
@@ -1013,6 +1030,7 @@ public partial class ChatTabView : UserControl {
             ? match.ItemIndex
             : ChatItems.Items.IndexOf(match.Item);
         if (index < 0) return;
+        if (_readingChat is not null) ReadingNavigation();
         DropToggleAnchor();
         CancelSmoothScroll();
         _thumbFraction = null;
@@ -1023,8 +1041,7 @@ public partial class ChatTabView : UserControl {
             Mark(shown.View, shown.Ordinal);
             return;
         }
-        ChatItems.ScrollIntoView(index);
-        ChatItems.UpdateLayout();
+        RevealTranscriptRow(index);
         if (Locate(index, match.Ordinal) is not { } target) return;
         Mark(target.View, target.Ordinal);
         if (target.View.TranslatePoint(target.Bounds.Center, _scroll) is not { } center) return;

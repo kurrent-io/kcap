@@ -1,3 +1,5 @@
+using System.Reactive.Linq;
+using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core;
 using Microsoft.Extensions.Time.Testing;
@@ -33,6 +35,24 @@ public class LocalTranscriptFeedTests {
         await Assert.That(second.Lines.Single().Offset).IsEqualTo(UserLine.Length + 1);
         await Assert.That(second.Lines.Single().Projection.Envelopes[0].Kind).IsEqualTo(AcpEventKind.AssistantText);
         await Assert.That(logged).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_reader_with_reading_positions_verifies_a_file_already_open_without_them() {
+        var path = Tmp.CreateFile("shared.jsonl", [UserLine, AssistantLine]);
+        var projection = TranscriptChat.For("claude")!;
+        var time = new FakeTimeProvider();
+        var feeds = new LocalTranscripts();
+        var positions = new ChatReadingPositions(new AppStateStore(Tmp.PathTo("state.json")), "profile", Observable.Return<string?>("reader"));
+        using var stock = feeds.Open(path, projection, "a1", time, _ => { });
+        await Assert.That(stock.ReadAppended().SourceStamp).IsNull();
+
+        using var tracked = feeds.Open(path, projection, "a1", time, _ => { }, positions);
+        var first = tracked.ReadAppended();
+        await Assert.That(first.SourceStamp).IsNotNull();
+        await Assert.That(first.Lines.Count).IsEqualTo(2);
+        File.WriteAllLines(path, [UserLine, AssistantLine.Replace("Hi there", "Replaced", StringComparison.Ordinal)]);
+        await Assert.That(tracked.ReadAppended().Status).IsEqualTo(FeedStatus.Reset);
     }
 
     [Test]

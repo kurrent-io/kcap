@@ -1,3 +1,4 @@
+using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Claude;
 
@@ -6,7 +7,7 @@ namespace Capacitor.App.ViewModels;
 /// The transcript file, tailed and projected line by line. The projection context lives exactly as
 /// long as the file the tail is reading: a reset discards it with the line count.
 internal sealed class LocalTranscriptFeed(
-        string path, IChatTranscriptProjection projection, string agentId, TimeProvider time, Action<string> logOnce)
+        string path, IChatTranscriptProjection projection, string agentId, TimeProvider time, Action<string> logOnce, ChatReadingPositions? positions = null)
     : IChatTranscriptFeed {
     readonly JsonlTail _tail = new(path);
     TranscriptContext? _context;
@@ -23,7 +24,7 @@ internal sealed class LocalTranscriptFeed(
     }
 
     public FeedRead ReadAppended() {
-        var result = _tail.ReadAppended();
+        var result = _tail.ReadAppended(positions?.PreviewEnabled == true);
         if (result.Status == TailStatus.Reset) { _context = null; _linesRead = 0; _started.Clear(); }
         var lines = new List<ProjectedLine>(result.Lines.Count);
         if (result.Lines.Count > 0) {
@@ -55,7 +56,7 @@ internal sealed class LocalTranscriptFeed(
             ? Math.Max(result.SnapshotLength ?? 0, CurrentOffset ?? 0)
             : result.SnapshotLength;
         // The chat applies a read's run signals only when it applies its lines, so only those reads report them.
-        return new(status, lines, snapshot, result.Failure) { Runs = status is FeedStatus.Ok or FeedStatus.Reset ? SubagentStarts() : [] };
+        return new(status, lines, snapshot, result.Failure) { SourceStamp = result.SourceStamp, Runs = status is FeedStatus.Ok or FeedStatus.Reset ? SubagentStarts() : [] };
     }
 
     // A running foreground subagent is named nowhere in the parent's file until its result arrives.

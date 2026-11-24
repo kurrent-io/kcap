@@ -20,6 +20,8 @@ internal sealed class RemoteSubagentFeed(
     bool _parentDenied;
     bool _copyAllowed;
 
+    internal bool ReadingAccessRevoked { get { lock (_copyLock) return _parentDenied || !(isCurrentSession?.Invoke() ?? true); } }
+
     internal bool CanCopy(int revision) {
         lock (_copyLock)
             return _copyAllowed && revision == _copyRevision && (isCurrentSession?.Invoke() ?? true);

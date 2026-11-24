@@ -54,3 +54,9 @@ Compare the stock app, preview-off and default appearance under Light and Dark w
 With **Desktop redesign preview** enabled, drag across message bodies or enter the transcript with Tab or F6. From a message action, Shift with the arrow keys starts a selection. Left and Right extend by grapheme. Up and Down extend to the previous or next selectable message. Use the system Copy shortcut or the text context menu. Copy message still carries Markdown source and HTML.
 
 The selection follows transcript message keys across scrolling and row reuse. A collapsed tool group contributes the summary and any calls it still shows. Reading above the tail or holding a range pauses live scrolling. Escape clears the range and returns keyboard focus to a visible message action. **Jump to latest** resumes following new messages and focuses the latest visible action. Plain transcript text and rich message copies preserve request order.
+
+## Transcript reading position
+
+With Desktop redesign preview enabled, reopening a transcript restores the visible message and the offset within its row, or follows live output if that was the last state. An anchor uses a local file offset or remote event number. The app keeps up to 128 positions across server, profile, signed-in account and feed in app state. It saves position metadata and source checks, with no transcript text or drafts.
+
+When the saved event is outside loaded history, the reader starts at the nearest loaded row. Scroll toward earlier history to load it through the usual paging path. A folded topic opens through the same reveal path as bookmarks. Revoked access or a replaced source invalidates its saved anchor. Density, font and zoom changes keep the visible row as its height changes. **Jump to latest** has its own row below the transcript, including in ended sessions.

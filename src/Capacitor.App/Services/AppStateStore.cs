@@ -62,7 +62,8 @@ public sealed record AppState(
     IReadOnlyList<string>? DismissedHandoffOutcomes = null,
     ProgressiveDisclosure.ProgressiveDisclosurePreferences? ProgressiveDisclosure = null,
     string? DesktopColorScheme = null,
-    IReadOnlyDictionary<string, string>? DesktopAppearance = null);
+    IReadOnlyDictionary<string, string>? DesktopAppearance = null,
+    IReadOnlyDictionary<string, ChatReadingPosition>? ChatReadingPositions = null);
 
 public interface IAppStateStore {
     Task<AppState> LoadAsync();

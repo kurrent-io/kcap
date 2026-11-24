@@ -1,3 +1,4 @@
+using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 
 namespace Capacitor.App.ViewModels;
@@ -7,14 +8,14 @@ namespace Capacitor.App.ViewModels;
 // ponytail: whole projected history held per transcript, last 16 kept; trim to a tail window if memory shows.
 public sealed class LocalTranscripts(int capacity = 16) {
     readonly Lock _lock = new();
-    readonly OrderedDictionary<string, Shared> _open = new(StringComparer.Ordinal);
+    readonly OrderedDictionary<(string Path, string Agent, Type Projection, bool TracksContinuity), Shared> _open = new();
 
-    internal IChatTranscriptFeed Open(string path, IChatTranscriptProjection projection, string agentId, TimeProvider time, Action<string> log) {
-        var key = string.Join('\n', path, agentId, projection.GetType().FullName);
+    internal IChatTranscriptFeed Open(string path, IChatTranscriptProjection projection, string agentId, TimeProvider time, Action<string> log, ChatReadingPositions? positions = null) {
+        var key = (path, agentId, projection.GetType(), positions is not null);
         Shared shared;
         lock (_lock) {
             if (_open.Remove(key, out var known)) shared = known;
-            else shared = new Shared(new LocalTranscriptFeed(path, projection, agentId, time, log));
+            else shared = new Shared(new LocalTranscriptFeed(path, projection, agentId, time, log, positions));
             _open.Add(key, shared);
             // An evicted transcript stays readable by the panes already holding it.
             while (_open.Count > capacity) _open.RemoveAt(0);
@@ -65,7 +66,7 @@ public sealed class LocalTranscripts(int capacity = 16) {
                 }
                 var lines = shared.History.GetRange(_cursor, shared.History.Count - _cursor);
                 _cursor = shared.History.Count;
-                return new(replay ? FeedStatus.Reset : FeedStatus.Ok, lines, shared.Snapshot);
+                return new(replay ? FeedStatus.Reset : FeedStatus.Ok, lines, shared.Snapshot) { SourceStamp = read.SourceStamp };
             }
         }
 
