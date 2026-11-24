@@ -10,6 +10,7 @@ public partial class ComposerPickerPopup : UserControl {
     readonly Flyout _flyout;
     TextBox _input = null!;
     Func<ComposerPicker?> _picker = () => null;
+    Func<bool> _isComposing = () => false;
     int _active;
     int _updates;
     IReadOnlyList<object> _rows = [];
@@ -25,8 +26,8 @@ public partial class ComposerPickerPopup : UserControl {
 
     /// Call before the host adds its own KeyDown handlers: handlers run in the order they were added, and the
     /// picker must take Enter before the host sends with it.
-    public static void Attach(TextBox input, Func<ComposerPicker?> picker) {
-        var popup = new ComposerPickerPopup { _input = input, _picker = picker };
+    public static void Attach(TextBox input, Func<ComposerPicker?> picker, Func<bool> isComposing) {
+        var popup = new ComposerPickerPopup { _input = input, _picker = picker, _isComposing = isComposing };
         input.AddHandler(KeyDownEvent, (_, e) => e.Handled |= popup.HandleKey(e), RoutingStrategies.Tunnel);
         // Posted: the caret moves after TextChanged, and the query is the text before it.
         input.TextChanged += (_, _) => Dispatcher.UIThread.Post(popup.Update);
@@ -72,7 +73,7 @@ public partial class ComposerPickerPopup : UserControl {
     }
 
     bool HandleKey(KeyEventArgs e) {
-        if (!_flyout.IsOpen || e.KeyModifiers != KeyModifiers.None || _rows is not { Count: > 0 and var count }) return false;
+        if (_isComposing() || !_flyout.IsOpen || e.KeyModifiers != KeyModifiers.None || _rows is not { Count: > 0 and var count }) return false;
         switch (e.Key) {
             case Key.Up or Key.Down:
                 Rows.ContainerFromIndex(_active)?.Classes.Set("active", false);
@@ -98,7 +99,7 @@ public partial class ComposerPickerPopup : UserControl {
 
     /// Rows answer the text, caret and picker they were listed for. Until a pending update catches up, a pick does nothing.
     void Pick(object row) {
-        if (Current() != _shownFor) return;
+        if (_isComposing() || Current() != _shownFor) return;
         if (row is not FileMention { Path: [.., '/'] }) _flyout.Hide();
         var (text, caret) = ComposerPicker.Insert(row, _input.Text ?? "", _input.CaretIndex);
         _input.Text = text;

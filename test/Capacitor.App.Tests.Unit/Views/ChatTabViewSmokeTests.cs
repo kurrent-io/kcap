@@ -35,7 +35,7 @@ namespace Capacitor.App.Tests.Unit.Views;
 /// ChatTabViewModel DataContext, so what is under test is exactly ChatTabView's list virtualization
 /// and follow-tail, not WorkspaceView's tab swap. Same session rules as every UI suite here —
 /// RunOnUiAsync plus [NotInParallel("AvaloniaSession")].
-public class ChatTabViewSmokeTests {
+public partial class ChatTabViewSmokeTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
     const string UserLine = """{"type":"user","message":{"role":"user","content":"hello"}}""";
@@ -3339,16 +3339,36 @@ public class ChatTabViewSmokeTests {
 
             var status = notices.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == AttachedAgentCopy.DeliveryUnknown);
             var peer = ControlAutomationPeer.CreatePeerForElement(status);
-            var changes = new List<string?>();
+            var changes = new List<string>();
             peer.PropertyChanged += (_, e) => {
                 if (e.Property == AutomationElementIdentifiers.NameProperty && peer.GetLiveSetting() == AutomationLiveSetting.Assertive)
-                    changes.Add(e.NewValue as string);
+                    changes.Add(peer.GetName());
             };
 
             notice.SetDelivery("delivered", null);
             host.Settle();
-            await Assert.That(changes).IsEquivalentTo(new string?[] { AttachedAgentCopy.Delivered });
+            await Assert.That(changes).IsEquivalentTo([AttachedAgentCopy.Delivered]);
             await Assert.That(host.Composer.IsFocused).IsTrue();
+
+            notice.SetDelivery(null, null);
+            host.Settle();
+            await Assert.That(status.IsAttachedToVisualTree()).IsTrue();
+            await Assert.That(peer.GetLiveSetting()).IsEqualTo(AutomationLiveSetting.Off);
+            await Assert.That(changes).IsEquivalentTo([AttachedAgentCopy.Delivered]);
+
+            notice.SetDelivery("unconfirmed", null);
+            host.Settle();
+            await Assert.That(changes).IsEquivalentTo([AttachedAgentCopy.Delivered, AttachedAgentCopy.DeliveryUnknown]);
+            notices.IsVisible = false;
+            await Assert.That(peer.GetName()).IsEqualTo(AttachedAgentCopy.DeliveryUnknown);
+            await Assert.That(peer.GetLiveSetting()).IsEqualTo(AutomationLiveSetting.Off);
+            notices.IsVisible = true;
+            await Assert.That(peer.GetLiveSetting()).IsEqualTo(AutomationLiveSetting.Assertive);
+
+            notices.ItemsSource = null;
+            host.Settle();
+            await Assert.That(peer.GetLiveSetting()).IsEqualTo(AutomationLiveSetting.Off);
+            await Assert.That(changes).Count().IsEqualTo(2);
         } finally { await host.CloseAsync(); }
     });
 
@@ -3892,20 +3912,28 @@ public class ChatTabViewSmokeTests {
             var note = host.View.FindControl<StackPanel>("ChatActivityBand")!;
             var composer = host.View.FindControl<Border>("ComposerCard")!;
             var band = host.View.FindControl<Border>("ComposerBand")!;
-            foreach (Control part in new Control[] { banner, queued, note, composer })
-                await Assert.That(part.GetVisualAncestors().Contains(band)).IsTrue().Because($"{part.Name} belongs in the composer band");
             await Assert.That(banner.IsVisible).IsFalse();
-            await Assert.That(Grid.GetRow(banner)).IsLessThan(Grid.GetRow(queued));
-            await Assert.That(Grid.GetRow(queued)).IsLessThan(Grid.GetRow(note));
-            await Assert.That(Grid.GetRow(note)).IsLessThan(Grid.GetRow(composer));
 
             var path = Tmp.CreateFile("bg.jsonl", [
-                AgentCallLine, AgentLaunchLine,
+                UserLine, AgentCallLine, AgentLaunchLine,
                 ShellCall("toolu_S", """{"command":"dotnet test","description":"Run the full suite"}"""), ShellLaunch("toolu_S", "b1"),
                 ShellCall("toolu_T", """{"command":"make check"}"""), ShellLaunch("toolu_T", "b2"),
             ]);
-            await host.LoadAsync(path);
-            await Assert.That(banner.IsVisible).IsTrue();
+            await host.AttachAsync(path);
+            host.Daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with {
+                TranscriptPath = path, Status = "Running", AwaitingInput = true, LaunchPromptUnconfirmed = true,
+            });
+            await host.SendAsync("queued follow-up");
+            host.Settle();
+
+            var previousY = -1d;
+            foreach (var part in new Control[] { banner, queued, note, composer }) {
+                await Assert.That(part.IsEffectivelyVisible).IsTrue().Because($"{part.Name} is visible");
+                await Assert.That(part.GetVisualAncestors()).Contains(band);
+                var y = part.TranslatePoint(default, band)!.Value.Y;
+                await Assert.That(y).IsGreaterThan(previousY).Because($"{part.Name} follows the preceding content");
+                previousY = y;
+            }
             var rows = host.View.FindControl<ScrollViewer>("BackgroundTasksScroll")!;
             await Assert.That(rows.IsVisible).IsFalse();
             var count = host.View.FindControl<Panel>("BackgroundTasksCount")!;

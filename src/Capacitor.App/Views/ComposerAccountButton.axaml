@@ -1,0 +1,74 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             x:Class="Capacitor.App.Views.ComposerAccountButton"
+             x:DataType="vm:ChatTabViewModel">
+    <Button x:Name="AccountLimitsButton" Classes="kcapGhost" MinHeight="30" Padding="6,0"
+            VerticalAlignment="Center" AutomationProperties.Name="Account limits"
+            AutomationProperties.HelpText="{Binding AccountStripUsage.BlockedText}"
+            ToolTip.Tip="{Binding AccountLabel, StringFormat='Account limits · {0}'}">
+        <StackPanel Orientation="Horizontal" Spacing="5">
+            <ContentControl VerticalAlignment="Center"
+                            Content="{Binding AccountVendor, Converter={x:Static views:VendorGlyphConverter.Instance}, ConverterParameter=12}" />
+            <TextBlock Text="Limits" FontSize="{StaticResource KcapFontSizeSmall}" VerticalAlignment="Center" />
+            <views:AppIcon Kind="ChevronDown" Size="12" />
+        </StackPanel>
+        <Button.Flyout>
+            <Flyout Placement="TopEdgeAlignedLeft" VerticalOffset="-6" FlyoutPresenterClasses="kcapPanel"
+                    Opened="OnOpened">
+                <ScrollViewer x:Name="AccountLimitsScroll" MaxHeight="235" Width="300" HorizontalScrollBarVisibility="Disabled"
+                              VerticalScrollBarVisibility="Auto" Focusable="True"
+                              AutomationProperties.Name="Account limits and reset times"
+                              AutomationProperties.HelpText="Use Page Up and Page Down to scroll. Escape closes account limits.">
+                    <ScrollViewer.FocusAdorner>
+                        <Template>
+                            <Border BorderBrush="{StaticResource KcapInfoBrush}" BorderThickness="2" CornerRadius="12" />
+                        </Template>
+                    </ScrollViewer.FocusAdorner>
+                    <StackPanel Margin="12" Spacing="8">
+                        <TextBlock Text="Account limits" FontWeight="SemiBold"
+                                   FontSize="{StaticResource KcapFontSizeBody}"
+                                   AutomationProperties.HeadingLevel="2"
+                                   Foreground="{StaticResource KcapTextBrush}" />
+                        <TextBlock Text="{Binding AccountLabel}" TextWrapping="Wrap" Foreground="{StaticResource KcapTextBrush}" />
+                        <TextBlock Text="{Binding AccountDirectory}" TextWrapping="WrapWithOverflow"
+                                   TextTrimming="CharacterEllipsis" MaxLines="2" ToolTip.Tip="{Binding AccountDirectory}"
+                                   FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" />
+                        <TextBlock Text="{Binding AccountStripUsage.BlockedText}" Foreground="{StaticResource KcapDangerBrush}"
+                                   TextWrapping="Wrap" IsVisible="{Binding AccountStripUsage.BlockedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <TextBlock Text="{Binding AccountLimitsSummary}" TextWrapping="Wrap" Foreground="{StaticResource KcapMutedBrush}"
+                                   IsVisible="{Binding AccountLimitsSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <ItemsControl ItemsSource="{Binding AccountStripUsage.Bars}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate><StackPanel Spacing="8" /></ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:UsageBar">
+                                    <Grid ColumnDefinitions="*,Auto" RowDefinitions="Auto,Auto,Auto" RowSpacing="4">
+                                        <TextBlock Text="{Binding Label}" Foreground="{StaticResource KcapTextBrush}" />
+                                        <TextBlock Grid.Column="1" Text="{Binding PercentText}"
+                                                   Foreground="{Binding Tone, Converter={x:Static views:UsageToneBrushConverter.Instance}, ConverterParameter=Text}" />
+                                        <Border Grid.Row="1" Grid.ColumnSpan="2" Height="4" CornerRadius="2"
+                                                HorizontalAlignment="Left" Width="250" Background="{StaticResource KcapBorderBrush}">
+                                            <Border HorizontalAlignment="Left" CornerRadius="2"
+                                                    Width="{Binding Converter={x:Static views:UsageBarFillConverter.Instance}, ConverterParameter=250}"
+                                                    Background="{Binding Tone, Converter={x:Static views:UsageToneBrushConverter.Instance}}" />
+                                        </Border>
+                                        <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding ResetText}" TextWrapping="Wrap"
+                                                   IsVisible="{Binding ResetText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                                   FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="{Binding AccountStripUsage.PerModelText}" Foreground="{StaticResource KcapMutedBrush}"
+                                   TextWrapping="Wrap" IsVisible="{Binding AccountStripUsage.PerModelText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        <TextBlock Text="{Binding AccountStripUsage.AgeText}" Foreground="{StaticResource KcapMutedBrush}"
+                                   TextWrapping="Wrap" IsVisible="{Binding AccountStripUsage.AgeText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Flyout>
+        </Button.Flyout>
+    </Button>
+</UserControl>

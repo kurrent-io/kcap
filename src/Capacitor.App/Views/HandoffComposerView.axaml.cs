@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Interactivity;
 using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
@@ -17,8 +18,19 @@ public partial class HandoffComposerView : UserControl {
 
     internal Task? PendingIntakeForTesting => _composer.PendingIntakeForTesting;
 
+    internal void FocusComposer() => HandoffInput.Focus();
+
+    void OnComposerOverflowChanged(object? sender, ScrollChangedEventArgs e) {
+        if (e.Source == sender && sender is ScrollViewer scroll)
+            scroll.Classes.Set("hasOverflow", scroll.Extent.Height > scroll.Viewport.Height + 1);
+    }
+
+    void OnLaunchClick(object? sender, RoutedEventArgs e) {
+        if (ComposerPresentation.GetIsPreview(this)) FocusComposer();
+    }
+
     protected override void OnKeyDown(KeyEventArgs e) {
-        if (e.Key == Key.Escape && DataContext is HandoffComposerViewModel { CanCloseStrip: true } vm) {
+        if (!e.Handled && !_composer.IsComposing && e.Key == Key.Escape && DataContext is HandoffComposerViewModel { CanCloseStrip: true } vm) {
             vm.CloseStrip();
             e.Handled = true;
             return;

@@ -49,6 +49,7 @@ internal sealed class TerminalChatInput : ChatInput {
 
     public override SendAvailability Availability =>
         _disposed ? SendAvailability.Ended : _sending ? SendAvailability.Sending : _terminal.SendAvailability;
+    internal override System.Windows.Input.ICommand ReattachCommand => _terminal.ReattachCommand;
     public override bool CanAcceptText => !_disposed && !_sending && _terminal.CanAcceptText;
     public override bool CanInterrupt => !_disposed && _terminal.CanInterrupt;
     public override Task InterruptAsync(CancellationToken ct) =>
@@ -123,7 +124,7 @@ internal sealed class TerminalChatInput : ChatInput {
         " Retry with `kcap agent resume`, or stop it to discard it.";
 
     internal static string HintFor(SendAvailability availability, TerminalSessionState state) => availability switch {
-        SendAvailability.Ready         => "Enter sends · Shift+Enter for a new line",
+        SendAvailability.Ready         => ReadyHint,
         SendAvailability.Sending       => "Sending…",
         SendAvailability.Transitioning => "Updating the terminal connection…",
         SendAvailability.ReadOnly      => $"Read-only: {state.Detail}",

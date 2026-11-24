@@ -34,6 +34,7 @@ internal sealed class DesktopReadingResources(Application application) {
         Set(resources, "KcapProseLineHeight", compact ? 22d : null);
         Set(resources, "KcapReadingFamily", mono ? new FontFamily(MonospaceReadingFamily) : null);
         Set(resources, "KcapUseMonospaceReading", mono ? true : null);
+        Set(resources, "KcapComposerPreview", preferences is null ? null : true);
         PublishLayout();
     }
 

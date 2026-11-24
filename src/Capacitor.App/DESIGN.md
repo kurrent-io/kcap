@@ -48,3 +48,11 @@ Appearance offers Comfortable and Compact density. Compact reduces padding and r
 Pilot questions remain around recognition of lightly filled selections, separation of raised surfaces in Light, and distinguishing a filled destructive action from a primary action. Test those with readers on Windows, macOS and Linux before widening the preview.
 
 Compare the stock app, preview-off and default appearance under Light and Dark with the same native synthetic transcript. Compare startup, typing, scrolling and jumps independently.
+
+## Composer
+
+Desktop redesign preview keeps the same native draft editor, with one writing line when empty. Drafts grow upward to a capped height, then scroll inside the field. Attach stays at the leading edge and Send and topic mode stay at the trailing edge with Interrupt, which moves into More composer actions when space is tight. Session activity and terminal choices have bounded, keyboard-scrollable regions above the draft. Reconnection and send feedback stay above the actions, with an inline recovery button when the session can retry or reattach.
+
+Open **Limits** beside Attach for the active account’s usage windows and reset times. Both keyboard and pointer openings focus the scroll region. Keyboard opening shows the rounded focus cue. Page Up and Page Down scroll the detail, and Escape returns to the button. Launcher account comparisons and recorded session usage in Work Context remain separate. Turning off the preview restores the original composer spacing and account strip without discarding the draft.
+
+Composer feedback, delivery status and handoff errors announce meaningful text while visible. Their live regions fall quiet when the accessible text clears or the view closes.

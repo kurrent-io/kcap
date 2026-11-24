@@ -3,7 +3,6 @@ using System.Reactive.Linq;
 using System.Windows.Input;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
@@ -27,7 +26,6 @@ public partial class ChatTabView : UserControl {
     ChatTopics? _topics;
     MarkdownView? _currentFindView;
     ScrollViewer? _scroll;
-    TextPresenter? _composerPresenter;
     readonly Composer _composer;
     bool _followTail = true;
     /// Armed by a gesture inside the list and released once the dispatcher queue drains past
@@ -88,8 +86,6 @@ public partial class ChatTabView : UserControl {
             handle.AddHandler(PointerWheelChangedEvent, OnReaderGesture, RoutingStrategies.Tunnel, handledEventsToo: true);
             handle.AddHandler(PointerWheelChangedEvent, OnChatWheelChanged, RoutingStrategies.Tunnel);
         }
-        ComposerInput.TemplateApplied += (_, e) =>
-            _composerPresenter = e.NameScope.Find<TextPresenter>("PART_TextPresenter");
         // The ScrollViewer is the list template's; it exists only once the list is first measured,
         // which for a surface built before its first layout is later than the first rows.
         ChatItems.TemplateApplied += (_, _) => {
@@ -768,7 +764,7 @@ public partial class ChatTabView : UserControl {
     (int Line, int Lines) ComposerCaretLine() {
         var text = ComposerInput.Text ?? "";
         var caret = Math.Clamp(ComposerInput.CaretIndex, 0, text.Length);
-        var layout = _composerPresenter?.TextLayout;
+        var layout = _composer.Presenter?.TextLayout;
         if (layout is { TextLines.Count: > 0 })
             return (layout.GetLineIndexFromCharacterIndex(caret, false), layout.TextLines.Count);
         return (text.AsSpan(0, caret).Count('\n'), text.AsSpan().Count('\n') + 1);
@@ -780,6 +776,11 @@ public partial class ChatTabView : UserControl {
     /// leaves the caret at the start and a newer one at the end, so a repeated key walks history
     /// one entry per press.
     void OnComposerKeyDown(object? sender, KeyEventArgs e) {
+        if (_composer.IsComposing) {
+            // A key delivered during preedit must neither send nor insert a newline into the draft.
+            if (e.Key == Key.Enter) e.Handled = true;
+            return;
+        }
         if (e.Key is Key.PageUp or Key.PageDown && e.KeyModifiers == KeyModifiers.None) {
             if (PageTranscript(e.Key == Key.PageUp)) e.Handled = true;
             return;
@@ -789,8 +790,7 @@ public partial class ChatTabView : UserControl {
             var (line, lines) = ComposerCaretLine();
             var length = ComposerInput.Text?.Length ?? 0;
             var caret = Math.Clamp(ComposerInput.CaretIndex, 0, length);
-            var composing = !string.IsNullOrEmpty(_composerPresenter?.PreeditText);
-            switch (ComposerArrowKey.Decide(e.Key == Key.Up, caret, length, line, lines, composing)) {
+            switch (ComposerArrowKey.Decide(e.Key == Key.Up, caret, length, line, lines, composing: false)) {
                 case ComposerArrowAction.MoveToStart:
                     ComposerInput.CaretIndex = 0;
                     break;
@@ -836,8 +836,8 @@ public partial class ChatTabView : UserControl {
         if (e.Handled || e.Key != Key.Escape || e.KeyModifiers != KeyModifiers.None || OriginatesFromPendingCard(e)) return;
         // A composer Escape stops here even with nothing to interrupt, so an ancestor's Escape
         // binding never fires while the user is typing.
-        if (TryInterrupt() || e.Source is Visual source && (source == ComposerInput || ComposerInput.IsVisualAncestorOf(source)))
-            e.Handled = true;
+        var fromComposer = e.Source is Visual source && (source == ComposerInput || ComposerInput.IsVisualAncestorOf(source));
+        if (fromComposer && _composer.IsComposing || TryInterrupt() || fromComposer) e.Handled = true;
     }
 
     bool TryInterrupt() {
@@ -847,7 +847,50 @@ public partial class ChatTabView : UserControl {
         return true;
     }
 
-    public void FocusComposer() => ComposerInput.Focus();
+    void OnComposerOverflowChanged(object? sender, ScrollChangedEventArgs e) {
+        if (e.Source == sender && sender is ScrollViewer scroll)
+            scroll.Classes.Set("hasOverflow", scroll.Extent.Height > scroll.Viewport.Height + 1);
+    }
+
+    void OnComposerMoreOpened(object? sender, EventArgs e) => ComposerMoreInterrupt.Focus(NavigationMethod.Tab);
+
+    void OnComposerMoreInterrupt(object? sender, RoutedEventArgs e) {
+        // Closing detaches the row and clears its command binding before Button invokes it.
+        Dispatcher.UIThread.Post(() => ComposerMoreButton.Flyout?.Hide());
+    }
+
+    void OnSendClick(object? sender, RoutedEventArgs e) {
+        if (ComposerPresentation.GetIsPreview(this)) ComposerInput.Focus();
+    }
+
+    void OnComposerColumnSizeChanged(object? sender, SizeChangedEventArgs e) {
+        if (ComposerPresentation.GetIsPreview(this) && e.WidthChanged) UpdateComposerSize();
+    }
+
+    protected override void OnSizeChanged(SizeChangedEventArgs e) {
+        base.OnSizeChanged(e);
+        if (ComposerPresentation.GetIsPreview(this)) UpdateComposerSize();
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change) {
+        base.OnPropertyChanged(change);
+        if (change.Property == ComposerPresentation.IsPreviewProperty) UpdateComposerSize();
+    }
+
+    void UpdateComposerSize() {
+        var preview = ComposerPresentation.GetIsPreview(this);
+        var compact = preview && Bounds.Height < 430;
+        var narrow = preview && ComposerColumn is { Bounds.Width: < 360 };
+        if (!narrow && Classes.Contains("narrowComposer")) ComposerMoreButton.Flyout?.Hide();
+        Classes.Set("shortComposer", compact);
+        Classes.Set("narrowComposer", narrow);
+        HandoffComposer?.Classes.Set("shortComposer", compact);
+    }
+
+    public void FocusComposer() {
+        if (ComposerPresentation.GetIsPreview(this) && HandoffComposer.IsEffectivelyVisible) HandoffComposer.FocusComposer();
+        else ComposerInput.Focus();
+    }
 
     void ObserveTopics() {
         if (_topics is not null) _topics.Revealing -= OnTopicRevealing;
