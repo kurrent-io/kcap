@@ -39,13 +39,13 @@ internal sealed record PrivilegedNpmInstall(string Scope, string Sibling, IReadO
         return dir;
     }
 
-    /// <summary>Each package must still hold its own name and the recorded version. The homes folder is the test's
-    /// own, empty unless a test puts a launch agent in it.</summary>
     /// <summary>Far past any stall a test can sit through between the helper's swap and its go: a helper that gives up
     /// first restores the install, and the test reads a different outcome. The go timeout itself is pinned by the
     /// test that passes its own.</summary>
     static readonly TimeSpan DefaultGoWait = TimeSpan.FromMinutes(10);
 
+    /// <summary>Each package must still hold its own name and the recorded version. The homes folder is the test's
+    /// own, empty unless a test puts a launch agent in it.</summary>
     public PrivilegedSpec Spec(TempDir tmp, TimeSpan? goWait = null, string helper = "helper") {
         var retirement = new AsideRetirement(new ConfigRoot(tmp.CreateDir("config")), "cli-adoption-retire");
         return new PrivilegedSpec(

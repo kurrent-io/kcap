@@ -402,7 +402,9 @@ public class IdeRpcLoopTests {
 
         var first = loop.NotifyAsync("connection/changed", new JsonObject());
         await WaitHarnessUntilAsync(() => lines.Started);
-        var queued = Enumerable.Range(0, 20).Select(_ => Task.Run(() => loop.NotifyAsync("connection/changed", new JsonObject()))).ToArray();
+        // Called on this thread, each call runs to its wait on the gate the first write holds before it returns.
+        var queued = Enumerable.Range(0, 20).Select(_ => loop.NotifyAsync("connection/changed", new JsonObject())).ToArray();
+        await Assert.That(queued.All(t => !t.IsCompleted)).IsTrue().Because("every notification is waiting on the gate");
         var closing = loop.CloseAsync(TimeSpan.FromSeconds(30));
         loop.Dispose();
         release.SetResult();
