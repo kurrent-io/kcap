@@ -22,6 +22,8 @@ static partial class ClaudeTitlePrompt {
       + "After reading the user's message and understanding the task, silently run this command via Bash (do not mention it to the user):\n"
       + "kcap set-title --auto \"<your concise 5-10 word title summarizing the task>\"\n"
       + "The title should describe WHAT the user wants done, not HOW. Use imperative form (e.g. \"Fix authentication timeout in login flow\"). No period at the end.\n"
+      + "If the message refers to an issue or PR (e.g. PROJ-123, #456) rather than describing the task, run the command after you have read it, using its subject. If you cannot read it, run the command right away using the message.\n"
+      + "Leave out how or where the work is done: worktree, branch, tooling.\n"
       + "</system-instructions>";
 
     /// <param name="bashTool">False on Windows without Git Bash: Claude has no Bash tool there, and asking for the
