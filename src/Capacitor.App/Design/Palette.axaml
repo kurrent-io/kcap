@@ -1,7 +1,5 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                    xmlns:lucide="using:Lucide.Avalonia">
-    <lucide:LucideIconKind x:Key="KcapDoneSessionGlyph">Minus</lucide:LucideIconKind>
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <SolidColorBrush x:Key="KcapCanvasBrush" Color="#0B0D12" />
     <SolidColorBrush x:Key="KcapSurfaceBrush" Color="#12151D" />
     <SolidColorBrush x:Key="KcapSurfaceRaisedBrush" Color="#191D27" />

@@ -12,7 +12,7 @@
             <Setter Property="Kind" Value="Minus" />
         </Style>
         <Style Selector="views|AppIcon.settledMark.done">
-            <Setter Property="Kind" Value="{DynamicResource KcapDoneSessionGlyph}" />
+            <Setter Property="Kind" Value="Check" />
         </Style>
         <Style Selector="views|AgentStatusMark.header TextBlock#StatusWord">
             <Setter Property="AutomationProperties.LiveSetting" Value="Polite" />
