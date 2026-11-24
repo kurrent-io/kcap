@@ -105,6 +105,9 @@ public partial class ChatTabView : UserControl {
         };
     }
 
+    void OnScalingChanged(object? sender, EventArgs e) =>
+        (ChatItems.ItemsPanelRoot as ChatVirtualizingPanel)?.InvalidateReadingMeasurements();
+
     internal ChatColumnSizing ColumnSizing { get; }
 
     public static readonly StyledProperty<double> LaneWidthProperty =
@@ -134,6 +137,7 @@ public partial class ChatTabView : UserControl {
         _pointerRoot?.AddHandler(PointerReleasedEvent, OnPrimaryReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
         _pointerRoot?.AddHandler(PointerCaptureLostEvent, OnPrimaryCaptureLost, handledEventsToo: true);
         if (_pointerRoot is Window window) window.Deactivated += OnWindowDeactivated;
+        if (_pointerRoot is not null) _pointerRoot.ScalingChanged += OnScalingChanged;
     }
 
     /// The window reuses this view for every session it opens, so the reading position belongs to
@@ -177,6 +181,7 @@ public partial class ChatTabView : UserControl {
         _pointerRoot?.RemoveHandler(PointerReleasedEvent, OnPrimaryReleased);
         _pointerRoot?.RemoveHandler(PointerCaptureLostEvent, OnPrimaryCaptureLost);
         if (_pointerRoot is Window window) window.Deactivated -= OnWindowDeactivated;
+        if (_pointerRoot is not null) _pointerRoot.ScalingChanged -= OnScalingChanged;
         _pointerRoot = null;
         base.OnDetachedFromVisualTree(e);
     }
@@ -215,6 +220,7 @@ public partial class ChatTabView : UserControl {
     internal int ListInputVersion { get; private set; }
     internal bool IsSmoothScrolling => _smoothFrameQueued || Math.Abs(_smoothRemaining) > 0.5;
     internal bool CanPreserveReadingPosition => !_followTail && _anchorItem is null && _thumbFraction is null;
+    internal bool ShouldAnchorReadingLayout => CanPreserveReadingPosition || ListTextBoxOwnsFocus();
 
     void OnReaderGesture(object? sender, RoutedEventArgs e) {
         if (e is PointerPressedEventArgs pressed && _primaryPointer is null
@@ -611,6 +617,7 @@ public partial class ChatTabView : UserControl {
     static bool KeepsPlace(Button button) => button.Classes.Contains("toolSummary") || button.Classes.Contains("topicHere");
 
     void OnScrollChanged(object? sender, ScrollChangedEventArgs e) {
+        if (ChatItems.ItemsPanelRoot is ChatVirtualizingPanel { ReadingLayoutAnchorPending: true }) return;
         // Only the reader's own scrolling asks for older rows: the offset an insertion moves is still
         // near the top until the panel shifts it. A transcript shorter than the view pages until it fills.
         if (sender is ScrollViewer reading && reading.Offset.Y <= reading.Viewport.Height

@@ -311,7 +311,7 @@ public class RailSessionViewModelTests {
             await Assert.That(older.Status.Kind).IsEqualTo(AgentStatusKind.Other);
             await Assert.That(older.Status.Label).IsEqualTo("Running");
             await Assert.That(older.Status.ShowsRing).IsTrue();
-            await Assert.That(older.Status.ShowsDash).IsFalse();
+            await Assert.That(older.Status.ShowsSettledMark).IsFalse();
             await Assert.That(older.Status.Pulses).IsFalse();
         });
     }

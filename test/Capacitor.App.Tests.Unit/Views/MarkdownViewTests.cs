@@ -64,6 +64,48 @@ public class MarkdownViewTests {
         Dispatcher.UIThread.RunJobs();
     }
 
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Chat_reading_preferences_affect_prose_and_restore_the_default() => RunOnUiAsync(async () => {
+        var markdown = new MarkdownView { Text = "Plain prose with `inline` code.\n\n```text\ncode fence\n```" };
+        var window = new Window { Content = new ChatTabView { Content = markdown }, Width = 500, Height = 400 };
+        var resources = new DesktopReadingResources(Application.Current!);
+        void Apply(DesktopAppearancePreferences? preferences) {
+            resources.Apply(preferences);
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+        }
+
+        try {
+            window.Show();
+            Apply(null);
+            var prose = Paragraphs(markdown).Single();
+            var inline = Spans<Run>(prose.Inlines!).Single(r => r.Classes.Contains("markdown-code-inline"));
+            var block = All<Border>(markdown).Single(b => b.Classes.Contains("markdown-code-block"));
+            var fenced = All<TextBlock>(block).First();
+            var defaultFont = prose.FontFamily;
+            var defaultLineHeight = prose.LineHeight;
+            var inlineFont = inline.FontFamily;
+            var fencedFont = fenced.FontFamily;
+            var compactMono = new DesktopAppearancePreferences(DesktopDensity.Compact, DesktopReadingFont.Monospace);
+
+            foreach (var restored in new DesktopAppearancePreferences?[] { new(), null }) {
+                Apply(compactMono);
+                await Assert.That(prose.FontFamily).IsNotEqualTo(defaultFont);
+                await Assert.That(prose.LineHeight).IsLessThan(defaultLineHeight);
+                await Assert.That(inline.FontFamily).IsEqualTo(inlineFont);
+                await Assert.That(fenced.FontFamily).IsEqualTo(fencedFont);
+
+                Apply(restored);
+                await Assert.That(prose.FontFamily).IsEqualTo(defaultFont);
+                await Assert.That(prose.LineHeight).IsEqualTo(defaultLineHeight);
+            }
+        } finally {
+            resources.Apply(null);
+            window.Close();
+        }
+    });
+
     /// Pins the block map: emphasis and code spans as inlines, fenced code, bullets, a quote and
     /// a rule, each carrying the style class the app's theme keys on.
     [Test]

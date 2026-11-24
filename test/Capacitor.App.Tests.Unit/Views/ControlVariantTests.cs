@@ -149,6 +149,71 @@ public class ControlVariantTests {
     });
 
     [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public Task The_preview_keeps_unchecked_choice_controls_distinguishable_from_their_surface(bool light) => AvaloniaSession.RunOnUiAsync(async () => {
+        var app = Application.Current!;
+        var palette = new ClassicPreviewPalette(app);
+        var radio = new RadioButton { Content = "Branch" };
+        var check = new CheckBox { Content = "Include drafts" };
+        var window = new Window { Content = new StackPanel { Children = { radio, check } } };
+        try {
+            await Assert.That(palette.TryApply(light ? ClassicAppearance.Light : ClassicAppearance.Dark)).IsTrue();
+            var surface = (ISolidColorBrush)app.FindResource("KcapSurfaceBrush")!;
+            window.Background = surface;
+            window.Show();
+            window.UpdateLayout();
+            var outline = radio.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Ellipse>().Single(shape => shape.Name == "OuterEllipse");
+            var frame = check.GetVisualDescendants().OfType<Border>().Single(border => border.Name == "NormalRectangle");
+            await Assert.That(Contrast(Over(Solid(outline.Stroke), surface.Color), surface.Color)).IsGreaterThanOrEqualTo(3.0);
+            await Assert.That(Contrast(Over(Solid(frame.BorderBrush), surface.Color), surface.Color)).IsGreaterThanOrEqualTo(3.0);
+        } finally {
+            window.Close();
+            palette.TryApply(ClassicAppearance.Original);
+        }
+    });
+
+    [Test]
+    public async Task Higher_contrast_strengthens_faded_code_and_preserves_hover_readability() =>
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var app = Application.Current!;
+            var palette = new ClassicPreviewPalette(app);
+            Color Ink(string key) => ((ISolidColorBrush)app.FindResource(key)!).Color;
+            double FadedCodeContrast(string grade) {
+                var fill = Over(Ink($"ProgressiveDisclosure{grade}CodeFadeBrush"), Ink("KcapCanvasBrush"));
+                return Contrast(Over(Ink($"ProgressiveDisclosure{grade}FadeBrush"), fill), fill);
+            }
+
+            try {
+                foreach (var theme in new[] { ClassicAppearance.Light, ClassicAppearance.Dark }) {
+                    palette.SetHigherContrast(false);
+                    await Assert.That(palette.TryApply(theme)).IsTrue();
+                    var detail = FadedCodeContrast("Detail");
+                    var footnote = FadedCodeContrast("Footnote");
+                    palette.SetHigherContrast(true);
+
+                    var higherDetail = FadedCodeContrast("Detail");
+                    var higherFootnote = FadedCodeContrast("Footnote");
+                    await Assert.That(higherDetail).IsGreaterThan(detail);
+                    await Assert.That(higherFootnote).IsGreaterThan(footnote);
+                    await Assert.That(higherFootnote).IsGreaterThanOrEqualTo(4.5);
+                    await Assert.That(higherDetail).IsGreaterThan(higherFootnote);
+
+                    var canvas = Ink("KcapCanvasBrush");
+                    var primary = Contrast(Ink("KcapTextBrush"), canvas);
+                    var secondary = Contrast(Ink("KcapMutedBrush"), canvas);
+                    await Assert.That(secondary).IsGreaterThanOrEqualTo(4.5);
+                    await Assert.That(primary).IsGreaterThan(secondary);
+
+                    using var button = new Rig("kcapChip");
+                    button.Hover();
+                    var hover = button.Read();
+                    await Assert.That(Contrast(hover.Foreground, hover.Background)).IsGreaterThanOrEqualTo(4.5);
+                }
+            } finally { palette.TryApply(ClassicAppearance.Original); }
+        });
+
+    [Test]
     public Task A_field_shows_where_it_begins_and_a_readable_placeholder() => AvaloniaSession.RunOnUiAsync(async () => {
         var surface = ((ISolidColorBrush)Application.Current!.FindResource("KcapSurfaceBrush")!).Color;
         var field = new TextBox { Classes = { "kcapField" }, PlaceholderText = "Search" };

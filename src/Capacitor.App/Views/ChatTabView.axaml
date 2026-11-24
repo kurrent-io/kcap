@@ -2,9 +2,27 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
              xmlns:views="clr-namespace:Capacitor.App.Views"
+             xmlns:mv="using:MarkView.Avalonia"
              x:Class="Capacitor.App.Views.ChatTabView"
              x:DataType="vm:ChatTabViewModel">
     <UserControl.Styles>
+        <Style Selector="views|MarkdownView">
+            <Setter Property="UseMonospaceReading" Value="{DynamicResource KcapUseMonospaceReading}" />
+        </Style>
+        <Style Selector="views|MarkdownView.monospaceReading mv|MarkdownViewer :is(TextBlock).markdown-paragraph,
+                         views|MarkdownView.monospaceReading mv|MarkdownViewer :is(TextBlock).markdown-list-marker,
+                         views|MarkdownView.monospaceReading mv|MarkdownViewer :is(TextBlock).markdown-h1,
+                         views|MarkdownView.monospaceReading mv|MarkdownViewer :is(TextBlock).markdown-h2,
+                         views|MarkdownView.monospaceReading mv|MarkdownViewer :is(TextBlock).markdown-h3,
+                         views|MarkdownView.monospaceReading mv|MarkdownViewer :is(TextBlock).markdown-h4,
+                         views|MarkdownView.monospaceReading mv|MarkdownViewer :is(TextBlock).markdown-h5,
+                         views|MarkdownView.monospaceReading mv|MarkdownViewer :is(TextBlock).markdown-h6">
+            <Setter Property="FontFamily" Value="{DynamicResource KcapReadingFamily}" />
+        </Style>
+        <Style Selector="views|MarkdownView:not(.thinking) mv|MarkdownViewer :is(TextBlock).markdown-paragraph,
+                         views|MarkdownView:not(.thinking) mv|MarkdownViewer :is(TextBlock).markdown-list-marker">
+            <Setter Property="LineHeight" Value="{DynamicResource KcapProseLineHeight}" />
+        </Style>
         <!-- The composer already uses the normal ghost hover fill. Step up one surface
              so the attachment action remains visible on hover and press. -->
         <Style Selector="Button#AttachButton.kcapGhost:not(:disabled):pointerover /template/ ContentPresenter#PART_ContentPresenter,
@@ -218,7 +236,7 @@
         <!-- A command's detail is its text, set like a command in a tool row. -->
         <Style Selector="TextBlock.runDetail.shell">
             <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
-            <Setter Property="FontFamily" Value="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace" />
+            <Setter Property="FontFamily" Value="{StaticResource KcapFontFamilyMono}" />
             <Setter Property="TextTrimming" Value="{x:Static views:ChatTrimming.MiddleEllipsis}" />
         </Style>
         <!-- A card's body is inset from its header on both sides, so a row's status pill reads as
@@ -236,7 +254,7 @@
                          TextBlock.toolLine">
             <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
             <Setter Property="LineHeight" Value="18" />
-            <Setter Property="FontFamily" Value="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace" />
+            <Setter Property="FontFamily" Value="{StaticResource KcapFontFamilyMono}" />
             <Setter Property="TextTrimming" Value="{x:Static views:ChatTrimming.MiddleEllipsis}" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="HorizontalAlignment" Value="Stretch" />
@@ -400,14 +418,15 @@
             </ItemsControl.Template>
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
-                    <views:ChatVirtualizingPanel LaneWidth="{Binding $parent[views:ChatTabView].LaneWidth}" />
+                    <views:ChatVirtualizingPanel LaneWidth="{Binding $parent[views:ChatTabView].LaneWidth}"
+                                                ReadingLayout="{DynamicResource KcapReadingLayout}" />
                 </ItemsPanelTemplate>
             </ItemsControl.ItemsPanel>
             <ItemsControl.DataTemplates>
                 <DataTemplate x:DataType="vm:UserTurnItem">
-                    <Panel Classes="turn" Background="Transparent" Margin="0,8,0,12">
+                    <Panel Classes="turn" Background="Transparent" Margin="{DynamicResource KcapTranscriptGap}">
                         <Border Classes="userTurn" Classes.undelivered="{Binding IsUndelivered}"
-                                HorizontalAlignment="Right" MaxWidth="520" Padding="14,11" CornerRadius="10">
+                                HorizontalAlignment="Right" MaxWidth="520" Padding="{DynamicResource KcapUserTurnPadding}" CornerRadius="10">
                             <StackPanel Spacing="6">
                                 <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left">
                                     <TextBlock Classes="toolKindChip" HorizontalAlignment="Left">
@@ -478,7 +497,7 @@
                     </Panel>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantTextItem">
-                    <Panel Classes="turn messageRow" Background="Transparent" Margin="0,8,0,12">
+                    <Panel Classes="turn messageRow" Background="Transparent" Margin="{DynamicResource KcapTranscriptGap}">
                         <StackPanel HorizontalAlignment="Left" Spacing="6">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <TextBlock Classes="toolKindChip"
@@ -507,7 +526,7 @@
                     </Panel>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantThinkingItem">
-                    <StackPanel HorizontalAlignment="Left" Margin="0,8,0,12" Spacing="4">
+                    <StackPanel HorizontalAlignment="Left" Margin="{DynamicResource KcapTranscriptGap}" Spacing="4">
                         <Button Classes="toolSummary thinkingSummary" HorizontalAlignment="Left"
                                 Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
                                 AutomationProperties.Name="{Binding HeaderLabel}">
@@ -551,7 +570,7 @@
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:SystemNoteItem">
                     <views:ChatCardRow>
-                        <Border Classes="systemNote chatSystemCard" Margin="0,8,0,12">
+                        <Border Classes="systemNote chatSystemCard" Margin="{DynamicResource KcapTranscriptGap}">
                             <StackPanel Spacing="6">
                                 <views:ChatKindHeader Label="{Binding Label}" IconKind="{Binding IconKind}"
                                                       IsVisible="{Binding !IsCollapsible}" />
@@ -1103,7 +1122,7 @@
                 </Panel>
                 <Border x:Name="ComposerCard" Classes="attachTarget" Grid.Row="5" IsVisible="{Binding ShowsComposer}"
                         Background="{StaticResource KcapSurfaceRaisedBrush}"
-                        BorderThickness="1" CornerRadius="10" Padding="13,8,13,12">
+                        BorderThickness="1" CornerRadius="10" Padding="{DynamicResource KcapComposerPadding}">
                     <StackPanel Spacing="6">
                         <TextBlock x:Name="ComposerControlNote" Text="{Binding ControlNote}" FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
                                    Foreground="{StaticResource KcapMutedBrush}"
@@ -1125,7 +1144,7 @@
                                            Foreground="{StaticResource KcapTextBrush}"
                                            IsVisible="{Binding TerminalMenuPrompt, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                 <SelectableTextBlock x:Name="TerminalMenuFallback" Text="{Binding TerminalMenuScreen}" FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
-                                                     FontFamily="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace"
+                                                     FontFamily="{StaticResource KcapFontFamilyMono}"
                                                      Foreground="{StaticResource KcapTextBrush}"
                                                      IsVisible="{Binding TerminalMenuScreen, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                 <ItemsControl ItemsSource="{Binding TerminalMenuChoices}">

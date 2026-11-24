@@ -375,7 +375,7 @@
         </DataTemplate>
     </UserControl.Resources>
 
-    <Border BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1,0,0,0">
+    <Border BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="{DynamicResource KcapContextDividerThickness}">
         <ScrollViewer x:Name="PaneScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel Margin="16,16,16,16" Spacing="0">
 

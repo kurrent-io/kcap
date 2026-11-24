@@ -1,0 +1,33 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Style Selector="TextBlock.kcapTitle">
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeTitle}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="LineHeight" Value="28" />
+        <Setter Property="LetterSpacing" Value="-0.3" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+    <Style Selector="TextBlock.kcapSubtitle">
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
+        <Setter Property="FontWeight" Value="Medium" />
+        <Setter Property="LineHeight" Value="21" />
+        <Setter Property="LetterSpacing" Value="0.2" />
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+    </Style>
+    <Style Selector="TextBlock.kcapLabel">
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+    <Style Selector="TextBlock.kcapHint">
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
+        <Setter Property="LineHeight" Value="18" />
+        <Setter Property="LetterSpacing" Value="0.2" />
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+    </Style>
+    <Style Selector="TextBlock.kcapTipCaption">
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeCaption}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapFaintBrush}" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+</Styles>

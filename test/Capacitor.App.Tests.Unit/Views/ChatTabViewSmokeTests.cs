@@ -869,7 +869,6 @@ public class ChatTabViewSmokeTests {
         } finally { await host.CloseAsync(); }
     });
 
-    /// A narrower window and a narrower agent's lane both reflow the rows above the reader.
     [Test]
     [Arguments(false)]
     [Arguments(true)]

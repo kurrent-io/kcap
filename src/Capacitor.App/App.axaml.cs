@@ -16,6 +16,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.Platform;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Capacitor.App.Services;
@@ -115,6 +116,11 @@ public partial class App : Application {
     readonly AppStateStore _appState;
 
     readonly UiScaleSetting _uiScale;
+    readonly string? _openingDesktopColorScheme;
+    readonly IReadOnlyDictionary<string, string>? _openingDesktopAppearance;
+    ClassicAppearancePreview? _classicPreview;
+    DesktopAppearanceSettings? _desktopAppearance;
+    CompositeDisposable? _classicPreviewSubscription;
     ChatMarksFiles? _chatMarksFiles;
     readonly ProgressiveDisclosurePreferences? _progressiveDisclosure;
     readonly BetaUpdatesSetting _betaUpdates;
@@ -152,6 +158,8 @@ public partial class App : Application {
         _appState = new AppStateStore(_config.Path("app-state.json"));
 #pragma warning restore RS0030
         var state = _appState.LoadAsync().GetAwaiter().GetResult();
+        _openingDesktopColorScheme = state.DesktopColorScheme;
+        _openingDesktopAppearance = state.DesktopAppearance;
         _uiScale = UiScaleSetting.From(_appState, state);
         SecondaryWindowScale.Install(_uiScale);
         _betaUpdates = BetaUpdatesSetting.From(_appState, state);
@@ -414,7 +422,7 @@ public partial class App : Application {
             if (_uninstallMode is { } uninstall) {
                 RunUninstallMode(desktop, uninstall);
             } else {
-                // Before StartAsync: it shows its first window (the install guard or the wizard) synchronously.
+                // Install the menu before startup can show a window.
                 _menuBar = new AppMenuBar(new ShellUrlOpener(), () => desktop.Windows, () => MainWindowAction(_coordinator));
                 _menuBar.Install();
                 _ = StartAsync(desktop);
@@ -444,6 +452,10 @@ public partial class App : Application {
                 if (RunInstallLocationGuard(desktop)) return; // the guard window owns the rest of this run
                 if (await RunLegacyInstallGuardAsync(desktop)) return;
             }
+            var appearanceFlag = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profile: null, ExperimentalFeatures.DesktopAppearance);
+            var appearanceEnabled = await Task.Run(() => appearanceFlag.IsOn, _shutdown.Token);
+            if (_shutdown.IsCancellationRequested) return;
+            ConfigureDesktopAppearance(appearanceFlag, appearanceEnabled);
             _updater = CreateUpdater(_betaUpdates);
             if (UpdateCoordinator.TryApplyPendingAtStartup(_updater, Program.Host.UpdateRelaunch,
                     HandOver(AppUpdateTransition.PendingAtStartup), LifecycleLog)) return; // the process is being replaced
@@ -1111,7 +1123,50 @@ public partial class App : Application {
     internal static bool ShouldShowWizard(GateResult gate, string[]? args, bool firstRunAfterInstall = false) =>
         gate is GateResult.Incomplete || firstRunAfterInstall || args?.Contains("--setup", StringComparer.Ordinal) == true;
 
-    // The steady-state graph, over the resolution the gate was evaluated on (never a second resolve).
+    void ConfigureDesktopAppearance(ExperimentalSwitch flag, bool enabledAtStartup) {
+        var palette = new ClassicPreviewPalette(this);
+        var platform = PlatformSettings;
+        var systemChanges = platform is null ? Observable.Never<Unit>() :
+            Observable.FromEventPattern<PlatformColorValues>(h => platform.ColorValuesChanged += h, h => platform.ColorValuesChanged -= h)
+                .Select(_ => Unit.Default).ObserveOn(RxSchedulers.MainThreadScheduler);
+        var preview = new ClassicAppearancePreview(_appState, _openingDesktopColorScheme,
+            palette.TryApply, () => platform?.GetColorValues().ThemeVariant != PlatformThemeVariant.Light, systemChanges);
+        var reading = new DesktopReadingResources(this);
+        var contrastWatch = new SerialDisposable();
+        var zoomWatch = new SerialDisposable();
+        var appearance = new DesktopAppearanceSettings(_appState, _openingDesktopAppearance, preferences => {
+            reading.Apply(preferences);
+            var highContrast = preferences?.HighContrast == true;
+            void ApplyContrast() => palette.SetHigherContrast(highContrast ||
+                platform?.GetColorValues().ContrastPreference == ColorContrastPreference.High);
+            contrastWatch.Disposable = preferences is not null && !highContrast
+                ? systemChanges.Subscribe(_ => ApplyContrast()) : null;
+            if (preferences is null) palette.SetHigherContrast(false);
+            else ApplyContrast();
+        });
+        void SetEnabled(bool enabled) {
+            if (appearance.Enabled == enabled) return;
+            if (enabled) {
+                zoomWatch.Disposable = _uiScale.Changes.ObserveOn(RxSchedulers.MainThreadScheduler)
+                    .Subscribe(reading.SetZoom);
+                appearance.SetEnabled(true);
+                preview.SetEnabled(true);
+            } else {
+                preview.SetEnabled(false);
+                appearance.SetEnabled(false);
+                zoomWatch.Disposable = null;
+            }
+        }
+
+        SetEnabled(enabledAtStartup);
+        _classicPreview = preview;
+        _desktopAppearance = appearance;
+        _classicPreviewSubscription = new CompositeDisposable(contrastWatch, zoomWatch, _experimentalSaved.Merge(
+                Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default))
+            .ObserveOn(TaskPoolScheduler.Default).Select(_ => flag.IsOn).DistinctUntilChanged()
+            .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(SetEnabled));
+    }
+
     void BuildDaemonGraph(
             IClassicDesktopStyleApplicationLifetime desktop, DaemonMutationLane lane, OutcomeChannel channel, ILoginShellProbe probe,
             GateResult gate, ProfileContext? profiles, bool laneQuiesced) {
@@ -1979,7 +2034,7 @@ public partial class App : Application {
                             _userHome, AccountStore.Beside(_daemonStore).TryLoad() ?? new AccountRegistry(), Environment.GetEnvironmentVariable),
                         pickDirectory: PickAccountDirectoryAsync, daemonStatus: service.Status, usageClock: _usageClock, appLifetime: _shutdown.Token)
                     : null,
-                Appearance = new AppearanceSettingsViewModel(_uiScale),
+                Appearance = new AppearanceSettingsViewModel(_uiScale, _classicPreview, _desktopAppearance),
                 Privacy    = new PrivacySettingsViewModel(_telemetry, _config, _usageNotice),
                 Search     = _localStack?.Search,
                 Intelligence = _localUpgrade is { } upgrade && _localSearch is { } search
@@ -3477,6 +3532,9 @@ public partial class App : Application {
     void LatchNavigation() {
         _notificationAccessPrompt?.Dispose();
         _desktopNotifications?.Dispose();
+        _classicPreviewSubscription?.Dispose();
+        _classicPreview?.Dispose();
+        _desktopAppearance?.Dispose();
         _notificationBadgeSubscription?.Dispose();
         _windowLifecycle?.SetPendingNotificationCount(0);
         (_coordinator?.Window?.DataContext as MainWindowViewModel)?.LatchShutdown();
