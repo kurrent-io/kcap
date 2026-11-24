@@ -25,8 +25,8 @@ public static class AttachedAgentCopy {
     public const string SendAgain = "Not delivered, send again";
     public const string DeliveryUnknown = "Delivery unknown, check the session before sending again";
 
-    /// The state as the app reads it: null for a hosted agent's message and for a state this build does not know, so
-    /// that either shows as a hosted message does.
+    /// The state as the app reads it: null while a hosted send is in flight, and for a state this build does not know,
+    /// so that either shows as a hosted message does.
     public static string? Known(string? state) =>
         state is "held" or "with_mod" or "delivered" or "rejected" or "unconfirmed" ? state : null;
 
@@ -35,7 +35,8 @@ public static class AttachedAgentCopy {
         "held" or "with_mod" => WaitingForTheTurn,
         "delivered"          => Delivered,
         "unconfirmed"        => DeliveryUnknown,
-        "rejected"           => reason switch {
+        // A reason with a space is the daemon's own sentence, shown as it stands.
+        "rejected"           => reason is { Length: > 0 } prose && prose.Contains(' ') ? prose : reason switch {
             "stopped"                 => "Not delivered, the session was stopped at the terminal",
             "command"                 => "Not delivered, commands can only be run at the terminal",
             "unconfirmed"             => "Not delivered, an earlier message's delivery is still unknown",

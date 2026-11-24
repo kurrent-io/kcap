@@ -1209,7 +1209,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             if (outcome is null or ChatSendOutcome.Rejected) {
                 _superseded.RemoveAll(pair => ReferenceEquals(pair.Old, message));
                 message.RetriedAs = null;
-                if (replacement?.Acknowledged == true) message.Acknowledged = true;
+                if (replacement?.Acknowledged == true) {
+                    message.Acknowledged = true;
+                    message.ReleaseFiles();
+                }
                 else if (replacement is not null) RetargetSuperseded(replacement, message);
                 RestoreQueuedRow(message);
             }
@@ -1316,6 +1319,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 if (!known.IsForeign) {
                     known.MarkQueued(item.DispatchId);
                     if (!known.Acknowledged && !Tracked.Contains(known)) _queuedMessages.Add(known);
+                    NoteRefused(known);
                 }
                 continue;
             }
@@ -1324,6 +1328,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 own.MarkQueued(item.DispatchId);
                 own.SetDelivery(item.DeliveryState, item.DeliveryReason);
                 if (!Tracked.Contains(own)) _queuedMessages.Add(own);
+                NoteRefused(own);
             } else _queuedMessages.Add(QueuedChatMessage.FromServer(item));
         }
         // The server stops listing a message it listed with a state only once that message is over: credited to its
@@ -1621,6 +1626,21 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         else _drafts.SetStash(_origin, _agentId, _history.TakeDraft());
     }
 
+    /// A daemon refusal arrives after the hub has already taken the send, which is when the composer
+    /// was cleared. A reason written as a sentence is one the sender can resend. The text and chips
+    /// go back only when the composer and the tray are both empty, and the row drops once they are.
+    /// Text the user typed again is a new draft, even when it reads the same. A token stays a notice.
+    void NoteRefused(QueuedChatMessage message) {
+        if (message.IsForeign || message.Acknowledged || message.DeliveryState != "rejected" || message.RefusalNoted) return;
+        if (message.DeliveryReason is not { Length: > 0 } reason || !reason.Contains(' ')) return;
+        message.RefusalNoted = true;
+        var owned = ComposerText.Length == 0 && Tray.Count == 0;
+        if (owned && message.Text.Length > 0) ComposerText = message.Text;
+        if (owned && message.Files.Count > 0) Tray.AddAll(message.Files);
+        Notice(message.DeliveryNote ?? AttachedAgentCopy.SendAgain);
+        if (owned) RetireDiscarded(message);
+    }
+
     void RestoreQueuedRow(QueuedChatMessage message, bool isPredecessor = false) {
         if (message.Acknowledged) return;
         if (!_queuedMessages.Contains(message)) {
@@ -1659,6 +1679,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     void Acknowledge(QueuedChatMessage queued) {
         queued.Acknowledged = true;
+        queued.ReleaseFiles();
         _queuedMessages.Remove(queued);
         ConfirmDelivery(queued);
     }
@@ -1737,6 +1758,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     void AbsorbSuperseded(QueuedChatMessage old) {
         old.Acknowledged = true;
+        old.ReleaseFiles();
         _superseded.RemoveAll(pair => ReferenceEquals(pair.Old, old));
     }
 
@@ -1790,6 +1812,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             SentIdle = AgentIsIdle && _awaitingInput == true && !HasTerminalMenu,
             SawIdle = AgentIsIdle || AgentPromptWaits,
             SenderIdentity = sender is null ? null : sender with { Ids = sender.Ids.ToArray() },
+            Files = files,
         };
         if (!queued.HasBaseline) Interlocked.Increment(ref _baselineVersion);
         _lastSent = queued;

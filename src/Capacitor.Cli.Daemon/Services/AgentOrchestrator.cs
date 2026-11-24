@@ -5093,6 +5093,19 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         public const string CompactionUnsupported = "compaction_unsupported";
     }
 
+    /// An attachment refusal's wording is what the sender can act on. Every other drop stays the
+    /// stable token: wake-ups classify on that set.
+    static string ReportedDropReason(InputDeliveryOutcome outcome) =>
+        outcome.Reason == SendInputDropReason.DeliveryFailed && outcome.Error is { } error && IsAttachmentDrop(error)
+            ? error
+            : outcome.Reason!;
+
+    static bool IsAttachmentDrop(string error) =>
+        error is AttachmentRefusals.ReviewParticipant
+            or AttachmentRefusals.NeedsOwnedWorktree
+            or AttachmentRefusals.QuitTakesNone
+        || error.StartsWith("attachment ", StringComparison.Ordinal);
+
     /// <summary>Reports a drop to the server, when the dispatch carried an id to name. Never throws:
     /// the drop has already happened, and a report that fails must leave the daemon exactly where
     /// reporting nothing would. Callers inside a held section report after releasing it — the invoke
@@ -5218,7 +5231,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // later input for that agent behind a stalled connection — and stretch the section the
             // reaper's own claim races against.
             case InputDeliveryKind.Dropped:
-                await ReportInputDroppedAsync(cmd, outcome.Reason!);
+                await ReportInputDroppedAsync(cmd, ReportedDropReason(outcome));
 
                 break;
         }
@@ -5284,9 +5297,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
         return outcome;
 
-        // The wire carries only the drop token, so an attachment refusal's wording lives in the
-        // daemon's own log or nowhere: a server-dispatched prompt refused before the section is
-        // otherwise a bare "delivery_failed" with no local trace of why.
+        // The outcome's reason stays the drop token. An attachment refusal's wording is what the
+        // report carries, so the sender can read which refusal it was.
         InputDeliveryOutcome RefuseAttachments(string detail) {
             LogSendInputAttachmentsRefused(agent.Id, detail);
 
