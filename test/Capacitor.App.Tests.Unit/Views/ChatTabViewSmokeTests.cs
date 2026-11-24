@@ -2919,6 +2919,7 @@ public class ChatTabViewSmokeTests {
                 await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo("See [docs](https://example.com/docs).");
 
                 var assistantCopy = assistant.CopyAction!.FindControl<Button>("CopyButton")!;
+                host.Composer.Focus();
                 assistantCopy.Focus(NavigationMethod.Tab);
                 host.Window.KeyPressQwerty(PhysicalKey.F10, RawInputModifiers.Shift);
                 host.Window.KeyReleaseQwerty(PhysicalKey.F10, RawInputModifiers.Shift);
@@ -2929,6 +2930,21 @@ public class ChatTabViewSmokeTests {
                 host.Settle();
                 await Assert.That(rowMenu.IsOpen).IsFalse();
                 await Assert.That(assistantCopy.IsFocused).IsTrue();
+                // The control the keyboard returned to stays visible.
+                await Assert.That(assistant.CopyAction!.Opacity).IsEqualTo(1);
+
+                // A click on the focused Copy hands it to the pointer: leaving the message hides it.
+                var copyPoint = PresentAndLocate(host, assistantCopy);
+                host.Window.MouseMove(copyPoint);
+                host.Window.MouseDown(copyPoint, MouseButton.Left);
+                host.Window.MouseUp(copyPoint, MouseButton.Left);
+                host.Window.MouseMove(new Point(4, 4));
+                host.Settle();
+                await Assert.That(assistantCopy.IsFocused).IsTrue();
+                await Assert.That(assistant.CopyAction!.Opacity).IsEqualTo(0);
+                // A key on it hands it back to the keyboard.
+                host.Press(PhysicalKey.Space);
+                await Assert.That(assistant.CopyAction!.Opacity).IsEqualTo(1);
 
                 var tabs = 0;
                 while (!host.Composer.IsFocused && tabs < 8) {

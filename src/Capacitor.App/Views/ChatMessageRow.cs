@@ -31,6 +31,8 @@ public sealed class ChatMessageRow : Panel {
     public ChatMessageRow() {
         AddHandler(PointerMovedEvent, OnMessagePointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(GotFocusEvent, OnMessageGotFocus, RoutingStrategies.Bubble, handledEventsToo: true);
+        AddHandler(PointerPressedEvent, OnMessagePointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(KeyDownEvent, OnMessageKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
     }
 
     public string? Author {
@@ -69,8 +71,10 @@ public sealed class ChatMessageRow : Panel {
         LiveAnnouncer.Polite(this, receipt);
     }
 
+    // Focus spends the menu's lifetime inside it; on closing it returns here or goes on elsewhere.
     internal void SetOpenMenu(FlyoutBase? menu) {
         _openMenu = menu;
+        if (menu is null && !IsKeyboardFocusWithin) _keyboardFocusWithin = false;
         UpdateReveal();
     }
 
@@ -102,7 +106,7 @@ public sealed class ChatMessageRow : Panel {
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change) {
         base.OnPropertyChanged(change);
         if (change.Property == IsKeyboardFocusWithinProperty) {
-            if (!IsKeyboardFocusWithin) _keyboardFocusWithin = false;
+            if (!IsKeyboardFocusWithin && _openMenu is null) _keyboardFocusWithin = false;
             UpdateReveal();
         }
         if (change.Property == AuthorProperty || change.Property == TimestampProperty)
@@ -139,6 +143,19 @@ public sealed class ChatMessageRow : Panel {
     void OnMessageGotFocus(object? sender, FocusChangedEventArgs e) {
         if (e.NavigationMethod is NavigationMethod.Tab or NavigationMethod.Directional) _keyboardFocusWithin = true;
         else if (e.NavigationMethod == NavigationMethod.Pointer) _keyboardFocusWithin = false;
+        UpdateReveal();
+    }
+
+    // Keys on a control a click left focused bring its actions back without any focus change.
+    void OnMessageKeyDown(object? sender, KeyEventArgs e) {
+        if (!IsKeyboardFocusWithin) return;
+        _keyboardFocusWithin = true;
+        UpdateReveal();
+    }
+
+    // A press on a control that already has focus raises no focus change, so it is caught here.
+    void OnMessagePointerPressed(object? sender, PointerPressedEventArgs e) {
+        _keyboardFocusWithin = false;
         UpdateReveal();
     }
 

@@ -100,8 +100,8 @@ public static class TextContextMenu {
             details.Text = current?.AccessibleMetadata;
             details.IsVisible = !string.IsNullOrEmpty(details.Text);
             copy.IsVisible = current?.MessageText is not null;
+            current?.SetOpenMenu(flyout);
         };
-        flyout.Opened += (_, _) => current?.SetOpenMenu(flyout);
         flyout.Closed += (_, _) => {
             current?.SetOpenMenu(null);
             current = null;
