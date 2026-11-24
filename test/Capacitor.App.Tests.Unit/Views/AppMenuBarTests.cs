@@ -93,7 +93,7 @@ public class AppMenuBarTests {
                 new FakeDaemonClientService(), CancellationToken.None, TestActivity.New(), TimeProvider.System);
             var menu = Submenu(NewBar(showMainWindow: () => { }).Build(new MainWindow { DataContext = vm }), "Window");
             var refresh = Item(menu, "Refresh");
-            return (Layout(menu), refresh.Gesture, refresh.IsEnabled);
+            return (VisibleLayout(menu), refresh.Gesture, refresh.IsEnabled);
         });
 
         await Assert.That(layout).IsEqualTo("Minimize|Zoom|Toggle Full Screen|Refresh|Search Sessions…|Back|Forward|-|kcap|Launch approvals…|-|Bring All to Front");
@@ -439,7 +439,7 @@ public class AppMenuBarTests {
             var vm = new MainWindowViewModel(
                 new FakeDaemonClientService(), CancellationToken.None, TestActivity.New(), TimeProvider.System);
             var menu = Submenu(NewBar(showMainWindow: () => { }, inWindow: true).Build(new MainWindow { DataContext = vm }), "Window");
-            return (Layout(menu), Item(menu, "Search Sessions…").Gesture, Item(menu, "Toggle Full Screen").Gesture);
+            return (VisibleLayout(menu), Item(menu, "Search Sessions…").Gesture, Item(menu, "Toggle Full Screen").Gesture);
         });
 
         await Assert.That(layout).IsEqualTo("Refresh|Search Sessions…|Back|Forward|-|Toggle Full Screen|-|Launch approvals…");

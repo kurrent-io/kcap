@@ -1513,6 +1513,11 @@ public class MainWindowSmokeTests {
                 Dispatcher.UIThread.RunJobs();
                 var terminal = window.GetVisualDescendants().OfType<TerminalControl>().Single();
                 await Assert.That(terminal.Focus()).IsTrue();
+                window.Resources[MainWindow.CommandPaletteResource] = true;
+                var paletteModifier = ShortcutLabels.UsesCommandKey ? RawInputModifiers.Meta : RawInputModifiers.Control;
+                window.KeyPressQwerty(PhysicalKey.P, paletteModifier | RawInputModifiers.Shift);
+                await Assert.That(window.FindDescendantOfType<CommandPalette>()).IsNull();
+                await Assert.That(terminal.IsFocused).IsTrue();
                 await Assert.That(yield.CanExecute(null)).IsFalse();
                 await Assert.That(Can()).IsTrue();
                 await Assert.That(refreshItem.IsEnabled).IsTrue();

@@ -96,8 +96,19 @@ public sealed class AppMenuBar(IUrlOpener opener, Func<IReadOnlyList<Window>> wi
     static void AddNavigation(NativeMenu menu, Window window, KeyGesture search) {
         if (RefreshItem(window) is { } refresh) menu.Add(refresh);
         if (MainWindowItem(window, "Search Sessions…", search, vm => vm.OpenSearchCommand) is { } found) menu.Add(found);
+        if (window is MainWindow main) menu.Add(CommandPaletteItem(main));
         if (MainWindowItem(window, "Back", HistoryShortcuts.Back, vm => vm.GoBackCommand) is { } back) menu.Add(back);
         if (MainWindowItem(window, "Forward", HistoryShortcuts.Forward, vm => vm.GoForwardCommand) is { } forward) menu.Add(forward);
+    }
+
+    static NativeMenuItem CommandPaletteItem(MainWindow window) {
+        // The native menu key equivalent would bypass the terminal's key handler on macOS.
+        var item = Item("Command Palette…", window.OpenCommandPalette,
+            ShortcutLabels.UsesCommandKey ? null : MainWindow.CommandPaletteShortcut);
+        void Apply() => item.IsEnabled = item.IsVisible = window.CanOpenCommandPalette;
+        Apply();
+        window.CommandPaletteAvailabilityChanged += (_, _) => Apply();
+        return item;
     }
 
     NativeMenuItem LaunchApprovalsItem(Window window) {

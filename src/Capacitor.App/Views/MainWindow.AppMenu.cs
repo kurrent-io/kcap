@@ -60,7 +60,7 @@ public partial class MainWindow {
     }
 
     // Setup covers the window's controls until it hands over.
-    bool CanOpenAppMenu => AppMenuButton.IsEffectivelyVisible && !OnboardingPane.IsVisible;
+    bool CanOpenAppMenu => AppMenuButton.IsEffectivelyVisible && !OnboardingPane.IsVisible && _commandPalette is null;
 
     void ToggleAppMenu() {
         if (AppMenuPopup.IsOpen) AppMenuPopup.Hide();
