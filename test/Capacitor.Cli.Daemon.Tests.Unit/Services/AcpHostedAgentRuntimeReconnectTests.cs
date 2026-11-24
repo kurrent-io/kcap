@@ -57,6 +57,7 @@ public class AcpHostedAgentRuntimeReconnectTests {
     sealed class FakeProcessTree(List<string> events, Func<int, bool> rootAlive) {
         public readonly Dictionary<int, List<(int Pid, string Identity)>> DescendantsOf = [];
         public readonly HashSet<int> Unkillable = [];
+        public bool FaultAfterFirstListing;
         readonly HashSet<int> _killed = [];
         readonly HashSet<int> _listed = [];
 
@@ -65,7 +66,10 @@ public class AcpHostedAgentRuntimeReconnectTests {
         public AcpProcessTreeProbe Probe => new(
             Descendants: pid => {
                 if (!rootAlive(pid) || !DescendantsOf.TryGetValue(pid, out var listed)) return [];
-                lock (_listed) _listed.Add(pid);
+                lock (_listed) {
+                    if (FaultAfterFirstListing && _listed.Contains(pid)) throw new IOException("simulated process listing failure");
+                    _listed.Add(pid);
+                }
                 return [.. listed];
             },
             Kill: (pid, _) => {
@@ -303,6 +307,25 @@ public class AcpHostedAgentRuntimeReconnectTests {
         lock (h.Events) events = [.. h.Events];
         await Assert.That(events).Contains("kill:6000");
         await Assert.That(h.CandidateSpawns).IsEqualTo(0);
+    }
+
+    /// <summary>A listing that faults ends the poll early but neither fails the launch nor keeps what was already
+    /// listed from being killed</summary>
+    [Test]
+    public async Task Faulted_listing_still_kills_what_was_listed() {
+        await using var h = new Harness();
+        h.Tree.DescendantsOf[5000] = [(6000, "start:6000")];
+        h.Tree.FaultAfterFirstListing = true;
+
+        await h.StartAsync();
+        h.CrashOriginal();
+
+        await Harness.PollUntilAsync(() => h.CandidateSpawns >= 1);
+
+        string[] events;
+        lock (h.Events) events = [.. h.Events];
+        await Assert.That(Array.IndexOf(events, "kill:6000")).IsGreaterThanOrEqualTo(0);
+        await Assert.That(Array.IndexOf(events, "kill:6000")).IsLessThan(Array.IndexOf(events, "spawn:5001"));
     }
 
     /// <summary>A candidate whose wrapper dies during initialize fails its attempt, and the agent it re-execed,

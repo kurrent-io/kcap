@@ -64,7 +64,11 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
         async Task StopCoreAsync() {
             await cts.CancelAsync().ConfigureAwait(false);
-            await loop.ConfigureAwait(false);
+
+            // A faulted listing only ends the poll early; it must never keep a caller from reaping what was listed
+            try { await loop.ConfigureAwait(false); }
+            catch (Exception) { /* the listed descendants stand */ }
+
             cts.Dispose();
         }
     }
