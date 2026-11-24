@@ -309,23 +309,39 @@ public class AcpHostedAgentRuntimeReconnectTests {
         await Assert.That(h.CandidateSpawns).IsEqualTo(0);
     }
 
-    /// <summary>A listing that faults ends the poll early but neither fails the launch nor keeps what was already
-    /// listed from being killed</summary>
+    /// <summary>A listing that faults does not fail the launch, and what was listed is still killed, but the list may
+    /// be incomplete, so retirement is unconfirmed and no candidate spawns</summary>
     [Test]
-    public async Task Faulted_listing_still_kills_what_was_listed() {
+    public async Task Faulted_listing_kills_what_was_listed_and_finalizes_without_a_candidate() {
         await using var h = new Harness();
         h.Tree.DescendantsOf[5000] = [(6000, "start:6000")];
         h.Tree.FaultAfterFirstListing = true;
 
         await h.StartAsync();
+
+        var terminal = h.RuntimeTerminalAsync();
         h.CrashOriginal();
 
-        await Harness.PollUntilAsync(() => h.CandidateSpawns >= 1);
+        await terminal.WaitAsync(HangGuard);
 
         string[] events;
         lock (h.Events) events = [.. h.Events];
-        await Assert.That(Array.IndexOf(events, "kill:6000")).IsGreaterThanOrEqualTo(0);
-        await Assert.That(Array.IndexOf(events, "kill:6000")).IsLessThan(Array.IndexOf(events, "spawn:5001"));
+        await Assert.That(events).Contains("kill:6000");
+        await Assert.That(h.CandidateSpawns).IsEqualTo(0);
+    }
+
+    /// <summary>Listing starts before the PID record write, so a candidate whose record fails still has its agent
+    /// killed</summary>
+    [Test]
+    public async Task Pid_record_failure_still_kills_the_candidates_listed_agent() {
+        await using var h = new Harness();
+        h.Tree.DescendantsOf[5001] = [(6001, "start:6001")];
+
+        await h.StartAsync();
+        h.FailPidRecord = true;
+        h.CrashOriginal();
+
+        await Harness.PollUntilAsync(() => { lock (h.Events) return h.Events.Contains("kill:6001"); });
     }
 
     /// <summary>A candidate whose wrapper dies during initialize fails its attempt, and the agent it re-execed,

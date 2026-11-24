@@ -58,6 +58,9 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         readonly Lock _gate = new();
         Task? _stopped;
 
+        /// <summary>The poll ended on a fault, so a descendant forked after it may be missing from the list</summary>
+        public bool Faulted => loop.IsFaulted;
+
         public Task StopAsync() {
             lock (_gate) return _stopped ??= StopCoreAsync();
         }
@@ -65,7 +68,7 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         async Task StopCoreAsync() {
             await cts.CancelAsync().ConfigureAwait(false);
 
-            // A faulted listing only ends the poll early; it must never keep a caller from reaping what was listed
+            // A faulted listing must never keep a caller from reaping what was listed; Faulted carries it instead
             try { await loop.ConfigureAwait(false); }
             catch (Exception) { /* the listed descendants stand */ }
 
@@ -2469,11 +2472,11 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     // candidate WITHOUT clearing (recordedWith stays null — nothing was recorded).
                     // The bundle is snapshotted once and carried: Record and any later Clear must
                     // be the same generation (code-review r3).
+                    StartTrackingDescendants(candidate, ownerCt);
+
                     var attemptPidCallbacks = support.PidCallbacks;
                     attemptPidCallbacks.Record(candidate.Process.Pid);
                     recordedWith = attemptPidCallbacks;
-
-                    StartTrackingDescendants(candidate, ownerCt);
 
                     await InitializeCandidateAsync(candidate, ownerCt).ConfigureAwait(false);
                     await LoadSessionAsync(candidate, ownerCt).ConfigureAwait(false);
@@ -2649,7 +2652,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             await Task.Delay(TimeSpan.FromMilliseconds(50), support.TimeProvider).ConfigureAwait(false);
         }
 
-        return true;
+        // An incomplete list cannot confirm that nothing of the corpse survives
+        return Volatile.Read(ref corpse.Tracking) is not { Faulted: true };
     }
 
     /// <summary>
