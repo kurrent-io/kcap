@@ -63,7 +63,7 @@ static class InlineBuilder {
         }
 
         void Append(string text) {
-            if (mode == InlineBuildMode.Summary && text.StartsWith(' ') &&
+            if (mode == InlineBuildMode.Summary && _code is null or { Length: 0 } && text.StartsWith(' ') &&
                 _target.LastChild is LiteralInline previous && previous.Content.AsSpan().EndsWith(" "))
                 text = text[1..];
 

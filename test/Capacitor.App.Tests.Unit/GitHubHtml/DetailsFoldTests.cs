@@ -150,6 +150,33 @@ public class DetailsFoldTests {
     }
 
     [Test]
+    [Arguments("1. [ ] Task")]
+    [Arguments("23) [x] Task")]
+    [Arguments("123456789. [X] Task")]
+    public async Task A_numbered_task_after_a_disclosure_is_a_checklist_item(string task) {
+        var document = Trees.Parse($"<details>\n<summary>Title</summary>\n\nBody\n\n</details>\n{task}");
+        await Assert.That(document[0] is DetailsBlock).IsTrue();
+        await Assert.That(document[1] is ListBlock { IsOrdered: true }).IsTrue();
+        await Assert.That(document.Descendants<TaskList>().Count()).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_task_after_a_disclosures_heading_wrapper_is_a_checklist_item() {
+        const string markdown = "<H6>\n<details>\n<summary>Title</summary>\n\nBody\n\n</details>\n</H6>\n- [ ] Task";
+        var document = Trees.Parse(markdown);
+        await Assert.That(document[0] is DetailsBlock).IsTrue();
+        await Assert.That(document[1] is ListBlock { IsOrdered: false }).IsTrue();
+        await Assert.That(document.Descendants<TaskList>().Count()).IsEqualTo(1);
+    }
+
+    [Test]
+    [Arguments("one<b> two</b>", "one two")]
+    [Arguments(" one", "one")]
+    public async Task A_summary_collapses_space_before_code_without_joining_words_in_code(string code, string expected) =>
+        await Assert.That(Trees.Dump($"<details><summary>prefix <code>{code}</code></summary></details>"))
+            .IsEqualTo($"doc(details#0{{'prefix ',code('{expected}')}}())");
+
+    [Test]
     public async Task A_task_marker_inside_an_html_comment_stays_hidden() {
         const string markdown = "<details><summary>Title</summary>\n<!--\n</details>\n- [ ] Hidden\n-->\n</details>";
         var document = Trees.Parse(markdown);

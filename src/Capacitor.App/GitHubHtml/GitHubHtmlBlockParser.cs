@@ -14,16 +14,32 @@ sealed class GitHubHtmlBlockParser : HtmlBlockParser {
     }
 
     static bool IsTaskStart(ReadOnlySpan<char> line) {
-        if (line.Length < 6 || line[0] is not ('-' or '+' or '*') || line[1] is not (' ' or '\t')) return false;
-        line = line[2..].TrimStart();
-        return line is ['[', ' ' or 'x' or 'X', ']', ' ' or '\t', ..];
+        if (line.IsEmpty) return false;
+
+        var markerEnd = 0;
+        if (line[0] is not ('-' or '+' or '*')) {
+            const int maxOrderedDigits = 9;
+            while (markerEnd < line.Length && markerEnd <= maxOrderedDigits && char.IsAsciiDigit(line[markerEnd]))
+                markerEnd++;
+            if (markerEnd is 0 or > maxOrderedDigits || markerEnd == line.Length || line[markerEnd] is not ('.' or ')'))
+                return false;
+        }
+
+        var afterMarker = line[(markerEnd + 1)..];
+        return afterMarker is [' ' or '\t', ..] &&
+            afterMarker.TrimStart() is ['[', ' ' or 'x' or 'X', ']', ' ' or '\t', ..];
     }
 
     static bool FollowsDetailsClosingBlock(HtmlBlock block) {
+        var sawHeadingClose = false;
         for (var i = block.Lines.Count - 1; i >= 0; i--) {
             var line = block.Lines.Lines[i].Slice.AsSpan().Trim();
             if (line.StartsWith("<!--", StringComparison.Ordinal) &&
                 line.IndexOf("-->", StringComparison.Ordinal) == line.Length - 3) continue;
+            if (!sawHeadingClose && line is ['<', '/', 'h' or 'H', >= '1' and <= '6', '>']) {
+                sawHeadingClose = true;
+                continue;
+            }
             if (!line.Equals("</details>", StringComparison.OrdinalIgnoreCase)) return false;
 
             // A closing tag in comment or element content cannot end the Markdown block.
