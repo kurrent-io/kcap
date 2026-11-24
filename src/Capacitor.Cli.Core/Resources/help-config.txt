@@ -28,4 +28,7 @@ Config keys:
   allowed_repos               Capture only these repos, comma-separated (owner/repo,local~/folder); empty allows all
   update_check                Enable update check (true/false)
   flows.reviewer_vendor       Preferred review-flow reviewer vendor (used only when the definition names none)
+  hosts.telemetry             PostHog host usage data is sent to (default https://phog.kurrent.io)
+  hosts.npm_registry          npm registry the update check reads (default https://registry.npmjs.org/)
+  hosts.docs                  Base of the documentation links kcap prints (default https://capacitor.kurrent.io/docs/)
   telemetry                   Pseudonymous CLI usage reporting, machine-wide (on/off)

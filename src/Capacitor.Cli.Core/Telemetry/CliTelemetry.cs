@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Auth;
+using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
 
 namespace Capacitor.Cli.Core.Telemetry;
@@ -18,11 +19,10 @@ namespace Capacitor.Cli.Core.Telemetry;
 /// behind.</para>
 /// </summary>
 public sealed class CliTelemetry {
-    const string Endpoint = "https://phog.kurrent.io";
     const string Token    = "phc_DeHBgHGersY4LmDlADnPrsCPOAmMO7QFOH8f4DVEVmD";
 
-    /// <summary>The host telemetry posts to, for callers that must name every host a run contacts.</summary>
-    public static string EndpointHost => new Uri(Endpoint).Host;
+    /// <summary>The host telemetry posts to by default, for callers that must name every host a run contacts.</summary>
+    public static string EndpointHost => new Uri(HostsSettings.DefaultTelemetry).Host;
 
     static readonly TimeSpan FlushBudget = TimeSpan.FromSeconds(1.5);
 
@@ -117,9 +117,12 @@ public sealed class CliTelemetry {
     /// printing a disclosure or consuming a once-per-device marker.</para>
     /// </summary>
     public static CliTelemetry Start(TelemetryStartup startup, ConfigRoot config, TimeProvider time) =>
-        Start(startup, config, time,
-            () => new TelemetryClient(FailFastConnect.Handler(), Spool(config), Token, Endpoint, time,
-                consent: startup.Source == TelemetryStartup.DesktopSource ? () => SavedConsent(config) : null));
+        Start(startup, config, time, () => LiveSink(startup, config, time));
+
+    /// <summary>The sink a live facade ships through: the run's endpoint, and that endpoint's own spool.</summary>
+    internal static TelemetryClient LiveSink(TelemetryStartup startup, ConfigRoot config, TimeProvider time) =>
+        new(FailFastConnect.Handler(), TelemetrySpool.For(config, startup.Endpoint), Token, startup.Endpoint, time,
+            consent: startup.Source == TelemetryStartup.DesktopSource ? () => SavedConsent(config) : null);
 
     /// The saved choice, or null when the file cannot be read: it may hold an opt-out, so nothing is sent on it,
     /// but a read that fails for a moment is not an opt-out either.
@@ -468,8 +471,6 @@ public sealed class CliTelemetry {
 
         return redacted.ToJsonString();
     }
-
-    static TelemetrySpool Spool(ConfigRoot config) => TelemetrySpool.For(config);
 
     static string Version() =>
         typeof(CliTelemetry).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()

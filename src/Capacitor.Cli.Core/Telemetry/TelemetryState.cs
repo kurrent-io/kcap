@@ -61,7 +61,7 @@ public static class TelemetryState {
         if (!enabled) {
             TelemetryDeviceId.Delete(config);
             // Events another process spooled before the opt-out would otherwise go out after a later opt-in.
-            TelemetrySpool.For(config).Clear();
+            TelemetrySpool.ClearAll(config);
         }
 
         return saved;

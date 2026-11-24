@@ -195,10 +195,11 @@ public static class CapacitorHttpServices {
         // are set here: a typed client's HttpClient rejects all three once it has sent its first
         // request. A test aiming this at a stub registers its own BaseAddress after this one — the
         // configuration is additive, so the cap it reasons about survives.
-        services.AddHttpClient<NpmRegistryClient>(c => {
-            // The trailing slash is load-bearing: without it a relative request path replaces the
-            // last segment instead of extending it.
-            c.BaseAddress = new Uri("https://registry.npmjs.org/");
+        services.AddHttpClient<NpmRegistryClient>((sp, c) => {
+            // The profile's hosts.npm_registry, read where the client is built; a host with no profile
+            // context reads the default.
+            var registry  = HostsSettings.EffectiveNpmRegistry(sp.GetService<ProfileContext>()?.Effective?.Hosts);
+            c.BaseAddress = Uri.TryCreate(registry, UriKind.Absolute, out var uri) ? uri : new Uri(HostsSettings.DefaultNpmRegistry);
             c.Timeout     = TimeSpan.FromSeconds(5);
             c.DefaultRequestHeaders.Add("User-Agent", "kcap-cli");
         }).ConfigurePrimaryHttpMessageHandler(FailFastConnect.Handler);

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.DependencyInjection;
 using WireMock.RequestBuilders;
@@ -105,5 +106,23 @@ public class NpmRegistryClientTests : IDisposable {
 
         await Assert.That(result.Reached).IsFalse();
         await Assert.That(clock.Elapsed).IsLessThan(FailFastConnect.Timeout + TimeSpan.FromMilliseconds(400));
+    }
+
+    /// <summary>The profile's <c>hosts.npm_registry</c> is where the registered client reads, a path
+    /// under it included.</summary>
+    [Test]
+    public async Task The_profiles_npm_registry_is_where_the_version_is_read() {
+        _server.Given(Request.Create().WithPath("/mirror/@kurrent/kcap/latest").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"version":"7.7.7"}"""));
+
+        var profile = new Profile { Hosts = new HostsSettings { NpmRegistry = _server.Url + "/mirror" } };
+        using var sp = new ServiceCollection()
+            .AddSingleton(Resolutions.Of(profile))
+            .AddCapacitorForeignClients()
+            .BuildServiceProvider();
+
+        var result = await sp.GetRequiredService<NpmRegistryClient>().GetDistTagAsync("latest", CancellationToken.None);
+
+        await Assert.That(result.Version).IsEqualTo("7.7.7");
     }
 }
