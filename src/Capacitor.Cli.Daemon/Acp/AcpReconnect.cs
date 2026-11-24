@@ -34,6 +34,10 @@ internal sealed class AcpReconnectSupport {
     /// </summary>
     public AcpPidRecordCallbacks PidCallbacks { get; set; } = AcpPidRecordCallbacks.Unwired;
 
+    /// <summary>Lists each incarnation's descendants after its handshake, and kills and confirms them gone
+    /// during retirement, before the next candidate is spawned</summary>
+    public AcpProcessTreeProbe ProcessTree { get; init; } = AcpProcessTreeProbe.Os;
+
     /// <summary>Delays BETWEEN the up-to-3 candidate spawns of one incident (t=0, +1s, +4s).</summary>
     public IReadOnlyList<TimeSpan> AttemptDelays { get; init; } = [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(3)];
 

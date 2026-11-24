@@ -43,6 +43,37 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         public required IAcpProcess             Process    { get; init; }
         public required CancellationTokenSource LoopCts    { get; init; }
         public Task LoopTask { get; set; } = Task.CompletedTask;
+
+        /// <summary>Every descendant seen from spawn through the handshake, so the real agent of a child that
+        /// re-execs itself is known even if the spawned wrapper dies first</summary>
+        public IReadOnlyList<(int Pid, string Identity)> Descendants { get; set; } = [];
+
+        /// <summary>The descendant poll, null when reconnect support is absent</summary>
+        public DescendantTracking? Tracking;
+    }
+
+    /// <summary>Every caller of <see cref="StopAsync"/> awaits the same stop, so none reaps before the poll's final
+    /// merge is published</summary>
+    sealed class DescendantTracking(CancellationTokenSource cts, Task loop) {
+        readonly Lock _gate = new();
+        Task? _stopped;
+
+        /// <summary>The poll ended on a fault, so a descendant forked after it may be missing from the list</summary>
+        public bool Faulted => loop.IsFaulted;
+
+        public Task StopAsync() {
+            lock (_gate) return _stopped ??= StopCoreAsync();
+        }
+
+        async Task StopCoreAsync() {
+            await cts.CancelAsync().ConfigureAwait(false);
+
+            // A faulted listing must never keep a caller from reaping what was listed; Faulted carries it instead
+            try { await loop.ConfigureAwait(false); }
+            catch (Exception) { /* the listed descendants stand */ }
+
+            cts.Dispose();
+        }
     }
 
     /// <summary>Runtime lifecycle phase, mutated only under <see cref="_reconnectLock"/>.</summary>
@@ -845,6 +876,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
 
         JsonElement sessionNewResult;
 
+        StartTrackingDescendants(_installed, ct);
+
         try {
             // Advertise NO client fs/terminal: cursor-agent does file/shell ops itself and never asks
             // the client to serve them (rationale: docs/ai-687-fs-terminal-capability-decision-design.md).
@@ -984,6 +1017,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         // one consolidated Info log carrying the negotiated protocol version, loadSession, and the
         // resolved model (the applied selection, the handshake's current model for a no-request
         // launch, or null when a requested model did not match or no current marker was published).
+        await StopTrackingDescendantsAsync(_installed).ConfigureAwait(false);
+
         LogHandshakeOk(_agentId, _negotiatedProtocolVersion, _negotiatedCapabilities.LoadSession, ResolvedModel);
 
         // A dropped model is only knowable after session/new publishes the vendor's list, so nothing
@@ -2237,6 +2272,18 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
             }
         }
 
+        // A launch that failed after the child re-exec'd itself, or a wrapper already gone, leaves listed
+        // descendants out of reach of the process disposal below
+        if (_reconnect is { } reconnect) {
+            try {
+                await StopTrackingDescendantsAsync(installed).ConfigureAwait(false);
+                if (!await ReapDescendantsAsync(installed, reconnect).ConfigureAwait(false))
+                    _logger.LogWarning("ACP: a descendant of agent {AgentId}'s child did not confirm exit during dispose.", _agentId);
+            } catch (Exception ex) {
+                _logger.LogDebug(ex, "ACP: descendant reap failed during dispose for agent {AgentId}.", _agentId);
+            }
+        }
+
         try {
             // NESTED, not sequential in one try: a faulting Connection.DisposeAsync would otherwise
             // skip Process.DisposeAsync entirely.
@@ -2425,6 +2472,8 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     // candidate WITHOUT clearing (recordedWith stays null — nothing was recorded).
                     // The bundle is snapshotted once and carried: Record and any later Clear must
                     // be the same generation (code-review r3).
+                    StartTrackingDescendants(candidate, ownerCt);
+
                     var attemptPidCallbacks = support.PidCallbacks;
                     attemptPidCallbacks.Record(candidate.Process.Pid);
                     recordedWith = attemptPidCallbacks;
@@ -2432,12 +2481,18 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     await InitializeCandidateAsync(candidate, ownerCt).ConfigureAwait(false);
                     await LoadSessionAsync(candidate, ownerCt).ConfigureAwait(false);
                     await ReapplyModelAsync(candidate, ownerCt).ConfigureAwait(false);
+                    await StopTrackingDescendantsAsync(candidate).ConfigureAwait(false);
+
+                    // Its exit is not watched until commit, and a re-exec'd agent can answer for a dead wrapper
+                    if (candidate.Process.HasExited)
+                        throw new IOException("the reconnect candidate's spawned process exited during its handshake");
 
                     ownerCt.ThrowIfCancellationRequested();
 
                     if (!TryCommit(candidate)) {
-                        await DisposeCandidateAsync(candidate, recordedWith).ConfigureAwait(false);
+                        var retired = await DisposeCandidateAsync(candidate, recordedWith).ConfigureAwait(false);
                         candidate = null;
+                        if (!retired) throw CandidateRetirementUnconfirmed();
                         continue; // attempt failed (candidate died pre-install)
                     }
 
@@ -2486,8 +2541,9 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     LogAttemptFailed(ex, _agentId, attempts);
 
                     if (candidate is not null) {
-                        await DisposeCandidateAsync(candidate, recordedWith).ConfigureAwait(false);
+                        var retired = await DisposeCandidateAsync(candidate, recordedWith).ConfigureAwait(false);
                         candidate = null;
+                        if (!retired) throw CandidateRetirementUnconfirmed();
                     }
                 }
             }
@@ -2541,10 +2597,63 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         }
 
         await corpse.Process.TerminateAsync(support.RetirementWait).ConfigureAwait(false);
+        await StopTrackingDescendantsAsync(corpse).ConfigureAwait(false);
 
-        var confirmed = corpse.Process.HasExited;
+        var confirmed = corpse.Process.HasExited && await ReapDescendantsAsync(corpse, support).ConfigureAwait(false);
         LogCorpseRetired(_agentId, corpse.Id, confirmed);
         return confirmed;
+    }
+
+    /// <summary>Lists the incarnation's descendants until its handshake ends or the spawned process exits. Without
+    /// reconnect support there is nothing to retire, so nothing is listed</summary>
+    void StartTrackingDescendants(Incarnation incarnation, CancellationToken ct) {
+        if (_reconnect is not { } support) return;
+
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, _cts.Token);
+        Volatile.Write(ref incarnation.Tracking, new DescendantTracking(cts, TrackDescendantsAsync(incarnation, support, cts.Token)));
+    }
+
+    static Task StopTrackingDescendantsAsync(Incarnation incarnation) =>
+        Volatile.Read(ref incarnation.Tracking)?.StopAsync() ?? Task.CompletedTask;
+
+    static async Task TrackDescendantsAsync(Incarnation incarnation, AcpReconnectSupport support, CancellationToken ct) {
+        try {
+            while (!incarnation.Process.HasExited) {
+                MergeDescendants(incarnation, support.ProcessTree);
+                // Accepted gap: a wrapper killed from outside within one poll of its fork leaves the child unseen, and that child exits within seconds once its pipes close
+                await Task.Delay(TimeSpan.FromMilliseconds(50), support.TimeProvider, ct).ConfigureAwait(false);
+            }
+        } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+            MergeDescendants(incarnation, support.ProcessTree);
+        }
+    }
+
+    static void MergeDescendants(Incarnation incarnation, AcpProcessTreeProbe tree) {
+        var listed = tree.Descendants(incarnation.Process.Pid);
+        if (listed.Count == 0) return;
+
+        lock (incarnation) incarnation.Descendants = [.. incarnation.Descendants.Union(listed)];
+    }
+
+    /// <summary>Kills the corpse's listed descendants and waits within <see cref="AcpReconnectSupport.RetirementWait"/>
+    /// for them to be gone. A wrapper that died alone leaves them reparented, out of reach of its tree kill,
+    /// and a survivor would still hold the session the candidate is about to load</summary>
+    static async Task<bool> ReapDescendantsAsync(Incarnation corpse, AcpReconnectSupport support) {
+        var tree = support.ProcessTree;
+
+        foreach (var (pid, identity) in corpse.Descendants)
+            tree.Kill(pid, identity);
+
+        var deadline = support.TimeProvider.GetUtcNow() + support.RetirementWait;
+
+        while (corpse.Descendants.Any(d => tree.IsAlive(d.Pid, d.Identity))) {
+            if (support.TimeProvider.GetUtcNow() >= deadline) return false;
+
+            await Task.Delay(TimeSpan.FromMilliseconds(50), support.TimeProvider).ConfigureAwait(false);
+        }
+
+        // An incomplete list cannot confirm that nothing of the corpse survives
+        return Volatile.Read(ref corpse.Tracking) is not { Faulted: true };
     }
 
     /// <summary>
@@ -2834,8 +2943,17 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         return true;
     }
 
-    async Task DisposeCandidateAsync(Incarnation candidate, AcpPidRecordCallbacks? recordedWith) {
+    static AcpReconnectTerminalException CandidateRetirementUnconfirmed() =>
+        new("retirement_unconfirmed", "a failed reconnect candidate's process tree could not be confirmed exited");
+
+    /// <summary>False when the candidate's tree could not be confirmed exited, for whatever reason; the caller then
+    /// ends the incident, so no further candidate loads the session beside a possible survivor. Nothing durable is
+    /// kept for one: a survivor of SIGKILL is stuck in uninterruptible sleep, and once unstuck it has lost its pipes
+    /// and exits</summary>
+    async Task<bool> DisposeCandidateAsync(Incarnation candidate, AcpPidRecordCallbacks? recordedWith) {
         try { candidate.LoopCts.Cancel(); } catch (ObjectDisposedException) { }
+
+        var confirmed = false;
 
         // Each cleanup step is INDEPENDENTLY best-effort (code-review r2): a throwing connection
         // disposal must never suppress process-tree retirement — that ordering would leave an
@@ -2853,19 +2971,30 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
         }
 
         try {
+            await StopTrackingDescendantsAsync(candidate).ConfigureAwait(false);
+            confirmed = await ReapDescendantsAsync(candidate, _reconnect!).ConfigureAwait(false) && candidate.Process.HasExited;
+        } catch (Exception ex) {
+            _logger.LogDebug(ex, "ACP reconnect: candidate descendant reap failed (best-effort).");
+        }
+
+        try {
             await candidate.Process.DisposeAsync().ConfigureAwait(false);
         } catch (Exception ex) {
             _logger.LogDebug(ex, "ACP reconnect: candidate process disposal failed (best-effort).");
         }
 
-        // Clear ONLY through the generation that recorded, and only when a record actually
-        // happened (code-review r3 — a null recordedWith means the Record threw or never ran, so
-        // there is nothing of ours to delete and the original agent's record must survive).
+        if (!confirmed)
+            _logger.LogWarning("ACP reconnect: a failed candidate's process tree could not be confirmed exited.");
+
+        // Clear only through the generation that recorded: a null recordedWith means the Record threw or
+        // never ran, and the original agent's record must survive.
         try {
             recordedWith?.Clear();
         } catch (Exception ex) {
             _logger.LogDebug(ex, "ACP reconnect: clearing the candidate PID record failed (best-effort).");
         }
+
+        return confirmed;
     }
 
     /// <summary>
@@ -2922,6 +3051,17 @@ internal sealed partial class AcpHostedAgentRuntime : IHostedAgentRuntime, IAcpT
                     installed.Process.Pid);
         } catch (Exception ex) {
             _logger.LogDebug(ex, "ACP reconnect: terminal-path termination of the installed child failed (best-effort).");
+        }
+
+        // A wrapper that already exited leaves its listed descendants out of reach of the termination above
+        try {
+            await StopTrackingDescendantsAsync(installed).ConfigureAwait(false);
+            if (!await ReapDescendantsAsync(installed, support).ConfigureAwait(false))
+                _logger.LogWarning(
+                    "ACP reconnect: a descendant of the installed child (pid {Pid}) did not confirm exit during terminal-path retirement.",
+                    installed.Process.Pid);
+        } catch (Exception ex) {
+            _logger.LogDebug(ex, "ACP reconnect: terminal-path descendant reap failed (best-effort).");
         }
 
         try {
