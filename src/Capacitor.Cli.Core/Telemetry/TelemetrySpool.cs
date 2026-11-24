@@ -67,6 +67,33 @@ public sealed class TelemetrySpool(string path, int maxEvents = 2000) {
         }
     }
 
+    string UnreachablePath => path + ".unreachable";
+
+    /// <summary>When a send last failed to reach the host, for every kcap process sharing the spool.</summary>
+    public DateTimeOffset? UnreachableSince() {
+        try {
+            return File.Exists(UnreachablePath)
+                && DateTimeOffset.TryParse(File.ReadAllText(UnreachablePath), CultureInfo.InvariantCulture, DateTimeStyles.None, out var at)
+                ? at
+                : null;
+        } catch {
+            return null;
+        }
+    }
+
+    public void MarkUnreachable(DateTimeOffset at) {
+        try {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(UnreachablePath, at.ToString("o", CultureInfo.InvariantCulture));
+        } catch { /* ignored */ }
+    }
+
+    public void ClearUnreachable() {
+        try {
+            if (File.Exists(UnreachablePath)) File.Delete(UnreachablePath);
+        } catch { /* ignored */ }
+    }
+
     void Trim() {
         try {
             var lines = File.ReadAllLines(path);

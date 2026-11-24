@@ -1,5 +1,7 @@
 using System.Net;
 using System.Text.Json.Nodes;
+using System.Diagnostics;
+using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Telemetry;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Telemetry;
@@ -337,6 +339,42 @@ public class TelemetryClientTests {
         await Assert.That(await client.FlushAsync("device-1", null, TimeSpan.FromSeconds(10))).IsFalse();
         await Assert.That(handler.Calls).IsEqualTo(1);
         await Assert.That(spool.DrainAll().Count).IsEqualTo(0);
+    }
+
+    /// <summary>A host whose packets are dropped holds the flush for the connect bound, not the whole
+    /// budget, and the next flushes spool without trying.</summary>
+    [Test]
+    public async Task A_host_that_never_answers_costs_the_flush_only_the_connect_bound() {
+        using var host = new SilentHost();
+        using var tmp  = TempDir.WithPathTo("spool.jsonl", out var spoolPath);
+        var spool  = new TelemetrySpool(spoolPath);
+        var client = new TelemetryClient(FailFastConnect.Handler(), spool, "phc_test", host.HttpsUrl, TimeProvider.System);
+        client.Enqueue(Event("cli_command"));
+
+        var clock = Stopwatch.StartNew();
+        await Assert.That(await client.FlushAsync("device-1", null, TimeSpan.FromSeconds(1.5))).IsFalse();
+
+        await Assert.That(clock.Elapsed).IsLessThan(FailFastConnect.Timeout + TimeSpan.FromMilliseconds(400));
+        await Assert.That(spool.DrainAll().Count).IsEqualTo(1);
+        await Assert.That(spool.UnreachableSince() is not null).IsTrue();
+    }
+
+    [Test]
+    [Arguments(1, 0)]
+    [Arguments(16, 1)]
+    public async Task A_flush_soon_after_the_host_was_unreachable_spools_without_sending(int minutesAgo, int sends) {
+        var handler = new StubHandler(HttpStatusCode.OK);
+        using var tmp = TempDir.WithPathTo("spool.jsonl", out var spoolPath);
+        var client  = Client(handler, spoolPath, out var spool);
+        spool.MarkUnreachable(DateTimeOffset.UtcNow.AddMinutes(-minutesAgo));
+        client.Enqueue(Event("cli_command"));
+
+        await client.FlushAsync("device-1", null, TimeSpan.FromSeconds(2));
+
+        await Assert.That(handler.Calls).IsEqualTo(sends);
+        await Assert.That(spool.DrainAll().Count).IsEqualTo(1 - sends);
+        await Assert.That(spool.UnreachableSince() is null).IsEqualTo(sends == 1)
+            .Because("a send that gets through ends the backoff for every process");
     }
 
     sealed class GatedHandler(HttpStatusCode status) : HttpMessageHandler {

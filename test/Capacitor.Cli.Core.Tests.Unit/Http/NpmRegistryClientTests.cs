@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.DependencyInjection;
 using WireMock.RequestBuilders;
@@ -87,5 +88,22 @@ public class NpmRegistryClientTests : IDisposable {
         var sent = _server.LogEntries.Single().RequestMessage;
 
         await Assert.That(sent.Headers!["User-Agent"].Single()).IsEqualTo("kcap-cli");
+    }
+
+    /// <summary>A registry whose packets are dropped gives up at the connect bound rather than the
+    /// request's 5 s cap.</summary>
+    [Test]
+    public async Task A_registry_that_never_answers_gives_up_at_the_connect_bound() {
+        using var host = new SilentHost();
+        using var sp   = new ServiceCollection()
+            .AddCapacitorForeignClients()
+            .AddHttpClient<NpmRegistryClient>(c => c.BaseAddress = new Uri(host.HttpsUrl + "/"))
+            .Services.BuildServiceProvider();
+
+        var clock  = Stopwatch.StartNew();
+        var result = await sp.GetRequiredService<NpmRegistryClient>().GetDistTagAsync("latest", CancellationToken.None);
+
+        await Assert.That(result.Reached).IsFalse();
+        await Assert.That(clock.Elapsed).IsLessThan(FailFastConnect.Timeout + TimeSpan.FromMilliseconds(400));
     }
 }

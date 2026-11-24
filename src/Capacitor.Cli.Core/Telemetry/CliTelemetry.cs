@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Auth;
+using Capacitor.Cli.Core.Http;
 
 namespace Capacitor.Cli.Core.Telemetry;
 
@@ -117,7 +118,7 @@ public sealed class CliTelemetry {
     /// </summary>
     public static CliTelemetry Start(TelemetryStartup startup, ConfigRoot config, TimeProvider time) =>
         Start(startup, config, time,
-            () => new TelemetryClient(new HttpClientHandler(), Spool(config), Token, Endpoint, time,
+            () => new TelemetryClient(FailFastConnect.Handler(), Spool(config), Token, Endpoint, time,
                 consent: startup.Source == TelemetryStartup.DesktopSource ? () => SavedConsent(config) : null));
 
     /// The saved choice, or null when the file cannot be read: it may hold an opt-out, so nothing is sent on it,

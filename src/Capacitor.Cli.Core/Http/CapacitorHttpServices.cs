@@ -201,7 +201,7 @@ public static class CapacitorHttpServices {
             c.BaseAddress = new Uri("https://registry.npmjs.org/");
             c.Timeout     = TimeSpan.FromSeconds(5);
             c.DefaultRequestHeaders.Add("User-Agent", "kcap-cli");
-        });
+        }).ConfigurePrimaryHttpMessageHandler(FailFastConnect.Handler);
 
         // Downloads a release archive, so the whole-request cap is generous; manifest reads carry their own.
         // GitHub answers a release asset with a redirect to its storage host, which the default handler follows.
