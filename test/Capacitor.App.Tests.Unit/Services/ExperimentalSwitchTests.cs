@@ -47,6 +47,23 @@ public class ExperimentalSwitchTests {
         await Assert.That(new ExperimentalSwitch(store, "work", Feature).IsOn).IsFalse();
     }
 
+    [Test]
+    public async Task An_unreadable_revision_preserves_the_last_value_and_retries_the_read() {
+        var store = new ExperimentalSettingsStore(Config.Root);
+        var sut = new ExperimentalSwitch(store, "work", ExperimentalFeatures.DesktopAppearance);
+        await Assert.That(sut.IsOn).IsTrue();
+
+        var disabled = """{"work":{"desktop-appearance-preview":false}}""";
+        await File.WriteAllTextAsync(store.Path, new string('x', disabled.Length));
+        var written = File.GetLastWriteTimeUtc(store.Path);
+
+        await Assert.That(sut.IsOn).IsTrue();
+
+        await File.WriteAllTextAsync(store.Path, disabled);
+        File.SetLastWriteTimeUtc(store.Path, written);
+        await Assert.That(sut.IsOn).IsFalse();
+    }
+
     /// A focus or a Settings save re-reads the switch on the worker, never on the caller's thread, and
     /// signals only when the reading differs from what the consumer last showed, however it got there.
     [Test]

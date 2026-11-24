@@ -29,7 +29,9 @@ public sealed class ExperimentalSwitch(ExperimentalSettingsStore store, string? 
             var fingerprint = file.Exists ? (true, file.LastWriteTimeUtc, file.Length) : (false, default(DateTime), 0L);
             lock (_lock) {
                 if (fingerprint == _fingerprint) return field;
-                field = store.Load(profile).IsOn(feature);
+                var settings = store.Load(profile);
+                if (!settings.Readable) return field;
+                field = settings.IsOn(feature);
                 _fingerprint = fingerprint;
                 return field;
             }
