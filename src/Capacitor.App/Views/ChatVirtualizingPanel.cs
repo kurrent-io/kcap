@@ -389,6 +389,11 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         InvalidateMeasure();
     }
 
+    internal double ProjectedRowStart(int index) =>
+        (uint)index < (uint)_starts.Length ? _starts[index] : _starts[^1];
+
+    internal int ProjectedRowAt(double offset) => IndexAt(offset);
+
     internal (ChatItemViewModel Row, ChatMessageKey Key, double Within)? GetReadingAnchor() {
         if (_viewport.Height <= 0 || _starts.Length != Items.Count + 1 || Items.Count == 0) return null;
         var top = Math.Max(0, _viewport.Top);

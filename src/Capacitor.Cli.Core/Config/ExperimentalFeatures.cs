@@ -41,7 +41,15 @@ public static class ExperimentalFeatures {
         OnByDefault: true,
         AppWide: true);
 
-    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance];
+    public static ExperimentalFeature ChatTurnNavigator { get; } = new(
+        "chat-turn-navigator",
+        "Transcript turn navigator",
+        "Show a turn map and outline beside the transcript scrollbar when Desktop redesign preview is on. Turn this off for the standard scrollbar.",
+        AppliesLive: true,
+        DesktopAppOnly: true,
+        OnByDefault: false);
+
+    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance, ChatTurnNavigator];
 
     /// <summary>Ids are matched exactly, case included.</summary>
     public static ExperimentalFeature? Find(string id) =>

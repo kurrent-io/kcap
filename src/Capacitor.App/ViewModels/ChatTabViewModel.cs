@@ -152,6 +152,11 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     public IAvaloniaReadOnlyList<ChatItemViewModel> Items => _items;
 
+    internal event Action? NavigatorHistoryChanged;
+    internal bool CanNavigateTranscript => CanUseTranscript && _lease?.Feed is not RemoteTranscriptFeed { HasCurrentReadingAccount: false };
+    internal bool HasEarlierTurns => _lease?.Feed is RemoteTranscriptFeed { HasOlder: true };
+    internal bool IsLoadingEarlierTurns => _lease?.Feed is RemoteTranscriptFeed { IsLoadingOlder: true };
+
     ChatSelection? _selection;
     object? _selectionFeed;
     int _selectionAccess;
@@ -192,6 +197,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         _selectionFeed = null;
         _selectionAccess = access ?? -1;
         _selection?.Clear();
+        NavigatorHistoryChanged?.Invoke();
     }
 
     public ChatTopics Topics { get; }
@@ -2000,9 +2006,14 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 : await Task.Run(lease.Feed.ReadAppended).ConfigureAwait(false);
             if (read.Status != FeedStatus.Failed) Volatile.Write(ref _settledEpoch, settleEpoch);
             if (canSkipEmpty && read is { Status: FeedStatus.Ok, Lines.Count: 0, Runs.Count: 0, Older.Count: 0 }
+                && (read.CopyRevision is not { } access || access == Volatile.Read(ref _selectionAccess))
                 && (ReadingPositions is null || !ReadingPositions.PreviewEnabled
                     || !ReadingAccessRevoked && !_readingInvalidated && (read.SourceStamp is null || read.SourceStamp == ReadingSourceStamp))
-                && baselineVersion == Volatile.Read(ref _baselineVersion) && inputGeneration == Volatile.Read(ref _inputGeneration)) return;
+                && baselineVersion == Volatile.Read(ref _baselineVersion) && inputGeneration == Volatile.Read(ref _inputGeneration)) {
+                if (NavigatorHistoryChanged is not null && lease.Feed is RemoteTranscriptFeed or RemoteSubagentFeed)
+                    await Dispatcher.UIThread.InvokeAsync(() => NotifyNavigatorHistory(lease));
+                return;
+            }
             await Dispatcher.UIThread.InvokeAsync(() => ApplyAsync(lease.Generation, read));
         } catch (Exception ex) {
             LogOnce($"read: {ex.Message}");
@@ -2014,11 +2025,18 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         }
     }
 
+    void NotifyNavigatorHistory(FeedLease lease) {
+        if (ReferenceEquals(lease, _lease)) NavigatorHistoryChanged?.Invoke();
+    }
+
     async Task ApplyAsync(int generation, FeedRead read) {
         // Projection may run in the background after Prepare enables Send. Those later sends
         // cannot acquire dispatches from the history this read is already replaying.
         var candidates = CaptureReceiptCandidates();
-        if (!Prepare(generation, read)) return;
+        if (!Prepare(generation, read)) {
+            NavigatorHistoryChanged?.Invoke();
+            return;
+        }
         // A Reset replaces the rows on screen, so its lines replace the count.
         _feedLines = (read.Status == FeedStatus.Reset ? 0 : _feedLines) + read.Lines.Count + read.Older.Count;
         if (read.Older.Count > 0) {
@@ -2029,6 +2047,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         }
         if (read.Lines.Count == 0) {
             Finish(read, cursor: null, candidates);
+            NavigatorHistoryChanged?.Invoke();
             return;
         }
         // Building every row shares the UI thread with the switch cover's timer, so a long
@@ -2041,6 +2060,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             cursor = ProjectLines(read, cursor, matchSends: true, _literalInputHistory);
         if (generation != Volatile.Read(ref _generation)) return;
         Finish(read, cursor, candidates);
+        NavigatorHistoryChanged?.Invoke();
     }
 
     // A queued send is matched as the lines are replayed. An open group or shell is already on

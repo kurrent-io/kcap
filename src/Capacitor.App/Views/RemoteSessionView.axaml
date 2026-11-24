@@ -169,8 +169,7 @@
         <views:WorkContextView x:Name="WorkContextHost" DataContext="{Binding WorkContext}"
                                IsVisible="{Binding $parent[views:RemoteSessionView].((vm:RemoteSessionViewModel)DataContext).ShowsWorkContext}" />
     </Panel>
-    <!-- Last child so it hit-tests above the workspace column it overhangs. -->
     <GridSplitter x:Name="ContextSplitter" Grid.Column="1" HorizontalAlignment="Left" Classes="sidebarSplitter"
-                  Margin="-6,0,0,0" ResizeDirection="Columns" />
+                  ResizeDirection="Columns" />
     </Grid>
 </UserControl>

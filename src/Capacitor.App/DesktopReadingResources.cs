@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
+using Capacitor.App.Services;
 
 namespace Capacitor.App;
 
@@ -24,6 +25,7 @@ internal sealed class DesktopReadingResources(Application application) {
         if (layout == _layout) return;
         _layout = layout;
         var resources = application.Resources;
+        DesktopScrollbarPreference.Apply(resources, preferences is not null);
         Set(resources, "KcapChatCardPadding", compact ? new Thickness(11, 8) : null);
         Set(resources, "KcapActionPadding", compact ? new Thickness(13, 6) : null);
         Set(resources, "KcapChoicePadding", compact ? new Thickness(11, 6) : null);

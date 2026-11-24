@@ -1,4 +1,7 @@
+using System.Reactive.Linq;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Layout;
 using Capacitor.App.Services;
 
 namespace Capacitor.App.Views;
@@ -12,6 +15,9 @@ public static class ContextPaneSizing {
             GridSplitter splitter, Button showButton) {
         PaneLayout? panes = null;
         var fit = new ContextPaneFit();
+        // Give the transcript's track and the inspector's resize handle separate hit regions.
+        splitter.Bind(Layoutable.MarginProperty, splitter.GetResourceObservable("KcapTranscriptSelection")
+            .Select(preview => preview is true ? default(Thickness) : new Thickness(-6, 0, 0, 0)));
 
         void Apply() {
             var collapsed = panes is not null && (panes.ContextCollapsed || fit.HidesPane);

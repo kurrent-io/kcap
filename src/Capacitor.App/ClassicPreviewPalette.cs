@@ -58,6 +58,7 @@ internal sealed class ClassicPreviewPalette(Application application) {
     }
     static Color ContrastColor(object key, Color color, ResourceDictionary palette) => key switch {
         "KcapMutedBrush" or "KcapFaintBrush" or "KcapPlaceholderBrush"
+            or "KcapNavigatorThumbBrush" or "KcapNavigatorMarkBrush" or "KcapNavigatorViewportBrush"
             => Between(color, (Color)palette["KcapTextBrush"]!),
         "ProgressiveDisclosureDetailFadeBrush"
             => Between((Color)palette["KcapMutedBrush"]!, (Color)palette["KcapTextBrush"]!),

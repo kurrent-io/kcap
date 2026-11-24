@@ -25,9 +25,9 @@ public static class PaneCycle {
             .Where(c => FirstFocusable(c) is not null)
             .ToList();
         if (panes.Count == 0) return false;
-        var at = window.FocusManager.GetFocusedElement() is Control focused
-            ? panes.FindIndex(p => ReferenceEquals(p, focused) || p.IsVisualAncestorOf(focused))
-            : -1;
+        var focused = window.FocusManager.GetFocusedElement() as Control;
+        var inPane = focused?.FindAncestorOfType<ChatTurnNavigator>()?.Transcript ?? focused;
+        var at = inPane is null ? -1 : panes.FindIndex(p => ReferenceEquals(p, inPane) || p.IsVisualAncestorOf(inPane));
         var next = at < 0 ? (step > 0 ? 0 : panes.Count - 1) : (at + step + panes.Count) % panes.Count;
         // Tab, not Directional: a pane that is one Tab stop (rail, transcript) lands where Tab would.
         return FirstFocusable(panes[next])?.Focus(NavigationMethod.Tab) == true;

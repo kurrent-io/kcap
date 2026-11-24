@@ -33,6 +33,9 @@
         <Color x:Key="KcapControlHoverBrush">#ECE9F0</Color>
         <Color x:Key="KcapControlPressedBrush">#E6E2EB</Color>
         <Color x:Key="KcapSelectionBrush">#E5EDFC</Color>
+        <Color x:Key="KcapNavigatorThumbBrush">#526E94</Color>
+        <Color x:Key="KcapNavigatorMarkBrush">#817D88</Color>
+        <Color x:Key="KcapNavigatorViewportBrush">#294982</Color>
         <Color x:Key="KcapTopicRailBrush">#383041</Color>
         <Color x:Key="KcapTopicBrush">#625C70</Color>
         <Color x:Key="KcapBookmarkRedBrush">#A62B40</Color>
@@ -83,6 +86,9 @@
         <Color x:Key="KcapControlHoverBrush">#333436</Color>
         <Color x:Key="KcapControlPressedBrush">#3A3B3D</Color>
         <Color x:Key="KcapSelectionBrush">#304151</Color>
+        <Color x:Key="KcapNavigatorThumbBrush">#7E9EC0</Color>
+        <Color x:Key="KcapNavigatorMarkBrush">#74777D</Color>
+        <Color x:Key="KcapNavigatorViewportBrush">#ABC7E1</Color>
         <Color x:Key="KcapTopicRailBrush">#BDBEBD</Color>
         <Color x:Key="KcapTopicBrush">#BDBEBD</Color>
         <Color x:Key="KcapBookmarkRedBrush">#E2A8A8</Color>

@@ -71,6 +71,7 @@ public partial class ChatTabView : UserControl {
     public ChatTabView() {
         InitializeComponent();
         Bind(TranscriptSelectionEnabledProperty, this.GetResourceObservable("KcapTranscriptSelection"));
+        Bind(TurnNavigatorEnabledProperty, this.GetResourceObservable(TurnNavigatorResource));
         _composer = Composer.Attach(ComposerCard, ComposerInput, AttachButton);
         // Tunnel, not bubble: TextBox's own class handler runs first on the bubbling route, where
         // it inserts the newline and marks Enter handled before any instance handler sees it.
@@ -104,9 +105,10 @@ public partial class ChatTabView : UserControl {
             _composerPresenter = e.NameScope.Find<TextPresenter>("PART_TextPresenter");
         // The ScrollViewer is the list template's; it exists only once the list is first measured,
         // which for a surface built before its first layout is later than the first rows.
-        ChatItems.TemplateApplied += (_, _) => {
-            var next = ChatItems.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault();
+        ChatItems.TemplateApplied += (_, e) => {
+            var next = e.NameScope.Find<ScrollViewer>("ChatScroll");
             if (ReferenceEquals(next, _scroll)) return;
+            RemoveTurnNavigator(restoreFocus: true);
             DropToggleAnchor();
             CancelSmoothScroll();
             _thumbDragging = false;
@@ -114,6 +116,7 @@ public partial class ChatTabView : UserControl {
             if (_scroll is not null) _scroll.ScrollChanged -= OnScrollChanged;
             _scroll = next;
             if (_scroll is not null) _scroll.ScrollChanged += OnScrollChanged;
+            ObserveTurnNavigator();
         };
     }
 
@@ -147,6 +150,7 @@ public partial class ChatTabView : UserControl {
         ObserveFind();
         ObserveTopics();
         RestoreFind();
+        ObserveTurnNavigator();
         _pointerRoot = TopLevel.GetTopLevel(this);
         _pointerRoot?.AddHandler(PointerReleasedEvent, OnPrimaryReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
         _pointerRoot?.AddHandler(PointerCaptureLostEvent, OnPrimaryCaptureLost, handledEventsToo: true);
@@ -174,9 +178,11 @@ public partial class ChatTabView : UserControl {
         ObserveFind();
         ObserveTopics();
         RestoreFind();
+        ObserveTurnNavigator();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {
+        RemoveTurnNavigator(restoreFocus: false);
         StopReadingPosition();
         DetachTranscriptSelection();
         DropToggleAnchor();
@@ -219,7 +225,7 @@ public partial class ChatTabView : UserControl {
     }, DispatcherPriority.Input);
 
     void ResumeFollowing() {
-        if (_readingChat is not null) ReadingNavigation();
+        if (_readingChat is not null || _holdRestoredPosition) ReadingNavigation();
         ClearTranscriptSelection();
         DropToggleAnchor();
         CancelSmoothScroll();
@@ -263,7 +269,7 @@ public partial class ChatTabView : UserControl {
         // scrolling up, that would stop following exactly when the next question lands below the
         // fold. Any other key stays the reader's: Page Up from a focused option pages the list.
         if (IsActivation(e) && OriginatesFromPendingCard(e)) return;
-        if (_readingChat is not null) OnReadingNavigation(e);
+        if (_readingChat is not null || _holdRestoredPosition) OnReadingNavigation(e);
         if (e.RoutedEvent == PointerPressedEvent) CaptureToggleAnchor(e.Source);
         if (_readerGesture) return;
         _readerGesture = true;
@@ -308,7 +314,11 @@ public partial class ChatTabView : UserControl {
         var delta = -e.Delta.Y * WheelStep;
         if (Math.Abs(delta) < 0.01) return;
         e.Handled = true;
-        StartSmoothScroll(delta);
+        if (_turnNavigator is not null && Services.ReducedMotion.IsOn) {
+            CancelSmoothScroll();
+            _smoothRemaining = delta;
+            StepSmoothScroll(1);
+        } else StartSmoothScroll(delta);
     }
 
     void StartSmoothScroll(double delta) {
@@ -902,11 +912,11 @@ public partial class ChatTabView : UserControl {
 
     /// Scrolls a row, such as a topic's header, to the top of the transcript, and selects
     /// <paramref name="quote"/> in it, scrolling on to the quote if it falls below the view.
-    void ShowRow(ChatItemViewModel target, string? quote = null) {
+    void ShowRow(ChatItemViewModel target, string? quote = null, bool preserveSelection = false) {
         if (ChatItems.Items is not { } items) return;
         var index = items.IndexOf(target);
         if (index < 0) return;
-        if (_readingChat is not null) ReadingNavigation();
+        if (!preserveSelection && (_readingChat is not null || _holdRestoredPosition)) ReadingNavigation();
         DropToggleAnchor();
         CancelSmoothScroll();
         _thumbFraction = null;
@@ -917,7 +927,8 @@ public partial class ChatTabView : UserControl {
         if (ChatItems.ContainerFromIndex(index) is not { } row || row.TranslatePoint(default, _scroll) is not { } top) return;
         var max = Math.Max(0, _scroll.Extent.Height - _scroll.Viewport.Height);
         _scroll.Offset = new Vector(_scroll.Offset.X, Math.Clamp(_scroll.Offset.Y + top.Y - RevealGap, 0, max));
-        foreach (var held in _selectedMarkdown.ToArray()) held.ClearSelection();
+        if (!preserveSelection)
+            foreach (var held in _selectedMarkdown.ToArray()) held.ClearSelection();
         if (quote is null) return;
         foreach (var text in row.GetVisualDescendants().OfType<MarkdownView>()) {
             if (text.Highlight(quote) is not { } found) continue;

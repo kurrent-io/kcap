@@ -28,6 +28,7 @@ public partial class ChatTabView {
     long _rangeLimit;
 
     static ChatTabView() {
+        TurnNavigatorEnabledProperty.Changed.AddClassHandler<ChatTabView>((view, _) => view.ObserveTurnNavigator());
         TranscriptSelectionEnabledProperty.Changed.AddClassHandler<ChatTabView>((view, _) => {
             view.ObserveReadingPosition();
             view.ObserveTranscriptSelection();
