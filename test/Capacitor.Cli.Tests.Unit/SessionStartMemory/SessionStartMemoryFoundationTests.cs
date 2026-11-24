@@ -225,7 +225,7 @@ public class SessionStartMemoryFoundationTests {
         await Assert.That(SessionStartMemoryOutputAdapters.Render(HarnessId.Pi, fragment)).IsEqualTo("F\n");
         await Assert.That(SessionStartMemoryOutputAdapters.Render(HarnessId.OpenCode, null)).IsEqualTo("");
         await Assert.That(SessionStartMemoryOutputAdapters.Render(HarnessId.Antigravity, fragment))
-            .IsEqualTo("{\"injectSteps\":[{\"userMessage\":\"F\"}]}\n");
+            .IsEqualTo("{\"injectSteps\":[{\"systemMessage\":{\"systemMessage\":\"F\"}}]}\n");
         await Assert.That(SessionStartMemoryOutputAdapters.Render(HarnessId.Antigravity, null)).IsEqualTo("{}\n");
     }
 

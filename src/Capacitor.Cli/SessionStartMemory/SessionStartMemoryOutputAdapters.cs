@@ -24,7 +24,7 @@ internal static class SessionStartMemoryOutputAdapters {
             HarnessId.Cursor => new CursorMemoryEnvelope(fragment),
             HarnessId.Copilot => new CopilotMemoryEnvelope(fragment),
             HarnessId.Gemini => new GeminiMemoryEnvelope(fragment is null ? null : new HookMemoryOutput("SessionStart", fragment)),
-            HarnessId.Antigravity => new AntigravityMemoryEnvelope(fragment is null ? null : [new AntigravityMemoryStep(fragment)]),
+            HarnessId.Antigravity => new AntigravityMemoryEnvelope(fragment is null ? null : [new AntigravityMemoryStep(new AntigravitySystemMessage(fragment))]),
             _ => throw new ArgumentOutOfRangeException(nameof(harness))
         };
 
