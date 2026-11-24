@@ -2945,6 +2945,14 @@ public class ChatTabViewSmokeTests {
                 // A key on it hands it back to the keyboard.
                 host.Press(PhysicalKey.Space);
                 await Assert.That(assistant.CopyAction!.Opacity).IsEqualTo(1);
+                // A tap on the keyboard-revealed Copy runs it, though the press hands the reveal away.
+                await assistant.CopyAction!.PendingCopyForTesting!;
+                await host.Window.Clipboard!.SetTextAsync("before the tap");
+                using (var tap = host.Window.TouchBegin(copyPoint, RawInputModifiers.None))
+                    host.Window.TouchEnd(tap, copyPoint, RawInputModifiers.None);
+                host.Settle();
+                await assistant.CopyAction!.PendingCopyForTesting!;
+                await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo("See [docs](https://example.com/docs).");
 
                 var tabs = 0;
                 while (!host.Composer.IsFocused && tabs < 8) {
