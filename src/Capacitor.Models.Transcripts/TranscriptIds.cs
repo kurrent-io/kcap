@@ -127,6 +127,16 @@ public static class TranscriptIds {
     public static string GrokLineEventId(int lineNumber, string line) =>
         Convert.ToHexString(XxHash128.Hash(Encoding.UTF8.GetBytes(string.Create(CultureInfo.InvariantCulture, $"{lineNumber}\n{line}"))));
 
+    /// Grok Bot's entry ids, and its lifecycle hooks' on the server, are v5 UUIDs in this namespace.
+    /// Changing it orphans every stored Grok Bot event.
+    static readonly Guid GrokBotNamespace = new("c6ddbf36-6838-4a55-918c-e18b7701c2b0");
+
+    /// One event of a chat entry: the v5 UUID of <c>{idScope}:{key}:{eventType}</c>, where the key is the entry
+    /// id, suffixed <c>:response</c> for the answer an entry's question carries. Entry ids repeat across chats
+    /// and across the sessions cut from one chat, so the scope is what keeps two sessions apart.
+    public static Guid GrokBotEntry(string idScope, string key, string eventType) =>
+        Uuid5(GrokBotNamespace, $"{idScope}:{key}:{eventType}");
+
     /// Muse Assistant's item ids, and its lifecycle hooks' on the server, are v5 UUIDs in this namespace.
     /// Changing it orphans every stored Muse Assistant event.
     static readonly Guid MuseAssistantNamespace = new("3f9c2b7e-5d41-4a0b-9e6c-8b2f1d7a4c53");

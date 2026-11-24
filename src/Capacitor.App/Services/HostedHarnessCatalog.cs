@@ -181,6 +181,7 @@ public static class HostedHarnessCatalog {
         ["mistral-vibe"] = ("Mv", "KcapMistralBrandBrush"),
         ["muse-assistant"] = ("MA", "KcapMuseAssistantBrandBrush"),
         ["grok"]        = ("Gk", "KcapGrokBrandBrush"),
+        ["grok-bot"]    = ("GB", "KcapGrokBrandBrush"),
         ["muse"]         = ("Mu", "KcapMuseBrandBrush"),
     };
 

@@ -403,14 +403,10 @@ internal static class AcpVendorDescriptors {
         SupportsMcpServers:  true,
         // Under yolo Gemini raises no frame, so one arriving means the launch contract regressed.
         UnattendedInteractionPolicy: AcpUnattendedInteractionPolicy.Fail,
-        // Ineligible: Gemini answers session/load before most of its replay, and replay suppression
-        // ends once that response is in, so the rest would reach the transcript as live output.
-        // Gemini also self-re-execs, so "the spawned pid exited" and "the agent died" are different
-        // events.
-        // TODO: enable once a gemini-cli release fixes google-gemini/gemini-cli#29707 and the probe
-        // in docs/probes/2026-08-04-acp-reconnect-c0/ passes on it, with that release as a version
-        // floor.
-        SupportsReconnectResume: false
+        // Deliberately no version floor: the builds that duplicate the replay are named in
+        // docs/probes/2026-08-04-acp-reconnect-c0/findings.md. Gemini self-re-execs, so only a tree
+        // kill ends the agent
+        SupportsReconnectResume: true
     );
 
     /// <summary>Mistral Vibe through <c>vibe-acp</c>, which takes no arguments. Interactive hosting only:

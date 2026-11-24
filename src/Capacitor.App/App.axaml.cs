@@ -1877,6 +1877,7 @@ public partial class App : Application {
                 (_coordinator?.Window?.DataContext as MainWindowViewModel)?.ShowHistoryImport(run);
             },
             post: action => Dispatcher.UIThread.Post(action),
+            grokBotFound: () => Capacitor.Cli.Core.Harness.GrokBot.GrokBotDesktopPaths.HasChatStore(_userHome),
             ensureTerminalCommand: shimInstaller is null ? null : async ct => {
                 // An inconclusive probe never offers an install, as in setup.
                 if (await probe.KcapOnPathAsync(ct) != false) return null;
@@ -3157,6 +3158,7 @@ public partial class App : Application {
     /// machine token the operator cannot act on.
     internal static string? AttentionCopyFor(string token) => token switch {
         "daemon_renamed_restart_app" => "The daemon was renamed. Restart this app before managing it.",
+        "profile_switched_restart_app" => "The profile was switched. Restart this app before managing the daemon.",
         "cli_not_found"            => "kcap CLI not found. Can't manage the daemon from this app.",
         "cli_override_missing"     => "KCAP_APP_CLI_PATH names a file that does not exist. Fix or unset it, then restart this app.",
         // App↔CLI floor — never "for the daemon"; this gate runs before any daemon contact.

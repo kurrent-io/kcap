@@ -392,16 +392,16 @@ public class AcpVendorDescriptorTests {
         )).Throws<ArgumentException>();
     }
 
-    /// <summary>Reconnect eligibility is a PROBE-VERIFIED per-vendor fact
-    /// (docs/probes/2026-08-04-acp-reconnect-c0/), never inferred from the advertised
-    /// loadSession capability — all four vendors advertise it, two measurably cannot honor it
-    /// across a crashed owner. Flipping Kiro or Gemini requires a passing probe re-run.</summary>
+    /// <summary>Reconnect eligibility is a probe-verified per-vendor fact
+    /// (docs/probes/2026-08-04-acp-reconnect-c0/), never inferred from the advertised loadSession
+    /// capability: Kiro advertises it and cannot honour it across a crashed owner. Flipping a vendor
+    /// requires a passing probe run.</summary>
     [Test]
     public async Task Reconnect_resume_is_probe_verified_per_vendor() {
         await Assert.That(AcpVendorDescriptors.Cursor.SupportsReconnectResume).IsTrue();
         await Assert.That(AcpVendorDescriptors.Copilot.SupportsReconnectResume).IsTrue();
         await Assert.That(AcpVendorDescriptors.Kiro.SupportsReconnectResume).IsFalse();
-        await Assert.That(AcpVendorDescriptors.Gemini.SupportsReconnectResume).IsFalse();
+        await Assert.That(AcpVendorDescriptors.Gemini.SupportsReconnectResume).IsTrue();
         await Assert.That(AcpVendorDescriptors.Grok.SupportsReconnectResume).IsFalse();
         await Assert.That(AcpVendorDescriptors.MistralVibe.SupportsReconnectResume).IsTrue();
     }

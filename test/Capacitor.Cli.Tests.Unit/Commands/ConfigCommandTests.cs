@@ -322,6 +322,15 @@ public class ConfigCommandTests {
     }
 
     [Test]
+    public async Task ApplySet_GrokBotRecord_ParsesBoolean_And_Unset_ReturnsItToUnasked() {
+        var on = ConfigCommand.ApplySet(new Profile(), "grok_bot.record", "true");
+        await Assert.That(on.GrokBot!.Record!.Value).IsTrue();
+        await Assert.That(ConfigCommand.ApplySet(on, "grok_bot.record", "false").GrokBot!.Record!.Value).IsFalse();
+        await Assert.That(ConfigCommand.ApplyUnset(on, "grok_bot.record").GrokBot!.Record).IsNull();
+        await Assert.That(() => ConfigCommand.ApplySet(new Profile(), "grok_bot.record", "yes")).Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task ApplyUnset_SkillsAutoSync_ClearsTheKey() {
         var set = ConfigCommand.ApplySet(new Profile(), "skills.auto_sync", "true");
         var cleared = ConfigCommand.ApplyUnset(set, "skills.auto_sync");

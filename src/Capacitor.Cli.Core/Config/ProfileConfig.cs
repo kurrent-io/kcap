@@ -193,6 +193,9 @@ public record Profile {
     [JsonPropertyName("skills")]
     public SkillsSettings? Skills { get; init; }
 
+    [JsonPropertyName("grok_bot")]
+    public GrokBotSettings? GrokBot { get; init; }
+
     /// <summary>
     /// Provider + canonical server identity learned at the last successful sign-in (Plan C's
     /// commit boundary). Additive and READ-only in Plan B — nothing writes it yet; only
@@ -225,6 +228,13 @@ public record SkillsSettings {
     /// without a manual sync. Off by default.</summary>
     [JsonPropertyName("auto_sync")]
     public bool? AutoSync { get; init; }
+}
+
+public record GrokBotSettings {
+    /// <summary>When true, the daemon records this computer's Grok Bot chats. Null means the user has
+    /// not been asked, which is what lets setup ask once and never again.</summary>
+    [JsonPropertyName("record")]
+    public bool? Record { get; init; }
 }
 
 /// <summary>Repo-level .kcap.json committed to VCS.</summary>

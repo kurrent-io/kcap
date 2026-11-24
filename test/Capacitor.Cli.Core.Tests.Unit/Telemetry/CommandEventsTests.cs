@@ -14,6 +14,7 @@ public class CommandEventsTests {
     [Arguments("cursor-verify-appendonly")]
     [Arguments("refresh-token")]
     [Arguments("muse-assistant")]
+    [Arguments("grok-bot")]
     [Arguments("ide")]
     public async Task Machine_driven_verbs_are_not_reportable(string command) {
         await Assert.That(CommandEvents.IsReportable(command)).IsFalse();
