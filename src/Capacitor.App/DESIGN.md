@@ -35,7 +35,7 @@ Run `tools/ui-audit/contrast.py`, `type_scale.py` and `axaml_a11y.py`. Exercise 
 | Selected row / selection ink | `#E5EDFC` / `#315AA3` | `#304151` / `#86B9F0` |
 | Primary action / label | `#6D1E40` / `#FFFFFF` | `#D6D6D1` / `#262726` |
 
-Segmented controls use neutral hover and pressed fills. Selection keeps the blue fill, with a semibold label on the active workspace tab. Higher contrast strengthens borders independently of these fills.
+Segmented controls and sidebar filter dropdowns share neutral hover and pressed fills. Selection keeps the blue fill, with a semibold label on the active workspace tab. Higher contrast strengthens borders independently of these fills.
 
 The work-context pane uses its resize grabber as the divider with the preview enabled. PR lifecycle, health text, and work-in-progress keep their existing meanings during the comparison. The dark preview uses graphite surfaces, soft neutral text, a pearl primary action and slate-blue selection. Modern and transcript interaction experiments have separate flags.
 

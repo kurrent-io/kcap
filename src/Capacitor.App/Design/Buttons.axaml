@@ -248,10 +248,10 @@
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
     </Style>
     <Style Selector="Button.kcapSegmentItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{StaticResource KcapSegmentHoverBrush}" />
+        <Setter Property="Background" Value="{StaticResource KcapControlHoverBrush}" />
     </Style>
     <Style Selector="Button.kcapSegmentItem:pressed /template/ ContentPresenter#PART_ContentPresenter">
-        <Setter Property="Background" Value="{StaticResource KcapSegmentPressedBrush}" />
+        <Setter Property="Background" Value="{StaticResource KcapControlPressedBrush}" />
     </Style>
     <Style Selector="Button.kcapSegmentItem.active /template/ ContentPresenter#PART_ContentPresenter,
                      Button.kcapSegmentItem.active:pointerover /template/ ContentPresenter#PART_ContentPresenter,

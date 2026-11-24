@@ -90,7 +90,7 @@ def audit(palette, opacities, edges=EDGES):
             check(fg, bg, 3.0)
     for fill in ["KcapPrimaryBrush", "KcapPrimaryHoverBrush", "KcapPrimaryPressedBrush"]:
         check("KcapOnPrimaryBrush", fill, 4.5)
-    for fill in ["KcapSegmentHoverBrush", "KcapSegmentPressedBrush"]:
+    for fill in ["KcapControlHoverBrush", "KcapControlPressedBrush"]:
         if fill in palette:
             check("KcapTextBrush", fill, 4.5)
     for role in [*TEXT, *STATUS_INKS]:

@@ -103,6 +103,14 @@
         <Style Selector="Grid.railHarnessRow:pointerover TextBlock.railHarnessCount, Grid.railHarnessRow:focus-within TextBlock.railHarnessCount">
             <Setter Property="Opacity" Value="0" />
         </Style>
+        <Style Selector="Button.railPicker:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.railHarness:not(.narrowed):pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapControlHoverBrush}" />
+        </Style>
+        <Style Selector="Button.railPicker:pressed /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.railHarness:not(.narrowed):pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapControlPressedBrush}" />
+        </Style>
         <Style Selector="Button.railPickerRow">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Left" />
