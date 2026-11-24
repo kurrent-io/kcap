@@ -352,7 +352,7 @@ public class TelemetryClientTests {
         client.Enqueue(Event("cli_command"));
 
         var clock = Stopwatch.StartNew();
-        await Assert.That(await client.FlushAsync("device-1", null, TimeSpan.FromSeconds(1.5))).IsFalse();
+        await Assert.That(await client.FlushAsync("device-1", null, TimeSpan.FromSeconds(3))).IsFalse();
 
         await Assert.That(clock.Elapsed).IsLessThan(FailFastConnect.Timeout + TimeSpan.FromMilliseconds(400));
         await Assert.That(spool.DrainAll().Count).IsEqualTo(1);
