@@ -31,6 +31,8 @@
     <SolidColorBrush x:Key="KcapDangerDimBrush" Color="#321F29" />
     <SolidColorBrush x:Key="KcapInfoBrush" Color="#7BA7F7" />
     <SolidColorBrush x:Key="KcapInfoDimBrush" Color="#1B2740" />
+    <SolidColorBrush x:Key="KcapSegmentHoverBrush" Color="#2A3040" />
+    <SolidColorBrush x:Key="KcapSegmentPressedBrush" Color="#2A3040" />
     <SolidColorBrush x:Key="KcapSelectionBrush" Color="#1E2E52" />
     <SolidColorBrush x:Key="KcapTopicRailBrush" Color="#B0B7C6" Opacity="0.55" />
     <SolidColorBrush x:Key="KcapTopicBrush" Color="#B0B7C6" />

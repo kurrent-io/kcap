@@ -30,6 +30,8 @@
         <Color x:Key="KcapPurpleDimBrush">#F1ECFA</Color>
         <Color x:Key="KcapInfoBrush">#315AA3</Color>
         <Color x:Key="KcapInfoDimBrush">#EAEEFA</Color>
+        <Color x:Key="KcapSegmentHoverBrush">#ECE9F0</Color>
+        <Color x:Key="KcapSegmentPressedBrush">#E6E2EB</Color>
         <Color x:Key="KcapSelectionBrush">#E5EDFC</Color>
         <Color x:Key="KcapTopicRailBrush">#383041</Color>
         <Color x:Key="KcapTopicBrush">#625C70</Color>
@@ -78,6 +80,8 @@
         <Color x:Key="KcapPurpleDimBrush">#342B40</Color>
         <Color x:Key="KcapInfoBrush">#86B9F0</Color>
         <Color x:Key="KcapInfoDimBrush">#283442</Color>
+        <Color x:Key="KcapSegmentHoverBrush">#333436</Color>
+        <Color x:Key="KcapSegmentPressedBrush">#3A3B3D</Color>
         <Color x:Key="KcapSelectionBrush">#304151</Color>
         <Color x:Key="KcapTopicRailBrush">#BDBEBD</Color>
         <Color x:Key="KcapTopicBrush">#BDBEBD</Color>
