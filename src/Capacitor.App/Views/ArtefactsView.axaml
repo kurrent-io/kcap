@@ -26,6 +26,9 @@
         <Style Selector="Button.artefactRow.selected /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
         </Style>
+        <Style Selector="Button.artefactRow.selected TextBlock.rowTitle">
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
     </UserControl.Styles>
     <Grid ColumnDefinitions="Auto,*">
         <Border x:Name="DocumentListPane" Grid.Column="0" Width="240" IsVisible="{Binding HasItems}" Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,1,0">
@@ -45,7 +48,7 @@
                                         Command="{Binding $parent[ItemsControl].((vm:ArtefactsTabViewModel)DataContext).OpenPageCommand}"
                                         CommandParameter="{Binding}" ToolTip.Tip="{Binding Title}" AutomationProperties.Name="{Binding Title}">
                                     <StackPanel Spacing="2">
-                                        <TextBlock Text="{Binding Title}" FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Classes="rowTitle" Text="{Binding Title}" FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
                                         <StackPanel Orientation="Horizontal" Spacing="6">
                                             <TextBlock Text="Page" FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
                                             <TextBlock Text="{Binding UpdatedLabel}" FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
@@ -58,7 +61,7 @@
                                         Command="{Binding $parent[ItemsControl].((vm:ArtefactsTabViewModel)DataContext).SelectCommand}"
                                         CommandParameter="{Binding}" ToolTip.Tip="{Binding Path}" AutomationProperties.Name="{Binding FileName}">
                                     <StackPanel Spacing="2">
-                                        <TextBlock Text="{Binding FileName}" FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Classes="rowTitle" Text="{Binding FileName}" FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
                                         <StackPanel Orientation="Horizontal" Spacing="6">
                                             <TextBlock Text="{Binding KindLabel}" FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
                                             <views:StatusBadge Classes="attention" Icon="TriangleAlert" Text="{Binding StateChip}"
