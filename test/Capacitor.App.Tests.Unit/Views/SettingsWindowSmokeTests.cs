@@ -820,7 +820,7 @@ public class SettingsWindowSmokeTests {
             await Assert.That(font.IsEffectivelyVisible).IsFalse();
             reading.SetEnabled(true);
             Settle(window);
-            await Assert.That(density.SelectedItem).IsEqualTo((object)DesktopDensity.Compact);
+            await Assert.That(density.SelectedItem).IsEqualTo(DesktopDensity.Compact);
         } finally { window.Close(); }
     });
 
@@ -866,7 +866,7 @@ public class SettingsWindowSmokeTests {
             Click(window, picker.ContainerFromIndex(1)!);
             var expected = lightAvailable ? DesktopColorScheme.Light : DesktopColorScheme.Dark;
             await Assert.That(preview.Selected).IsEqualTo(expected);
-            await Assert.That(picker.SelectedItem).IsEqualTo((object)expected);
+            await Assert.That(picker.SelectedItem).IsEqualTo(expected);
             if (lightAvailable) await preview.SelectAsync(expected);
             await Assert.That((await state.LoadAsync()).DesktopColorScheme).IsEqualTo(lightAvailable ? "light" : "dark");
             preview.SetEnabled(false);

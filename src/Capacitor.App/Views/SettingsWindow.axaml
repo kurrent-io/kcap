@@ -252,7 +252,7 @@
                             <StackPanel Margin="16,14" Spacing="10">
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto" RowSpacing="8">
                                     <TextBlock Classes="kcapLabel" Text="Density" VerticalAlignment="Center" />
-                                    <ComboBox x:Name="DensityPicker" Grid.Column="1" Classes="kcapField" MinWidth="150" HorizontalAlignment="Stretch"
+                                    <ComboBox x:Name="DensityPicker" Grid.Row="0" Grid.Column="1" Classes="kcapField" MinWidth="150" HorizontalAlignment="Stretch"
                                               AutomationProperties.Name="Density"
                                               ItemsSource="{x:Static vm:DesktopAppearanceSettings.Densities}"
                                               SelectedItem="{Binding Appearance.Reading.Density, Mode=TwoWay}" />

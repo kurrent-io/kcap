@@ -55,11 +55,11 @@ public class DesktopAppearanceSettingsTests {
         first.SetResult(false);
         await settings.PendingSave;
         await Assert.That(settings.Problem).IsNotNullOrEmpty();
-        await Assert.That(live!.ReadingFont).IsEqualTo(DesktopReadingFont.Inter);
+        await Assert.That(live.ReadingFont).IsEqualTo(DesktopReadingFont.Inter);
         settings.ReadingFont = DesktopReadingFont.Monospace;
         await settings.PendingSave;
         await Assert.That(settings.Problem).IsNull();
-        await Assert.That(live!.ReadingFont).IsEqualTo(DesktopReadingFont.Monospace);
+        await Assert.That(live.ReadingFont).IsEqualTo(DesktopReadingFont.Monospace);
     });
 
     [Test]

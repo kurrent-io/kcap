@@ -120,7 +120,7 @@ public partial class App : Application {
     readonly IReadOnlyDictionary<string, string>? _openingDesktopAppearance;
     ClassicAppearancePreview? _classicPreview;
     DesktopAppearanceSettings? _desktopAppearance;
-    IDisposable? _classicPreviewSubscription;
+    CompositeDisposable? _classicPreviewSubscription;
     ChatMarksFiles? _chatMarksFiles;
     readonly ProgressiveDisclosurePreferences? _progressiveDisclosure;
     readonly BetaUpdatesSetting _betaUpdates;

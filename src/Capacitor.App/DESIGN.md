@@ -4,13 +4,13 @@ The transcript is the reading surface. Session identity belongs in the rail, wri
 
 ## Resources
 
-| File under `Design/` | Use |
-| --- | --- |
-| `Palette.axaml` | Semantic canvas, surface, ink, field edge, status, selection and scrollbar brushes. Use the field edge for boundaries that identify an input and the quieter border for decoration. |
-| `Brand.axaml` | Vendor colors and onboarding artwork brushes. Use the existing icon controls for the marks. |
-| `Typography.axaml` and `Text.axaml` | The embedded Inter type scale, platform monospace stack and shared text styles. Use `TypeScale` in C# for size values. |
-| `Metrics.axaml` | Shared action, choice and chat-card insets, corner radii, minimum target size and disabled opacity. All lengths are device-independent. |
-| `Buttons.axaml`, `Fields.axaml`, `Overlays.axaml`, `Scroll.axaml` | Control variants and their interaction states. `App.axaml` loads these over Fluent in cascade order. |
+| File under `Design/`                                              | Use                                                                                                                                                                                 |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Palette.axaml`                                                   | Semantic canvas, surface, ink, field edge, status, selection and scrollbar brushes. Use the field edge for boundaries that identify an input and the quieter border for decoration. |
+| `Brand.axaml`                                                     | Vendor colors and onboarding artwork brushes. Use the existing icon controls for the marks.                                                                                         |
+| `Typography.axaml` and `Text.axaml`                               | The embedded Inter type scale, platform monospace stack and shared text styles. Use `TypeScale` in C# for size values.                                                              |
+| `Metrics.axaml`                                                   | Shared action, choice and chat-card insets, corner radii, minimum target size and disabled opacity. All lengths are device-independent.                                             |
+| `Buttons.axaml`, `Fields.axaml`, `Overlays.axaml`, `Scroll.axaml` | Control variants and their interaction states. `App.axaml` loads these over Fluent in cascade order.                                                                                |
 
 The shipped palette is paired with Fluent Dark. Changing only the application theme can put a light Fluent hover fill beneath a light KCAP label. Check all control states together when introducing a palette. The opaque primary action has a dedicated foreground on every interaction fill.
 
@@ -28,12 +28,12 @@ Run `tools/ui-audit/contrast.py`, `type_scale.py` and `axaml_a11y.py`. Exercise 
 
 `ClassicPreview.axaml` contains paired color dictionaries. The palette validates every entry before applying a change, updates the shared brush instances held by existing controls, and selects the corresponding Fluent variant. Rollback restores the captured colors and Fluent variant. Keep the same keys in both dictionaries. Add theme-dependent UI to the semantic palette. Keep the terminal's authored ANSI colors and the onboarding artwork on their intended backgrounds.
 
-| Role | Classic Light | Classic Dark |
-| --- | --- | --- |
+| Role                                | Classic Light         | Classic Dark          |
+| ----------------------------------- | --------------------- | --------------------- |
 | Reading canvas / supporting surface | `#FAF9FB` / `#FFFFFF` | `#202123` / `#262729` |
-| Primary / secondary text | `#171320` / `#625C70` | `#E2E2E0` / `#BDBEBD` |
-| Selected row / selection ink | `#E5EDFC` / `#315AA3` | `#304151` / `#86B9F0` |
-| Primary action / label | `#6D1E40` / `#FFFFFF` | `#D6D6D1` / `#262726` |
+| Primary / secondary text            | `#171320` / `#625C70` | `#E2E2E0` / `#BDBEBD` |
+| Selected row / selection ink        | `#E5EDFC` / `#315AA3` | `#304151` / `#86B9F0` |
+| Primary action / label              | `#6D1E40` / `#FFFFFF` | `#D6D6D1` / `#262726` |
 
 Segmented controls and sidebar filter dropdowns share neutral hover and pressed fills. Selection keeps the blue fill, with a semibold label on the active workspace tab. Higher contrast strengthens borders independently of these fills.
 

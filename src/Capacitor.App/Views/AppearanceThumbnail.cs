@@ -25,7 +25,7 @@ public sealed class AppearanceThumbnail : Control {
         public IBrush Accent { get; } = Brush("KcapInfoBrush", palette);
         public IPen Edge { get; } = new ImmutablePen(Brush("KcapChoiceBorderBrush", palette), 0.75);
 
-        static ImmutableSolidColorBrush Brush(string key, ResourceDictionary source) => new ImmutableSolidColorBrush((Color)source[key]!);
+        static ImmutableSolidColorBrush Brush(string key, ResourceDictionary source) => new((Color)source[key]!);
     }
 
     Sample? _light;

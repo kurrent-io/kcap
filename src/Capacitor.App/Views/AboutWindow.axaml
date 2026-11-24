@@ -17,10 +17,6 @@
                     <StaticResource x:Key="WordmarkBacking" ResourceKey="OnboardingCanvasBrush" />
                     <Thickness x:Key="WordmarkInset">12,8</Thickness>
                 </ResourceDictionary>
-                <ResourceDictionary x:Key="Dark">
-                    <SolidColorBrush x:Key="WordmarkBacking" Color="Transparent" />
-                    <Thickness x:Key="WordmarkInset">0</Thickness>
-                </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
     </Window.Resources>

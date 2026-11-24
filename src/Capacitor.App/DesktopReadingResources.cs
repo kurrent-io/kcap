@@ -12,7 +12,7 @@ internal sealed class DesktopReadingResources(Application application) {
     double _zoom = 1;
 
     public void SetZoom(double zoom) {
-        if (_zoom == zoom) return;
+        if (_zoom.Equals(zoom)) return;
         _zoom = zoom;
         if (_layout != 0) PublishLayout();
     }

@@ -24,27 +24,27 @@ public class ClassicAppearancePreviewTests {
         var dark = false;
         var applied = new List<ClassicAppearance>();
         var store = new AppStateStore(Tmp.PathTo("state.json"));
-        using var preview = new ClassicAppearancePreview(store, null, theme => { applied.Add(theme); return true; }, () => dark, changes);
-        preview.SetEnabled(true);
-        await Assert.That(preview.Selected).IsEqualTo(DesktopColorScheme.Auto);
-        dark = true;
-        changes.OnNext(RxUnit.Default);
-        changes.OnNext(RxUnit.Default);
-        await Assert.That(applied.SequenceEqual([ClassicAppearance.Light, ClassicAppearance.Dark])).IsTrue();
-        await preview.SelectAsync(DesktopColorScheme.Dark);
-        dark = false;
-        changes.OnNext(RxUnit.Default);
-        await Assert.That(changes.HasObservers).IsFalse();
-        await Assert.That(applied.Count).IsEqualTo(2);
-        await preview.SelectAsync(DesktopColorScheme.Auto);
-        await Assert.That(applied[^1]).IsEqualTo(ClassicAppearance.Light);
-        await Assert.That((await store.LoadAsync()).DesktopColorScheme).IsEqualTo("auto");
-        preview.SetEnabled(false);
-        await Assert.That(changes.HasObservers).IsFalse();
-        dark = true;
-        preview.SetEnabled(true);
-        await Assert.That(applied[^1]).IsEqualTo(ClassicAppearance.Dark);
-        preview.Dispose();
+        using (var preview = new ClassicAppearancePreview(store, null, theme => { applied.Add(theme); return true; }, () => dark, changes)) {
+            preview.SetEnabled(true);
+            await Assert.That(preview.Selected).IsEqualTo(DesktopColorScheme.Auto);
+            dark = true;
+            changes.OnNext(RxUnit.Default);
+            changes.OnNext(RxUnit.Default);
+            await Assert.That(applied.SequenceEqual([ClassicAppearance.Light, ClassicAppearance.Dark])).IsTrue();
+            await preview.SelectAsync(DesktopColorScheme.Dark);
+            dark = false;
+            changes.OnNext(RxUnit.Default);
+            await Assert.That(changes.HasObservers).IsFalse();
+            await Assert.That(applied.Count).IsEqualTo(2);
+            await preview.SelectAsync(DesktopColorScheme.Auto);
+            await Assert.That(applied[^1]).IsEqualTo(ClassicAppearance.Light);
+            await Assert.That((await store.LoadAsync()).DesktopColorScheme).IsEqualTo("auto");
+            preview.SetEnabled(false);
+            await Assert.That(changes.HasObservers).IsFalse();
+            dark = true;
+            preview.SetEnabled(true);
+            await Assert.That(applied[^1]).IsEqualTo(ClassicAppearance.Dark);
+        }
         await Assert.That(changes.HasObservers).IsFalse();
     });
 
