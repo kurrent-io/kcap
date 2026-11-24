@@ -277,7 +277,20 @@ public sealed class KcapCli : IKcapCli {
         var help = await Run(cliPath, ["daemon", "--help", "--no-update-check"],
             new RunOptions(EnvOverlay: await SpawnEnvAsync(ct).ConfigureAwait(false), Timeout: VersionTimeout), ct).ConfigureAwait(false);
         return help is { TimedOut: false, ExitCode: 0 } &&
-            flags.All(flag => help.Stdout.Contains(flag, StringComparison.Ordinal) || help.Stderr.Contains(flag, StringComparison.Ordinal));
+            flags.All(flag => NamesOption(help.Stdout, flag) || NamesOption(help.Stderr, flag));
+    }
+
+    /// <summary>Whether <paramref name="help"/> names <paramref name="flag"/> as a whole option, not as the start of a
+    /// longer one: <c>--retire</c> must not be read from <c>--retire-profile</c>.</summary>
+    internal static bool NamesOption(string help, string flag) {
+        for (var at = help.IndexOf(flag, StringComparison.Ordinal); at >= 0; at = help.IndexOf(flag, at + 1, StringComparison.Ordinal)) {
+            var end = at + flag.Length;
+            var startsToken = at == 0 || !IsOptionChar(help[at - 1]);
+            if (startsToken && (end == help.Length || !IsOptionChar(help[end]))) return true;
+        }
+        return false;
+
+        static bool IsOptionChar(char c) => char.IsAsciiLetterOrDigit(c) || c is '-' or '_';
     }
 
     /// The install flags a request emits beyond the base install, each of which the CLI must name.

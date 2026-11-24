@@ -253,6 +253,15 @@ public class KcapCliTests {
     }
 
     [Test]
+    [Arguments("  install [--retire ID [--retire-profile P]] [--activate]", "--retire", true)]
+    [Arguments("  install [--retire-profile P] [--activate]", "--retire", false)]
+    [Arguments("  install [--retire-profile P]", "--retire-profile", true)]
+    [Arguments("  install [--activated]", "--activate", false)]
+    public async Task A_help_flag_check_matches_whole_options_only(string help, string flag, bool names) {
+        await Assert.That(KcapCli.NamesOption(help, flag)).IsEqualTo(names);
+    }
+
+    [Test]
     public async Task Activate_without_replace_never_spawns() {
         var runner = new FakeProcessRunner();
         await Assert.ThrowsAsync<ArgumentException>(() => MakeCli(runner).ServiceInstallVerifiedAsync(false, CancellationToken.None, activate: true));
