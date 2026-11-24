@@ -35,7 +35,7 @@ public static class ExperimentalFeatures {
     public static ExperimentalFeature DesktopAppearance { get; } = new(
         "desktop-appearance-preview",
         "Desktop redesign preview",
-        "Choose Auto, Light, or Dark in Settings → Appearance.",
+        "A new Light theme and a redesigned graphite Dark theme, with automatic system matching and options for density, reading font, and contrast.",
         AppliesLive: true,
         DesktopAppOnly: true,
         OnByDefault: true,
