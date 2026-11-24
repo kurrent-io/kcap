@@ -534,6 +534,17 @@
                 <StackPanel>
                     <TextBlock Text="No sessions" Foreground="{StaticResource KcapFaintBrush}" Margin="8,16"
                                IsVisible="{Binding ShowsNoSessions}" />
+                    <Button x:Name="RailShowAllHarnessesButton" Classes="kcapGhost" Content="Show all harnesses"
+                            Command="{Binding Rail.ShowAllHarnessesCommand, FallbackValue={x:Null}}"
+                            HorizontalAlignment="Left" Margin="4,0,8,8" Padding="4,2" FontSize="{StaticResource KcapFontSizeSmall}"
+                            Foreground="{StaticResource KcapInfoBrush}">
+                        <Button.IsVisible>
+                            <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                <Binding Path="Rail.IsEmpty" FallbackValue="False" />
+                                <Binding Path="Rail.IsHarnessNarrowed" FallbackValue="False" />
+                            </MultiBinding>
+                        </Button.IsVisible>
+                    </Button>
                     <!-- One Tab stop for the whole list; arrow keys move between headers and rows (RailKeyboard). -->
                     <ItemsControl x:Name="RailGroups" ItemsSource="{Binding Rail.Groups, FallbackValue={x:Null}}"
                                   KeyboardNavigation.TabNavigation="Once">

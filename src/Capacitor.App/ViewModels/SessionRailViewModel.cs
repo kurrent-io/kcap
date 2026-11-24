@@ -260,6 +260,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<RailSort, Unit> SetSortCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleDirectionCommand { get; }
     public ReactiveCommand<Unit, Unit> ToggleAllHarnessesCommand { get; }
+    public ReactiveCommand<Unit, Unit> ShowAllHarnessesCommand { get; }
 
     public RailPreferences Preferences =>
         new(Scope, State, Grouping, Sort, Descending, [.. _collapsed.Order(StringComparer.Ordinal)],
@@ -329,6 +330,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         SetSortCommand = ReactiveCommand.Create<RailSort>(sort => Sort = sort).DisposeWith(_disposables);
         ToggleDirectionCommand = ReactiveCommand.Create(() => { Descending = !Descending; }).DisposeWith(_disposables);
         ToggleAllHarnessesCommand = ReactiveCommand.Create(ToggleAllHarnesses).DisposeWith(_disposables);
+        ShowAllHarnessesCommand = ReactiveCommand.Create(() => SetAllHarnessesShown(true)).DisposeWith(_disposables);
         ToggleFiltersCommand = ReactiveCommand.Create(() => { FiltersOpen = !FiltersOpen; }).DisposeWith(_disposables);
         OpenPreviousSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(-1); }).DisposeWith(_disposables);
         OpenNextSessionCommand = ReactiveCommand.Create(() => { OpenAdjacent(1); }).DisposeWith(_disposables);

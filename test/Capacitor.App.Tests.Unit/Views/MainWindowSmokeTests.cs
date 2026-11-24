@@ -2210,6 +2210,28 @@ public class MainWindowSmokeTests {
         await Assert.That(host.Named<TextBlock>("RailHarnessLabel").Text).IsEqualTo((host.Rail.Harnesses.Count - 1).ToString(CultureInfo.InvariantCulture));
     });
 
+    /// A rail the harness filter leaves empty offers to show every harness again.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_empty_narrowed_rail_offers_to_show_all_harnesses() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        host.Directory.Rows.AddOrUpdate(
+            AgentRow.FromLocal(new("c1", "agent", "claude", "/repo", "Running", null, null, null, DateTime.UtcNow, null, null), new RepoIdentity("path:/repo", "repo")));
+        host.Settle();
+        var reset = host.Named<Button>("RailShowAllHarnessesButton");
+        var shownWhileAll = reset.IsEffectivelyVisible;
+
+        host.Rail.SetAllHarnessesShown(false);
+        host.Present();
+        var shownWhileEmpty = reset.IsEffectivelyVisible;
+        Click(host, reset);
+
+        await Assert.That(shownWhileAll).IsFalse();
+        await Assert.That(shownWhileEmpty).IsTrue();
+        await Assert.That(host.Rail.AllHarnessesChecked).IsTrue();
+        await Assert.That(host.Rail.Groups.SelectMany(g => g.Sessions).Select(s => s.Id)).IsEquivalentTo(["c1"]);
+    });
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task Custom_list_settings_stay_announced_when_controls_close() => AvaloniaSession.RunOnUiAsync(async () => {
