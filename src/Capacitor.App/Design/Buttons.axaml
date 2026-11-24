@@ -6,7 +6,7 @@
         <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
-        <Setter Property="Padding" Value="{StaticResource KcapChoicePadding}" />
+        <Setter Property="Padding" Value="{DynamicResource KcapChoicePadding}" />
         <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
     </Style>
     <Style Selector="Button.kcapChip /template/ ContentPresenter#PART_ContentPresenter">
@@ -48,7 +48,7 @@
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
-        <Setter Property="Padding" Value="{StaticResource KcapChoicePadding}" />
+        <Setter Property="Padding" Value="{DynamicResource KcapChoicePadding}" />
         <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         <Setter Property="Template">
             <ControlTemplate TargetType="RadioButton">
@@ -80,7 +80,7 @@
         <Setter Property="BorderBrush" Value="{StaticResource KcapPrimaryBrush}" />
         <Setter Property="Foreground" Value="{StaticResource KcapOnPrimaryBrush}" />
         <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
-        <Setter Property="Padding" Value="{StaticResource KcapActionPadding}" />
+        <Setter Property="Padding" Value="{DynamicResource KcapActionPadding}" />
         <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
@@ -171,7 +171,7 @@
         <Setter Property="BorderBrush" Value="{StaticResource KcapDangerBrush}" />
         <Setter Property="Foreground" Value="{StaticResource KcapOnPrimaryBrush}" />
         <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
-        <Setter Property="Padding" Value="{StaticResource KcapActionPadding}" />
+        <Setter Property="Padding" Value="{DynamicResource KcapActionPadding}" />
         <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         <Setter Property="FontWeight" Value="SemiBold" />
     </Style>

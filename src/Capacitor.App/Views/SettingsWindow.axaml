@@ -303,11 +303,34 @@
                                     </Viewbox>
                                 </Grid>
                                 <TextBlock Classes="kcapHint" TextWrapping="Wrap"
-                                           Text="Auto follows your system. Your color scheme applies across profiles on this computer." />
+                                           Text="Auto follows your system preference." />
                                 <TextBlock Classes="kcapHint" TextWrapping="Wrap" Foreground="{StaticResource KcapDangerBrush}"
                                     AutomationProperties.LiveSetting="Polite"
                                     IsVisible="{Binding Appearance.Preview.Problem, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}"
                                     Text="{Binding Appearance.Preview.Problem, FallbackValue={x:Null}}" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Classes="settingsCard" IsVisible="{Binding Appearance.Reading.Enabled, FallbackValue=False}">
+                            <StackPanel Margin="16,14" Spacing="10">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto" RowSpacing="8">
+                                    <TextBlock Classes="kcapLabel" Text="Density" VerticalAlignment="Center" />
+                                    <ComboBox x:Name="DensityPicker" Grid.Column="1" Classes="kcapField" MinWidth="150" HorizontalAlignment="Stretch"
+                                              AutomationProperties.Name="Density"
+                                              ItemsSource="{x:Static vm:DesktopAppearanceSettings.Densities}"
+                                              SelectedItem="{Binding Appearance.Reading.Density, Mode=TwoWay}" />
+                                    <TextBlock Grid.Row="1" Classes="kcapLabel" Text="Reading font" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                    <ComboBox x:Name="ReadingFontPicker" Grid.Row="1" Grid.Column="1" Classes="kcapField" HorizontalAlignment="Stretch"
+                                              AutomationProperties.Name="Reading font"
+                                              ItemsSource="{x:Static vm:DesktopAppearanceSettings.ReadingFonts}"
+                                              SelectedItem="{Binding Appearance.Reading.ReadingFont, Mode=TwoWay}" />
+                                </Grid>
+                                <CheckBox x:Name="HigherContrastToggle" Content="Use higher contrast"
+                                          IsChecked="{Binding Appearance.Reading.HighContrast, Mode=TwoWay}" />
+                                <TextBlock Foreground="{StaticResource KcapDangerBrush}" TextWrapping="Wrap"
+                                           AutomationProperties.LiveSetting="Polite"
+                                           IsVisible="{Binding Appearance.Reading.Problem, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}"
+                                           Text="{Binding Appearance.Reading.Problem, FallbackValue={x:Null}}" />
                             </StackPanel>
                         </Border>
 

@@ -781,6 +781,50 @@ public class SettingsWindowSmokeTests {
     });
 
     [Test]
+    public Task Reading_choices_work_from_the_keyboard_and_hide_with_the_preview() => AvaloniaSession.RunOnUiAsync(async () => {
+        ConfigMutator.Mutate(Config.Root, config => config with {
+            Profiles = new() { ["work"] = new Profile { ServerUrl = "https://work.example" } },
+        });
+        var state = new AppStateStore(Config.PathTo("app-state.json"));
+        using var reading = new DesktopAppearanceSettings(state, null, _ => { });
+        using var notifications = new NotificationSettingsService(Config.PathTo("notifications.json"));
+        using var vm = MakeViewModel(notifications, appearance: new AppearanceSettingsViewModel(UiScaleSetting.From(state, new AppState()), reading: reading));
+        var window = new SettingsWindow { DataContext = vm };
+        try {
+            window.Show();
+            window.FindControl<TabItem>("AppearanceTab")!.IsSelected = true;
+            Settle(window);
+            var density = window.FindControl<ComboBox>("DensityPicker")!;
+            var font = window.FindControl<ComboBox>("ReadingFontPicker")!;
+            var contrast = window.FindControl<CheckBox>("HigherContrastToggle")!;
+            await Assert.That(density.IsEffectivelyVisible).IsFalse();
+
+            reading.SetEnabled(true);
+            Settle(window);
+            foreach (var picker in new[] { density, font }) {
+                await Assert.That(picker.Focus(NavigationMethod.Tab)).IsTrue();
+                window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+                window.KeyReleaseQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+                Settle(window);
+            }
+            await Assert.That(contrast.Focus(NavigationMethod.Tab)).IsTrue();
+            window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            Settle(window);
+            await reading.PendingSave;
+            await Assert.That(reading.Density).IsEqualTo(DesktopDensity.Compact);
+            await Assert.That(reading.ReadingFont).IsEqualTo(DesktopReadingFont.Monospace);
+            await Assert.That(reading.HighContrast).IsTrue();
+            reading.SetEnabled(false);
+            Settle(window);
+            await Assert.That(font.IsEffectivelyVisible).IsFalse();
+            reading.SetEnabled(true);
+            Settle(window);
+            await Assert.That(density.SelectedItem).IsEqualTo((object)DesktopDensity.Compact);
+        } finally { window.Close(); }
+    });
+
+    [Test]
     [Arguments(true)]
     [Arguments(false)]
     public Task Appearance_offers_three_keyboard_choices_only_while_the_preview_is_enabled(bool lightAvailable) => AvaloniaSession.RunOnUiAsync(async () => {

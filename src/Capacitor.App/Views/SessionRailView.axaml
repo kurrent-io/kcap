@@ -586,7 +586,7 @@
                                                             Opacity="{Binding IsStale, Converter={x:Static views:StaleOpacityConverter.Instance}}">
                                                         <Grid>
                                                             <Button Command="{Binding OpenCommand}" HorizontalAlignment="Stretch"
-                                                                    HorizontalContentAlignment="Stretch" Padding="8,6"
+                                                                    HorizontalContentAlignment="Stretch" Padding="{DynamicResource KcapSessionRowPadding}"
                                                                     AutomationProperties.Name="{Binding SessionAccessibleName}"
                                                                     Classes="railRow" Classes.selected="{Binding IsSelected}">
                                                                 <ToolTip.Tip>

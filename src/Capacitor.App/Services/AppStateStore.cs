@@ -61,7 +61,8 @@ public sealed record AppState(
     // Canonical session ids whose hand-off card the user closed, newest last; see HandoffOutcomeDismissals.
     IReadOnlyList<string>? DismissedHandoffOutcomes = null,
     ProgressiveDisclosure.ProgressiveDisclosurePreferences? ProgressiveDisclosure = null,
-    string? DesktopColorScheme = null);
+    string? DesktopColorScheme = null,
+    IReadOnlyDictionary<string, string>? DesktopAppearance = null);
 
 public interface IAppStateStore {
     Task<AppState> LoadAsync();

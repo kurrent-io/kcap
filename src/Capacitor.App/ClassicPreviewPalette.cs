@@ -11,8 +11,18 @@ internal sealed class ClassicPreviewPalette(Application application) {
     readonly Dictionary<SolidColorBrush, Color> _original = new();
     ThemeVariant? _originalVariant;
 
+    ClassicAppearance _theme;
+    bool _higherContrast;
+
+    public void SetHigherContrast(bool enabled) {
+        if (_higherContrast == enabled) return;
+        _higherContrast = enabled;
+        TryApply(_theme);
+    }
+
     public bool TryApply(ClassicAppearance theme) {
         if (theme == ClassicAppearance.Original) {
+            _theme = theme;
             if (_original.Count == 0) return true;
             foreach (var (brush, color) in _original) brush.Color = color;
             application.RequestedThemeVariant = _originalVariant;
@@ -28,7 +38,7 @@ internal sealed class ClassicPreviewPalette(Application application) {
         foreach (var key in palette.Keys) {
             if (!application.TryFindResource(key, out var target) || target is not SolidColorBrush brush || palette[key] is not Color color)
                 return false;
-            colors.Add((brush, color));
+            colors.Add((brush, _higherContrast ? ContrastColor(key, color, palette) : color));
         }
         // StaticResource consumers, including already-open flyouts, hold the original brush instance.
         if (_original.Count == 0) {
@@ -39,7 +49,24 @@ internal sealed class ClassicPreviewPalette(Application application) {
             _original.TryAdd(brush, brush.Color);
             brush.Color = color;
         }
+        _theme = theme;
         application.RequestedThemeVariant = light ? ThemeVariant.Light : ThemeVariant.Dark;
         return true;
     }
+    static Color ContrastColor(object key, Color color, ResourceDictionary palette) => key switch {
+        "KcapMutedBrush" or "KcapFaintBrush" or "KcapPlaceholderBrush"
+            => Between(color, (Color)palette["KcapTextBrush"]!),
+        "ProgressiveDisclosureDetailFadeBrush"
+            => Between((Color)palette["KcapMutedBrush"]!, (Color)palette["KcapTextBrush"]!),
+        "ProgressiveDisclosureFootnoteFadeBrush"
+            => Between((Color)palette["KcapFaintBrush"]!, (Color)palette["KcapTextBrush"]!),
+        "KcapBorderBrush" or "KcapBorderStrongBrush" => Between(color, (Color)palette["KcapFieldBorderBrush"]!),
+        "KcapChoiceBorderBrush" or "KcapFieldBorderBrush" => (Color)palette["KcapTextBrush"]!,
+        "ProgressiveDisclosureDetailCodeFadeBrush" or "ProgressiveDisclosureFootnoteCodeFadeBrush"
+            => (Color)palette["KcapSurfaceRaisedBrush"]!,
+        _ => color,
+    };
+
+    static Color Between(Color a, Color b) => Color.FromRgb(
+        (byte)((a.R + b.R) / 2), (byte)((a.G + b.G) / 2), (byte)((a.B + b.B) / 2));
 }

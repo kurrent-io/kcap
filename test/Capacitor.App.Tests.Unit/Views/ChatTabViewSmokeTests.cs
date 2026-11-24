@@ -871,6 +871,50 @@ public class ChatTabViewSmokeTests {
 
     /// A narrower window and a narrower agent's lane both reflow the rows above the reader.
     [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Reading_font_rollback_restores_MarkView_fallbacks_and_keeps_code_fonts() => RunOnUiAsync(async () => {
+        const string reply = """{"type":"assistant","message":{"content":[{"type":"text","text":"Plain prose with `inline` code.\n\n```text\ncode fence\n```"}]}}""";
+        var resources = new DesktopReadingResources(Application.Current!);
+        var host = new Host();
+        try {
+            await host.LoadAsync(Tmp.CreateFile("reading-font.jsonl", [UserLine, reply]));
+            host.Settle();
+            var viewer = host.View.GetVisualDescendants().OfType<MarkdownView>().Last();
+            var prose = viewer.GetVisualDescendants().OfType<TextBlock>().First(t => t.Classes.Contains("markdown-paragraph"));
+            var inline = prose.Inlines!.OfType<Run>().Single(r => r.Classes.Contains("markdown-code-inline"));
+            var code = viewer.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("markdown-code-block"));
+            var fenced = code.GetVisualDescendants().OfType<TextBlock>().First();
+            FontFamily stock = prose.FontFamily;
+            var inlineFamily = inline.FontFamily;
+            var fencedFamily = fenced.FontFamily;
+            await Assert.That(stock.ToString()).Contains("fonts:Inter#Inter");
+            await Assert.That(prose.FontSize).IsEqualTo(15d);
+            await Assert.That(prose.LineHeight).IsEqualTo(24d);
+
+            resources.Apply(new DesktopAppearancePreferences(DesktopDensity.Compact, ReadingFont: DesktopReadingFont.Monospace));
+            host.Settle();
+            await Assert.That(prose.FontFamily.Name).Contains("Spline Sans Mono");
+            await Assert.That(prose.FontSize).IsEqualTo(15d);
+            await Assert.That(prose.LineHeight).IsEqualTo(22d);
+            await Assert.That(inline.FontFamily).IsEqualTo(inlineFamily);
+            await Assert.That(fenced.FontFamily).IsEqualTo(fencedFamily);
+
+            resources.Apply(new DesktopAppearancePreferences());
+            host.Settle();
+            await Assert.That(prose.FontFamily).IsEqualTo(stock);
+            await Assert.That(prose.LineHeight).IsEqualTo(24d);
+
+            resources.Apply(null);
+            host.Settle();
+            await Assert.That(prose.FontFamily).IsEqualTo(stock);
+            await Assert.That(prose.LineHeight).IsEqualTo(24d);
+        } finally {
+            resources.Apply(null);
+            await host.CloseAsync();
+        }
+    });
+
+    [Test]
     [Arguments(false)]
     [Arguments(true)]
     [NotInParallel("AvaloniaSession")]

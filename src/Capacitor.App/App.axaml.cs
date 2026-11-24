@@ -117,7 +117,9 @@ public partial class App : Application {
 
     readonly UiScaleSetting _uiScale;
     readonly string? _openingDesktopColorScheme;
+    readonly IReadOnlyDictionary<string, string>? _openingDesktopAppearance;
     ClassicAppearancePreview? _classicPreview;
+    DesktopAppearanceSettings? _desktopAppearance;
     IDisposable? _classicPreviewSubscription;
     ChatMarksFiles? _chatMarksFiles;
     readonly ProgressiveDisclosurePreferences? _progressiveDisclosure;
@@ -157,6 +159,7 @@ public partial class App : Application {
 #pragma warning restore RS0030
         var state = _appState.LoadAsync().GetAwaiter().GetResult();
         _openingDesktopColorScheme = state.DesktopColorScheme;
+        _openingDesktopAppearance = state.DesktopAppearance;
         _uiScale = UiScaleSetting.From(_appState, state);
         SecondaryWindowScale.Install(_uiScale);
         _betaUpdates = BetaUpdatesSetting.From(_appState, state);
@@ -1448,12 +1451,40 @@ public partial class App : Application {
                     .Select(_ => Unit.Default).ObserveOn(RxSchedulers.MainThreadScheduler);
             var preview = new ClassicAppearancePreview(_appState, _openingDesktopColorScheme,
                 palette.TryApply, () => platform?.GetColorValues().ThemeVariant != PlatformThemeVariant.Light, systemChanges);
-            preview.SetEnabled(flag.IsOn);
+            var reading = new DesktopReadingResources(this);
+            var contrastWatch = new SerialDisposable();
+            var zoomWatch = new SerialDisposable();
+            var appearance = new DesktopAppearanceSettings(_appState, _openingDesktopAppearance, preferences => {
+                reading.Apply(preferences);
+                var highContrast = preferences?.HighContrast == true;
+                void ApplyContrast() => palette.SetHigherContrast(highContrast ||
+                    platform?.GetColorValues().ContrastPreference == ColorContrastPreference.High);
+                contrastWatch.Disposable = preferences is not null && !highContrast
+                    ? systemChanges.Subscribe(_ => ApplyContrast()) : null;
+                if (preferences is null) palette.SetHigherContrast(false);
+                else ApplyContrast();
+            });
+            void SetEnabled(bool enabled) {
+                if (appearance.Enabled == enabled) return;
+                if (enabled) {
+                    zoomWatch.Disposable = _uiScale.Changes.ObserveOn(RxSchedulers.MainThreadScheduler)
+                        .Subscribe(reading.SetZoom);
+                    appearance.SetEnabled(true);
+                    preview.SetEnabled(true);
+                } else {
+                    preview.SetEnabled(false);
+                    appearance.SetEnabled(false);
+                    zoomWatch.Disposable = null;
+                }
+            }
+
+            SetEnabled(flag.IsOn);
             _classicPreview = preview;
-            _classicPreviewSubscription = _experimentalSaved.Merge(
+            _desktopAppearance = appearance;
+            _classicPreviewSubscription = new CompositeDisposable(contrastWatch, zoomWatch, _experimentalSaved.Merge(
                     Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default))
                 .ObserveOn(TaskPoolScheduler.Default).Select(_ => flag.IsOn).DistinctUntilChanged()
-                .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(preview.SetEnabled);
+                .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(SetEnabled));
         }
         var inAppPages = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.InAppPages);
         var launcherNextWork = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.LauncherNextWork);
@@ -2000,7 +2031,7 @@ public partial class App : Application {
                             _userHome, AccountStore.Beside(_daemonStore).TryLoad() ?? new AccountRegistry(), Environment.GetEnvironmentVariable),
                         pickDirectory: PickAccountDirectoryAsync, daemonStatus: service.Status, usageClock: _usageClock, appLifetime: _shutdown.Token)
                     : null,
-                Appearance = new AppearanceSettingsViewModel(_uiScale, _classicPreview),
+                Appearance = new AppearanceSettingsViewModel(_uiScale, _classicPreview, _desktopAppearance),
                 Privacy    = new PrivacySettingsViewModel(_telemetry, _config, _usageNotice),
                 Search     = _localStack?.Search,
                 Intelligence = _localUpgrade is { } upgrade && _localSearch is { } search
@@ -3500,6 +3531,7 @@ public partial class App : Application {
         _desktopNotifications?.Dispose();
         _classicPreviewSubscription?.Dispose();
         _classicPreview?.Dispose();
+        _desktopAppearance?.Dispose();
         _notificationBadgeSubscription?.Dispose();
         _windowLifecycle?.SetPendingNotificationCount(0);
         (_coordinator?.Window?.DataContext as MainWindowViewModel)?.LatchShutdown();

@@ -12,9 +12,11 @@ public sealed class AppearanceSettingsViewModel : ReactiveObject, IDisposable {
     double _scale;
 
     public ClassicAppearancePreview? Preview { get; }
+    public DesktopAppearanceSettings? Reading { get; }
 
-    public AppearanceSettingsViewModel(UiScaleSetting setting, ClassicAppearancePreview? preview = null) {
+    public AppearanceSettingsViewModel(UiScaleSetting setting, ClassicAppearancePreview? preview = null, DesktopAppearanceSettings? reading = null) {
         Preview = preview;
+        Reading = reading;
         _scale = setting.Current;
         var scale = this.WhenAnyValue(x => x.Scale);
         SmallerCommand = ReactiveCommand.CreateFromTask(() => setting.SetAsync(UiScale.Smaller(Scale)), scale.Select(s => s > UiScale.Min));
