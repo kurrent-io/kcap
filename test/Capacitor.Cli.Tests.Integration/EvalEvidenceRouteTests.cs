@@ -121,7 +121,7 @@ public class EvalEvidenceRouteTests : IDisposable {
     List<WireMock.Logging.ILogEntry> PreparationReads(string relative) =>
         [.. _stub.Requests(relative).Where(e => e.RequestMessage.Query?.ContainsKey("budget_bytes") == true)];
 
-    JsonElement Payload() => JsonDocument.Parse(_stub.Requests("evals/v4").Single().RequestMessage.Body!).RootElement.Clone();
+    JsonElement Payload() => JsonElement.Parse(_stub.Requests("evals/v4").Single().RequestMessage.Body!);
 
     (string Root, EnvScope Scope) TempRoot() {
         var root = Dir("tmp-root");
@@ -457,7 +457,7 @@ public class EvalEvidenceRouteTests : IDisposable {
         await Assert.That(result).IsNotNull();
         await Assert.That(result!.EvidenceScopeToken).IsNull();
         await Assert.That(observer.Finished!.EvidenceScopeToken).IsNull();
-        await Assert.That(JsonDocument.Parse(_stub.Requests("judge-facts").Single().RequestMessage.Body!).RootElement.GetProperty("evidence_scope_token").GetString()).IsEqualTo("tok");
+        await Assert.That(JsonElement.Parse(_stub.Requests("judge-facts").Single().RequestMessage.Body!).GetProperty("evidence_scope_token").GetString()).IsEqualTo("tok");
         await Assert.That(Payload().GetProperty("evidence_scope_token").GetString()).IsEqualTo("tok");
     }
 
@@ -677,7 +677,7 @@ public class EvalEvidenceRouteTests : IDisposable {
         await Assert.That(_stub.Requests("evidence-scope/holds").Count).IsEqualTo(1);
         await Assert.That(_stub.Requests("evidence-scope").Count(e => e.RequestMessage.Method == "GET" && e.RequestMessage.Query?.ContainsKey("cursor") != true)).IsEqualTo(0);
         var released = _stub.Requests("evidence-scope/hold").Single();
-        await Assert.That(JsonDocument.Parse(released.RequestMessage.Body!).RootElement.GetProperty("token").GetString()).IsEqualTo("tok");
+        await Assert.That(JsonElement.Parse(released.RequestMessage.Body!).GetProperty("token").GetString()).IsEqualTo("tok");
         await Assert.That(released.RequestMessage.DateTime).IsGreaterThanOrEqualTo(_stub.Requests("evals/v4").Single().RequestMessage.DateTime);
     }
 

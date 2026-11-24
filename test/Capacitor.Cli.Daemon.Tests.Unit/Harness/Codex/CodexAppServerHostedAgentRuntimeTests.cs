@@ -658,8 +658,8 @@ public class CodexAppServerHostedAgentRuntimeTests {
         var moveNext = e.MoveNextAsync().AsTask();
 
         // Still live: the stream must not end while the runtime is running.
-        var early = await Task.WhenAny(moveNext, Task.Delay(300));
-        await Assert.That(early).IsNotSameReferenceAs(moveNext);
+        var early = await moveNext.FinishedWithinAsync(TimeSpan.FromMilliseconds(300), TimeProvider.System);
+        await Assert.That(early).IsFalse();
 
         await runtime.DisposeAsync();
         // Terminal now: the stream ends (no bytes ever, EmitsTerminalOutput=false).

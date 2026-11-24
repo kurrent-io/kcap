@@ -45,9 +45,9 @@ public class AcpInteractionBridgeJudgeTests : IDisposable {
         var toolCall = new JsonObject { ["title"] = "Run", ["kind"] = "execute", ["rawInput"] = new JsonObject { ["command"] = command } };
         if (callId is not null) toolCall["toolCallId"] = callId;
         var options = new JsonArray([.. Standard.Select(o => (JsonNode)new JsonObject { ["optionId"] = o.Id, ["name"] = o.Id, ["kind"] = o.OptKind })]);
-        return JsonDocument.Parse(new JsonObject {
+        return JsonElement.Parse(new JsonObject {
             ["sessionId"] = AcpSessionId, ["toolCall"] = toolCall, ["options"] = options,
-        }.ToJsonString()).RootElement.Clone();
+        }.ToJsonString());
     }
 
     sealed class Harness {

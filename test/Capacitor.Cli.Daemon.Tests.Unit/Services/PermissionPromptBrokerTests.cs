@@ -19,8 +19,8 @@ public class PermissionPromptBrokerTests {
     static PermissionDecision Allow => new("allow", null, null);
 
     static async Task<T> WaitBounded<T>(Task<T> task, string because) {
-        var finished = await Task.WhenAny(task, Task.Delay(Bounded));
-        await Assert.That(finished == task).IsTrue().Because(because);
+        var finished = await task.FinishedWithinAsync(Bounded, TimeProvider.System);
+        await Assert.That(finished).IsTrue().Because(because);
         return await task;
     }
 

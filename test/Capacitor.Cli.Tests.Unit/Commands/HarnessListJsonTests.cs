@@ -11,7 +11,7 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 
 public class HarnessListJsonTests {
     static JsonElement Render(HarnessRegistry harnesses, HarnessOfferLedger? ledger = null) =>
-        JsonDocument.Parse(HarnessListRender.Render(harnesses, ledger ?? new HarnessOfferLedger())).RootElement;
+        JsonElement.Parse(HarnessListRender.Render(harnesses, ledger ?? new HarnessOfferLedger()));
 
     static JsonElement Row(JsonElement root, string vendor) =>
         root.GetProperty("harnesses").EnumerateArray().Single(e => e.GetProperty("vendor").GetString() == vendor);

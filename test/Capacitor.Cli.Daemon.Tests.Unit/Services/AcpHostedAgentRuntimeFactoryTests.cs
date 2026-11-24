@@ -569,7 +569,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     static async Task<string[]> WaitForSessionNewServerNamesAsync(FakeAcpAgent fake) {
         var json = await WaitForSessionNewMcpServersJsonAsync(fake);
 
-        return System.Text.Json.JsonDocument.Parse(json).RootElement
+        return System.Text.Json.JsonElement.Parse(json)
             .EnumerateArray()
             .Select(e => e.GetProperty("name").GetString()!)
             .ToArray();
@@ -3015,7 +3015,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
 
         // ReleaseTerminate is still unset, so the reap task cannot have completed — give a (possibly
         // regressed) implementation a bounded window to complete anyway before asserting it hasn't.
-        await Task.WhenAny(startTask, Task.Delay(300));
+        await startTask.FinishedWithinAsync(TimeSpan.FromMilliseconds(300), TimeProvider.System);
         await Assert.That(startTask.IsCompleted).IsFalse();
 
         process.ReleaseTerminate.TrySetResult();
@@ -3076,7 +3076,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
 
         fake.SimulateCrash();
 
-        await Task.WhenAny(startTask, Task.Delay(300));
+        await startTask.FinishedWithinAsync(TimeSpan.FromMilliseconds(300), TimeProvider.System);
         await Assert.That(startTask.IsCompleted).IsFalse();
 
         process.ReleaseTerminate.TrySetResult();

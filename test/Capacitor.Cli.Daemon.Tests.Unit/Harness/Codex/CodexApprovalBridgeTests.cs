@@ -25,7 +25,7 @@ public class CodexApprovalBridgeTests {
         Bridge((_, _) => Task.FromResult(decision), timeout);
 
     static AcpRequest ApprovalRequest(string method, string paramsJson) =>
-        new(1, method, JsonDocument.Parse(paramsJson).RootElement.Clone());
+        new(1, method, JsonElement.Parse(paramsJson));
 
     const string CommandMethod = "item/commandExecution/requestApproval";
     const string FileMethod    = "item/fileChange/requestApproval";

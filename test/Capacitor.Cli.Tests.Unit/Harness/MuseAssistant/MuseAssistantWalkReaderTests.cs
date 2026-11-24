@@ -37,7 +37,7 @@ public class MuseAssistantWalkReaderTests {
         var dir = new WalkBuilder(Tmp).AddPage(null, null, false, User(12, T0, content, "7c1e")).Write();
 
         var (walk, _) = MuseAssistantWalkReader.Load(dir);
-        var line = JsonDocument.Parse(walk!.Items[0].Line).RootElement;
+        var line = JsonElement.Parse(walk!.Items[0].Line);
 
         await Assert.That(line.GetProperty("chat_id").GetString()).IsEqualTo("chat-main");
         await Assert.That(line.GetProperty("turn_id").GetString()).IsEqualTo("7c1e");
@@ -68,8 +68,8 @@ public class MuseAssistantWalkReaderTests {
 
         await Assert.That(problem).IsNull();
         await Assert.That(line.Contains('\n') || line.Contains('\r')).IsFalse();
-        await Assert.That(JsonDocument.Parse(line).RootElement.GetProperty("content").GetString()).IsEqualTo(content);
-        await Assert.That(JsonDocument.Parse(line).RootElement.GetProperty("chat_id").GetString()).IsEqualTo("chat-main");
+        await Assert.That(JsonElement.Parse(line).GetProperty("content").GetString()).IsEqualTo(content);
+        await Assert.That(JsonElement.Parse(line).GetProperty("chat_id").GetString()).IsEqualTo("chat-main");
     }
 
     [Test]

@@ -12,7 +12,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Grok;
 /// <c>turn_completed</c> frame, shaped as Grok 1.0.52 sends it (<c>docs/probes/2026-10-13-grok-acp/</c>).
 /// </summary>
 public class GrokTurnUsageTests {
-    static readonly JsonElement EndTurnResult = JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone();
+    static readonly JsonElement EndTurnResult = JsonElement.Parse("""{"stopReason":"end_turn"}""");
 
     const string ModelUsage = """
         {"grok-4.5-build":{"inputTokens":44757,"outputTokens":139,"totalTokens":44896,"cachedReadTokens":21632,
@@ -22,11 +22,11 @@ public class GrokTurnUsageTests {
 
     static JsonElement Frame(string method = "_x.ai/session_notification", string sessionId = FakeAcpAgent.FixedSessionId,
                              string sessionUpdate = "turn_completed", string modelUsage = ModelUsage) =>
-        JsonDocument.Parse($$"""
+        JsonElement.Parse($$"""
             {"jsonrpc":"2.0","method":"{{method}}","params":{"sessionId":"{{sessionId}}",
              "update":{"sessionUpdate":"{{sessionUpdate}}","prompt_id":"p-1","stop_reason":"end_turn",
                        "usage":{"inputTokens":45757,"outputTokens":159,"modelUsage":{{modelUsage}} } } } }
-            """.ReplaceLineEndings("")).RootElement.Clone();
+            """.ReplaceLineEndings(""));
 
     static AcpNotification Notification(JsonElement frame) =>
         new(frame.GetProperty("method").GetString()!, frame.GetProperty("params").Clone());

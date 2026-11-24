@@ -12,7 +12,7 @@ public class RemoteSubagentFeedTests {
     static SessionEventDto Text(long number, string text) => new() {
         EventType   = "AssistantTextGenerated",
         EventNumber = number,
-        Payload     = JsonDocument.Parse($$"""{"content":"{{text}}"}""").RootElement,
+        Payload     = JsonElement.Parse($$"""{"content":"{{text}}"}"""),
     };
 
     sealed class Server {

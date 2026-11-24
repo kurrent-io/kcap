@@ -16,7 +16,7 @@ public class MuseApprovalBridgeTests {
         var node = JsonNode.Parse(line)!;
         node["params"]!["subagentOrigin"] = JsonNode.Parse("""{"childRunId":"r1","childSessionId":"s1","subagentId":"a1"}""");
 
-        return JsonDocument.Parse(node.ToJsonString()).RootElement.GetProperty("params").Clone();
+        return JsonElement.Parse(node.ToJsonString()).GetProperty("params").Clone();
     }
 
     static AcpInteractionDecision Decision(string outcome, string? optionId = null, string? freeText = null) =>
@@ -54,7 +54,7 @@ public class MuseApprovalBridgeTests {
     public async Task Unparseable_raw_args_are_carried_as_the_string() {
         var node = JsonNode.Parse(MuseMspWire.ApprovalRequested)!;
         node["params"]!["rawArgs"] = "not json {";
-        var p = JsonDocument.Parse(node.ToJsonString()).RootElement.GetProperty("params").Clone();
+        var p = JsonElement.Parse(node.ToJsonString()).GetProperty("params").Clone();
 
         var request = MuseApprovalBridge.ToInteraction("a", "s", p);
 
@@ -82,8 +82,8 @@ public class MuseApprovalBridgeTests {
 
     [Test]
     public async Task Unknown_subject_kind_names_the_kind_and_an_unknown_decision_has_no_kind() {
-        var p = JsonDocument.Parse(
-            """{"toolCallId":"c","subject":{"kind":"path","path":"/x"},"availableChoices":[{"choiceId":"odd","label":"Odd","decision":"mystery"},{"choiceId":"abort","label":"Reject","decision":"abort"}]}""").RootElement;
+        var p = JsonElement.Parse(
+            """{"toolCallId":"c","subject":{"kind":"path","path":"/x"},"availableChoices":[{"choiceId":"odd","label":"Odd","decision":"mystery"},{"choiceId":"abort","label":"Reject","decision":"abort"}]}""");
 
         var request = MuseApprovalBridge.ToInteraction("a", "s", p);
 
@@ -130,8 +130,8 @@ public class MuseApprovalBridgeTests {
     [Arguments("allow_once", "no_such_choice")]
     [Arguments("timeout", "a")]
     public async Task Without_an_abort_choice_the_fallback_is_the_literal_abort_never_an_approving_choice(string outcome, string? optionId) {
-        var p = JsonDocument.Parse(
-            """{"availableChoices":[{"choiceId":"a","label":"A","decision":"approved"},{"choiceId":"b","label":"B","decision":"approvedForSession"}]}""").RootElement;
+        var p = JsonElement.Parse(
+            """{"availableChoices":[{"choiceId":"a","label":"A","decision":"approved"},{"choiceId":"b","label":"B","decision":"approvedForSession"}]}""");
 
         var decision = MuseApprovalBridge.ToDecision(Decision(outcome, optionId), p);
 

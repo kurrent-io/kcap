@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using Capacitor.Cli.Core.LocalIpc;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Services;
 using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -44,7 +45,7 @@ public class LocalPermissionBridgeSubagentTests {
         while (!pending.IsCompleted) {
             if (DateTime.UtcNow > deadline) throw new TimeoutException("bridge start or dispose did not finish");
             time.Advance(TimeSpan.FromMilliseconds(60));
-            await Task.WhenAny(pending, Task.Delay(10));
+            await pending.FinishedWithinAsync(TimeSpan.FromMilliseconds(10), TimeProvider.System);
         }
         await pending;
     }

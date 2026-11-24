@@ -12,7 +12,7 @@ public class PiReviewerManifestTests {
 
     static JsonElement Parse(IReadOnlyList<AcpMcpServerSpec> servers) {
         var tools = PiReviewerToolSurface.For(servers);
-        return JsonDocument.Parse(PiReviewerManifest.Build("/abs/wt", servers, tools)).RootElement;
+        return JsonElement.Parse(PiReviewerManifest.Build("/abs/wt", servers, tools));
     }
 
     [Test]
@@ -41,7 +41,7 @@ public class PiReviewerManifestTests {
     public async Task The_manifest_tool_set_equals_the_allowlist() {
         var servers  = new[] { ResultChannel, new AcpMcpServerSpec("kcap-review", "/k", ["mcp", "review"], []) };
         var tools    = PiReviewerToolSurface.For(servers);
-        var manifest = JsonDocument.Parse(PiReviewerManifest.Build("/abs/wt", servers, tools)).RootElement;
+        var manifest = JsonElement.Parse(PiReviewerManifest.Build("/abs/wt", servers, tools));
 
         var fromManifest = manifest.GetProperty("fileTools").EnumerateArray().Select(e => e.GetString()!)
             .Concat(manifest.GetProperty("servers").EnumerateArray()

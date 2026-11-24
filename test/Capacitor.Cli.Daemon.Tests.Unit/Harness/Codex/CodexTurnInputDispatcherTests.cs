@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Harness.Codex;
 using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -319,7 +320,7 @@ public class CodexTurnInputDispatcherTests {
             await fault;
             // Settled, then faulted: awaiting a WaitAsync would accept its own TimeoutException and
             // pass on exactly the stranded ack this exists to catch.
-            await Task.WhenAny(ack, Task.Delay(TimeSpan.FromSeconds(2)));
+            await ack.FinishedWithinAsync(TimeSpan.FromSeconds(2), TimeProvider.System);
             await Assert.That(ack.IsCompleted).IsTrue();
             await Assert.That(ack.IsFaulted).IsTrue();
             _ = ack.Exception; // observed: 50 faulted tasks must not raise UnobservedTaskException on GC

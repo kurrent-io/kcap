@@ -141,8 +141,8 @@ public class GrokHostedLaunchTests {
     public async Task A_hosted_turn_reports_its_token_usage() {
         var fake = new FakeAcpAgent();
         fake.EnqueuePromptScript(
-            [JsonDocument.Parse($$"""{"jsonrpc":"2.0","method":"_x.ai/session_notification","params":{"sessionId":"{{FakeAcpAgent.FixedSessionId}}","update":{"sessionUpdate":"turn_completed","usage":{"modelUsage":{"grok-4.5-build":{"inputTokens":100,"cachedReadTokens":40,"outputTokens":7} } } } } }""").RootElement.Clone()],
-            JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone());
+            [JsonElement.Parse($$"""{"jsonrpc":"2.0","method":"_x.ai/session_notification","params":{"sessionId":"{{FakeAcpAgent.FixedSessionId}}","update":{"sessionUpdate":"turn_completed","usage":{"modelUsage":{"grok-4.5-build":{"inputTokens":100,"cachedReadTokens":40,"outputTokens":7} } } } } }""")],
+            JsonElement.Parse("""{"stopReason":"end_turn"}"""));
         using var cts = new CancellationTokenSource();
         var run = fake.RunAsync(cts.Token);
 
@@ -182,7 +182,7 @@ public class GrokHostedLaunchTests {
         const string grandchild = "01a14f26-b000-7000-8000-000000000001";
         const string parent = FakeAcpAgent.FixedSessionId;
 
-        JsonElement Frame(string json) => JsonDocument.Parse(json).RootElement.Clone();
+        JsonElement Frame(string json) => JsonElement.Parse(json);
         JsonElement Update(string sid, string update) =>
             Frame("""{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":""" + $"\"{sid}\",\"update\":{update}}}}}");
         JsonElement Grok(string update, string? sid = null) =>
@@ -201,7 +201,7 @@ public class GrokHostedLaunchTests {
             Update("01a14f26-ffff-7fff-8fff-ffffffffffff", """{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"stray"}}"""),
             Grok($$"""{"sessionUpdate":"subagent_finished","subagent_id":"{{child}}","child_session_id":"{{child}}","status":"completed"}"""),
             Update(parent, """{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"done"}}"""),
-        ], JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone());
+        ], JsonElement.Parse("""{"stopReason":"end_turn"}"""));
         using var cts = new CancellationTokenSource();
         var run = fake.RunAsync(cts.Token);
 

@@ -77,7 +77,7 @@ public class WatcherParentExitPostTests : IDisposable {
         var requests = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/claude").UsingPost());
         await Assert.That(requests.Count).IsEqualTo(1);
 
-        var body = JsonDocument.Parse(requests[0].RequestMessage.Body!).RootElement;
+        var body = JsonElement.Parse(requests[0].RequestMessage.Body!);
         await Assert.That(body.GetProperty("session_id").GetString()).IsEqualTo(sessionId);
         await Assert.That(body.GetProperty("transcript_path").GetString()).IsEqualTo("/tmp/fake.jsonl");
         await Assert.That(body.GetProperty("cwd").GetString()).IsEqualTo("/repo");
@@ -134,7 +134,7 @@ public class WatcherParentExitPostTests : IDisposable {
         var requests = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/claude").UsingPost());
         await Assert.That(requests.Count).IsEqualTo(1);
 
-        var body = JsonDocument.Parse(requests[0].RequestMessage.Body!).RootElement;
+        var body = JsonElement.Parse(requests[0].RequestMessage.Body!);
         var repo = body.GetProperty("repository");
         await Assert.That(repo.GetProperty("owner").GetString()).IsEqualTo("kurrent-io");
         await Assert.That(repo.GetProperty("repo_name").GetString()).IsEqualTo("kcap");
@@ -263,7 +263,7 @@ public class WatcherParentExitPostTests : IDisposable {
         var requests = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/codex").UsingPost());
         await Assert.That(requests.Count).IsEqualTo(1);
 
-        var body = JsonDocument.Parse(requests[0].RequestMessage.Body!).RootElement;
+        var body = JsonElement.Parse(requests[0].RequestMessage.Body!);
         await Assert.That(body.GetProperty("session_id").GetString()).IsEqualTo(sessionId);
         await Assert.That(body.GetProperty("hook_event_name").GetString()).IsEqualTo("session_end");
         await Assert.That(body.GetProperty("reason").GetString()).IsEqualTo("idle_timeout");
@@ -424,7 +424,7 @@ public class WatcherParentExitPostTests : IDisposable {
         await Watch(spawner).SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, first);
 
         var epochs = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
-            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.TryGetProperty("daemon_epoch", out var epoch) ? epoch.GetString() : null)
+            .Select(e => JsonElement.Parse(e.RequestMessage.Body!).TryGetProperty("daemon_epoch", out var epoch) ? epoch.GetString() : null)
             .ToList();
         await Assert.That(epochs).Contains("epoch-2");
         await Assert.That(epochs.Count(e => e == "epoch-1")).IsEqualTo(2);
@@ -478,7 +478,7 @@ public class WatcherParentExitPostTests : IDisposable {
         await Watch().SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, own);
 
         var epochs = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
-            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.GetProperty("daemon_epoch").GetString())
+            .Select(e => JsonElement.Parse(e.RequestMessage.Body!).GetProperty("daemon_epoch").GetString())
             .ToList();
         await Assert.That(epochs).IsEquivalentTo(new string?[] { "epoch-1" });
         await Assert.That(Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsTrue();
@@ -504,7 +504,7 @@ public class WatcherParentExitPostTests : IDisposable {
         await Watch().SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, claimed);
 
         var epochs = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
-            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.GetProperty("daemon_epoch").GetString())
+            .Select(e => JsonElement.Parse(e.RequestMessage.Body!).GetProperty("daemon_epoch").GetString())
             .ToList();
         await Assert.That(epochs).IsEquivalentTo(new string?[] { "epoch-1", "epoch-2" });
         await Assert.That(Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsFalse();

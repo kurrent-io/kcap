@@ -128,7 +128,7 @@ public class SetModelSelectorTests {
         await using var h = new Harness();
         h.StartFakeAgentLoop();
 
-        var sessionNewResult = JsonDocument.Parse($$"""{"sessionId":"{{FakeAcpAgent.FixedSessionId}}"}""").RootElement;
+        var sessionNewResult = JsonElement.Parse($$"""{"sessionId":"{{FakeAcpAgent.FixedSessionId}}"}""");
 
         var result = await SetModelSelector.Instance
             .TrySelectAsync(h.Conn, FakeAcpAgent.FixedSessionId, sessionNewResult, requestedModel: "deepseek-3.2", h.Logger, h.Cts.Token)
@@ -143,7 +143,7 @@ public class SetModelSelectorTests {
         await using var h = new Harness();
         h.StartFakeAgentLoop();
 
-        var sessionNewResult = JsonDocument.Parse($$"""{"sessionId":"{{FakeAcpAgent.FixedSessionId}}","models":"not-an-object"}""").RootElement;
+        var sessionNewResult = JsonElement.Parse($$"""{"sessionId":"{{FakeAcpAgent.FixedSessionId}}","models":"not-an-object"}""");
 
         var result = await SetModelSelector.Instance
             .TrySelectAsync(h.Conn, FakeAcpAgent.FixedSessionId, sessionNewResult, requestedModel: "deepseek-3.2", h.Logger, h.Cts.Token)

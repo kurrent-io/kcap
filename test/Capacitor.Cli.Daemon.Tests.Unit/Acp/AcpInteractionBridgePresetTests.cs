@@ -21,7 +21,7 @@ public class AcpInteractionBridgePresetTests {
         var kindProp = toolKind is null ? "" : $",\"kind\":\"{toolKind}\"";
         var json     = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"{{kindProp}}},"options":[{{optsJson}}]}""";
 
-        return JsonDocument.Parse(json).RootElement.Clone();
+        return JsonElement.Parse(json);
     }
 
     static AcpLaunchPermissionPreset Preset(string token) {
@@ -151,7 +151,7 @@ public class AcpInteractionBridgePresetTests {
         const string frame = $$"""{"sessionId":"{{AcpSessionId}}","message":"Proceed?","mode":"form","requestedSchema":{{schema}}}""";
 
         var result = await bridge.HandleAsync(
-            new AcpRequest(1, "elicitation/create", JsonDocument.Parse(frame).RootElement.Clone()), CancellationToken.None);
+            new AcpRequest(1, "elicitation/create", JsonElement.Parse(frame)), CancellationToken.None);
 
         await Assert.That(forwarded).IsTrue();
         await Assert.That(notices).IsEmpty();

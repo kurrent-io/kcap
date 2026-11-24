@@ -7,7 +7,7 @@ namespace Capacitor.Cli.Tests.Unit.Commands;
 public class ErrorsCommandRenderTests {
     static ErrorEntry Error(string tool, string message, string? inputJson) =>
         new("s-1", null, null, 7, tool, message, DateTimeOffset.UnixEpoch) {
-            ToolInput = inputJson is null ? null : JsonDocument.Parse(inputJson).RootElement.Clone(),
+            ToolInput = inputJson is null ? null : JsonElement.Parse(inputJson),
         };
 
     [Test]
@@ -34,7 +34,7 @@ public class ErrorsCommandRenderTests {
 
     [Test]
     public async Task An_input_with_no_named_target_is_shown_whole_on_one_line() {
-        await Assert.That(ErrorsCommand.InputSummary(JsonDocument.Parse("""{"a":1,"b":"two"}""").RootElement))
+        await Assert.That(ErrorsCommand.InputSummary(JsonElement.Parse("""{"a":1,"b":"two"}""")))
             .IsEqualTo("""{"a":1,"b":"two"}""");
     }
 
@@ -43,7 +43,7 @@ public class ErrorsCommandRenderTests {
     [Arguments("""{"url":"https://api.example.com/v1?access_token=abcdef123456&page=2"}""", "abcdef123456")]
     [Arguments("""{"api_key":"abcdef123456","region":"eu"}""", "abcdef123456")]
     public async Task A_credential_in_the_input_is_redacted(string input, string secret) {
-        var summary = ErrorsCommand.InputSummary(JsonDocument.Parse(input).RootElement);
+        var summary = ErrorsCommand.InputSummary(JsonElement.Parse(input));
 
         await Assert.That(summary).DoesNotContain(secret);
         await Assert.That(summary).Contains("[REDACTED]");
@@ -51,7 +51,7 @@ public class ErrorsCommandRenderTests {
 
     [Test]
     public async Task A_long_input_is_cut() {
-        var summary = ErrorsCommand.InputSummary(JsonDocument.Parse($$"""{"command":"{{new string('x', 500)}}"}""").RootElement);
+        var summary = ErrorsCommand.InputSummary(JsonElement.Parse($$"""{"command":"{{new string('x', 500)}}"}"""));
 
         await Assert.That(summary!.Length).IsEqualTo(200);
         await Assert.That(summary).EndsWith("...");

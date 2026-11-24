@@ -118,6 +118,6 @@ public class AntigravityGenMetadataTests {
 
         // Omitted when no anchor is available.
         var bare = AntigravityGenMetadata.ToUsageLine(row, genRow: 1);
-        await Assert.That(JsonDocument.Parse(bare).RootElement.TryGetProperty("created_at", out _)).IsFalse();
+        await Assert.That(JsonElement.Parse(bare).TryGetProperty("created_at", out _)).IsFalse();
     }
 }

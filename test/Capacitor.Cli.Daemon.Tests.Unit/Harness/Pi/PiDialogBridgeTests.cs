@@ -10,7 +10,7 @@ public class PiDialogBridgeTests {
     const string Input   = """{"type":"extension_ui_request","id":"ui-1","method":"input","title":"Your name","placeholder":"…"}""";
     const string Editor  = """{"type":"extension_ui_request","id":"ui-1","method":"editor","title":"Edit the plan","prefill":"step 1"}""";
 
-    static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement.Clone();
+    static JsonElement Parse(string json) => JsonElement.Parse(json);
 
     static AcpInteractionDecision Answered(string? optionId = null, string? freeText = null) =>
         new("answered", optionId, null, null, freeText, null);

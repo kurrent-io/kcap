@@ -84,7 +84,7 @@ public class HookRoundTripTests : IDisposable {
         var requests = _server.FindLogEntries(Request.Create().WithPath("/hooks/transcript").UsingPost());
         await Assert.That(requests.Count).IsEqualTo(1);
 
-        var body = JsonDocument.Parse(requests[0].RequestMessage.Body!).RootElement;
+        var body = JsonElement.Parse(requests[0].RequestMessage.Body!);
         await Assert.That(body.GetProperty("session_id").GetString()).IsEqualTo(sessionId);
         await Assert.That(body.GetProperty("lines").GetArrayLength()).IsEqualTo(2);
         await Assert.That(body.GetProperty("line_numbers")[0].GetInt32()).IsEqualTo(0);

@@ -163,7 +163,7 @@ public class AcpHostedAgentRuntimeProtocolNegotiationTests {
     }
 
     static readonly JsonElement MalformedInit =
-        JsonDocument.Parse("""{"protocolVersion":"not-a-number","agentCapabilities":{"loadSession":true}}""").RootElement.Clone();
+        JsonElement.Parse("""{"protocolVersion":"not-a-number","agentCapabilities":{"loadSession":true}}""");
 
     [Test]
     public async Task Diagnostics_Cursor_ProtocolMismatch_ExactMessage() {

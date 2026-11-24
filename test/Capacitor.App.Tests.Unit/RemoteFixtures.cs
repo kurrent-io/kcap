@@ -12,7 +12,7 @@ static class RemoteFixtures {
 
     public static SessionEventDto Event(long number, string type, string payloadJson) => new() {
         EventType = type, EventNumber = number, Timestamp = DateTimeOffset.UtcNow,
-        Payload = JsonDocument.Parse(payloadJson).RootElement.Clone(),
+        Payload = JsonElement.Parse(payloadJson),
     };
 
     public static StreamEventEnvelope Envelope(string sessionId, ulong position, string type, string payloadJson) => new() {

@@ -14,7 +14,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Acp;
 /// must report the count, never the children.
 /// </summary>
 public class ElicitationSchemaClassifierTests {
-    static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement.Clone();
+    static JsonElement Parse(string json) => JsonElement.Parse(json);
 
     static ElicitationClassification MustClassify(string fixture) {
         var ok = ElicitationSchemaClassifier.TryClassify(Parse(fixture), out var classification, out var reason);

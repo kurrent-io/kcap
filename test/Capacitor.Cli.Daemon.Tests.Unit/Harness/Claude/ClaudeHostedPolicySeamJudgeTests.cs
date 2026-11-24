@@ -48,7 +48,7 @@ public class ClaudeHostedPolicySeamJudgeTests : IDisposable {
         + "\n");
 
     ClaudeHostedPermissionCall Call(string command, string? transcript = null) => new(
-        Sid, AgentId, "Bash", JsonDocument.Parse(new JsonObject { ["command"] = command }.ToJsonString()).RootElement.Clone(),
+        Sid, AgentId, "Bash", JsonElement.Parse(new JsonObject { ["command"] = command }.ToJsonString()),
         "/wt", "toolu_1", transcript ?? Transcript());
 
     Task<ClaudeHostedPolicyResult?> Evaluate(string command, PolicySnapshot? snapshot = null, TimeSpan? budget = null) =>
@@ -217,7 +217,7 @@ public class ClaudeHostedPolicySeamJudgeTests : IDisposable {
     public async Task A_human_interaction_tool_never_consults_the_judge(string tool) {
         Judge("allow");
         var call = Call("unused") with {
-            ToolName = tool, ToolInput = JsonDocument.Parse("""{"plan":"do it"}""").RootElement.Clone(),
+            ToolName = tool, ToolInput = JsonElement.Parse("""{"plan":"do it"}"""),
         };
 
         var result = await ClaudeHostedPolicySeam.EvaluateAsync(call, JudgeOn, TimeProvider.System, Gateway, Config.Root, Ample);

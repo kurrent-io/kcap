@@ -118,7 +118,7 @@ public class ConfigOptionModelSelectorTests {
         await using var h = new Harness();
         h.StartFakeAgentLoop();
 
-        var sessionNewResult = JsonDocument.Parse($$"""{"sessionId":"{{FakeAcpAgent.FixedSessionId}}"}""").RootElement;
+        var sessionNewResult = JsonElement.Parse($$"""{"sessionId":"{{FakeAcpAgent.FixedSessionId}}"}""");
 
         var result = await ConfigOptionModelSelector.Instance
             .TrySelectAsync(h.Conn, FakeAcpAgent.FixedSessionId, sessionNewResult, requestedModel: "claude-sonnet-4-5", h.Logger, h.Cts.Token)
@@ -135,7 +135,7 @@ public class ConfigOptionModelSelectorTests {
 
         // "models" present but shaped as a bare string, not an object — deserializing it against
         // SessionModelsInfo throws JsonException, which must be caught (not propagate).
-        var sessionNewResult = JsonDocument.Parse($$"""{"sessionId":"{{FakeAcpAgent.FixedSessionId}}","models":"not-an-object"}""").RootElement;
+        var sessionNewResult = JsonElement.Parse($$"""{"sessionId":"{{FakeAcpAgent.FixedSessionId}}","models":"not-an-object"}""");
 
         var result = await ConfigOptionModelSelector.Instance
             .TrySelectAsync(h.Conn, FakeAcpAgent.FixedSessionId, sessionNewResult, requestedModel: "claude-sonnet-4-5", h.Logger, h.Cts.Token)

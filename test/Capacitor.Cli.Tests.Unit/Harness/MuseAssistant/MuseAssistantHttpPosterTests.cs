@@ -25,7 +25,7 @@ public class MuseAssistantHttpPosterTests : IDisposable {
     void Accept(string path) => _server.Given(Request.Create().WithPath(path).UsingPost()).RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
 
     JsonElement LastBody(string path) =>
-        JsonDocument.Parse(_server.LogEntries.Last(e => e.RequestMessage.Path == path).RequestMessage.Body!).RootElement;
+        JsonElement.Parse(_server.LogEntries.Last(e => e.RequestMessage.Path == path).RequestMessage.Body!);
 
     [Test]
     public async Task Start_body_carries_the_contract_fields_and_is_always_private() {

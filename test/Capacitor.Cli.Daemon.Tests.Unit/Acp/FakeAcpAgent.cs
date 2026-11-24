@@ -35,7 +35,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     public const string FixedSessionId = "fc2e09cf-f4b0-4463-9dc1-bda11268896b";
 
     static readonly JsonElement DefaultPromptResult =
-        JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone();
+        JsonElement.Parse("""{"stopReason":"end_turn"}""");
 
     readonly Pipe   _toAgent  = new();  // connection writes here; fake reads here (simulated stdin)
     readonly Pipe   _toClient = new();  // fake writes here; connection reads here (simulated stdout)
@@ -295,7 +295,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
             writer.WriteEndObject();
         }
 
-        return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
+        return JsonElement.Parse(stream.ToArray());
     }
 
     /// <summary>
@@ -327,7 +327,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
             writer.WriteEndObject();
         }
 
-        return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
+        return JsonElement.Parse(stream.ToArray());
     }
 
     /// <summary>
@@ -581,7 +581,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
             writer.WriteEndObject();
         }
 
-        var result = JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
+        var result = JsonElement.Parse(stream.ToArray());
         await WriteResponseAsync(id, result, ct).ConfigureAwait(false);
     }
 
@@ -603,7 +603,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
         if (HoldSetModelResponse is { } gate)
             await gate.Task.ConfigureAwait(false);
 
-        var result = JsonDocument.Parse("{}").RootElement.Clone();
+        var result = JsonElement.Parse("{}");
         await WriteResponseAsync(id, result, ct).ConfigureAwait(false);
     }
 
@@ -647,7 +647,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
 
     // ---- probe-confirmed canned response shapes (docs/acp-probe-findings.md) ----
 
-    static readonly JsonElement ProbeConfirmedInitializeResult = JsonDocument.Parse("""
+    static readonly JsonElement ProbeConfirmedInitializeResult = JsonElement.Parse("""
         {
           "protocolVersion": 1,
           "agentCapabilities": {
@@ -664,9 +664,9 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
             }
           ]
         }
-        """).RootElement.Clone();
+        """);
 
-    static readonly JsonElement ProbeConfirmedSessionNewResult = JsonDocument.Parse($$"""
+    static readonly JsonElement ProbeConfirmedSessionNewResult = JsonElement.Parse($$"""
         {
           "sessionId": "{{FixedSessionId}}",
           "modes": {
@@ -685,7 +685,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
           },
           "configOptions": []
         }
-        """).RootElement.Clone();
+        """);
 
     /// <summary>
     /// Builds a full <c>session/update</c> notification frame (probe-confirmed envelope shape):
@@ -707,7 +707,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
             writer.WriteEndObject();
         }
 
-        return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
+        return JsonElement.Parse(stream.ToArray());
     }
 
     /// <summary>
@@ -716,8 +716,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     /// </summary>
     public static JsonElement BuildAgentMessageChunkUpdate(string text) {
         var escaped = JsonEncodedText.Encode(text);
-        return JsonDocument.Parse($$$"""{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"{{{escaped}}}"}}""")
-            .RootElement.Clone();
+        return JsonElement.Parse($$$"""{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"{{{escaped}}}"}}""");
     }
 
     /// <summary>Convenience: a full default <c>session/update</c> notification frame carrying one
@@ -746,7 +745,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
             writer.WriteEndObject();
         }
 
-        return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
+        return JsonElement.Parse(stream.ToArray());
     }
 
     /// <summary>
@@ -756,8 +755,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     /// </summary>
     public static JsonElement BuildSessionInfoUpdate(string title) {
         var escaped = JsonEncodedText.Encode(title);
-        return JsonDocument.Parse($$"""{"sessionUpdate":"session_info_update","title":"{{escaped}}"}""")
-            .RootElement.Clone();
+        return JsonElement.Parse($$"""{"sessionUpdate":"session_info_update","title":"{{escaped}}"}""");
     }
 
     // ---- spec-derived (NOT probe-confirmed) helper builders ----
@@ -776,8 +774,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     /// </summary>
     public static JsonElement BuildAgentThoughtChunkUpdate(string text) {
         var escaped = JsonEncodedText.Encode(text);
-        return JsonDocument.Parse($$$"""{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"{{{escaped}}}"}}""")
-            .RootElement.Clone();
+        return JsonElement.Parse($$$"""{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"{{{escaped}}}"}}""");
     }
 
     /// <summary>
@@ -805,7 +802,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
             writer.WriteEndObject();
         }
 
-        return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
+        return JsonElement.Parse(stream.ToArray());
     }
 
     /// <summary>
@@ -853,7 +850,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
             writer.WriteEndObject();
         }
 
-        return JsonDocument.Parse(stream.ToArray()).RootElement.Clone();
+        return JsonElement.Parse(stream.ToArray());
     }
 
     /// <summary>
@@ -865,7 +862,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     /// </summary>
     public static JsonElement BuildPlanUpdate(string entriesJson) {
         var json = $$"""{"sessionUpdate":"plan","entries":{{entriesJson}}}""";
-        return JsonDocument.Parse(json).RootElement.Clone();
+        return JsonElement.Parse(json);
     }
 
     /// <summary>
@@ -884,7 +881,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
         var json = $$$"""
             {"jsonrpc":"2.0","id":{{{id}}},"method":"session/request_permission","params":{"sessionId":"{{{sessionId}}}","toolCall":{{{toolCallJson}}},"options":{{{optionsJson}}}}}
             """;
-        return JsonDocument.Parse(json).RootElement.Clone();
+        return JsonElement.Parse(json);
     }
 
     /// <summary>
@@ -893,7 +890,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     /// <see cref="BuildRequestPermissionFrame"/> remarks.
     /// </summary>
     public static JsonElement PermissionOutcomeSelected(string optionId) =>
-        JsonDocument.Parse($$$"""{"outcome":{"outcome":"selected","optionId":"{{{optionId}}}"}}""").RootElement.Clone();
+        JsonElement.Parse($$$"""{"outcome":{"outcome":"selected","optionId":"{{{optionId}}}"}}""");
 
     /// <summary>
     /// Spec-derived client response shape for a DENIED/cancelled <c>session/request_permission</c>:
@@ -901,7 +898,7 @@ public sealed class FakeAcpAgent : IAsyncDisposable {
     /// <see cref="BuildRequestPermissionFrame"/> remarks.
     /// </summary>
     public static JsonElement PermissionOutcomeCancelled() =>
-        JsonDocument.Parse("""{"outcome":{"outcome":"cancelled"}}""").RootElement.Clone();
+        JsonElement.Parse("""{"outcome":{"outcome":"cancelled"}}""");
 
     // ---- wire plumbing ----
 

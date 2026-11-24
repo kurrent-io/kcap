@@ -30,7 +30,7 @@ public class ClaudePolicySeamTests {
     List<JsonNode> Decisions() => SpooledPolicyEvents.Decisions(Config.Root, Sid);
 
     static string HashOf(string toolInputJson) => PolicyInputHash.Compute("Bash",
-        System.Text.Json.JsonDocument.Parse(toolInputJson).RootElement.Clone());
+        System.Text.Json.JsonElement.Parse(toolInputJson));
 
     [Test]
     public async Task Deny_rule_answers_deny_with_the_reason() {

@@ -61,7 +61,7 @@ public class LocalPermissionBridgeToolSettledTests {
         var notice = h.Seen.Single().Notice;
         await Assert.That((notice.ToolUseId, notice.SubagentId, notice.ToolName)).IsEqualTo(("toolu_1", "sub-1", "Bash"));
         await Assert.That(notice.SentAt).IsEqualTo(DateTimeOffset.FromUnixTimeMilliseconds(1_760_000_000_000L));
-        await Assert.That(notice.ToolInput is { } input && JsonElement.DeepEquals(input, JsonDocument.Parse("""{"command":"ls"}""").RootElement)).IsTrue();
+        await Assert.That(notice.ToolInput is { } input && JsonElement.DeepEquals(input, JsonElement.Parse("""{"command":"ls"}"""))).IsTrue();
     }
 
     /// A name or input past the prompt's caps was never held, so it is dropped, and the notice still

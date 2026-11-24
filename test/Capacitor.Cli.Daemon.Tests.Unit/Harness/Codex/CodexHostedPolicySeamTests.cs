@@ -73,7 +73,7 @@ public class CodexHostedPolicySeamTests : IDisposable {
 
     static JsonObject Move(string destination) => new() { ["type"] = "update", ["move_path"] = destination };
 
-    static JsonElement Element(JsonNode node) => JsonDocument.Parse(node.ToJsonString()).RootElement.Clone();
+    static JsonElement Element(JsonNode node) => JsonElement.Parse(node.ToJsonString());
 
     const string CommandApproval = "item/commandExecution/requestApproval";
     const string FileApproval    = "item/fileChange/requestApproval";

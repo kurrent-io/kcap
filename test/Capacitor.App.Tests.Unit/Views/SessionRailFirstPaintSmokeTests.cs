@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Presenters;
 using Avalonia.VisualTree;
 using Avalonia.Headless;
+using Capacitor.Cli.Core;
 using DynamicData;
 using Avalonia.Threading;
 using Capacitor.App.ViewModels;
@@ -18,7 +19,7 @@ public class SessionRailFirstPaintSmokeTests {
         for (var i = 0; i < 5 && !painted.Task.IsCompleted; i++) {
             Dispatcher.UIThread.RunJobs();
             AvaloniaHeadlessPlatform.ForceRenderTimerTick();
-            await Task.WhenAny(painted.Task, Task.Delay(50));
+            await painted.Task.FinishedWithinAsync(TimeSpan.FromMilliseconds(50), TimeProvider.System);
         }
         return painted.Task.IsCompleted;
     }

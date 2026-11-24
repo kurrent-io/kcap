@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -865,7 +866,7 @@ public class StandaloneSnapshotTests {
         await Assert.That(IsPresent(fifo)).IsTrue().Because("fixture control: the FIFO exists");
 
         var create = Task.Run(() => NewManager().CreateAsync(source));
-        var finished = await Task.WhenAny(create, Task.Delay(TimeSpan.FromSeconds(60))) == create;
+        var finished = await create.FinishedWithinAsync(TimeSpan.FromSeconds(60), TimeProvider.System);
 
         await Assert.That(finished).IsTrue()
             .Because("a special file must never block the copy — this is the regression that hangs");

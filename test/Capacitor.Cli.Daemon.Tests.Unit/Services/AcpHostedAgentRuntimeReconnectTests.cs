@@ -36,7 +36,7 @@ public class AcpHostedAgentRuntimeReconnectTests {
 
         public async Task WaitForExitAsync(TimeSpan? timeout = null) {
             if (timeout is { } t)
-                await Task.WhenAny(_exited.Task, Task.Delay(t)).ConfigureAwait(false);
+                await _exited.Task.FinishedWithinAsync(t, TimeProvider.System).ConfigureAwait(false);
             else
                 await _exited.Task.ConfigureAwait(false);
         }

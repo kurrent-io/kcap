@@ -14,9 +14,9 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Grok;
 public class GrokQuestionsTests {
     const string SessionId = "01a15c7b-3f8d-7012-ab33-842ccc5a834d";
 
-    static AcpRequest Ask(string questions) => new(7, "_x.ai/ask_user_question", JsonDocument.Parse($$"""
+    static AcpRequest Ask(string questions) => new(7, "_x.ai/ask_user_question", JsonElement.Parse($$"""
         {"sessionId":"{{SessionId}}","toolCallId":"call-1","mode":"default","questions":{{questions}}}
-        """).RootElement.Clone());
+        """));
 
     const string Colour = """[{"question":"Which colour?","options":[{"label":"Red","description":"Warm"},{"label":"Blue","description":"Cool"}],"multiSelect":null}]""";
 

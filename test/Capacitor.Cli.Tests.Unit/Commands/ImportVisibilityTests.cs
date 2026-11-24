@@ -1516,9 +1516,8 @@ public class ImportVisibilityTests : IDisposable {
             nested: nested
         );
 
-        var winner    = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(15)));
-        var timedOut  = !ReferenceEquals(winner, task);
-        await Assert.That(timedOut).IsFalse(); // did not time out / hang on stdin
+        var finished = await task.FinishedWithinAsync(TimeSpan.FromSeconds(15), TimeProvider.System);
+        await Assert.That(finished).IsTrue(); // did not time out / hang on stdin
 
         exitCode = await task;
 

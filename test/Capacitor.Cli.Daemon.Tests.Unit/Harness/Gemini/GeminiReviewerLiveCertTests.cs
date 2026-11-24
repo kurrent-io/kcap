@@ -267,7 +267,7 @@ public class GeminiReviewerLiveCertTests {
                 while (await proc.StandardOutput.ReadLineAsync(cts.Token) is { } line) {
                     if (line.Length == 0) continue;
                     JsonElement root;
-                    try { root = JsonDocument.Parse(line).RootElement; } catch { continue; }
+                    try { root = JsonElement.Parse(line); } catch { continue; }
 
                     var hasId     = root.TryGetProperty("id", out var idEl);
                     var hasResult = root.TryGetProperty("result", out _) || root.TryGetProperty("error", out _);

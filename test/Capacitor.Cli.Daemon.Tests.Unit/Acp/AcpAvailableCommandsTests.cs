@@ -8,7 +8,7 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Acp;
 /// picker — the same <c>{name, description}</c> shape whether it rides an
 /// <c>available_commands_update</c> or a <c>session/new</c> result. ACP carries no argument hint.</summary>
 public class AcpAvailableCommandsTests {
-    static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
+    static JsonElement Parse(string json) => JsonElement.Parse(json);
 
     [Test]
     public async Task Extract_reads_name_and_description_and_leaves_argument_hint_null() {

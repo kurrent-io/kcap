@@ -630,8 +630,8 @@ public class FirstRunFlowClientTests {
 
         await Assert.That(outcome.Recorded).IsTrue();
 
-        var sent = System.Text.Json.JsonDocument.Parse(server.LogEntries.Single()
-            .RequestMessage.Body!).RootElement;
+        var sent = System.Text.Json.JsonElement.Parse(server.LogEntries.Single()
+            .RequestMessage.Body!);
 
         await Assert.That(sent.GetProperty("imported").GetInt32()).IsEqualTo(7);
         await Assert.That(sent.GetProperty("skipped").GetInt32()).IsEqualTo(2);
@@ -664,8 +664,8 @@ public class FirstRunFlowClientTests {
             },
             CancellationToken.None);
 
-        var sent = System.Text.Json.JsonDocument.Parse(server.LogEntries.Single()
-            .RequestMessage.Body!).RootElement;
+        var sent = System.Text.Json.JsonElement.Parse(server.LogEntries.Single()
+            .RequestMessage.Body!);
 
         await Assert.That(sent.GetProperty("reason").GetString()).IsEqualTo("no_readable_agents");
     }

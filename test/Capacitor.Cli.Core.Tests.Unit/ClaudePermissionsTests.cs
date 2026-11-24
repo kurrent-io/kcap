@@ -11,7 +11,7 @@ namespace Capacitor.Cli.Core.Tests.Unit;
 public class ClaudePermissionsTests {
     const string BashSuggestion = """{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"echo third:*"}],"behavior":"allow","destination":"localSettings"}""";
 
-    static JsonElement Element(string json) => JsonDocument.Parse(json).RootElement.Clone();
+    static JsonElement Element(string json) => JsonElement.Parse(json);
 
     [Test]
     public async Task Always_allow_is_the_web_ui_shape() {

@@ -112,7 +112,7 @@ public class MuseHookCommandTests : IDisposable {
         var posts = HookPosts("/hooks/session-start/muse");
         await Assert.That(posts.Count).IsEqualTo(1);
 
-        var body = JsonDocument.Parse(posts[0]).RootElement;
+        var body = JsonElement.Parse(posts[0]);
         await Assert.That(body.GetProperty("session_id").GetString()).IsEqualTo(ParentDashless);
         await Assert.That(body.GetProperty("transcript_path").GetString()).IsEqualTo(log);
         await Assert.That(body.GetProperty("source").GetString()).IsEqualTo("startup");
@@ -137,7 +137,7 @@ public class MuseHookCommandTests : IDisposable {
 
         await Command().Handle(new StringReader(SessionStartPayload("startup")), new StringWriter(), _ => null, Today);
 
-        var body = JsonDocument.Parse(HookPosts("/hooks/session-start/muse").Single()).RootElement;
+        var body = JsonElement.Parse(HookPosts("/hooks/session-start/muse").Single());
         await Assert.That(body.GetProperty("agent_host_id").GetString()).IsEqualTo("agent-from-marker");
     }
 
@@ -160,7 +160,7 @@ public class MuseHookCommandTests : IDisposable {
 
         await Command(root: root, profiles: profiles).Handle(new StringReader(SessionStartPayload("startup")), new StringWriter(), _ => null, Today);
 
-        var body = JsonDocument.Parse(HookPosts("/hooks/session-start/muse").Single()).RootElement;
+        var body = JsonElement.Parse(HookPosts("/hooks/session-start/muse").Single());
         await Assert.That(body.GetProperty("agent_host_id").GetString()).IsEqualTo("agent-from-marker");
     }
 
@@ -318,7 +318,7 @@ public class MuseHookCommandTests : IDisposable {
 
         await Command().Handle(new StringReader(SessionStartPayload("startup")), new StringWriter(), _ => null, Today);
 
-        var body = JsonDocument.Parse(HookPosts("/hooks/session-start/muse").Single()).RootElement;
+        var body = JsonElement.Parse(HookPosts("/hooks/session-start/muse").Single());
         await Assert.That(body.TryGetProperty("agent_host_id", out _)).IsFalse();
     }
 
@@ -362,7 +362,7 @@ public class MuseHookCommandTests : IDisposable {
             $$"""{"hook_event_name":"SessionEnd","reason":"other","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
             new StringWriter(), ParentEnv, Today);
 
-        var body = JsonDocument.Parse(HookPosts("/hooks/session-end/muse").Single()).RootElement;
+        var body = JsonElement.Parse(HookPosts("/hooks/session-end/muse").Single());
         await Assert.That(body.TryGetProperty("agent_host_id", out _)).IsFalse();
         await Assert.That(body.TryGetProperty("daemon_epoch", out _)).IsFalse();
         await Assert.That(MuseHostedSessionMarker.TryRead(Home, ParentId)).IsNotNull();
@@ -380,7 +380,7 @@ public class MuseHookCommandTests : IDisposable {
         var posts = HookPosts("/hooks/session-start/muse");
         await Assert.That(posts.Count).IsEqualTo(1);
 
-        var body = JsonDocument.Parse(posts[0]).RootElement;
+        var body = JsonElement.Parse(posts[0]);
         await Assert.That(body.GetProperty("session_id").GetString()).IsEqualTo(ParentDashless);
         await Assert.That(body.TryGetProperty("transcript_path", out _)).IsFalse();
         await Assert.That(DateTimeOffset.TryParse(body.GetProperty("started_at").GetString(), out _)).IsTrue();
@@ -404,7 +404,7 @@ public class MuseHookCommandTests : IDisposable {
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(_spawner.Spawned.Count).IsEqualTo(1);
         await Assert.That(_spawner.Spawned[0].TranscriptPath).IsEqualTo(log);
-        var body = JsonDocument.Parse(HookPosts("/hooks/session-start/muse").Single()).RootElement;
+        var body = JsonElement.Parse(HookPosts("/hooks/session-start/muse").Single());
         await Assert.That(body.GetProperty("transcript_path").GetString()).IsEqualTo(log);
     }
 
@@ -554,7 +554,7 @@ public class MuseHookCommandTests : IDisposable {
         var posts = HookPosts("/hooks/subagent-start");
         await Assert.That(posts.Count).IsEqualTo(1);
 
-        var body = JsonDocument.Parse(posts[0]).RootElement;
+        var body = JsonElement.Parse(posts[0]);
         await Assert.That(body.GetProperty("session_id").GetString()).IsEqualTo(ParentDashless);
         await Assert.That(body.GetProperty("agent_id").GetString()).IsEqualTo(ReminderChild.Replace("-", ""));
         await Assert.That(body.GetProperty("agent_type").GetString()).IsEqualTo("skill-reminder");
@@ -579,7 +579,7 @@ public class MuseHookCommandTests : IDisposable {
         var posts = HookPosts("/hooks/subagent-start");
         await Assert.That(posts.Count).IsEqualTo(1);
 
-        var body = JsonDocument.Parse(posts[0]).RootElement;
+        var body = JsonElement.Parse(posts[0]);
         await Assert.That(body.GetProperty("agent_type").GetString()).IsEqualTo("Test coverage auditor — Integrations group");
         await Assert.That(body.GetProperty("agent_id").GetString()).IsEqualTo("01a13565a6267f70bda01c19ba4deadf");
         await Assert.That(body.GetProperty("transcript_path").GetString())
@@ -703,7 +703,7 @@ public class MuseHookCommandTests : IDisposable {
         var posts = HookPosts("/hooks/subagent-stop");
         await Assert.That(posts.Count).IsEqualTo(1);
 
-        var body = JsonDocument.Parse(posts[0]).RootElement;
+        var body = JsonElement.Parse(posts[0]);
         await Assert.That(body.GetProperty("session_id").GetString()).IsEqualTo(ParentDashless);
         await Assert.That(body.GetProperty("agent_type").GetString()).IsEqualTo("worker");
     }
@@ -732,7 +732,7 @@ public class MuseHookCommandTests : IDisposable {
 
         var request = MuseSessionEndRequest.TryClaim(paths, ParentDashless, "test");
         await Assert.That(request).IsNotNull();
-        var body = JsonDocument.Parse(request!.Payload).RootElement;
+        var body = JsonElement.Parse(request!.Payload);
         await Assert.That(body.GetProperty("session_id").GetString()).IsEqualTo(ParentDashless);
         await Assert.That(body.GetProperty("reason").GetString()).IsEqualTo("exit");
         await Assert.That(body.TryGetProperty("agent_host_id", out _)).IsFalse();
@@ -834,7 +834,7 @@ public class MuseHookCommandTests : IDisposable {
 
         var request = MuseSessionEndRequest.TryClaim(WatcherPaths.FromEnvironment(Config.Root), ParentDashless, "test");
         await Assert.That(request).IsNotNull();
-        await Assert.That(JsonDocument.Parse(request!.Payload).RootElement.GetProperty("reason").GetString()).IsEqualTo("exit");
+        await Assert.That(JsonElement.Parse(request!.Payload).GetProperty("reason").GetString()).IsEqualTo("exit");
     }
 
     /// <summary>A session Stop re-arms after an unposted end was left behind: the end is discarded through
@@ -889,7 +889,7 @@ public class MuseHookCommandTests : IDisposable {
         var posts = HookPosts("/hooks/session-end/muse");
         await Assert.That(posts.Count).IsEqualTo(1);
 
-        var body = JsonDocument.Parse(posts[0]).RootElement;
+        var body = JsonElement.Parse(posts[0]);
         await Assert.That(body.GetProperty("session_id").GetString()).IsEqualTo(ParentDashless);
         await Assert.That(body.GetProperty("reason").GetString()).IsEqualTo("other");
         await Assert.That(body.TryGetProperty("ended_at", out _)).IsTrue();

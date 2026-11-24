@@ -241,7 +241,7 @@ public class CodexChatRulesTests {
     static IReadOnlyList<AcpEventEnvelope> Stored(string payloadJson, string? vendors = null, string? metadata = null) {
         var rules   = TranscriptChat.RulesFor("codex")!;
         var payload = CanonicalEventJson.TryParse(CanonicalEventTypes.UserMessageReceived, payloadJson)!;
-        rules.RestoreServerFacts(payload, vendors is null ? null : System.Text.Json.JsonDocument.Parse(vendors).RootElement.Clone(), metadata);
+        rules.RestoreServerFacts(payload, vendors is null ? null : System.Text.Json.JsonElement.Parse(vendors), metadata);
         return TranscriptChat.Project(new CanonicalEvent(CanonicalEventTypes.UserMessageReceived, payload, Guid.Empty, Received), rules).Envelopes;
     }
 

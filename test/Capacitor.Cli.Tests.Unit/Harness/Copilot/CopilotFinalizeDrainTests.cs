@@ -123,7 +123,7 @@ public class CopilotFinalizeDrainRunTests : IDisposable {
         var requests = _server.FindLogEntries(Request.Create().WithPath("/hooks/transcript").UsingPost());
 
         foreach (var req in requests) {
-            var root = JsonDocument.Parse(req.RequestMessage.Body!).RootElement;
+            var root = JsonElement.Parse(req.RequestMessage.Body!);
 
             foreach (var line in root.GetProperty("lines").EnumerateArray()) {
                 if (line.GetString() is not { } s) continue;

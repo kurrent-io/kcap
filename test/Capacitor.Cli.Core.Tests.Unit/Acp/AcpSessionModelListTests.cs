@@ -10,7 +10,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.Acp;
 /// caller-requested model was silently discarded.
 /// </summary>
 public class AcpSessionModelListTests {
-    static JsonElement Result(string json) => JsonDocument.Parse(json).RootElement;
+    static JsonElement Result(string json) => JsonElement.Parse(json);
 
     // The real opencode acp 1.18.9 session/new shape, trimmed: no `models`, a `model` config option
     // among siblings, provider/model values and display labels.
