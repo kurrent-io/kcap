@@ -795,13 +795,18 @@ public class SettingsWindowSmokeTests {
             window.FindControl<TabItem>("AppearanceTab")!.IsSelected = true;
             Settle(window);
             var density = window.FindControl<ComboBox>("DensityPicker")!;
+            var mode = window.FindControl<ComboBox>("VisualModePicker")!;
+            var motion = window.FindControl<ComboBox>("MotionPicker")!;
             var font = window.FindControl<ComboBox>("ReadingFontPicker")!;
             var contrast = window.FindControl<CheckBox>("HigherContrastToggle")!;
             await Assert.That(density.IsEffectivelyVisible).IsFalse();
 
             reading.SetEnabled(true);
             Settle(window);
-            foreach (var picker in new[] { density, font }) {
+            await Assert.That(mode.IsEffectivelyVisible).IsFalse();
+            reading.SetModernAvailable(true);
+            Settle(window);
+            foreach (var picker in new[] { mode, density, motion, font }) {
                 await Assert.That(picker.Focus(NavigationMethod.Tab)).IsTrue();
                 window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
                 window.KeyReleaseQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
@@ -812,11 +817,14 @@ public class SettingsWindowSmokeTests {
             window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
             Settle(window);
             await reading.PendingSave;
+            await Assert.That(reading.VisualMode).IsEqualTo(DesktopVisualMode.Modern);
             await Assert.That(reading.Density).IsEqualTo(DesktopDensity.Compact);
+            await Assert.That(reading.Motion).IsEqualTo(DesktopMotion.Reduce);
             await Assert.That(reading.ReadingFont).IsEqualTo(DesktopReadingFont.Monospace);
             await Assert.That(reading.HighContrast).IsTrue();
             reading.SetEnabled(false);
             Settle(window);
+            await Assert.That(mode.IsEffectivelyVisible).IsFalse();
             await Assert.That(font.IsEffectivelyVisible).IsFalse();
             reading.SetEnabled(true);
             Settle(window);

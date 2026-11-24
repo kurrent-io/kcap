@@ -3,6 +3,9 @@
              xmlns:views="using:Capacitor.App.Views"
              x:Class="Capacitor.App.Views.ChatTurnNavigator">
     <UserControl.Styles>
+        <Style Selector="Border#TurnOutline">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
+        </Style>
         <Style Selector="Button#TurnMapButton /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Padding" Value="0" />
             <Setter Property="Margin" Value="0" />
@@ -37,9 +40,9 @@
         </views:ChatTurnMapButton>
         <Border x:Name="TurnOutline" IsVisible="False" Width="318" MaxHeight="400"
                 HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8,6,44,6"
-                Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderStrongBrush}"
-                BorderThickness="1" CornerRadius="8" ClipToBounds="True">
-            <Grid RowDefinitions="Auto,*,Auto">
+                Background="{DynamicResource KcapModernOverlayBrush}" BoxShadow="{DynamicResource KcapModernOverlayShadow}"
+                BorderBrush="{StaticResource KcapBorderStrongBrush}" BorderThickness="1" CornerRadius="8">
+            <Grid RowDefinitions="Auto,*,Auto" ClipToBounds="True">
                 <StackPanel Margin="12,10,12,8" Spacing="3">
                     <TextBlock Text="Loaded turns" FontSize="{StaticResource KcapFontSizeLarge}" FontWeight="SemiBold" />
                     <TextBlock x:Name="HistoryStatus" FontSize="{StaticResource KcapFontSizeSmall}"

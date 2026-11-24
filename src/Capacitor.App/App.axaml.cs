@@ -377,11 +377,18 @@ public partial class App : Application {
         LineSelection.Install();
         ToolTipFocusGate.Install();
         FullOpacityPlaceholder.Install();
-        ReducedMotion.Install();
+        ReducedMotion.Install(_shutdown.Token);
+        ReducedMotion.Changed += ApplyReducedMotion;
+        ApplyReducedMotion();
         CaretBlink.Install();
         // Here, not later: Avalonia exports the app menu right after Initialize, substituting its own
         // "About Avalonia" when there is none.
         NativeMenu.SetMenu(this, _appMenu.Menu);
+    }
+
+    void ApplyReducedMotion() {
+        if (ReducedMotion.IsOn) Resources["KcapReducePreviewMotion"] = true;
+        else Resources.Remove("KcapReducePreviewMotion");
     }
 
     public override void OnFrameworkInitializationCompleted() {
@@ -453,10 +460,16 @@ public partial class App : Application {
                 if (RunInstallLocationGuard(desktop)) return; // the guard window owns the rest of this run
                 if (await RunLegacyInstallGuardAsync(desktop)) return;
             }
-            var appearanceFlag = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profile: null, ExperimentalFeatures.DesktopAppearance);
-            var appearanceEnabled = await Task.Run(() => appearanceFlag.IsOn, _shutdown.Token);
+            var experimentalSettings = new ExperimentalSettingsStore(_config);
+            var appearanceFlag = new ExperimentalSwitch(experimentalSettings, profile: null, ExperimentalFeatures.DesktopAppearance);
+            var modernFlag = new ExperimentalSwitch(experimentalSettings, profile: null, ExperimentalFeatures.DesktopModern);
+            (bool Preview, bool Modern) ReadAppearance() {
+                var preview = appearanceFlag.IsOn;
+                return (preview, preview && modernFlag.IsOn);
+            }
+            var appearanceAtStartup = await Task.Run(ReadAppearance, _shutdown.Token);
             if (_shutdown.IsCancellationRequested) return;
-            ConfigureDesktopAppearance(appearanceFlag, appearanceEnabled);
+            ConfigureDesktopAppearance(ReadAppearance, appearanceAtStartup);
             _updater = CreateUpdater(_betaUpdates);
             if (UpdateCoordinator.TryApplyPendingAtStartup(_updater, Program.Host.UpdateRelaunch,
                     HandOver(AppUpdateTransition.PendingAtStartup), LifecycleLog)) return; // the process is being replaced
@@ -1124,9 +1137,11 @@ public partial class App : Application {
     internal static bool ShouldShowWizard(GateResult gate, string[]? args, bool firstRunAfterInstall = false) =>
         gate is GateResult.Incomplete || firstRunAfterInstall || args?.Contains("--setup", StringComparer.Ordinal) == true;
 
-    void ConfigureDesktopAppearance(ExperimentalSwitch flag, bool enabledAtStartup) {
+    void ConfigureDesktopAppearance(Func<(bool Preview, bool Modern)> readExperiments, (bool Preview, bool Modern) atStartup) {
         var palette = new ClassicPreviewPalette(this);
+        var materials = new DesktopModernMaterials(this);
         var platform = PlatformSettings;
+        var activations = Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default);
         var systemChanges = platform is null ? Observable.Never<Unit>() :
             Observable.FromEventPattern<PlatformColorValues>(h => platform.ColorValuesChanged += h, h => platform.ColorValuesChanged -= h)
                 .Select(_ => Unit.Default).ObserveOn(RxSchedulers.MainThreadScheduler);
@@ -1138,13 +1153,18 @@ public partial class App : Application {
         var appearance = new DesktopAppearanceSettings(_appState, _openingDesktopAppearance, preferences => {
             if (_chatReadingPositions is { } positions) positions.PreviewEnabled = preferences is not null;
             reading.Apply(preferences);
-            var highContrast = preferences?.HighContrast == true;
-            void ApplyContrast() => palette.SetHigherContrast(highContrast ||
-                platform?.GetColorValues().ContrastPreference == ColorContrastPreference.High);
-            contrastWatch.Disposable = preferences is not null && !highContrast
-                ? systemChanges.Subscribe(_ => ApplyContrast()) : null;
-            if (preferences is null) palette.SetHigherContrast(false);
-            else ApplyContrast();
+            ReducedMotion.SetPreviewMotion(preferences?.Motion);
+            var visualMode = preferences?.VisualMode ?? DesktopVisualMode.Classic;
+            void ApplyContrastAndMaterials() {
+                var highContrast = preferences is not null && (preferences.HighContrast ||
+                    platform?.GetColorValues().ContrastPreference == ColorContrastPreference.High);
+                palette.SetHigherContrast(highContrast);
+                materials.Apply(visualMode, highContrast);
+            }
+            contrastWatch.Disposable = preferences is null ? null :
+                (visualMode == DesktopVisualMode.Modern ? systemChanges.Merge(activations) : systemChanges)
+                    .Subscribe(_ => ApplyContrastAndMaterials());
+            ApplyContrastAndMaterials();
         });
         void SetEnabled(bool enabled) {
             if (appearance.Enabled == enabled) return;
@@ -1160,13 +1180,17 @@ public partial class App : Application {
             }
         }
 
-        SetEnabled(enabledAtStartup);
+        void ApplyExperiments((bool Preview, bool Modern) switches) {
+            appearance.SetModernAvailable(switches.Modern);
+            SetEnabled(switches.Preview);
+        }
+
+        ApplyExperiments(atStartup);
         _classicPreview = preview;
         _desktopAppearance = appearance;
-        _classicPreviewSubscription = new CompositeDisposable(contrastWatch, zoomWatch, _experimentalSaved.Merge(
-                Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default))
-            .ObserveOn(TaskPoolScheduler.Default).Select(_ => flag.IsOn).DistinctUntilChanged()
-            .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(SetEnabled));
+        _classicPreviewSubscription = new CompositeDisposable(contrastWatch, zoomWatch, _experimentalSaved.Merge(activations)
+            .ObserveOn(TaskPoolScheduler.Default).Select(_ => readExperiments()).DistinctUntilChanged()
+            .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(ApplyExperiments));
     }
 
     void BuildDaemonGraph(
@@ -3538,6 +3562,7 @@ public partial class App : Application {
     // teardown REGISTERED here, so the drain below can only ever seal a set that already contains
     // it. The gate is latched even with no window ever built — a window built later still sees it.
     void LatchNavigation() {
+        ReducedMotion.Changed -= ApplyReducedMotion;
         // Unhook the workspace while the reading preview can still capture its viewport.
         (_coordinator?.Window?.DataContext as MainWindowViewModel)?.LatchShutdown();
         _notificationAccessPrompt?.Dispose();

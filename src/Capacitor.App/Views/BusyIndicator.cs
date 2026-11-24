@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.VisualTree;
+using Capacitor.App.Services;
 
 namespace Capacitor.App.Views;
 
@@ -19,6 +20,9 @@ public static class BusyIndicator {
     static readonly HashSet<Visual> Busy = [];
 
     static BusyIndicator() {
+        ReducedMotion.Changed += () => {
+            foreach (var visual in Busy) Sync(visual);
+        };
         IsBusyProperty.Changed.AddClassHandler<Visual>((visual, e) => {
             if (e.NewValue is true) {
                 visual.AttachedToVisualTree += OnAttached;
@@ -64,7 +68,7 @@ public static class BusyIndicator {
     }
 
     static void Sync(Visual visual) {
-        var animate = Busy.Contains(visual) && visual.IsEffectivelyVisible
+        var animate = !ReducedMotion.IsOn && Busy.Contains(visual) && visual.IsEffectivelyVisible
             && TopLevel.GetTopLevel(visual) is not Window { WindowState: WindowState.Minimized };
         if (visual is ProgressBar bar) {
             if (bar.IsIndeterminate != animate) bar.IsIndeterminate = animate;

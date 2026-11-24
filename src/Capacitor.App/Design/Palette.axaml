@@ -3,6 +3,7 @@
     <SolidColorBrush x:Key="KcapCanvasBrush" Color="#0B0D12" />
     <SolidColorBrush x:Key="KcapSurfaceBrush" Color="#12151D" />
     <SolidColorBrush x:Key="KcapSurfaceRaisedBrush" Color="#191D27" />
+    <SolidColorBrush x:Key="KcapModernTintBrush" Color="#272432" />
     <SolidColorBrush x:Key="KcapBorderBrush" Color="#2A3040" />
     <SolidColorBrush x:Key="KcapChoiceBorderBrush" Color="#2A3040" />
     <SolidColorBrush x:Key="KcapBorderStrongBrush" Color="#414A5E" />

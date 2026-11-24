@@ -127,6 +127,7 @@ public partial class ChatTabViewSmokeTests {
         var app = Application.Current!;
         var reading = new DesktopReadingResources(app);
         var palette = new ClassicPreviewPalette(app);
+        var materials = new DesktopModernMaterials(app);
         try {
             await host.AttachAsync(Tmp.CreateFile("navigator.jsonl", string.Join('\n', UnevenHistory()) + "\n"));
             host.Chat.ComposerText = "Synthetic draft";
@@ -148,6 +149,17 @@ public partial class ChatTabViewSmokeTests {
             host.Settle();
             await Assert.That(TurnOutline(navigator).IsEffectivelyVisible).IsTrue();
             await Assert.That(disclosure.ExpandCollapseState).IsEqualTo(ExpandCollapseState.Expanded);
+            foreach (var (mode, highContrast, supportsShadow) in new[] {
+                (DesktopVisualMode.Modern, false, true),
+                (DesktopVisualMode.Modern, false, false),
+                (DesktopVisualMode.Modern, true, true),
+                (DesktopVisualMode.Classic, false, true),
+            }) {
+                materials.Apply(mode, highContrast, supportsShadow);
+                host.Settle();
+                await Assert.That(TurnOutline(navigator).IsKeyboardFocusWithin).IsTrue();
+                await Assert.That(disclosure.ExpandCollapseState).IsEqualTo(ExpandCollapseState.Expanded);
+            }
             disclosure.Collapse();
             host.Settle();
             await Assert.That(button.IsFocused).IsTrue();
@@ -235,6 +247,7 @@ public partial class ChatTabViewSmokeTests {
             await Assert.That(host.Chat.ComposerText).IsEqualTo("Synthetic draft");
         } finally {
             TurnPreview(false);
+            materials.Apply(DesktopVisualMode.Classic, highContrast: false);
             ReducedMotion.OverrideForTesting(null);
             reading.Apply(null);
             palette.TryApply(ClassicAppearance.Original);

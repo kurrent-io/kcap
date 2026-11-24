@@ -314,7 +314,7 @@ public partial class ChatTabView : UserControl {
         var delta = -e.Delta.Y * WheelStep;
         if (Math.Abs(delta) < 0.01) return;
         e.Handled = true;
-        if (_turnNavigator is not null && Services.ReducedMotion.IsOn) {
+        if (Services.ReducedMotion.IsOn) {
             CancelSmoothScroll();
             _smoothRemaining = delta;
             StepSmoothScroll(1);
@@ -353,7 +353,7 @@ public partial class ChatTabView : UserControl {
         }
         var dt = _lastSmoothFrame == default ? 1.0 / 120.0 : Math.Clamp((timestamp - _lastSmoothFrame).TotalSeconds, 1.0 / 240.0, 0.05);
         _lastSmoothFrame = timestamp;
-        var fraction = Math.Abs(_smoothRemaining) < 1.5 ? 1.0 : 1.0 - Math.Pow(0.5, dt / SmoothHalfLifeSeconds);
+        var fraction = Services.ReducedMotion.IsOn || Math.Abs(_smoothRemaining) < 1.5 ? 1.0 : 1.0 - Math.Pow(0.5, dt / SmoothHalfLifeSeconds);
         StepSmoothScroll(fraction);
         if (Math.Abs(_smoothRemaining) > 0.5) QueueSmoothFrame();
         else _lastSmoothFrame = default;

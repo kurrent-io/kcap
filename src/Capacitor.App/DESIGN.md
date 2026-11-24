@@ -70,3 +70,7 @@ Map marks use the virtualizer's row positions. Short strokes identify ungrouped 
 The navigator keeps the thumb opaque against its own track at a minimum 3:1 contrast. Repeated turn marks use a quieter ink, and a stronger, wider outline distinguishes the viewport by shape. Higher contrast strengthens all three inks. The work inspector's resize handle sits on the inspector side of the boundary in Desktop redesign preview, so the native scrollbar and divider have separate pointer targets.
 
 The standard transcript scrollbar follows the system’s visibility preference in the redesign preview. macOS uses the preferred AppKit scroller style, Windows uses the user’s automatic hiding setting, and GNOME uses its overlay-scrolling preference. Returning to the app refreshes that choice.
+
+## Visual mode and motion
+
+Classic keeps the same opaque surfaces and shared layout. The opt-in Modern mode adds a tinted surface and a short shadow to the expanded turn outline on supported renderers. Higher contrast, reduced transparency and unsupported compositors use an opaque elevated surface. Text fields stay opaque. Motion follows the system or the saved Reduce choice. Reduced motion suppresses scroll interpolation and busy indicators in either visual mode.

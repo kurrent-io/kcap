@@ -13,6 +13,7 @@
     <Thickness x:Key="KcapContextDividerThickness">1,0,0,0</Thickness>
     <x:Double x:Key="KcapTranscriptSelectionOpacity">0.20</x:Double>
     <x:Boolean x:Key="KcapTranscriptSelection">False</x:Boolean>
+    <x:Boolean x:Key="KcapReducePreviewMotion">False</x:Boolean>
     <CornerRadius x:Key="KcapControlRadius">8</CornerRadius>
     <CornerRadius x:Key="KcapChatCardRadius">10</CornerRadius>
 </ResourceDictionary>

@@ -49,7 +49,16 @@ public static class ExperimentalFeatures {
         DesktopAppOnly: true,
         OnByDefault: false);
 
-    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance, ChatTurnNavigator];
+    public static ExperimentalFeature DesktopModern { get; } = new(
+        "desktop-modern",
+        "Modern desktop appearance",
+        "Offer the Modern visual mode in Appearance when Desktop redesign preview is on. Modern adds subtle depth to the expanded turn navigator.",
+        AppliesLive: true,
+        DesktopAppOnly: true,
+        OnByDefault: false,
+        AppWide: true);
+
+    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance, ChatTurnNavigator, DesktopModern];
 
     /// <summary>Ids are matched exactly, case included.</summary>
     public static ExperimentalFeature? Find(string id) =>

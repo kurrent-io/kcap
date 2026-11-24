@@ -1,24 +1,34 @@
 using System.Runtime.InteropServices;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Threading;
+using Capacitor.App.Platform.Linux;
 using Capacitor.App.Platform.Mac;
 
 namespace Capacitor.App.Services;
 
-/// The OS "reduce motion" setting: macOS Accessibility → Display → Reduce motion, or Windows "Show
-/// animations in Windows" turned off. Read at start and again whenever an app window is activated,
-/// which is where a user comes back from changing it. Linux reads as off.
 public static partial class ReducedMotion {
     static bool _installed;
     static bool? _override;
+    static DesktopMotion? _previewMotion;
+    static CancellationToken _lifetime;
+    static Task? _portalWatch;
+    static bool? _portalPreference;
 
     public static bool IsOn { get; private set; }
+    internal static bool? SystemPreference { get; private set; }
 
-    /// Raised on the UI thread when <see cref="IsOn"/> changes.
     public static event Action? Changed;
+    internal static event Action? SystemPreferenceChanged;
 
-    public static void Install() {
+    internal static void SetPreviewMotion(DesktopMotion? choice) {
+        _previewMotion = choice;
+        Refresh();
+    }
+
+    public static void Install(CancellationToken lifetime) {
         if (_installed) return;
+        _lifetime = lifetime;
         _installed = true;
         Refresh();
         WindowBase.IsActiveProperty.Changed.AddClassHandler<WindowBase>((window, _) => {
@@ -27,30 +37,47 @@ public static partial class ReducedMotion {
     }
 
     public static void Refresh() {
-        var on = _override ?? Read();
-        if (on == IsOn) return;
-        IsOn = on;
-        Changed?.Invoke();
+        if (_lifetime.IsCancellationRequested) return;
+        if (OperatingSystem.IsLinux() && _installed && _portalWatch?.IsCompleted != false) {
+            var cancellation = _lifetime;
+            _portalWatch = Task.Run(() => PortalReducedMotion.WatchAsync(value => Dispatcher.UIThread.Post(() => {
+                if (cancellation.IsCancellationRequested) return;
+                _portalPreference = value;
+                Apply(_override ?? value);
+            }), cancellation), cancellation);
+        }
+        Apply(_override ?? (OperatingSystem.IsLinux() ? _portalPreference : Read()));
     }
 
-    /// Pins the setting for a test, or hands it back to the OS with null.
+    static void Apply(bool? preference) {
+        if (SystemPreference != preference) {
+            SystemPreference = preference;
+            SystemPreferenceChanged?.Invoke();
+        }
+        var on = _previewMotion == DesktopMotion.Reduce || preference == true;
+        if (on != IsOn) {
+            IsOn = on;
+            Changed?.Invoke();
+        }
+    }
+
     internal static void OverrideForTesting(bool? on) {
         _override = on;
         Refresh();
     }
 
-    static bool Read() {
+    static bool? Read() {
         try {
             if (OperatingSystem.IsMacOS()) {
                 var workspace = AppKitInterop.Send(AppKitInterop.GetClass("NSWorkspace"), AppKitInterop.Selector("sharedWorkspace"));
                 return (AppKitInterop.Send(workspace, AppKitInterop.Selector("accessibilityDisplayShouldReduceMotion")) & 0xFF) != 0;
             }
             if (OperatingSystem.IsWindows())
-                return SystemParametersInfo(GetClientAreaAnimation, 0, out var animations, 0) && animations == 0;
+                return SystemParametersInfo(GetClientAreaAnimation, 0, out var animations, 0) ? animations == 0 : null;
         } catch (Exception ex) when (ex is DllNotFoundException or EntryPointNotFoundException) {
-            return false;
+            return null;
         }
-        return false;
+        return null;
     }
 
     const uint GetClientAreaAnimation = 0x1042;

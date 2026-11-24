@@ -22,11 +22,20 @@ public class DesktopAppearanceSettingsTests {
         await Assert.That(settings.Density).IsEqualTo(DesktopDensity.Comfortable);
         settings.SetEnabled(true);
         settings.ReadingFont = DesktopReadingFont.Monospace;
+        settings.SetModernAvailable(true);
+        settings.VisualMode = DesktopVisualMode.Modern;
+        settings.Motion = DesktopMotion.Reduce;
         settings.HighContrast = true;
         settings.Density = DesktopDensity.Compact;
         await Task.WhenAll(settings.PendingSave, store.UpdateAsync(state => state with { UiScale = 1.3, RailCollapsed = true }));
-        await Assert.That(live).IsEqualTo(new DesktopAppearancePreferences(DesktopDensity.Compact, DesktopReadingFont.Monospace, true));
+        await Assert.That(live).IsEqualTo(new DesktopAppearancePreferences(DesktopDensity.Compact, DesktopReadingFont.Monospace, true, DesktopMotion.Reduce, DesktopVisualMode.Modern));
 
+        settings.SetModernAvailable(false);
+        await Assert.That(live!.VisualMode).IsEqualTo(DesktopVisualMode.Classic);
+        await Assert.That(settings.VisualMode).IsEqualTo(DesktopVisualMode.Modern);
+        await Assert.That(live.Motion).IsEqualTo(DesktopMotion.Reduce);
+        settings.SetModernAvailable(true);
+        await Assert.That(live!.VisualMode).IsEqualTo(DesktopVisualMode.Modern);
         settings.SetEnabled(false);
         await Assert.That(live).IsNull();
         settings.SetEnabled(true);
@@ -38,6 +47,8 @@ public class DesktopAppearanceSettingsTests {
         await Assert.That(saved.DesktopAppearance!["future"]).IsEqualTo("keep me");
         using var reopened = new DesktopAppearanceSettings(store, saved.DesktopAppearance, _ => { });
         await Assert.That(reopened.HighContrast).IsTrue();
+        await Assert.That(reopened.Motion).IsEqualTo(DesktopMotion.Reduce);
+        await Assert.That(reopened.VisualMode).IsEqualTo(DesktopVisualMode.Modern);
         await Assert.That(reopened.ReadingFont).IsEqualTo(DesktopReadingFont.Monospace);
         await Assert.That(reopened.Density).IsEqualTo(DesktopDensity.Compact);
     });

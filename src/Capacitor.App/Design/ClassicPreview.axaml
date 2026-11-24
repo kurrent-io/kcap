@@ -4,6 +4,7 @@
         <Color x:Key="KcapCanvasBrush">#FAF9FB</Color>
         <Color x:Key="KcapSurfaceBrush">#FFFFFF</Color>
         <Color x:Key="KcapSurfaceRaisedBrush">#F3F1F6</Color>
+        <Color x:Key="KcapModernTintBrush">#F7F3FC</Color>
         <Color x:Key="KcapBorderBrush">#E3DFE8</Color>
         <Color x:Key="KcapBorderStrongBrush">#C1BACB</Color>
         <Color x:Key="KcapTextBrush">#171320</Color>
@@ -57,6 +58,7 @@
         <Color x:Key="KcapCanvasBrush">#202123</Color>
         <Color x:Key="KcapSurfaceBrush">#262729</Color>
         <Color x:Key="KcapSurfaceRaisedBrush">#2D2E30</Color>
+        <Color x:Key="KcapModernTintBrush">#303037</Color>
         <Color x:Key="KcapBorderBrush">#363739</Color>
         <Color x:Key="KcapBorderStrongBrush">#5A5B5E</Color>
         <Color x:Key="KcapTextBrush">#E2E2E0</Color>

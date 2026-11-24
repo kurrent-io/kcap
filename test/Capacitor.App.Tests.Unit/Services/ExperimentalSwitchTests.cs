@@ -31,6 +31,22 @@ public class ExperimentalSwitchTests {
     }
 
     [Test]
+    public async Task Modern_defaults_off_and_uses_one_setting_across_profiles() {
+        var store = new ExperimentalSettingsStore(Config.Root);
+        var feature = ExperimentalFeatures.DesktopModern;
+        var global = new ExperimentalSwitch(store, null, feature);
+        var other = new ExperimentalSwitch(store, "other", feature);
+
+        await Assert.That(global.IsOn).IsFalse();
+        await Assert.That(await store.SetAsync("work", feature.Id, true, CancellationToken.None)).IsTrue();
+        await Assert.That(global.IsOn).IsTrue();
+        await Assert.That(other.IsOn).IsTrue();
+        await Assert.That(store.Load("work").IsSet(feature.Id)).IsFalse();
+        await Assert.That(await store.SetAsync("other", feature.Id, false, CancellationToken.None)).IsTrue();
+        await Assert.That(global.IsOn).IsFalse();
+    }
+
+    [Test]
     public async Task Another_profiles_switch_and_no_profile_read_off() {
         var store = new ExperimentalSettingsStore(Config.Root);
         await store.SetAsync("other", Id, true, CancellationToken.None);
