@@ -71,4 +71,25 @@ public class AuthProviderCacheTests {
         AuthProviderCache.Set("https://rt.example", "GitHubApp", Config.Root, TimeProvider.System);
         await Assert.That(AuthProviderCache.TryGet("https://rt.example", Config.Root, TimeProvider.System)).IsEqualTo("GitHubApp");
     }
+
+    /// <summary>A recorded null is the server naming no machine token URL; an entry with no record at
+    /// all was written by a CLI that never read the field, and must send the caller back to ask.</summary>
+    [Test]
+    [Arguments("https://idp.example/oauth2/token", true, "https://idp.example/oauth2/token")]
+    [Arguments(null, true, null)]
+    public async Task A_recorded_machine_token_url_is_an_answer(string? recorded, bool answered, string? expected) {
+        var store = AuthProviderCache.Upsert(null, "https://a.example", "WorkOS", Now, recorded);
+
+        await Assert.That(AuthProviderCache.ReadMachineTokenUrl(store, "https://a.example", Now, out var url)).IsEqualTo(answered);
+        await Assert.That(url).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task An_entry_without_the_machine_token_url_key_is_not_an_answer() {
+        var store = """{"https://a.example":{"provider":"WorkOS","fetched_at":""" + Now + "}}";
+
+        await Assert.That(AuthProviderCache.ReadMachineTokenUrl(store, "https://a.example", Now, out _)).IsFalse();
+        await Assert.That(AuthProviderCache.Read(store, "https://a.example", Now)).IsEqualTo("WorkOS")
+            .Because("the provider an older writer recorded still stands");
+    }
 }
