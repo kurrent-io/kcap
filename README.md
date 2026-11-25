@@ -5,7 +5,7 @@
 [![npm](https://img.shields.io/npm/v/@kurrent/kcap?color=cb3837&logo=npm&label=%40kurrent%2Fkcap)](https://www.npmjs.com/package/@kurrent/kcap)
 [![license](https://img.shields.io/badge/license-Kurrent%20v1-blue)](LICENSE.md)
 [![platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](#requirements)
-[![built with](https://img.shields.io/badge/.NET%2010-NativeAOT-512bd4?logo=dotnet&logoColor=white)](#)
+[![built with](https://img.shields.io/badge/.NET%2010-NativeAOT-512bd4?logo=dotnet&logoColor=white)](#building-from-source)
 
 **kcap** records sessions from your existing coding agents and streams them to a desktop app and web dashboard—giving you live visibility, remote agent orchestration, and PR reviews grounded in the transcripts that produced the code.
 
@@ -56,6 +56,8 @@ The desktop app bundles the `kcap` CLI and background daemon and walks you throu
 
 ### CLI
 
+The install scripts download the native binary and run `kcap setup` automatically on first install in a terminal.
+
 **macOS / Linux:**
 
 ```bash
@@ -83,6 +85,8 @@ During setup, choose how you want to run kcap:
 kcap setup           # Interactive wizard (cloud workspace or local edition)
 kcap setup --local   # Run kcap locally on your machine (macOS ARM64 / Windows x64)
 ```
+
+On Windows, pass `--windows-service` with `kcap setup --local` to run the local server under the `kcap-service` Windows service instead of a per-user Scheduled Task; see `kcap setup --help` and `kcap local --help` for service and recovery options.
 
 Once setup finishes, **start a new session** in any configured coding agent (hooks load at session start) and watch it stream live in the desktop app or your workspace dashboard.
 
@@ -114,7 +118,7 @@ Full guides and reference documentation live at **[kurrent.io/docs/kcap](https:/
 
 - Unattended / CI setup, profiles, and machine credentials
 - Local edition setup, embeddings, and lifecycle management
-- All MCP servers (`sessions`, `flows`, `memory`, `workitems`, `plans`, `knowledge`, `pages`, `sharing`, `analytics`)
+- MCP servers (`sessions`, `review`, `flows`, `memory`, `workitems`, `plans`, `knowledge`, `pages`, `sharing`, `analytics`, `handoff`, `pass`)
 - Hosted agents, daemon services, approval policies, and skills sync
 - Troubleshooting and agent-specific notes
 
@@ -124,18 +128,34 @@ Full guides and reference documentation live at **[kurrent.io/docs/kcap](https:/
 
 - **CLI platforms:** macOS (ARM64), Linux (x64, ARM64), Linux Alpine/musl (x64, ARM64), Windows (x64)
 - **Desktop app:** macOS 15+ (Apple Silicon), Windows 10+ (x64), Linux (x64)
-- **Runtime:** Self-contained NativeAOT binary (no runtime dependencies; Node.js only required for `npm` installs)
+- **CLI runtime:** Self-contained NativeAOT binary (no runtime dependencies; Node.js only required for `npm` installs)
 - **Optional:** GitHub CLI (`gh`) or GitLab CLI (`glab`) for automatic PR/MR tagging and local PR context
 
 ---
 
 ## Building from Source
 
-Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download):
+Requires the [.NET 10 SDK](https://dotnet.microsoft.com/download) (10.0.403 or later, matching `global.json`):
 
 ```bash
 dotnet build src/Capacitor.Cli/Capacitor.Cli.csproj
 dotnet test --solution Capacitor.slnx
+```
+
+---
+
+## Privacy
+
+### Telemetry
+
+In the cloud edition, `kcap` reports pseudonymous usage data by default (command and flag names, exit codes, durations, MCP tool names, and setup steps — never transcripts, file paths, repo names, or argument values); the local edition reports nothing until you opt in. During sign-in, `kcap setup` and `kcap login` mint a single-use `join_id` to pair the install with your website analytics (`web_device_id_capacitor` / `web_device_id_www`) and created workspace, which is why usage data is pseudonymous rather than anonymous.
+
+Opting out suppresses all of it — no key, no navigation, and no events:
+
+```bash
+kcap config set telemetry off   # persisted, machine-wide
+export KCAP_TELEMETRY=0         # this shell only
+export DO_NOT_TRACK=1           # cross-tool convention
 ```
 
 ---
