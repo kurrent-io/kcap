@@ -311,7 +311,7 @@ public partial class App : Application {
     // disposed, and the window that owns dialogs while no main window exists. Both are cleared again
     // by the handoff at the end of RunWizardModeAsync.
     WizardAuthService? _wizardAuth;
-    // The History step, kept past the handoff: its import outlives onboarding and only shutdown stops it.
+    // The History step, kept past the handoff: its import outlives onboarding, so shutdown must still stop it.
     HistoryStepViewModel? _historyImport;
     // Imports of earlier chats started from Settings → Harnesses; shutdown stops every one like setup's.
     readonly List<HistoryImportRun> _settingsImports = [];
