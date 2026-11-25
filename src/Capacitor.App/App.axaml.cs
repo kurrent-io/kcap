@@ -324,11 +324,12 @@ public partial class App : Application {
     // The onboarding window once its flow has finished, waiting for BuildAndShowMainWindow to take
     // it over so the main surface opens in place rather than in a second window.
     (MainWindow Window, AppState State)? _adoptableWindow;
-    // Steady-state re-auth dialog, one at a time — a second Sign in click focuses it. The settle
+    // Steady-state re-auth dialog, one at a time, and the graph it runs on. The settle
     // task is FinishSignInAsync for the most recent close; shutdown awaits it so a live attempt is
     // cancelled (or a commit past the boundary finishes) before the process exits — the dialog's
     // counterpart of the wizard sign-in quiesce.
     SignInWindow? _signInWindow;
+    ReauthGraph? _signInGraph;
     SettingsWindow? _settingsWindow;
     readonly BehaviorSubject<Action?> _openSearchSettings = new(null);
     readonly BehaviorSubject<Func<bool>?> _openHarnessesSettings = new(null);
@@ -2137,6 +2138,7 @@ public partial class App : Application {
     void OpenSignInDialog(string profile, string serverUrl, bool refreshAppState) {
         if (_signInWindow is { } open) {
             open.Activate();
+            if (_signInGraph is { } openGraph) _ = openGraph.SignInAgainAsync(profile, serverUrl);
             return;
         }
 
@@ -2170,10 +2172,12 @@ public partial class App : Application {
         window.Closed += (_, _) => {
             graph.SignIn.PropertyChanged -= OnSignInChanged;
             _signInWindow = null;
+            _signInGraph  = null;
             _reauthSettle = FinishSignInAsync(graph, refreshAppState);
         };
 
         _signInWindow = window;
+        _signInGraph  = graph;
         window.Show();
     }
 

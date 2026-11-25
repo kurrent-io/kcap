@@ -181,4 +181,88 @@ public class ReauthCompositionTests {
         await Assert.That(runs).IsEqualTo(1);
         await Assert.That(status).IsEqualTo("Waiting for your browser…");
     }
+
+    static ReauthGraph Build(TempConfigRoot config, Func<ConnectIntent, CancellationToken, Task<AuthResult>> operation) =>
+        ReauthComposition.Build(
+            config.Root, AuthFixtures.NewTokenStore(config.Root), new PlainHttpClientFactory(),
+            new AuthProxyClient(new HttpClient(), TimeProvider.System), new(new PlainHttpClientFactory()), new(new PlainHttpClientFactory(), TimeProvider.System),
+            "default", ServerUrl,
+            WizardComposition.BuildBridges(action => action(), CliTelemetry.Disabled(TimeProvider.System), AuthEndpoints.Defaults),
+            new ConsentFlipClaims(config.Root),
+            new AppStateStore(config.PathTo("app-state.json")),
+            new RecordingOpener(),
+            TimeProvider.System,
+            _ => operation,
+            refreshAppState: true);
+
+    /// A Sign in click over an open dialog whose attempt was cancelled or failed goes straight back
+    /// to the browser, including for the same server spelled with its default port; the dialog's
+    /// own Sign in is never a second click.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(false, ServerUrl)]
+    [Arguments(true, ServerUrl)]
+    [Arguments(false, "https://ACME.example:443/")]
+    public async Task Signing_in_again_over_an_unfinished_attempt_starts_a_new_one(bool failed, string requested) {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            using var config = new TempConfigRoot();
+            var runs = 0;
+            var graph = Build(config, (_, _) => Task.FromResult<AuthResult>(
+                ++runs == 1 ? failed ? new AuthResult.Failed("nope") : new AuthResult.Cancelled() : Committed()));
+            await graph.SignIn.EnterAndSignInAsync(CancellationToken.None);
+
+            await graph.SignInAgainAsync("default", requested);
+
+            await Assert.That(runs).IsEqualTo(2);
+            await Assert.That(graph.SignIn.Satisfied).IsTrue();
+        });
+    }
+
+    /// The open dialog belongs to one profile and server; a Sign in for another must not run its flow.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments("other", ServerUrl)]
+    [Arguments("default", "https://other.example")]
+    public async Task Signing_in_again_for_another_target_starts_nothing_in_the_open_dialog(string profile, string serverUrl) {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            using var config = new TempConfigRoot();
+            var runs = 0;
+            var graph = Build(config, (_, _) => {
+                runs++;
+                return Task.FromResult<AuthResult>(new AuthResult.Cancelled());
+            });
+            await graph.SignIn.EnterAndSignInAsync(CancellationToken.None);
+
+            await graph.SignInAgainAsync(profile, serverUrl);
+
+            await Assert.That(runs).IsEqualTo(1);
+        });
+    }
+
+    /// A repeat click while the browser is still open leaves that attempt running rather than
+    /// starting a second one beside it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Signing_in_again_during_an_attempt_does_not_start_another() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            using var config = new TempConfigRoot();
+            var runs = 0;
+            var browser = new TaskCompletionSource<AuthResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var graph = Build(config, (_, _) => {
+                runs++;
+                return browser.Task;
+            });
+
+            var first = graph.SignIn.EnterAndSignInAsync(CancellationToken.None);
+            var again = graph.SignInAgainAsync("default", ServerUrl);
+            var runsWhileWaiting = runs;
+
+            browser.SetResult(Committed());
+            await Task.WhenAll(first, again);
+
+            await Assert.That(runsWhileWaiting).IsEqualTo(1);
+            await Assert.That(runs).IsEqualTo(1);
+            await Assert.That(graph.SignIn.Satisfied).IsTrue();
+        });
+    }
 }
