@@ -7,8 +7,9 @@ namespace Capacitor.Cli.Daemon.Harness.Codex;
 /// What a person approving a hosted Codex's app-server request is shown. Permission cards read Claude's tool
 /// vocabulary, which Codex's hooks use for the same calls, so a plain command shows as <c>Bash</c> with the script it
 /// runs, and a one-file edit as <c>Edit</c>, <c>MultiEdit</c> or <c>Write</c> with the file and its lines. A change that
-/// one file cannot show goes as <c>apply_patch</c> naming every path, and any other request as it came. Only what is
-/// shown changes: the answer goes back on the request itself.
+/// one file's lines cannot show goes as <c>apply_patch</c> with every path, its raw diff and any grant beyond them; one
+/// whose changes are not yet known, and any other request, as it came. Only what is shown changes: the answer goes back
+/// on the request itself.
 /// </summary>
 internal static class CodexApprovalCard {
     public static (string ToolName, JsonElement? ToolInput) For(string itemType, JsonElement? request, CodexFileChanges fileChanges) {
@@ -16,7 +17,7 @@ internal static class CodexApprovalCard {
 
         return itemType switch {
             "commandExecution" when CodexApprovalRequest.PlainCommand(r) is { } command => ("Bash", Shell(command, r)),
-            "fileChange"                                                               => FileChange(r, fileChanges),
+            "fileChange"                                                               => FileChange(itemType, r, fileChanges),
             _                                                                          => (itemType, r),
         };
     }
@@ -28,10 +29,12 @@ internal static class CodexApprovalCard {
             Reason(w, request);
         });
 
-    static (string, JsonElement) FileChange(JsonElement request, CodexFileChanges fileChanges) {
-        JsonElement[] changes = request.Str("itemId") is { } itemId && fileChanges.Of(itemId) is { } observed && observed.IsArray
-            ? [.. observed.EnumerateArray()]
-            : [];
+    static (string, JsonElement) FileChange(string itemType, JsonElement request, CodexFileChanges fileChanges) {
+        // Until its changes are known the card cannot say what the edit is: an empty patch would read as no change.
+        if (request.Str("itemId") is not { } itemId || fileChanges.Of(itemId) is not { } observed || !observed.IsArray)
+            return (itemType, request);
+
+        JsonElement[] changes = [.. observed.EnumerateArray()];
 
         // A grant root asks for writes under it for the rest of the session, beyond this edit's file.
         if (changes is [var change] && !CodexApprovalRequest.Names(request, "grantRoot") && change.Str("path") is { Length: > 0 } path) {
@@ -42,8 +45,8 @@ internal static class CodexApprovalCard {
                         w.WriteString("content", change.Str("diff") ?? "");
                         Reason(w, request);
                     }));
-                case ("update", null):
-                    return Edit(path, Hunks(change.Str("diff") ?? ""), request);
+                case ("update", null) when Hunks(change.Str("diff") ?? "") is { Count: > 0 } hunks && hunks.All(Shows):
+                    return Edit(path, hunks, request);
             }
         }
 
@@ -58,34 +61,42 @@ internal static class CodexApprovalCard {
                 w.WriteEndObject();
             }
             w.WriteEndArray();
-            Reason(w, request);
+
+            if (request.Str("grantRoot") is { } root) {
+                var grant = $"Write under {root} for the rest of the session";
+                w.WriteString("grant_root", root);
+                w.WriteString("description", request.Str("reason") is { Length: > 0 } reason ? $"{grant}: {reason}" : grant);
+            } else {
+                Reason(w, request);
+            }
         }));
     }
 
-    static (string, JsonElement) Edit(string path, List<(string Old, string New)> hunks, JsonElement request) {
-        if (hunks.Count <= 1) {
-            var (old, @new) = hunks is [var only] ? only : ("", "");
-            return ("Edit", Json(w => {
+    // A card folds CRLF into LF and drops a missing final newline, so a hunk whose sides read the same there changes
+    // only what its lines cannot show.
+    static bool Shows((string Old, string New) hunk) =>
+        !string.Equals(hunk.Old.Replace("\r\n", "\n"), hunk.New.Replace("\r\n", "\n"), StringComparison.Ordinal);
+
+    static (string, JsonElement) Edit(string path, List<(string Old, string New)> hunks, JsonElement request) =>
+        hunks is [var (old, @new)]
+            ? ("Edit", Json(w => {
                 w.WriteString("file_path", path);
                 w.WriteString("old_string", old);
                 w.WriteString("new_string", @new);
                 Reason(w, request);
+            }))
+            : ("MultiEdit", Json(w => {
+                w.WriteString("file_path", path);
+                w.WriteStartArray("edits");
+                foreach (var (o, n) in hunks) {
+                    w.WriteStartObject();
+                    w.WriteString("old_string", o);
+                    w.WriteString("new_string", n);
+                    w.WriteEndObject();
+                }
+                w.WriteEndArray();
+                Reason(w, request);
             }));
-        }
-
-        return ("MultiEdit", Json(w => {
-            w.WriteString("file_path", path);
-            w.WriteStartArray("edits");
-            foreach (var (old, @new) in hunks) {
-                w.WriteStartObject();
-                w.WriteString("old_string", old);
-                w.WriteString("new_string", @new);
-                w.WriteEndObject();
-            }
-            w.WriteEndArray();
-            Reason(w, request);
-        }));
-    }
 
     /// <summary>Each hunk of a unified diff as the lines it replaces and the lines it leaves. Anything before the
     /// first hunk is a header.</summary>

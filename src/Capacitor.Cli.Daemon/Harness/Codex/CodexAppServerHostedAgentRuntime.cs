@@ -637,17 +637,14 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
     }
 
     /// <summary>A file change's changes arrive on its started item and its patch updates; its approval names none.</summary>
-    static (string ItemId, JsonElement Changes)? FileChange(string method, JsonElement? p) {
-        switch (method) {
-            case "item/fileChange/patchUpdated" when p?.Str("itemId") is { } itemId && p.Value.TryGetProperty("changes", out var changes):
-                return (itemId, changes);
-            case "item/started" when p?.Obj("item") is { } item && item.Str("type") == "fileChange" && item.Str("id") is { } id
-                                  && item.TryGetProperty("changes", out var started):
-                return (id, started);
-            default:
-                return null;
-        }
-    }
+    static (string ItemId, JsonElement Changes)? FileChange(string method, JsonElement? p) => method switch {
+        "item/fileChange/patchUpdated" when p?.Str("itemId") is { } itemId && p.Value.TryGetProperty("changes", out var changes)
+            => (itemId, changes),
+        "item/started" when p?.Obj("item") is { } item && item.Str("type") == "fileChange" && item.Str("id") is { } id
+                         && item.TryGetProperty("changes", out var started)
+            => (id, started),
+        _ => null,
+    };
 
     // Stall watchdog: the forward buffer stayed full of canonical envelopes past the stall timeout
     // (the SignalR leg is wedged). Fault the runtime deterministically rather than wedging the read loop

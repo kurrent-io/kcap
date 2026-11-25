@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Acp;
 using Capacitor.Cli.Daemon.Harness.Codex;
@@ -237,22 +238,58 @@ public class CodexApprovalBridgeTests {
         await Assert.That(Input(shown, "content")).IsEqualTo("hello\nworld\n");
     }
 
-    /// A change one file cannot show — several files, a delete, a rename, a grant beyond its paths, or one whose
-    /// paths are not yet known — is shown as the patch it is, naming every path it touches.
+    static string ShownPaths(AcpInteractionRequest shown) =>
+        string.Join(",", shown.ToolInput!.Value.GetProperty("changes").EnumerateArray().Select(c => c.Str("path")));
+
+    /// A change one file cannot show — several files, a delete, a rename — is shown as the patch it is, naming every
+    /// path it touches.
     [Test]
-    [Arguments("""[{"path":"/wt/a.txt","kind":{"type":"update"},"diff":"@@ -1 +1 @@\n-a\n+b\n"},{"path":"/wt/b.txt","kind":{"type":"add"},"diff":"x"}]""", "", "/wt/a.txt,/wt/b.txt")]
-    [Arguments("""[{"path":"/wt/gone.txt","kind":{"type":"delete"},"diff":"old\n"}]""", "", "/wt/gone.txt")]
-    [Arguments("""[{"path":"/wt/a.txt","kind":{"type":"update","move_path":"/wt/b.txt"},"diff":""}]""", "", "/wt/a.txt")]
-    [Arguments("""[{"path":"/wt/a.txt","kind":{"type":"update"},"diff":"@@ -1 +1 @@\n-a\n+b\n"}]""", ""","grantRoot":"/wt" """, "/wt/a.txt")]
-    [Arguments(null, "", "")]
-    public async Task A_change_one_file_cannot_show_is_shown_as_the_patch(string? changes, string extra, string paths) {
-        var (shown, _) = await Show(FileMethod, $$"""{"threadId":"thread-1","itemId":"fc-1","reason":"Tidy up"{{extra}} }""",
-            bridge => { if (changes is not null) bridge.FileChanges.Observe("fc-1", Changes(changes)); });
+    [Arguments("""[{"path":"/wt/a.txt","kind":{"type":"update"},"diff":"@@ -1 +1 @@\n-a\n+b\n"},{"path":"/wt/b.txt","kind":{"type":"add"},"diff":"x"}]""", "/wt/a.txt,/wt/b.txt")]
+    [Arguments("""[{"path":"/wt/gone.txt","kind":{"type":"delete"},"diff":"old\n"}]""", "/wt/gone.txt")]
+    [Arguments("""[{"path":"/wt/a.txt","kind":{"type":"update","move_path":"/wt/b.txt"},"diff":""}]""", "/wt/a.txt")]
+    public async Task A_change_one_file_cannot_show_is_shown_as_the_patch(string changes, string paths) {
+        var (shown, _) = await Show(FileMethod, """{"threadId":"thread-1","itemId":"fc-1","reason":"Tidy up"}""",
+            bridge => bridge.FileChanges.Observe("fc-1", Changes(changes)));
 
         await Assert.That(shown.ToolName).IsEqualTo("apply_patch");
         await Assert.That(Input(shown, "description")).IsEqualTo("Tidy up");
-        var shownPaths = shown.ToolInput!.Value.GetProperty("changes").EnumerateArray().Select(c => c.Str("path")).ToList();
-        await Assert.That(string.Join(",", shownPaths)).IsEqualTo(paths);
+        await Assert.That(ShownPaths(shown)).IsEqualTo(paths);
+    }
+
+    /// An edit that only drops a final newline or turns CRLF into LF would read as no change in an Edit card, so the
+    /// raw diff goes instead.
+    [Test]
+    [Arguments("@@ -1 +1 @@\n-hello\n\\ No newline at end of file\n+hello\n")]
+    [Arguments("@@ -1,2 +1,2 @@\n-a\r\n+a\n b\n")]
+    public async Task An_edit_its_lines_cannot_show_carries_the_raw_diff(string diff) {
+        var changes = new JsonArray(new JsonObject { ["path"] = "/wt/a.txt", ["kind"] = new JsonObject { ["type"] = "update" }, ["diff"] = diff });
+        var (shown, _) = await Show(FileMethod, """{"threadId":"thread-1","itemId":"fc-1"}""",
+            bridge => bridge.FileChanges.Observe("fc-1", Changes(changes.ToJsonString())));
+
+        await Assert.That(shown.ToolName).IsEqualTo("apply_patch");
+        await Assert.That(shown.ToolInput!.Value.GetProperty("changes")[0].Str("diff")).IsEqualTo(diff);
+    }
+
+    /// A grant root asks for writes under it for the rest of the session, so even a one-file edit names the root.
+    [Test]
+    public async Task A_grant_beyond_the_edit_names_its_root_and_how_long_it_lasts() {
+        var (shown, _) = await Show(FileMethod, """{"threadId":"thread-1","itemId":"fc-1","reason":"Fix the build","grantRoot":"/wt"}""",
+            bridge => bridge.FileChanges.Observe("fc-1", Changes("""[{"path":"/wt/a.txt","kind":{"type":"update"},"diff":"@@ -1 +1 @@\n-a\n+b\n"}]""")));
+
+        await Assert.That(shown.ToolName).IsEqualTo("apply_patch");
+        await Assert.That(Input(shown, "grant_root")).IsEqualTo("/wt");
+        await Assert.That(Input(shown, "description")).IsEqualTo("Write under /wt for the rest of the session: Fix the build");
+        await Assert.That(ShownPaths(shown)).IsEqualTo("/wt/a.txt");
+    }
+
+    /// Until an edit's changes are known the card cannot say what it is; an empty patch would read as no change.
+    [Test]
+    public async Task A_change_whose_files_are_not_yet_known_is_shown_as_it_came() {
+        var (shown, _) = await Show(FileMethod, """{"threadId":"thread-1","itemId":"fc-1","grantRoot":"/wt"}""");
+
+        await Assert.That(shown.ToolName).IsEqualTo("fileChange");
+        await Assert.That(Input(shown, "itemId")).IsEqualTo("fc-1");
+        await Assert.That(Input(shown, "grantRoot")).IsEqualTo("/wt");
     }
 
     // ── Non-approval requests keep the always-decline shapes ─────────────────────────────────────
