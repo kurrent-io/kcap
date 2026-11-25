@@ -1,11 +1,15 @@
 using Markdig;
+using Markdig.Parsers;
 using Markdig.Renderers;
 using Markdig.Syntax;
 
 namespace Capacitor.App.GitHubHtml;
 
 public sealed class GitHubHtmlExtension : IMarkdownExtension {
-    public void Setup(MarkdownPipelineBuilder pipeline) => pipeline.DocumentProcessed += Process;
+    public void Setup(MarkdownPipelineBuilder pipeline) {
+        pipeline.BlockParsers.Replace<HtmlBlockParser>(new GitHubHtmlBlockParser());
+        pipeline.DocumentProcessed += Process;
+    }
 
     public void Setup(MarkdownPipeline pipeline, IMarkdownRenderer renderer) { }
 

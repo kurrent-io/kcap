@@ -10,11 +10,24 @@
         Width="360" Height="300" CanResize="False" CanMinimize="False" CanMaximize="False" WindowStartupLocation="CenterOwner"
         Background="{StaticResource KcapCanvasBrush}"
         ExtendClientAreaToDecorationsHint="True">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <StaticResource x:Key="WordmarkBacking" ResourceKey="OnboardingCanvasBrush" />
+                    <Thickness x:Key="WordmarkInset">12,8</Thickness>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
     <Panel>
     <Border x:Name="AboutChromeStrip" Height="32" VerticalAlignment="Top" Background="Transparent"
             PointerPressed="OnChromePointerPressed" />
     <StackPanel Margin="24,32,24,24" Spacing="10" HorizontalAlignment="Center" VerticalAlignment="Center">
-        <views:ProductWordmark Width="201.4" Height="60" HorizontalAlignment="Center" Margin="0,0,0,6" />
+        <Border HorizontalAlignment="Center" Margin="0,0,0,6" CornerRadius="{StaticResource KcapControlRadius}"
+                Background="{DynamicResource WordmarkBacking}" Padding="{DynamicResource WordmarkInset}">
+            <views:ProductWordmark Width="201.4" Height="60" />
+        </Border>
         <TextBlock x:Name="AboutVersionText"
                    Text="{Binding Source={x:Static svc:AppVersion.Display}, StringFormat='Version {0}'}"
                    Foreground="{StaticResource KcapMutedBrush}" FontSize="{StaticResource KcapFontSizeBody}" HorizontalAlignment="Center" />

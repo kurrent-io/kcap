@@ -1,5 +1,5 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <!-- Setup typography. Colors are declared with the application palette. -->
-    <FontFamily x:Key="OnboardingMonoFont">Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace</FontFamily>
+    <StaticResource x:Key="OnboardingMonoFont" ResourceKey="KcapFontFamilyMono" />
 </ResourceDictionary>

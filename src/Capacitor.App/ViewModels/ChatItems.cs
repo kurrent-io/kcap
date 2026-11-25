@@ -40,6 +40,12 @@ public sealed class UserTurnItem(string text, IReadOnlyList<UserAttachment>? att
 public sealed class AssistantTextItem(string text, ChatTimestamp? time = null) : ChatItemViewModel {
     public string Text { get; } = text;
     public ChatTimestamp? Time { get; } = time;
+
+    /// Whether this is the last assistant message before the next prompt, where the reply's time and Copy sit.
+    public bool EndsReply { get; internal set => this.RaiseAndSetIfChanged(ref field, value); } = true;
+
+    /// Every assistant message of the reply this one ends, in order; only meaningful when it ends one.
+    public string ReplyText { get; internal set => this.RaiseAndSetIfChanged(ref field, value); } = text;
 }
 
 /// The model's reasoning, rendered as collapsible muted Markdown in the assistant column.
@@ -122,6 +128,10 @@ public sealed partial class SystemNoteItem : ChatItemViewModel, IExpandableItem 
         _isExpanded = !IsCollapsible;
         ToggleCommand = ReactiveCommand.Create(Toggle);
     }
+
+    /// Whether the agent answers this note as a turn of its own, as it does a finished background task
+    /// or another agent's message; such a note ends the reply before it.
+    public bool StartsTurn { get; init; }
 
     public string Text { get; }
     public string Label { get; }

@@ -125,9 +125,10 @@ public class UiScaleWindowTests {
     });
 
     /// The zoom scales the show-sidebar button but not the macOS window buttons beside it, so at
-    /// either end of the range it keeps its 100% window centre there, and the header still clears it.
+    /// either end of the range it keeps its 100% window centre there, and the header's title still
+    /// starts below the controls' row.
     [Test]
-    public Task A_zoomed_sidebar_toggle_keeps_clear_of_the_window_buttons_and_the_header_of_the_controls() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task A_zoomed_sidebar_toggle_keeps_clear_of_the_window_buttons_and_the_header_below_the_controls() => AvaloniaSession.RunOnUiAsync(async () => {
         var setting = await NewSetting();
         var window = new MainWindow { ContentScale = setting, Width = 1400, Height = 800 };
         var view = new WorkspaceView();
@@ -145,12 +146,12 @@ public class UiScaleWindowTests {
                 await setting.SetAsync(scale);
                 Dispatcher.UIThread.RunJobs();
                 window.UpdateLayout();
-                var right = window.ForwardButton.TranslatePoint(new Point(window.ForwardButton.Bounds.Width, 0), window)!.Value.X;
+                var bottom = button.TranslatePoint(new Point(0, button.Bounds.Height), window)!.Value.Y;
                 if (OperatingSystem.IsMacOS()) {
                     await Assert.That(Centre().X).IsEqualTo(atDefault.X).Within(0.5);
                     await Assert.That(Centre().Y).IsEqualTo(atDefault.Y).Within(0.5);
                 }
-                await Assert.That(title.TranslatePoint(default, window)!.Value.X).IsGreaterThan(right);
+                await Assert.That(title.TranslatePoint(default, window)!.Value.Y).IsGreaterThan(bottom);
             }
         } finally { window.Close(); }
     });

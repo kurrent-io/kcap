@@ -15,8 +15,8 @@ public static class AntigravityExtension {
         return block;
     }
 
-    /// On an interrupt the projection made from one of Antigravity's interaction tools: the tool's own name.
-    public static Struct Interaction(string nativeName) {
+    /// The tool's own name, on a call the projection translated and on an interrupt it made from an interaction tool.
+    public static Struct Native(string nativeName) {
         var block = new Struct();
         block.Fields[NativeName] = Value.ForString(nativeName);
         return block;

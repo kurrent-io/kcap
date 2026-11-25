@@ -24,12 +24,14 @@ public sealed class ExperimentalSwitch(ExperimentalSettingsStore store, string? 
 
     public bool IsOn {
         get {
-            if (string.IsNullOrEmpty(profile)) return false;
-            var file = new FileInfo(store.Path);
+            if (!feature.AppWide && string.IsNullOrEmpty(profile)) return false;
+            var file = new FileInfo(feature.AppWide ? store.AppWidePath : store.Path);
             var fingerprint = file.Exists ? (true, file.LastWriteTimeUtc, file.Length) : (false, default(DateTime), 0L);
             lock (_lock) {
                 if (fingerprint == _fingerprint) return field;
-                field = store.Load(profile).IsOn(feature);
+                var settings = feature.AppWide ? store.LoadAppWide() : store.Load(profile!);
+                if (!settings.Readable) return _fingerprint is null && feature.AppWide ? feature.OnByDefault : field;
+                field = settings.IsOn(feature);
                 _fingerprint = fingerprint;
                 return field;
             }

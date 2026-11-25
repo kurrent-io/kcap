@@ -90,17 +90,18 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
     void LimitRail() =>
         RailColumn.MaxWidth = PaneLayout.MaxWidth(SessionsSurface.Bounds.Width, PaneLayout.RailMinWidth, Panes.RailRestMinWidth);
 
-    /// How far a header at the content's leading edge pads to clear the window controls; zero while
+    /// How far down from the content pane's top a header pads to clear the window controls; zero while
     /// the rail shows.
-    public double RailLeading => Panes.RailCollapsed ? RailClearance.Leading(_scale) : 0;
+    public double RailClearanceTop => Panes.RailCollapsed ? RailClearance.Top(_scale, _captionTop / _scale) : 0;
 
-    public event EventHandler? RailLeadingChanged;
+    public event EventHandler? RailClearanceChanged;
 
     void ApplyRailClearance() {
         var origin = RailClearance.ButtonOrigin(_scale);
         WindowControls.Margin = new Thickness(origin.X, origin.Y, 0, 0);
-        LauncherHeader.Margin = new Thickness(Math.Max(0, RailLeading - LauncherPane.Margin.Left), 0, 0, 0);
-        RailLeadingChanged?.Invoke(this, EventArgs.Empty);
+        // The launcher's header has nothing at its leading edge, so only what follows it moves down.
+        LauncherHeader.MinHeight = Math.Max(0, RailClearanceTop - LauncherPane.Margin.Top);
+        RailClearanceChanged?.Invoke(this, EventArgs.Empty);
     }
 
     WindowNotificationManager? _notifications;
@@ -486,6 +487,7 @@ public partial class MainWindow : ReactiveWindow<MainWindowViewModel> {
             .Subscribe(margin => {
                 _captionTop = margin.Top;
                 ApplyCaptionInset();
+                ApplyRailClearance();
             });
     }
 

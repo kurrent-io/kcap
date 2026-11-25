@@ -54,16 +54,21 @@
           "toolCalls": [
             {
               "callId": "83c7860728325c36aa44fa5832e14211",
-              "toolName": "run_command",
+              "toolName": "Bash",
               "arguments": {
-                "CommandLine": "make check",
+                "command": "make check",
                 "Cwd": "/work",
                 "WaitMsBeforeAsync": 3000
               },
               "toolKind": "execute"
             }
           ],
-          "timestamp": "2026-11-15T09:00:01.000000200Z"
+          "timestamp": "2026-11-15T09:00:01.000000200Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "run_command"
+            }
+          }
         }
       },
       {
@@ -76,14 +81,19 @@
           "toolCalls": [
             {
               "callId": "1591c1222f2314bdee198461f58fe23c",
-              "toolName": "view_file",
+              "toolName": "Read",
               "arguments": {
-                "AbsolutePath": "/work/NOTES.md"
+                "file_path": "/work/NOTES.md"
               },
               "toolKind": "read"
             }
           ],
-          "timestamp": "2026-11-15T09:00:01.000000300Z"
+          "timestamp": "2026-11-15T09:00:01.000000300Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "view_file"
+            }
+          }
         }
       }
     ]
@@ -101,7 +111,7 @@
         "recordTimestamp": "2026-11-15T09:00:02Z",
         "payload": {
           "callId": "83c7860728325c36aa44fa5832e14211",
-          "result": "\n\t\t\t\tThe command failed with exit code: 1\n\t\t\t\tOutput:\n\t\t\t\tFAIL lint\n",
+          "result": "\t\t\t\tThe command failed with exit code: 1\n\t\t\t\tOutput:\n\t\t\t\tFAIL lint\n",
           "timestamp": "2026-11-15T09:00:02Z",
           "extensions": {
             "antigravity": {
@@ -152,14 +162,19 @@
           "toolCalls": [
             {
               "callId": "57deb1b082757fc17941602b53f8c825",
-              "toolName": "view_file",
+              "toolName": "Read",
               "arguments": {
-                "AbsolutePath": "/work/CHANGELOG.md"
+                "file_path": "/work/CHANGELOG.md"
               },
               "toolKind": "read"
             }
           ],
-          "timestamp": "2026-11-15T09:00:04Z"
+          "timestamp": "2026-11-15T09:00:04Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "view_file"
+            }
+          }
         }
       },
       {
@@ -263,14 +278,19 @@
           "toolCalls": [
             {
               "callId": "57deb1b082757fc17941602b53f8c825",
-              "toolName": "view_file",
+              "toolName": "Read",
               "arguments": {
-                "AbsolutePath": "/work/CHANGELOG.md"
+                "file_path": "/work/CHANGELOG.md"
               },
               "toolKind": "read"
             }
           ],
-          "timestamp": "2026-11-15T09:00:04Z"
+          "timestamp": "2026-11-15T09:00:04Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "view_file"
+            }
+          }
         }
       },
       {

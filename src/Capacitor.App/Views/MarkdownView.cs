@@ -40,6 +40,14 @@ public sealed class MarkdownView : ContentControl {
     public static readonly StyledProperty<MarkdownFlavor> FlavorProperty =
         AvaloniaProperty.Register<MarkdownView, MarkdownFlavor>(nameof(Flavor));
 
+    public static readonly StyledProperty<bool> UseMonospaceReadingProperty =
+        AvaloniaProperty.Register<MarkdownView, bool>(nameof(UseMonospaceReading));
+
+    public bool UseMonospaceReading {
+        get => GetValue(UseMonospaceReadingProperty);
+        set => SetValue(UseMonospaceReadingProperty, value);
+    }
+
     /// The repository a GitHub-flavoured body belongs to, as its `https://host/owner/repo` URL: its
     /// references in text link into it. Unset, they stay text.
     public static readonly StyledProperty<string?> ReferenceBaseProperty =
@@ -92,6 +100,8 @@ public sealed class MarkdownView : ContentControl {
     IDisposable? _basisWatch;
 
     static MarkdownView() {
+        UseMonospaceReadingProperty.Changed.AddClassHandler<MarkdownView>((view, change) =>
+            view.Classes.Set("monospaceReading", change.NewValue is true));
         TextProperty.Changed.AddClassHandler<MarkdownView>((view, _) => {
             view._details.Clear();
             view._mermaidSources.Clear();

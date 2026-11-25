@@ -312,7 +312,7 @@ Description: **before writing it, open [.github/PULL_REQUEST_TEMPLATE.md](.githu
 
 **One type per file, named after the type.** Several types in one file is discouraged, whatever the neighbouring files do — and plenty here do. Three exceptions: an enum plus its extension methods; a closely-related hierarchy (an interface plus many small implementations); a registry of descriptors. The last two are rare — reach for them when splitting would leave files that only make sense read together, not to save a file.
 
-**Desktop app UI** lives under `src/Capacitor.App/`. Palette and control classes are in `App.axaml`.
+**Desktop app UI** lives under `src/Capacitor.App/`. Shared tokens and control styles live under `Design/` and are loaded by `App.axaml`.
 
 - Icons: use Lucide through `Views/AppIcon.cs`, with named `LucideIconKind` mappings.
   Reuse `ToolCategoryIcons` for system/chat headings. No custom UI icon paths, copied SVG

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks that desktop-app font sizes come from the type scale in App.axaml.
+"""Checks that desktop-app font sizes come from the desktop type scale.
 
   python3 tools/ui-audit/type_scale.py          report literal FontSize values in AXAML and C#
   python3 tools/ui-audit/type_scale.py --fix    move literals onto the nearest scale step

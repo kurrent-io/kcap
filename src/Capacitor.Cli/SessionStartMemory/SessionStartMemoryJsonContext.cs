@@ -47,4 +47,7 @@ internal sealed record CopilotMemoryEnvelope([property: JsonPropertyName("additi
 internal sealed record GeminiMemoryEnvelope([property: JsonPropertyName("hookSpecificOutput")] HookMemoryOutput? HookSpecificOutput = null);
 
 internal sealed record AntigravityMemoryEnvelope([property: JsonPropertyName("injectSteps")] AntigravityMemoryStep[]? InjectSteps = null);
-internal sealed record AntigravityMemoryStep([property: JsonPropertyName("userMessage")] string UserMessage);
+/// <summary>A <c>systemMessage</c> step: agy keeps it across turns and never draws it as a user turn,
+/// which is what a <c>userMessage</c> step does.</summary>
+internal sealed record AntigravityMemoryStep([property: JsonPropertyName("systemMessage")] AntigravitySystemMessage SystemMessage);
+internal sealed record AntigravitySystemMessage([property: JsonPropertyName("systemMessage")] string Text);

@@ -439,4 +439,44 @@
     <Style Selector="TabControl.settingsSidebar RadioButton.onboardingOption /template/ Ellipse#Dot">
         <Setter Property="Fill" Value="{StaticResource KcapInfoBrush}" />
     </Style>
+    <Style Selector="ListBox.appearancePicker">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="ItemsPanel">
+            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="ListBox.appearancePicker ListBoxItem">
+        <Setter Property="FocusAdorner" Value="{x:Null}" />
+        <Setter Property="Width" Value="114" />
+        <Setter Property="Margin" Value="2,2" />
+        <Setter Property="Padding" Value="3" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="Tile" BorderThickness="2" CornerRadius="12" Padding="{TemplateBinding Padding}" Background="Transparent">
+                    <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="ListBox.appearancePicker TextBlock.appearanceCaption">
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
+    </Style>
+    <Style Selector="ListBox.appearancePicker ListBoxItem:pointerover Border.appearanceFrame">
+        <Setter Property="BorderBrush" Value="{StaticResource KcapChoiceBorderBrush}" />
+    </Style>
+    <Style Selector="ListBox.appearancePicker ListBoxItem:selected Border.appearanceFrame">
+        <Setter Property="BorderBrush" Value="{StaticResource KcapInfoBrush}" />
+    </Style>
+    <Style Selector="ListBox.appearancePicker ListBoxItem:selected TextBlock.appearanceCaption">
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+    <Style Selector="ListBox.appearancePicker ListBoxItem:focus-visible /template/ Border#Tile">
+        <Setter Property="BorderBrush" Value="{StaticResource KcapTextBrush}" />
+    </Style>
 </Styles>

@@ -28,8 +28,8 @@ internal interface IAgyTurnDiagnostics {
 /// <see cref="IHostedAgentRuntimeFactory"/> for Antigravity's CLI (<c>agy</c>), as an unattended
 /// review-flow reviewer and an interactive hosted agent, over the exec-per-turn
 /// <see cref="AntigravityHostedAgentRuntime"/>.
-/// <para>The two shapes differ only in <c>--dangerously-skip-permissions</c> (hosted) and the injected
-/// MCP surface (review). Both run under an isolated <c>HOME</c>: under the operator's home the hook
+/// <para>The two shapes differ only in <c>--dangerously-skip-permissions</c> (hosted) and the home's
+/// settings and injected MCP surface (review). Both run under an isolated <c>HOME</c>: under the operator's home the hook
 /// lane would capture the session a second time. A PR review (<c>ctx.IsReview</c>) is refused.</para>
 /// <para><see cref="StartAsync"/> does not return until turn 1's <c>init</c> has resolved the
 /// conversation id, because the orchestrator reads <c>transcript.AcpSessionId</c> as soon as a launch
@@ -502,12 +502,14 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
     /// <para>It is never given the prompt: any local user can read a command line, so the prompt is the
     /// one stream-json line <see cref="AgyTurnProcess"/> writes to stdin. <c>-p</c> still takes a value,
     /// which agy accepts empty only alongside <c>--input-format</c>.</para>
-    /// <para><c>--dangerously-skip-permissions</c> is hosted-only. Without it agy soft-denies shell and
-    /// out-of-workspace operations while still exiting 0, so a hosted agent just looks broken. The flag is
-    /// also the read boundary: with it, agy reads files outside the worktree.</para>
+    /// <para><c>--dangerously-skip-permissions</c> is hosted-only. A hosted run starts in agy's Auto
+    /// mode, where a separate model reviews any command that would leave agy's terminal sandbox, and a
+    /// refusal it cannot put to a human ends the turn. Without Auto (Windows builds that lack it fall
+    /// back to Default) every edit and command is refused. The flag approves everything but agy's system
+    /// command denylist. Neither mode confines reads or new files to the worktree.</para>
     /// <para>Claude's split runs the other way (bypass for its reviewer, which writes into a throwaway
-    /// worktree), but an agy reviewer only needs to read, and agy's headless soft-deny is the right
-    /// unattended posture. Do not move the flag to the reviewer arm.</para>
+    /// worktree), but an agy reviewer only needs to read: it runs in Default mode, pinned by its home's
+    /// settings (<see cref="AntigravityReviewerHome"/>). Do not move the flag to the reviewer arm.</para>
     /// <para>No <c>--sandbox</c> on either arm (unprobed). <c>--print-timeout</c> is always passed so a
     /// vendor default change cannot move the bound.</para>
     /// </summary>

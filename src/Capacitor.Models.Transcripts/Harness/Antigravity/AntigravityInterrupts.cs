@@ -52,7 +52,7 @@ static class AntigravityInterrupts {
             Timestamp = Timestamp.FromDateTimeOffset(at),
         };
         issued.Extensions[ClaudeCodeSlug]            = Block("elicitation", elicitation);
-        issued.Extensions[AntigravityExtension.Slug] = AntigravityExtension.Interaction(AskQuestion);
+        issued.Extensions[AntigravityExtension.Slug] = AntigravityExtension.Native(AskQuestion);
         return issued;
     }
 
@@ -76,7 +76,7 @@ static class AntigravityInterrupts {
             Timestamp = Timestamp.FromDateTimeOffset(at),
         };
         issued.Extensions[ClaudeCodeSlug]            = Block("permission", permission);
-        issued.Extensions[AntigravityExtension.Slug] = AntigravityExtension.Interaction(AskPermission);
+        issued.Extensions[AntigravityExtension.Slug] = AntigravityExtension.Native(AskPermission);
         return issued;
     }
 

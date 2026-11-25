@@ -1,0 +1,273 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:Capacitor.App.Views">
+    <Style Selector="TextBox">
+        <Setter Property="ContextFlyout" Value="{x:Static views:TextContextMenu.ForTextBox}" />
+        <Setter Property="PlaceholderForeground" Value="{StaticResource KcapPlaceholderBrush}" />
+    </Style>
+    <Style Selector="SelectableTextBlock[IsEnabled=True]">
+        <Setter Property="ContextFlyout" Value="{x:Static views:TextContextMenu.ForSelectableTextBlock}" />
+    </Style>
+    <Style Selector="TextBox.kcapEmbedded">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        <Setter Property="CaretBrush" Value="{StaticResource KcapTextBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="PlaceholderForeground" Value="{StaticResource KcapPlaceholderBrush}" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeLarge}" />
+        <Setter Property="LineHeight" Value="24" />
+        <Setter Property="LetterSpacing" Value="0.2" />
+    </Style>
+    <Style Selector="TextBox.kcapEmbedded /template/ Border#PART_BorderElement,
+                     TextBox.kcapEmbedded:focus /template/ Border#PART_BorderElement,
+                     TextBox.kcapEmbedded:pointerover /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="TextBox.kcapField">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        <Setter Property="CaretBrush" Value="{StaticResource KcapTextBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapFieldBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
+        <Setter Property="Padding" Value="12,9" />
+        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
+        <Setter Property="LetterSpacing" Value="0.1" />
+        <Setter Property="PlaceholderForeground" Value="{StaticResource KcapPlaceholderBrush}" />
+    </Style>
+    <Style Selector="TextBox.kcapField /template/ Border#PART_BorderElement,
+                     TextBox.kcapField:focus /template/ Border#PART_BorderElement,
+                     TextBox.kcapField:pointerover /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapFieldBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
+    </Style>
+    <Style Selector="TextBox.kcapField:focus /template/ Border#PART_BorderElement">
+        <Setter Property="BorderBrush" Value="{StaticResource KcapInfoBrush}" />
+    </Style>
+    <Style Selector="Button.kcapField">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapFieldBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="7" />
+        <Setter Property="Padding" Value="11,7" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.kcapField /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapFieldBorderBrush}" />
+    </Style>
+    <Style Selector="Button.kcapField:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.kcapField:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapMutedBrush}" />
+    </Style>
+    <Style Selector="Button.kcapField.kcapLauncher">
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+    </Style>
+    <Style Selector="Button.kcapField.kcapLauncher /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+    </Style>
+    <Style Selector="Button.kcapField.kcapLauncher:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                     Button.kcapField.kcapLauncher:pressed /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+    </Style>
+    <Style Selector="NumericUpDown.kcapField">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapFieldBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
+        <Setter Property="Padding" Value="12,9" />
+        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
+        <Setter Property="ShowButtonSpinner" Value="False" />
+        <Setter Property="PlaceholderForeground" Value="{StaticResource KcapPlaceholderBrush}" />
+    </Style>
+    <Style Selector="NumericUpDown.kcapField /template/ TextBox#PART_TextBox:focus /template/ Border#PART_BorderElement,
+                     NumericUpDown.kcapField /template/ TextBox#PART_TextBox:pointerover /template/ Border#PART_BorderElement">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="ComboBox.kcapField">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapFieldBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
+        <Setter Property="Padding" Value="12,9" />
+        <Setter Property="MinHeight" Value="36" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
+        <Setter Property="MaxDropDownHeight" Value="280" />
+    </Style>
+    <Style Selector="ComboBox.kcapField /template/ Border#Background,
+                     ComboBox.kcapField:pointerover /template/ Border#Background,
+                     ComboBox.kcapField:pressed /template/ Border#Background,
+                     ComboBox.kcapField:focus /template/ Border#Background">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapFieldBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
+    </Style>
+    <Style Selector="ComboBox.kcapField /template/ Border#HighlightBackground">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+    </Style>
+    <Style Selector="ComboBox.kcapField /template/ Border#PopupBorder">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
+        <Setter Property="Padding" Value="4" />
+    </Style>
+    <Style Selector="ComboBox.kcapField /template/ PathIcon#DropDownGlyph">
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+    </Style>
+    <Style Selector="ComboBox.kcapField ComboBoxItem">
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="10,6" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+    <Style Selector="ComboBox.kcapField ComboBoxItem /template/ ContentPresenter,
+                     ComboBox.kcapField ComboBoxItem:pointerover /template/ ContentPresenter,
+                     ComboBox.kcapField ComboBoxItem:pressed /template/ ContentPresenter,
+                     ComboBox.kcapField ComboBoxItem:selected /template/ ContentPresenter,
+                     ComboBox.kcapField ComboBoxItem:selected:pointerover /template/ ContentPresenter">
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+    <Style Selector="ComboBox.kcapField ComboBoxItem /template/ ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="CornerRadius" Value="6" />
+    </Style>
+    <Style Selector="ComboBox.kcapField ComboBoxItem:pointerover /template/ ContentPresenter,
+                     ComboBox.kcapField ComboBoxItem:selected:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+    </Style>
+    <Style Selector="ComboBox.kcapField ComboBoxItem:selected /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
+    </Style>
+    <Style Selector="TabControl.kcapSettingsTabs">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+    </Style>
+    <Style Selector="TabItem.kcapSettingsTab">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Padding" Value="10,8" />
+    </Style>
+    <Style Selector="TabItem.kcapSettingsTab /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
+    </Style>
+    <Style Selector="TabItem.kcapSettingsTab:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+    <Style Selector="TabItem.kcapSettingsTab:selected /template/ ContentPresenter#PART_ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapInfoBrush}" />
+    </Style>
+    <Style Selector="TabItem.kcapSettingsTab:selected /template/ Border#PART_SelectedPipe">
+        <Setter Property="Background" Value="{StaticResource KcapInfoBrush}" />
+    </Style>
+    <Style Selector="ToggleSwitch.kcapSwitch">
+        <Setter Property="Width" Value="44" />
+        <Setter Property="Height" Value="26" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Template">
+            <ControlTemplate TargetType="ToggleSwitch">
+                <Grid Width="44" Height="24" VerticalAlignment="Center"
+                      Background="{TemplateBinding Background}"
+                      TemplatedControl.IsTemplateFocusTarget="True">
+                    <Border Name="SwitchTrack" CornerRadius="12"
+                            Background="{StaticResource KcapSurfaceRaisedBrush}"
+                            BorderBrush="{StaticResource KcapFieldBorderBrush}" BorderThickness="1" />
+                    <Canvas Name="PART_SwitchKnob" Width="22" Height="24" HorizontalAlignment="Left">
+                        <Grid Name="PART_MovingKnobs" Width="22" Height="24">
+                            <Border Name="SwitchThumb" Width="18" Height="18"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center" CornerRadius="9"
+                                    Background="{StaticResource KcapMutedBrush}" />
+                        </Grid>
+                    </Canvas>
+                </Grid>
+            </ControlTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="ToggleSwitch.kcapSwitch:pointerover /template/ Border#SwitchTrack">
+        <Setter Property="BorderBrush" Value="{StaticResource KcapMutedBrush}" />
+    </Style>
+    <Style Selector="ToggleSwitch.kcapSwitch:focus-visible /template/ Border#SwitchTrack">
+        <Setter Property="BorderBrush" Value="{StaticResource KcapTextBrush}" />
+        <Setter Property="BorderThickness" Value="2" />
+    </Style>
+    <Style Selector="ToggleSwitch.kcapSwitch:checked /template/ Border#SwitchTrack">
+        <Setter Property="Background" Value="{StaticResource KcapInfoDimBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapInfoBrush}" />
+    </Style>
+    <Style Selector="ToggleSwitch.kcapSwitch:checked /template/ Border#SwitchThumb">
+        <Setter Property="Background" Value="{StaticResource KcapInfoBrush}" />
+    </Style>
+    <Style Selector="ToggleSwitch.kcapSwitch:disabled">
+        <Setter Property="Opacity" Value="{StaticResource KcapDisabledOpacity}" />
+    </Style>
+    <Style Selector="RadioButton /template/ Ellipse#OuterEllipse">
+        <Setter Property="Stroke" Value="{StaticResource KcapChoiceBorderBrush}" />
+        <Setter Property="Fill" Value="Transparent" />
+    </Style>
+    <Style Selector="RadioButton /template/ Ellipse#CheckOuterEllipse,
+                     RadioButton:pointerover /template/ Ellipse#CheckOuterEllipse,
+                     RadioButton:pressed /template/ Ellipse#CheckOuterEllipse,
+                     RadioButton:checked /template/ Ellipse#CheckOuterEllipse,
+                     RadioButton:checked:pointerover /template/ Ellipse#CheckOuterEllipse">
+        <Setter Property="Fill" Value="{StaticResource KcapPrimaryBrush}" />
+        <Setter Property="Stroke" Value="{StaticResource KcapPrimaryBrush}" />
+    </Style>
+    <Style Selector="RadioButton /template/ Ellipse#CheckGlyph,
+                     RadioButton:pointerover /template/ Ellipse#CheckGlyph,
+                     RadioButton:pressed /template/ Ellipse#CheckGlyph,
+                     RadioButton:checked /template/ Ellipse#CheckGlyph">
+        <Setter Property="Fill" Value="{StaticResource KcapOnPrimaryBrush}" />
+        <Setter Property="Stroke" Value="{StaticResource KcapOnPrimaryBrush}" />
+    </Style>
+    <Style Selector="CheckBox /template/ Border#NormalRectangle">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapChoiceBorderBrush}" />
+        <Setter Property="CornerRadius" Value="4" />
+    </Style>
+    <Style Selector="CheckBox:pointerover /template/ Border#NormalRectangle">
+        <Setter Property="BorderBrush" Value="{StaticResource KcapMutedBrush}" />
+    </Style>
+    <Style Selector="CheckBox:checked /template/ Border#NormalRectangle,
+                     CheckBox:checked:pointerover /template/ Border#NormalRectangle,
+                     CheckBox:checked:pressed /template/ Border#NormalRectangle,
+                     CheckBox:indeterminate /template/ Border#NormalRectangle,
+                     CheckBox:indeterminate:pointerover /template/ Border#NormalRectangle,
+                     CheckBox:indeterminate:pressed /template/ Border#NormalRectangle">
+        <Setter Property="Background" Value="{StaticResource KcapPrimaryBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapPrimaryBrush}" />
+    </Style>
+    <Style Selector="CheckBox:checked /template/ Path#CheckGlyph,
+                     CheckBox:checked:pointerover /template/ Path#CheckGlyph,
+                     CheckBox:checked:pressed /template/ Path#CheckGlyph,
+                     CheckBox:indeterminate /template/ Path#CheckGlyph,
+                     CheckBox:indeterminate:pointerover /template/ Path#CheckGlyph,
+                     CheckBox:indeterminate:pressed /template/ Path#CheckGlyph">
+        <Setter Property="Fill" Value="{StaticResource KcapOnPrimaryBrush}" />
+    </Style>
+    <Style Selector="ListBox.kcapList">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource KcapControlRadius}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+</Styles>

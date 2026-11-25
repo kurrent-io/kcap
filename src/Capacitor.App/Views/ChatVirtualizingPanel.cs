@@ -32,6 +32,9 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     double[] _starts = [0];
     Rect _viewport;
     double _lastWidth = double.NaN;
+    int _lastReadingLayout;
+    bool _resetReadingMeasurements;
+    internal bool ReadingLayoutAnchorPending { get; private set; }
     int _first = -1;
     int _last = -1;
     ChatTopicRailLayer? _rails;
@@ -50,7 +53,21 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     public static readonly StyledProperty<double> LaneWidthProperty =
         AvaloniaProperty.Register<ChatVirtualizingPanel, double>(nameof(LaneWidth), double.PositiveInfinity);
 
-    static ChatVirtualizingPanel() => AffectsMeasure<ChatVirtualizingPanel>(LaneWidthProperty);
+    public static readonly StyledProperty<int> ReadingLayoutProperty =
+        AvaloniaProperty.Register<ChatVirtualizingPanel, int>(nameof(ReadingLayout));
+
+    static ChatVirtualizingPanel() => AffectsMeasure<ChatVirtualizingPanel>(LaneWidthProperty, ReadingLayoutProperty);
+
+    public int ReadingLayout {
+        get => GetValue(ReadingLayoutProperty);
+        set => SetValue(ReadingLayoutProperty, value);
+    }
+
+    internal void InvalidateReadingMeasurements() {
+        if (ReadingLayout == 0) return;
+        _resetReadingMeasurements = true;
+        InvalidateMeasure();
+    }
 
     /// How wide the agent's rows may be.
     public double LaneWidth {
@@ -110,8 +127,17 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         var view = this.FindAncestorOfType<ChatTabView>();
         MeasuredAtEstimatedEnd = scroll is not null && scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - 2;
         EnsureRailLayer();
-        if (Items.Count == 0) { _first = _last = -1; return default; }
+        var readingLayout = ReadingLayout;
+        var reset = readingLayout != _lastReadingLayout || _resetReadingMeasurements;
+        _lastReadingLayout = readingLayout;
+        _resetReadingMeasurements = false;
+        if (Items.Count == 0) {
+            if (reset) _measured.Clear();
+            _first = _last = -1;
+            return default;
+        }
         if (_starts.Length != Items.Count + 1) RebuildStarts();
+        if (reset) ResetHeights(view, scroll);
         var anchor = IndexAt(Math.Max(0, _viewport.Top));
         var buffered = _first >= 0 && _last < Items.Count
             && Math.Max(0, _viewport.Top) >= _starts[_first]
@@ -120,7 +146,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         var end = Math.Max(_viewport.Bottom, _viewport.Top + 1);
         var focused = TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() as Visual;
         var scrollAnchor = this.FindAncestorOfType<IScrollAnchorProvider>()?.CurrentAnchor;
-        if (availableSize.Width != _lastWidth && scrollAnchor is not null && scroll is not null)
+        if (!reset && availableSize.Width != _lastWidth && scrollAnchor is not null && scroll is not null)
             PreserveResizeAnchor(scroll, scrollAnchor);
         _lastWidth = availableSize.Width;
         var overscan = view?.IsSmoothScrolling == true ? KeepAliveOverscan : 0;
@@ -168,6 +194,24 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         return new Size(width, _starts[^1]);
     }
 
+    void ResetHeights(ChatTabView? view, ScrollViewer? scroll) {
+        var reading = IndexAt(Math.Max(0, _viewport.Top));
+        var within = Math.Max(0, _viewport.Top - _starts[reading]);
+        var item = Items[reading];
+        var pending = _insertAnchor;
+        _measured.Clear();
+        RebuildStarts();
+        _first = _last = -1;
+        if (scroll is null || item is null || view?.ShouldAnchorReadingLayout != true && pending is null) return;
+
+        var inset = pending?.Inset ?? scroll.Offset.Y - _viewport.Top;
+        _insertAnchor = pending ?? (item, within, inset, scroll.Offset.Y);
+        ReadingLayoutAnchorPending = true;
+        var top = _starts[reading] + Math.Min(within, EstimatedHeight - 1);
+        _shiftInFlight += top - _viewport.Top;
+        _viewport = new Rect(_viewport.X, top, _viewport.Width, _viewport.Height);
+    }
+
     void PreserveResizeAnchor(ScrollViewer scroll, Control anchor) {
         var view = this.FindAncestorOfType<ChatTabView>();
         if (view?.CanPreserveReadingPosition != true || anchor.TranslatePoint(default, scroll) is not { } before) return;
@@ -202,8 +246,12 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
                 var index = -1;
                 for (var i = 0; i < Items.Count && index < 0; i++)
                     if (ReferenceEquals(Items[i], item)) index = i;
-                if (index < 0 || _starts.Length != Items.Count + 1) return;
-                scroll.Offset = new Vector(scroll.Offset.X, _starts[index] + within + inset + moved);
+                if (index >= 0 && _starts.Length == Items.Count + 1) {
+                    if (ReadingLayoutAnchorPending)
+                        within = Math.Min(within, Math.Max(0, _starts[index + 1] - _starts[index] - 1));
+                    scroll.Offset = new Vector(scroll.Offset.X, _starts[index] + within + inset + moved);
+                }
+                ReadingLayoutAnchorPending = false;
             }
             scroll.LayoutUpdated += Apply;
         }
@@ -228,9 +276,8 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
     }
 
     internal void DrawRails(DrawingContext context, ChatTopicItem? hovered) {
-        var info  = Brush("KcapTopicBrush");
-        var rest  = new Pen(new SolidColorBrush((info as ISolidColorBrush)?.Color ?? Colors.Gray, 0.55), 1.5);
-        var hover = new Pen(info, 2.5);
+        var rest = new Pen(Brush("KcapTopicRailBrush"), 1.5);
+        var hover = new Pen(Brush("KcapTopicBrush"), 2.5);
         Pen PenFor(ChatTopicItem topic) => ReferenceEquals(topic, hovered) ? hover : rest;
 
         foreach (var (index, row) in _realized) {
@@ -366,6 +413,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         // correction lands the viewport has moved and the offset has not, so the offset is set outright.
         var pending = _insertAnchor;
         _insertAnchor = null;
+        ReadingLayoutAnchorPending = false;
         _shiftInFlight = 0;
         if (_starts.Length != Items.Count + 1) RebuildStarts();
         var row = Realize(index);
