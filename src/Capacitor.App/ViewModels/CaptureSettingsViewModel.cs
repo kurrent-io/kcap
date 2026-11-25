@@ -210,7 +210,9 @@ public sealed class CaptureSettingsViewModel : ReactiveObject, IDisposable {
             Saved = true;
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
-            Message = $"Could not save capture settings: {ex.Message}";
+            Console.Error.WriteLine($"kcap: could not save capture settings: {ex.Message}");
+            Message = ex is InvalidOperationException { Message: SettingsProfileStore.ProfileChangedMessage }
+                ? SettingsProfileStore.ProfileChangedMessage : "Could not save capture settings. Try again.";
         } finally { Busy = false; }
     }
 

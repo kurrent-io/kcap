@@ -19,7 +19,6 @@ namespace Capacitor.App.ViewModels;
 public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
     internal const string BusyDetail    = "Another local operation is running. The update retries when the server is available.";
     internal const string StartGuidance = "Saved data is kept. Start the server to finish the update.";
-    const int StartMessageTailLines     = 12;
 
     static readonly string[] Derived = [
         nameof(Version), nameof(StateText), nameof(Attention), nameof(Upgrading), nameof(BannerVisible), nameof(Headline),
@@ -190,7 +189,7 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
         : Waiting ? BusyDetail
         : _shown switch {
             LocalUpgradeOutcome.Upgraded => "The search model could not be updated. Search works by keyword. Open Settings → Search to retry.",
-            LocalUpgradeOutcome.Failed f => TerminalAdvice.Strip(f.Message) ?? "The update stopped before it finished.",
+            LocalUpgradeOutcome.Failed f => LocalFailureText.For(f.Code, "The local server update stopped before it finished."),
             LocalUpgradeOutcome.NotPublished when Progress.From is { } from => $"The local server stays at {from}.",
             LocalUpgradeOutcome.NotPublished => "Try again later.",
             _ => null,
@@ -284,7 +283,8 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
             } catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
                 return;
             } catch (Exception ex) {
-                StartMessage = ex.Message;
+                Console.Error.WriteLine($"kcap: could not start the local server: {ex.Message}");
+                StartMessage = "Could not start the local server. Try again.";
                 return;
             }
 
@@ -305,11 +305,7 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
                 return;
             }
 
-            var tail = string.Join("\n", (result.Stdout + "\n" + result.Stderr)
-                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .TakeLast(StartMessageTailLines));
-            StartMessage = TerminalAdvice.Strip(tail)
-                ?? (result.TimedOut ? "The local server did not start in time." : $"The local server did not start (exit {result.ExitCode}).");
+            StartMessage = LocalServerRecoveryViewModel.StartFailureText(result);
         } finally {
             Volatile.Write(ref _starting, 0);
         }

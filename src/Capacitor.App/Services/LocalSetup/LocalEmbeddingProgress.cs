@@ -73,7 +73,9 @@ public sealed class LocalEmbeddingProgress(LocalEmbeddingChoice? asked = null) :
             null                                 => null,
             "declined"                           => KeywordAsChosen,
             _ when asked is { ByMeaning: false } => KeywordAsChosen,
-            _                                    => TerminalAdvice.Strip(SkipMessage) ?? "Search by keyword.",
+            "ollama_not_found"                    => "kcap couldn’t reach Ollama. Open Search settings to check your model or choose another one.",
+            "pull_failed" or "model_download_failed" => "The search model couldn’t be downloaded. Open Search settings to try again.",
+            _                                     => "Search settings couldn’t be updated. Open Search settings to try again.",
         };
 
     public string? ReembedNote => ConfiguredModel switch {
@@ -156,6 +158,7 @@ public sealed class LocalEmbeddingProgress(LocalEmbeddingChoice? asked = null) :
                 break;
             case "embeddings_skipped":
                 SkipMessage = root.Str("message");
+                Console.Error.WriteLine($"kcap: search model setup skipped: {SkipMessage}");
                 SkipCode    = root.Str("code") ?? "unknown";
                 End(RowState.Skipped);
                 break;

@@ -157,7 +157,8 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
             await _settings.SaveAutoResumeAsync(value, CancellationToken.None);
             message = value == Volatile.Read(ref _autoResume) ? "Saved. The daemon reads this when it starts." : null;
         } catch (Exception ex) {
-            message = $"Could not save the setting: {ex.Message}";
+            Console.Error.WriteLine($"kcap: could not save auto-resume: {ex.Message}");
+            message = "Could not save the setting. Try again.";
         } finally {
             _autoResumeSaves.Release();
         }
@@ -366,7 +367,8 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
             if (outcome is MutationOutcome.Succeeded or MutationOutcome.SucceededAfterTimeout) WindowsServiceOffered = false;
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
-            WindowsServiceMessage = $"Could not install the Windows service: {ex.Message}";
+            Console.Error.WriteLine($"kcap: could not install the Windows service: {ex.Message}");
+            WindowsServiceMessage = "Could not install the Windows service. Try again.";
         } finally { IsBusy = false; }
     }
 
@@ -385,15 +387,20 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
             } else {
                 try {
                     var ack = await _ops.PutDaemonSettingsAsync(new DaemonSettingsPutDto(capacity), _lifetime.Token);
-                    Message = ack.Ok && ack.MaxAgents == capacity ? "Saved and applied to the running daemon."
-                        : $"Saved. The daemon did not apply the capacity ({ack.Reason ?? "unexpected reply"}).";
+                    Message = ack switch {
+                        { Ok: true } when ack.MaxAgents == capacity => "Saved and applied to the running daemon.",
+                        { Reason: DaemonSettingsReasons.InvalidMaxAgents } => "Saved, but the running daemon rejected this capacity. Choose another value and save again.",
+                        _ => "Saved. The running daemon did not apply the capacity. Restart the daemon to apply it.",
+                    };
                 } catch (Exception ex) when (ex is not OperationCanceledException || !_lifetime.IsCancellationRequested) {
                     Message = "Saved, but could not reach the daemon. The capacity will apply when it restarts.";
                 }
             }
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
-            Message = $"Could not save settings: {ex.Message}";
+            Console.Error.WriteLine($"kcap: could not save daemon settings: {ex.Message}");
+            Message = ex is InvalidOperationException { Message: SettingsProfileStore.ProfileChangedMessage }
+                ? SettingsProfileStore.ProfileChangedMessage : "Could not save settings. Try again.";
         } finally { IsBusy = false; }
     }
 
@@ -450,7 +457,8 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
             if (await _relaunch(_lifetime.Token)) Message = "Daemon renamed. Relaunching the app…";
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
-            Message = $"Could not finish renaming: {ex.Message} Restart the app to reload the saved settings.";
+            Console.Error.WriteLine($"kcap: could not finish renaming the daemon: {ex.Message}");
+            Message = "Could not finish renaming. Restart the app to reload the saved settings.";
         } finally { IsBusy = false; }
     }
 

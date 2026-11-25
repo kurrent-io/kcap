@@ -41,7 +41,7 @@ public class UninstallRunViewModelTests {
         var calls   = new List<string>();
         var cli     = new FakeKcapCli { UninstallBehavior = _ => Task.FromResult(Exit(0)) };
         var removal = new FakeRemoval(calls);
-        var vm      = new UninstallRunViewModel(cli, removal, purgeLocal, () => calls.Add("quit"), action => action());
+        var vm      = new UninstallRunViewModel(cli, removal, purgeLocal, () => calls.Add("quit"));
         return (vm, cli, removal, calls);
     }
 
@@ -50,7 +50,7 @@ public class UninstallRunViewModelTests {
         var calls = new List<string>();
         var prepared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var cli = new FakeKcapCli { UninstallBehavior = _ => { calls.Add("cli"); return Task.FromResult(Exit(1)); } };
-        var vm = new UninstallRunViewModel(cli, new FakeRemoval(calls), false, () => calls.Add("quit"), action => action(),
+        var vm = new UninstallRunViewModel(cli, new FakeRemoval(calls), false, () => calls.Add("quit"),
             async () => { calls.Add("prepare"); await prepared.Task; calls.Add("prepared"); });
 
         var operation = vm.RunAsync();
@@ -72,7 +72,7 @@ public class UninstallRunViewModelTests {
     public async Task Failed_preparation_keeps_the_app_and_never_starts_cleanup() {
         var calls = new List<string>();
         var cli = new FakeKcapCli();
-        var vm = new UninstallRunViewModel(cli, new FakeRemoval(calls), false, () => { }, action => action(),
+        var vm = new UninstallRunViewModel(cli, new FakeRemoval(calls), false, () => { },
             () => Task.FromException(new InvalidOperationException("A local operation could not settle.")));
 
         await vm.RunAsync();
@@ -89,7 +89,7 @@ public class UninstallRunViewModelTests {
     public async Task A_failed_ui_disposal_drains_remaining_services_but_prevents_cleanup() {
         var calls = new List<string>();
         var cli = new FakeKcapCli();
-        var vm = new UninstallRunViewModel(cli, new FakeRemoval(calls), false, () => { }, action => action(),
+        var vm = new UninstallRunViewModel(cli, new FakeRemoval(calls), false, () => { },
             () => App.DisposeUiForUninstallAsync(
                 [System.Reactive.Disposables.Disposable.Create(() => throw new InvalidOperationException("dispose failed")),
                  System.Reactive.Disposables.Disposable.Create(() => calls.Add("remaining-ui"))],
@@ -115,7 +115,8 @@ public class UninstallRunViewModelTests {
 
         await Assert.That(vm.State).IsEqualTo(UninstallRunState.Failed);
         await Assert.That(calls).IsEmpty();
-        await Assert.That(vm.Lines).Contains("could not stop the daemon");
+        await Assert.That(vm.Description).Contains("The app is still installed");
+        await Assert.That(vm.Lines).DoesNotContain("could not stop the daemon");
         await Assert.That(await vm.RetryCommand.CanExecute.FirstAsync()).IsTrue();
         await Assert.That(await vm.CloseCommand.CanExecute.FirstAsync()).IsTrue();
     }
@@ -128,7 +129,7 @@ public class UninstallRunViewModelTests {
 
         await vm.RunAsync();
 
-        await Assert.That(vm.Lines).Contains("kcap CLI not found");
+        await Assert.That(vm.Description).Contains("Reinstall kcap");
     }
 
     [Test]
@@ -265,7 +266,7 @@ public class UninstallRunViewModelTests {
         var calls   = new List<string>();
         var cli     = new FakeKcapCli { UninstallBehavior = _ => Task.FromResult(Exit(0)) };
         var removal = new FakeRemoval(calls) { Command = false };
-        var vm      = new UninstallRunViewModel(cli, removal, false, () => { }, action => action(), keepConfig: true, hasSettings: () => false);
+        var vm      = new UninstallRunViewModel(cli, removal, false, () => { }, keepConfig: true, hasSettings: () => false);
 
         await vm.RunAsync();
 
@@ -290,7 +291,7 @@ public class UninstallRunViewModelTests {
                 return Task.FromResult(Exit(attempts++ == 0 ? 1 : 0));
             },
         };
-        var vm = new UninstallRunViewModel(cli, removal, false, () => { }, action => action(), hasSettings: () => settings);
+        var vm = new UninstallRunViewModel(cli, removal, false, () => { }, hasSettings: () => settings);
 
         await vm.RunAsync();
         await vm.RunAsync();

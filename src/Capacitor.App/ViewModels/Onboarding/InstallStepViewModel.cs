@@ -206,18 +206,12 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
         _ when NotPublished                          => NotPublishedText,
         _ when GaveUp                                => GaveUpText,
         { Affordance: LocalInstallAffordance.Busy }  => BusyText,
-        // Trying again cannot help where the app has no repair: the installer's own words say what to update.
-        { Code: "client_below_floor" } when !_canRepair => TerminalAdvice.Strip(Failure.Message) ?? OldClientText,
-        { Affordance: LocalInstallAffordance.Retry } => RetryGuidance(Failure.Code),
+        { Code: "client_below_floor" } when !_canRepair => "An older kcap is blocking setup. Update or remove it, then try again.",
+        { Code: "client_below_floor" }                => OldClientText,
+        { Affordance: LocalInstallAffordance.Retry } failed => LocalFailureText.For(failed.Code, RetryGuidance(failed.Code)),
         { Code: "answer_required" }                  => AnswerRequiredText,
-        var failed                                   => TerminalAdvice.Strip(failed.Message) ?? LockedText,
+        var failed                                   => LocalFailureText.For(failed.Code, "Could not finish setting up the local server."),
     };
-
-    /// The CLI's own words behind a retryable failure, with its terminal commands dropped.
-    public string? FailureDetail =>
-        Failure is { Affordance: LocalInstallAffordance.Retry } failed ? TerminalAdvice.Strip(failed.Message) : null;
-
-    public bool FailureDetailVisible => FailureDetail is not null && !Running;
 
     public bool LockedVisible   => Failure is { LockedToLocal: true } && !Running && !RefusalVisible;
     public bool TryAgainVisible => Failure is { Affordance: LocalInstallAffordance.Retry } && !Running && !GaveUp;
@@ -414,7 +408,7 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
         ClientRepairOutcome.StillOld s =>
             $"npm updated the kcap at {s.Path}{(s.Version is { } v ? $" to {v.Split('+')[0]}" : "")}, but that version can't run the local edition on Windows yet. Remove it, or take its folder off PATH, then try again.",
         ClientRepairOutcome.Failed f =>
-            $"kcap couldn't update the older kcap at {f.Path}: {f.Reason} Try again to update it.",
+            $"kcap couldn’t update the older copy at {f.Path}. Check that you can modify it, then try again.",
         _ => OldClientText,
     };
 
@@ -454,10 +448,6 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     }
 
     static string RetryGuidance(string? code) => code switch {
-        "download_failed"     => "The download didn't finish. Check your connection and try again.",
-        "verification_failed" => "The download didn't pass its signature check. Try again to download it again.",
-        "cancelled"           => "The install was cancelled.",
-        "client_below_floor"  => OldClientText,
         null                  => "The install stopped before it finished. Try again.",
         _                     => NotStartedText,
     };
@@ -553,8 +543,6 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
         this.RaisePropertyChanged(nameof(Satisfied));
         this.RaisePropertyChanged(nameof(FailureVisible));
         this.RaisePropertyChanged(nameof(FailureMessage));
-        this.RaisePropertyChanged(nameof(FailureDetail));
-        this.RaisePropertyChanged(nameof(FailureDetailVisible));
         this.RaisePropertyChanged(nameof(LockedVisible));
         this.RaisePropertyChanged(nameof(TryAgainVisible));
         this.RaisePropertyChanged(nameof(EmailSupportVisible));

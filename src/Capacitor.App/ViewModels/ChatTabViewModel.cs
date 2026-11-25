@@ -1790,7 +1790,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             finally { UploadingFiles = 0; }
             if (_lifetimeToken.IsCancellationRequested) return null;
             if (upload.Kind != UploadKind.Uploaded) {
-                Notice(upload.Kind == UploadKind.Unauthorized ? "sign in to attach files" : upload.Reason ?? "the upload failed");
+                Notice(upload.Kind == UploadKind.Unauthorized ? "sign in to attach files" : upload.FailureText);
                 return null;
             }
             ids = upload.Ids;

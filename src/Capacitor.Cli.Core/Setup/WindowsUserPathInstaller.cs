@@ -33,7 +33,7 @@ public sealed class WindowsUserPathInstaller(IUserPathStore store, ILoginShellPr
             true  => new ShimResult(ShimOutcome.Installed, null),
             false => new ShimResult(ShimOutcome.InstalledButNotOnPath,
                 $"{dir} is on your user PATH, but kcap does not resolve from it yet. Open a new terminal and run kcap --version."),
-            _     => new ShimResult(ShimOutcome.Failed, $"{dir} was added to your user PATH, but it could not be re-read to confirm."),
+            _     => new ShimResult(ShimOutcome.Failed, $"{dir} was added to your user PATH, but it could not be re-read to confirm.") { UserPathChanged = true },
         };
     }
 

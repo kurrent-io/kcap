@@ -175,10 +175,9 @@ public sealed partial class PullRequestContextViewModel {
             "not_found" => "This pull request could not be found.",
             "tool_signed_out" => "The local CLI is not signed in for this host. Sign in and refresh.",
             "tool_denied" => "Your account cannot read this pull request.",
-            "tool_failed" => read.Detail is { } detail ? $"The local CLI could not read this pull request ({detail}). Refresh to try again."
-                : "The local CLI could not read this pull request. Refresh to try again.",
-            _ => read.Reader is { } tool ? $"Couldn't read this pull request through {tool}. Refresh to try again."
-                : "Couldn't load pull request context. Retry when the server is reachable."
+            "tool_failed" => "The local CLI could not read this pull request. Refresh to try again.",
+            _ when read.Reader is not null => "The local CLI could not read this pull request. Refresh to try again.",
+            _ => "Couldn't load pull request context. Refresh to try again."
         }
     };
     static string Author(PullRequestActorDto? actor) => actor is null ? "Unknown author" : actor.Kind == "team"

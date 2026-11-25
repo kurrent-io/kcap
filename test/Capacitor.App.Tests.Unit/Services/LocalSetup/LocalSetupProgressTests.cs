@@ -188,7 +188,7 @@ public class LocalSetupProgressTests {
 
         await Assert.That(p.Embeddings.Row.State).IsEqualTo(RowState.Skipped);
         await Assert.That(p.Embeddings.Skipped).IsTrue();
-        await Assert.That(p.Embeddings.Summary).IsEqualTo("Ollama is not responding on http://localhost:11434; search works by keyword.");
+        await Assert.That(p.Embeddings.Summary).IsEqualTo("kcap couldn’t reach Ollama. Open Search settings to check your model or choose another one.");
         await Assert.That(p.FailedCode).IsNull();
         await Assert.That(p.FirstStart.State).IsEqualTo(RowState.Running);
     }
@@ -230,7 +230,7 @@ public class LocalSetupProgressTests {
         foreach (var asked in new[] { LocalEmbeddingChoice.Default, LocalEmbeddingChoice.Builtin, LocalEmbeddingChoice.Recommended(LocalEmbeddingChoice.Builtin) }) {
             var p = Asked(asked, OllamaNotFound);
 
-            await Assert.That(p.Embeddings.Summary).IsEqualTo("Ollama is not responding on http://localhost:11434; search works by keyword.");
+            await Assert.That(p.Embeddings.Summary).IsEqualTo("kcap couldn’t reach Ollama. Open Search settings to check your model or choose another one.");
         }
     }
 

@@ -17,7 +17,7 @@ public static class TerminalNotices {
             new("Read-only terminal", state.Detail ?? "", false, "Detach", detach),
         { Phase: TerminalSessionPhase.Detached } => new("Detached from the terminal", "", false, "Reattach", reattach),
         { Phase: TerminalSessionPhase.Failed } =>
-            new("Terminal connection failed", state.Detail ?? "", false, "Reattach", reattach),
+            new("Terminal connection failed", AttachFailureText(state.Detail), false, "Reattach", reattach),
         { Phase: TerminalSessionPhase.NotFound } => new("Session not found", "", false, "Retry", retryResolve),
         { Phase: TerminalSessionPhase.Interrupted } => new("This session wasn’t resumed", InterruptedDetail(state.Detail), false),
         { Phase: TerminalSessionPhase.Exited } => new($"Session exited (code {state.ExitCode})", "", false, IsPlain: true),
@@ -25,7 +25,13 @@ public static class TerminalNotices {
         _ => null,
     };
 
+    internal static string AttachFailureText(string? detail) => detail switch {
+        TerminalTabViewModel.LostConnection => "The terminal lost its connection to the daemon.",
+        TerminalTabViewModel.DidNotResume => TerminalTabViewModel.DidNotResume,
+        _ => "Couldn’t connect to the session’s terminal. Try reattaching.",
+    };
+
     public static string InterruptedDetail(string? reason) =>
-        "The daemon restarted without it" + (string.IsNullOrEmpty(reason) ? "." : $" ({reason}).") +
-        " Retry it with `kcap agent resume`, or stop it to discard it.";
+        (InterruptionReasons.Describe(reason) ?? "The daemon restarted without resuming this session") +
+        ". Retry it with `kcap agent resume`, or stop it to discard it.";
 }

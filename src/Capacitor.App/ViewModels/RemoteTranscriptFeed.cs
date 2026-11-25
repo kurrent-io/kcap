@@ -200,9 +200,10 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
             } catch (HubException ex) {
                 // The hub refused the subscribe, and a refusal it repeats is not worth retrying:
                 // report it and stop, rather than tailing a stream this caller cannot read.
+                LogOnce(attempt, $"remote transcript subscription failed: {ex.Message}");
                 Enqueue(attempt, FeedStatus.Failed, ex.Message.Contains(WireTokens.StreamNotAuthorized, StringComparison.Ordinal)
                     ? "not authorized to read this session's stream"
-                    : ex.Message);
+                    : "Couldn’t read this session’s messages.");
                 return;
             } catch (Exception ex) {
                 LogOnce(attempt, $"remote transcript: {ex.Message}");

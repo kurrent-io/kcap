@@ -38,7 +38,7 @@ public class UninstallWindowTests {
                 onLine(new StreamedLine(ProcessStreamKind.Stdout, "Removed daemon service 'kcap'."));
                 return Task.FromResult(new StreamingResult(0, false, []));
             } };
-            var run = new UninstallRunViewModel(cli, new SuccessfulRemoval(), false, () => quits++, action => action(), () => ready.Task);
+            var run = new UninstallRunViewModel(cli, new SuccessfulRemoval(), false, () => quits++, () => ready.Task);
             var main = new Window();
             var settings = new Window();
             main.Show();
@@ -106,7 +106,7 @@ public class UninstallWindowTests {
         AvaloniaSession.RunOnUiAsync(async () => {
             var cli = new FakeKcapCli { UninstallBehavior = _ => Task.FromResult(
                 new StreamingResult(1, false, [new StreamedLine(ProcessStreamKind.Stderr, "Could not stop the daemon.")])) };
-            var run = new UninstallRunViewModel(cli, new SuccessfulRemoval(), false, () => { }, action => action());
+            var run = new UninstallRunViewModel(cli, new SuccessfulRemoval(), false, () => { });
             var window = new UninstallWindow { DataContext = run };
             window.Show();
             try {

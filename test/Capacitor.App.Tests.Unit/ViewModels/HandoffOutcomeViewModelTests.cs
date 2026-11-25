@@ -11,7 +11,7 @@ public class HandoffOutcomeViewModelTests {
         var vm = new HandoffOutcomeViewModel(HandoffOutcomeDto.Refused("s1", null, "server_unsupported"));
 
         await Assert.That(vm.Header).IsEqualTo("Continued from s1");
-        await Assert.That(vm.Note).IsEqualTo("Couldn't carry over the previous session's work (server_unsupported).");
+        await Assert.That(vm.Note).IsEqualTo("This server can't carry over the previous session's work. Open the original session to find what you need.");
         await Assert.That(vm.Rows).IsEmpty();
     }
 
@@ -80,8 +80,8 @@ public class HandoffOutcomeViewModelTests {
         var some = new HandoffOutcomeViewModel(new("s1", "Old", "failed", "takeover_error", [Carried]));
         var none = new HandoffOutcomeViewModel(new("s1", "Old", "failed", "takeover_error", []));
 
-        await Assert.That(some.Note).IsEqualTo("Only part of the previous session's work was carried over (takeover_error).");
-        await Assert.That(none.Note).IsEqualTo("Couldn't carry over the previous session's work (takeover_error).");
+        await Assert.That(some.Note).IsEqualTo("Only part of the previous session's work was carried over. Check what was transferred before continuing.");
+        await Assert.That(none.Note).IsEqualTo("Couldn't carry over the previous session's work. Check the original session for anything you still need.");
     }
 
     [Test]

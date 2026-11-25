@@ -708,7 +708,7 @@ public class DaemonEnablerTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_failed_outcome_names_its_coded_reason() {
+    public async Task A_daemon_readiness_timeout_explains_what_the_user_can_check() {
         var status = await AvaloniaSession.DispatchAsync(async () => {
             using var h = new Harness();
             h.Status(Snap());
@@ -720,7 +720,7 @@ public class DaemonEnablerTests {
             return h.Vm.Status;
         });
 
-        await Assert.That(status).Contains("verify_readiness_timeout");
+        await Assert.That(status).IsEqualTo("The daemon took too long to start. Check its status before trying again.");
     }
 
     [Test]

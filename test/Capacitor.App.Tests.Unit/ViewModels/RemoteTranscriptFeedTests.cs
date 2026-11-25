@@ -206,7 +206,7 @@ public class RemoteTranscriptFeedTests {
 
         var read = h.Feed.ReadAppended();
         await Assert.That(read.Status).IsEqualTo(FeedStatus.Failed);
-        await Assert.That(read.Failure).Contains("Method does not exist");
+        await Assert.That(read.Failure).IsEqualTo("Couldn’t read this session’s messages.");
         await Assert.That(h.Feed.WaitingToRetryForTesting).IsFalse();
         await Assert.That(h.Lane.Tails.Count).IsEqualTo(1);
     }

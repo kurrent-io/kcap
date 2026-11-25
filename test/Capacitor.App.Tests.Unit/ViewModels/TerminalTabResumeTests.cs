@@ -771,10 +771,10 @@ public class TerminalTabResumeTests {
     }
 
     [Test]
-    public async Task The_interrupted_notice_names_the_reason_and_the_retry() {
+    public async Task The_interrupted_notice_explains_known_reasons_and_hides_diagnostics() {
         await Assert.That(TerminalNotices.InterruptedDetail("too_old"))
-            .IsEqualTo("The daemon restarted without it (too_old). Retry it with `kcap agent resume`, or stop it to discard it.");
-        await Assert.That(TerminalNotices.InterruptedDetail(null))
-            .IsEqualTo("The daemon restarted without it. Retry it with `kcap agent resume`, or stop it to discard it.");
+            .IsEqualTo("It was idle too long to resume. Retry it with `kcap agent resume`, or stop it to discard it.");
+        await Assert.That(TerminalNotices.InterruptedDetail("InvalidOperationException: native loader failed\n   at Kcap.Start()"))
+            .IsEqualTo("The daemon restarted without resuming this session. Retry it with `kcap agent resume`, or stop it to discard it.");
     }
 }

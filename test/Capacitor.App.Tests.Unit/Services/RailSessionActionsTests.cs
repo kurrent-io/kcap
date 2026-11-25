@@ -95,10 +95,10 @@ public class RailSessionActionsTests {
     }
 
     [Test]
-    public async Task A_failed_hide_names_the_cli_reason() {
+    public async Task A_failed_hide_offers_retry_without_cli_output() {
         var h = new Harness { Result = new ProcessResult(1, "", "Server returned 403\nmore", false) };
         await h.Build().MakePrivateAsync(Row(AgentOrigin.Local), "Fix it");
-        await Assert.That(h.Notifier.Notified).IsEquivalentTo(new[] { "Couldn't make Fix it private: Server returned 403" });
+        await Assert.That(h.Notifier.Notified).IsEquivalentTo(new[] { "Couldn't make Fix it private. Try again" });
     }
 
     [Test]
@@ -123,13 +123,17 @@ public class RailSessionActionsTests {
     public static IEnumerable<Func<(ProcessResult Result, string Told)>> DeleteOutcomes() {
         yield return () => (new ProcessResult(0, "Session x disabled. Server data deleted.\n", "", false), "Deleted Fix it from kcap");
         yield return () => (new ProcessResult(0, "Session x disabled. Server data deleted.\nThis agent is still running.\n", "", false),
-            "Deleted Fix it from kcap. This agent is still running");
+            "Deleted Fix it from kcap. The agent is still running. Stop it to end the session");
         yield return () => (new ProcessResult(0, "Session disabled locally (hooks silenced). Server data not deleted.\n", "connection refused\n", false),
-            "Fix it: Session disabled locally (hooks silenced). Server data not deleted. connection refused");
+            "Recording was disabled on this machine. Couldn't delete Fix it from the server. Reconnect and try again");
+        yield return () => (new ProcessResult(0, "Session disabled locally (hooks silenced). Server data not deleted.\nThis agent is still running.\n", "connection refused\n", false),
+            "Recording was disabled on this machine. Couldn't delete Fix it from the server. Reconnect and try again. The agent is still running. Stop it to end the session");
+        yield return () => (new ProcessResult(1, "Session x disabled. Server data deleted.\nA daemon that recorded this session or hosts its agent sends to https://another.example, and nothing was deleted there. Run kcap disable under the profile for that server.\n", "", false),
+            "Deleted Fix it from the server. Data may remain on another server. Switch to that server’s profile to delete it there");
         yield return () => (new ProcessResult(1, "Session x disabled. Server data deleted.\nA send may still land.\n", "", false),
-            "Fix it: Session x disabled. Server data deleted. A send may still land");
-        yield return () => (new ProcessResult(1, "", "Server returned 500\n", false), "Couldn't delete Fix it: Server returned 500");
-        yield return () => (new ProcessResult(-1, "", "", true), "Couldn't delete Fix it: kcap did not answer in time");
+            "Deleted Fix it from the server. Recording may still be active. Stop the session if it's still running");
+        yield return () => (new ProcessResult(1, "", "Server returned 500\n", false), "Couldn't delete Fix it. Try again");
+        yield return () => (new ProcessResult(-1, "", "", true), "Couldn't delete Fix it. kcap did not answer in time");
     }
 
     /// A zero exit can still leave the server's data in place, so only the CLI's own summary earns "Deleted".

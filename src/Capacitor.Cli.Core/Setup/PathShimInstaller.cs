@@ -6,7 +6,9 @@ public enum ShimPreflight { Installable, AlreadyInstalled, Conflict }
 
 public enum ShimOutcome { Installed, InstalledButNotOnPath, Failed }
 
-public sealed record ShimResult(ShimOutcome Outcome, string? Detail);
+public sealed record ShimResult(ShimOutcome Outcome, string? Detail) {
+    public bool UserPathChanged { get; init; }
+}
 
 /// Installs a `kcap` symlink to a resolved CLI so a terminal PATH that omits the CLI's own location
 /// still finds it: in the first stable login-PATH folder this user can already write to, else in

@@ -90,10 +90,13 @@ public partial class InstallLocationWindow : Window {
                 if (outcome.PermissionDenied && userApplicationsDirectory is not null && selectDestination is not null
                         && selectedDirectory != userApplicationsDirectory && keepable?.Contains(userApplicationsDirectory) != false)
                     OfferUserInstall(userApplicationsDirectory);
-                else
-                    ShowError(outcome.Error);
+                else {
+                    Console.Error.WriteLine($"kcap: could not change the install location: {outcome.Error}");
+                    ShowError("Couldn’t change where kcap is installed. Check that the selected folder is writable and try again.");
+                }
             } catch (Exception ex) {
-                ShowError(ex.Message);
+                Console.Error.WriteLine($"kcap: could not change the install location: {ex.Message}");
+                ShowError("Couldn’t change where kcap is installed. Try again.");
             } finally {
                 SetMoving(false);
             }

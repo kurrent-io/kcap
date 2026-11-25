@@ -3,7 +3,6 @@ using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
-using Capacitor.App.Services;
 using Capacitor.App.Services.Onboarding;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
@@ -230,7 +229,8 @@ public sealed class ProfilesSettingsViewModel : ReactiveObject, IDisposable {
             await _openSignIn(current.Name, current.ServerUrl!, _lifetime);
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
-            Message = $"Could not open sign-in: {ex.Message}";
+            Console.Error.WriteLine($"kcap: could not open profile sign-in: {ex.Message}");
+            Message = "Could not open sign-in. Try again.";
         } finally { IsBusy = false; }
     }
 
@@ -248,7 +248,7 @@ public sealed class ProfilesSettingsViewModel : ReactiveObject, IDisposable {
             var result = await ProfileRemoval.RemoveAsync(_config, _tokens, current.Name, _lifetime);
             Message = result.Outcome switch {
                 ProfileRemovalOutcome.Removed              => $"Profile {current.Name} removed.",
-                ProfileRemovalOutcome.RemovedTokenRetained => $"Profile {current.Name} removed, but its sign-in file could not be deleted ({result.Detail}).",
+                ProfileRemovalOutcome.RemovedTokenRetained => $"Profile {current.Name} was removed, but its saved sign-in could not be deleted. Contact support for help clearing it.",
                 ProfileRemovalOutcome.IsActive             => $"Profile {current.Name} is the active profile and cannot be removed.",
                 ProfileRemovalOutcome.IsDefault            => "The default profile cannot be removed.",
                 ProfileRemovalOutcome.NotFound             => $"Profile {current.Name} no longer exists.",
@@ -257,7 +257,8 @@ public sealed class ProfilesSettingsViewModel : ReactiveObject, IDisposable {
             await RefreshAsync();
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
-            Message = $"Could not remove the profile: {ex.Message}";
+            Console.Error.WriteLine($"kcap: could not remove the profile: {ex.Message}");
+            Message = "Could not remove the profile. Try again.";
         } finally { IsBusy = false; }
     }
 
@@ -332,7 +333,8 @@ public sealed class ProfilesSettingsViewModel : ReactiveObject, IDisposable {
             Message = SwitchFailure(current.Name, outcome, ActiveNow());
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
-            Message = $"Could not finish the switch: {ex.Message} Restart the app to see where it stopped.";
+            Console.Error.WriteLine($"kcap: could not finish switching profiles: {ex.Message}");
+            Message = "Could not finish switching profiles. Restart the app to check which profile is active.";
         } finally { IsBusy = false; }
     }
 
@@ -343,13 +345,10 @@ public sealed class ProfilesSettingsViewModel : ReactiveObject, IDisposable {
     /// The report for a switch that did not succeed: which step stopped it, what the outcome proves about the
     /// selection, and what config.json names now. An outcome that proves nothing claims nothing.
     internal static string SwitchFailure(string target, MutationOutcome outcome, string? activeNow) {
-        var token = outcome switch {
-            MutationOutcome.Failed f          => f.Reason ?? VerifyExitCodes.Token(f.ExitCode),
-            MutationOutcome.Refused r         => r.Reason,
-            MutationOutcome.AttentionSkew a   => a.Detail,
-            MutationOutcome.AttentionRepair a => a.Detail,
-            MutationOutcome.Unconfirmed u     => u.Detail,
-            _                                 => "unconfirmed",
+        var nextStep = outcome switch {
+            MutationOutcome.Refused { Reason: "cli_below_floor" or "cli_version_unknown" or "cli_unsupported" } => " Update kcap and try again.",
+            MutationOutcome.Refused { Reason: "cli_not_found" or "cli_override_missing" } => " Reinstall kcap and try again.",
+            _ => "",
         };
         var evidence = outcome.Activation switch {
             ActivationEvidence.Activated    => $" kcap made {target} the active profile, but the daemon did not confirm it runs for it.",
@@ -358,7 +357,7 @@ public sealed class ProfilesSettingsViewModel : ReactiveObject, IDisposable {
         };
         var active = activeNow is null ? " The profile configuration could not be read." : $" The kcap command line now uses profile {activeNow}.";
         var restart = outcome.Activation is ActivationEvidence.NotActivated ? "" : " Restart this app to pick up where it stopped.";
-        return $"The switch to {target} did not finish ({token}).{evidence}{active}{restart}";
+        return $"The switch to {target} did not finish.{evidence}{active}{restart}{nextStep}";
     }
 
     string? ActiveNow() =>

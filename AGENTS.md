@@ -314,6 +314,11 @@ Description: **before writing it, open [.github/PULL_REQUEST_TEMPLATE.md](.githu
 
 **Desktop app UI** lives under `src/Capacitor.App/`. Shared tokens and control styles live under `Design/` and are loaded by `App.axaml`.
 
+- Warnings and errors: never render raw exceptions, stack traces, stderr, HTTP bodies, or internal
+  reason codes in app-owned UI, including tooltips and accessibility text. Translate known outcomes
+  into plain language and give unknown outcomes an operation-specific fallback. Say what failed and
+  what the user can do next. Keep technical details in logs or explicitly opened diagnostics, and
+  redact sensitive values before copying or exporting them. Preserve terminal and transcript content.
 - Icons: use Lucide through `Views/AppIcon.cs`, with named `LucideIconKind` mappings.
   Reuse `ToolCategoryIcons` for system/chat headings. No custom UI icon paths, copied SVG
   geometry, text/emoji stand-ins, or additional icon families. Existing vendor/product

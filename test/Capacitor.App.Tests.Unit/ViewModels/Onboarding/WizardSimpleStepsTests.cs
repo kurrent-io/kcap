@@ -156,8 +156,8 @@ public class WizardSimpleStepsTests {
         var messages = await PathFixMessagesAsync(onLocalPath: false);
 
         await Assert.That(messages[0]).Contains("run kcap --version");
-        await Assert.That(messages[1]).Contains("export PATH");
-        await Assert.That(messages[2]).Contains("Permission denied.");
+        await Assert.That(messages[1]).Contains("earlier on your shell’s PATH");
+        await Assert.That(messages[2]).Contains("Could not finish installing the terminal command");
     }
 
     sealed class ShimHarness : IDisposable {
@@ -241,7 +241,7 @@ public class WizardSimpleStepsTests {
             return (await failing.UnfinishedAsync(), await idle.UnfinishedAsync());
         });
 
-        await Assert.That(failed).Contains("Permission denied.");
+        await Assert.That(failed).Contains("Could not finish installing the terminal command");
         await Assert.That(none).IsNull();
     }
 
@@ -275,7 +275,7 @@ public class WizardSimpleStepsTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task InstalledButNotOnPath_outcome_is_not_fixed_and_carries_the_installer_detail() {
+    public async Task An_installed_command_that_is_missing_from_PATH_offers_a_check() {
         var (satisfied, message) = await AvaloniaSession.DispatchAsync(async () => {
             using var h = new ShimHarness();
             h.Probe.KcapOnPathBehavior = _ => Task.FromResult<bool?>(false);
@@ -292,7 +292,7 @@ public class WizardSimpleStepsTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Failed_outcome_is_not_fixed_and_carries_the_installer_detail() {
+    public async Task Failed_outcome_is_not_fixed_and_offers_retry() {
         var (satisfied, message) = await AvaloniaSession.DispatchAsync(async () => {
             using var h = new ShimHarness();
             h.DenyLinking();
@@ -305,7 +305,7 @@ public class WizardSimpleStepsTests {
         await Assert.That(satisfied).IsFalse();
         await Assert.That(message).IsNotNull();
         await Assert.That(message).StartsWith("Could not finish installing the terminal command.");
-        await Assert.That(message).Contains(".local");
+        await Assert.That(message).Contains("Try again");
     }
 
     [Test]

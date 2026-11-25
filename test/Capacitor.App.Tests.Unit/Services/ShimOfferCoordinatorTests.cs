@@ -557,7 +557,7 @@ public class ShimOfferCoordinatorTests {
     }
 
     [Test]
-    public async Task Accept_then_Failed_surfaces_the_detail() {
+    public async Task Accept_then_failed_offers_retry() {
         using var h = new Harness(immediatePhaseClosed: true);
         h.Probe.KcapOnPathBehavior = _ => Task.FromResult<bool?>(false);
         h.Surface.ConfirmBehavior = (_, _) => Task.FromResult(true);
@@ -565,7 +565,7 @@ public class ShimOfferCoordinatorTests {
         h.Coordinator.Start();
 
         await WaitUntilAsync(() => h.Surface.StatusMessages.Count == 1, what: "the failed status line");
-        await Assert.That(h.Surface.StatusMessages[0]).Contains(".local");
+        await Assert.That(h.Surface.StatusMessages[0]).Contains("Try again");
         await Assert.That(h.Store.State.ShimDenied).IsFalse(); // Failed is not the same as declined/canceled
     }
 

@@ -83,7 +83,8 @@ public sealed class PathFixViewModel : ReactiveObject {
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             return false;
         } catch (Exception ex) {
-            Message = $"Could not install the terminal command: {ex.Message}. Try again.";
+            Console.Error.WriteLine($"kcap: could not install the terminal command: {ex.Message}");
+            Message = "Could not install the terminal command. Try again.";
         }
         return Fixed;
     }
@@ -104,10 +105,10 @@ public sealed class PathFixViewModel : ReactiveObject {
             case ShimOutcome.InstalledButNotOnPath:
                 Message = _onLocalPath()
                     ? "Installed, but your terminal cannot find it yet, so harnesses started from a terminal may not record."
-                    : result.Detail ?? "Installed, but your terminal cannot find kcap yet. Open a new terminal and run kcap --version.";
+                    : ShimOfferCoordinator.PathNotVerified;
                 break;
             default: // Failed
-                Message = $"Could not finish installing the terminal command. {result.Detail}".TrimEnd();
+                Message = ShimOfferCoordinator.InstallFailureText(result);
                 break;
         }
     }

@@ -208,7 +208,8 @@ public sealed class FeedbackViewModel : ReactiveObject, IDisposable {
             Outcome = HomeViewModel.SignInExpiredNotice;
             SignInOffered = _signIn is not null;
         } catch (Exception ex) {
-            Outcome = $"Couldn't send the report: {ex.Message}";
+            Console.Error.WriteLine($"kcap: could not send the feedback report: {ex.GetType().Name}");
+            Outcome = "Couldn’t send the report. Check your connection and try again.";
         } finally {
             IsBusy = false;
         }

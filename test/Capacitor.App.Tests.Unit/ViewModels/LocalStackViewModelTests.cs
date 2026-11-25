@@ -245,7 +245,7 @@ public class LocalStackViewModelTests {
             await Assert.That(h.Vm.BannerVisible).IsTrue();
             await Assert.That(h.Vm.Attention).IsTrue();
             await Assert.That(h.Vm.Headline).IsEqualTo("kcap local could not be updated to 1.3.0");
-            await Assert.That(h.Vm.Detail).IsEqualTo("The download was interrupted. kcap local 1.2.0 was left as it was.");
+            await Assert.That(h.Vm.Detail).IsEqualTo("The download didn't finish. Check your connection and try again.");
             await Assert.That(h.Vm.TryAgainVisible).IsTrue();
             await Assert.That(h.Vm.TryAgainIsPrimary).IsTrue();
             await Assert.That(h.Vm.DismissIsPrimary).IsFalse().Because("Try again is the fix; Dismiss beside it is tertiary");
@@ -453,7 +453,7 @@ public class LocalStackViewModelTests {
 
             await Assert.That(h.Vm.BannerVisible).IsTrue();
             await Assert.That(h.Vm.StartVisible).IsTrue();
-            await Assert.That(h.Vm.StartMessage).IsEqualTo("kcap local 1.3.0 did not become ready.");
+            await Assert.That(h.Vm.StartMessage).IsEqualTo("Could not start the local server. Try again.");
             await Assert.That(h.Reconnects).IsEqualTo(0);
         });
     }

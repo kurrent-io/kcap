@@ -155,7 +155,7 @@ public class InstallStepViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Permanent_refusal_while_locked_shows_the_cli_message() {
+    public async Task Permanent_refusal_while_locked_explains_the_server_mismatch() {
         const string cliMessage = "Port 5123 answers, but not as a Capacitor server.";
         var cli = new FakeKcapCli {
             SetupLocalBehavior = LocalSetupScript.Prints(1, LocalSetupScript.Failed("not_our_server", cliMessage)),
@@ -170,38 +170,33 @@ public class InstallStepViewModelTests {
 
         await Assert.That(tryAgain).IsFalse();
         await Assert.That(back).IsFalse();
-        await Assert.That(message).IsEqualTo(cliMessage);
+        await Assert.That(message).Contains("couldn't confirm that the server");
     }
 
     /// A retryable failure's CLI message names the terminal command; the page leads with Try again instead
-    /// and keeps the CLI's cause as the detail.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_retryable_failure_leads_with_app_guidance_and_keeps_the_cli_cause_as_detail() {
+    public async Task A_retryable_failure_uses_app_guidance() {
         const string cliMessage = "The local server did not confirm it left setup mode. The setup journal is kept; run kcap setup --local again to finish it.";
         var cli = new FakeKcapCli {
             SetupLocalBehavior = LocalSetupScript.Prints(1, LocalSetupScript.Failed("commit_failed", cliMessage)),
         };
 
-        var (message, detail, detailVisible) = await AvaloniaSession.DispatchAsync(async () => {
+        var message = await AvaloniaSession.DispatchAsync(async () => {
             var install = Step(Controller(cli, LocalSetupScript.PendingSetup(Config), Probe()));
             await EnterAndInstallAsync(install);
 
-            return (install.FailureMessage, install.FailureDetail, install.FailureDetailVisible);
+            return install.FailureMessage;
         });
 
-        await Assert.That(message).IsEqualTo(InstallStepViewModel.NotStartedText);
-        await Assert.That(message!).DoesNotContain("kcap setup");
-        await Assert.That(detail).IsEqualTo("The local server did not confirm it left setup mode. The setup journal is kept.");
-        await Assert.That(detailVisible).IsTrue();
+        await Assert.That(message).IsEqualTo("kcap couldn't finish saving the local setup. Try again.");
     }
 
-    /// Every failure line the page shows comes from the installer, which addresses a terminal user.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    [Arguments("commit_failed", "Setup could not finish its commit (disk full). Nothing was removed; run kcap setup --local again to finish it.", "disk full")]
-    [Arguments("recovery_failed", "The interrupted setup cannot be finished: /x/kcap-server is missing. The setup journal /x/journal.json is kept.", "kcap-server is missing")]
-    [Arguments("registry_unreadable", "The installation registry /x/registry.json cannot be read (bad json). Fix or remove it, then run kcap setup --local again.", "cannot be read (bad json)")]
+    [Arguments("commit_failed", "Setup could not finish its commit (disk full). Nothing was removed; run kcap setup --local again to finish it.", "finish saving the local setup")]
+    [Arguments("recovery_failed", "The interrupted setup cannot be finished: /x/kcap-server is missing. The setup journal /x/journal.json is kept.", "finish saving the local setup")]
+    [Arguments("registry_unreadable", "The installation registry /x/registry.json cannot be read (bad json). Fix or remove it, then run kcap setup --local again.", "couldn't read the local server settings")]
     public async Task No_displayed_failure_text_names_a_terminal_command(string code, string cliMessage, string cause) {
         var cli = new FakeKcapCli { SetupLocalBehavior = LocalSetupScript.Prints(1, LocalSetupScript.Failed(code, cliMessage)) };
 
@@ -209,7 +204,7 @@ public class InstallStepViewModelTests {
             var install = Step(Controller(cli, LocalSetupScript.PendingSetup(Config), Probe()));
             await EnterAndInstallAsync(install);
 
-            return string.Join("\n", new[] { install.FailureMessage, install.FailureDetail }.Where(t => t is not null));
+            return install.FailureMessage!;
         });
 
         await Assert.That(shown).DoesNotContain("kcap setup");
@@ -250,15 +245,14 @@ public class InstallStepViewModelTests {
                 "A local installation needs both answers: that it serves only you (--single-user), and that you confirm it (--yes).")),
         };
 
-        var (message, detail) = await AvaloniaSession.DispatchAsync(async () => {
+        var message = await AvaloniaSession.DispatchAsync(async () => {
             var install = Step(Controller(cli, LocalSetupScript.NoSetup(Config), Probe()));
             await EnterAndInstallAsync(install);
 
-            return (install.FailureMessage, install.FailureDetail);
+            return install.FailureMessage;
         });
 
         await Assert.That(message).IsEqualTo(InstallStepViewModel.AnswerRequiredText);
-        await Assert.That(detail).IsNull();
     }
 
     [Test]
@@ -594,7 +588,7 @@ public class InstallStepViewModelTests {
 
     public static IEnumerable<Func<(ClientRepairOutcome, string)>> Unrepaired() {
         yield return () => (new ClientRepairOutcome.Cancelled("/usr/local/bin/kcap"), "/usr/local/bin/kcap");
-        yield return () => (new ClientRepairOutcome.Failed("/usr/local/bin/kcap", "disk full."), "disk full.");
+        yield return () => (new ClientRepairOutcome.Failed("/usr/local/bin/kcap", "disk full."), "Check that you can modify it");
         yield return () => (new ClientRepairOutcome.OldApp("/Users/me/Applications/kcap.app/Contents/MacOS/kcap"), "/Users/me/Applications/kcap.app");
     }
 
@@ -690,7 +684,7 @@ public class InstallStepViewModelTests {
     /// installer said: which copy, and to update or remove it.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Without_a_repair_an_older_kcap_refusal_names_the_copy_to_update() {
+    public async Task Without_a_repair_an_older_kcap_refusal_still_explains_what_to_do() {
         var cli = new FakeKcapCli { SetupLocalBehavior = RefusedThenCommitted() };
 
         var message = await AvaloniaSession.DispatchAsync(async () => {
@@ -699,7 +693,7 @@ public class InstallStepViewModelTests {
             return install.FailureMessage;
         });
 
-        await Assert.That(message).Contains("/usr/local/bin/kcap");
+        await Assert.That(message).Contains("An older kcap");
         await Assert.That(message).Contains("Update or remove it");
     }
 

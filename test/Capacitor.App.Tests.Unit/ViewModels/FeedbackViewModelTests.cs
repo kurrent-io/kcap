@@ -163,7 +163,7 @@ public class FeedbackViewModelTests {
         api.ThenThrow(new HttpRequestException("socket closed")).Then(new FeedbackResult.Sent("a@b.c"));
         vm.Message = "It broke.";
         await vm.SendCommand.Execute().ToTask();
-        await Assert.That(vm.Outcome).IsEqualTo("Couldn't send the report: socket closed");
+        await Assert.That(vm.Outcome).IsEqualTo("Couldn’t send the report. Check your connection and try again.");
         await Assert.That(vm.CanSend).IsTrue();
 
         vm.Message = "It broke, really.";

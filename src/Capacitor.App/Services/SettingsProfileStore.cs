@@ -74,10 +74,12 @@ public sealed class SettingsProfileStore(ConfigRoot config, string profileName, 
             };
         }, ct);
 
+    internal const string ProfileChangedMessage = "The configured profile changed. Restart the app before editing settings.";
+
     Profile Profile(ProfileConfig current) {
         if (!current.Profiles.TryGetValue(profileName, out var profile) ||
             !ServerIdentity.Matches(profile.ServerUrl, serverUrl))
-            throw new InvalidOperationException("The configured profile changed. Restart the app before editing settings.");
+            throw new InvalidOperationException(ProfileChangedMessage);
         return profile;
     }
 }

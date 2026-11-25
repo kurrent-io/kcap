@@ -143,7 +143,7 @@ public class PullRequestContextViewModelRegistryTests {
     });
 
     [Test]
-    public Task An_unclassified_local_failure_names_the_tool_not_the_server() => RunOnUiAsync(async () => {
+    public Task An_unclassified_local_failure_reports_the_local_reader() => RunOnUiAsync(async () => {
         var h = new Harness("github.com", Primary);
         h.Push(); await h.Show();
         h.Provider.OverviewResponses.Enqueue((subject, _) => Task.FromResult(new PullRequestRead<PullRequestOverviewDto>(PullRequestReadKind.TransportFailure, Subject: subject, Reason: "timeout", AccessFailure: "transient")));
@@ -151,7 +151,7 @@ public class PullRequestContextViewModelRegistryTests {
         h.Time.Advance(TimeSpan.FromSeconds(3));
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
         await h.Vm.RefreshCommand.Execute();
-        await WaitUntilAsync(() => h.Vm.FreshnessDetail == "Couldn't read this pull request through GitHub CLI. Refresh to try again.", what: "tool-named freshness detail");
+        await WaitUntilAsync(() => h.Vm.FreshnessDetail == "The local CLI could not read this pull request. Refresh to try again.", what: "local reader failure");
         await Assert.That(h.Vm.HasNotice).IsFalse();
         await h.Dispose();
     });

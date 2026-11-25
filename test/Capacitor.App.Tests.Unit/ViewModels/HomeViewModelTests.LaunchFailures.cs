@@ -50,10 +50,20 @@ public partial class HomeViewModelTests {
     }
 
     [Test]
-    public async Task Any_hub_refusal_loses_the_transport_lead() =>
+    public async Task Known_hub_refusal_loses_the_transport_lead() =>
         await Assert.That(HomeViewModel.FriendlyLaunchFailure(
                 "An unexpected error occurred invoking 'RequestLaunchAgentV2' on the server. HubException: Machine is offline."))
             .IsEqualTo("Machine is offline.");
+
+    [Test]
+    [Arguments("Unable to load shared library 'libpty_shim' or one of its dependencies.\ndlopen(/Applications/kcap.app/Contents/MacOS/libpty_shim.dylib): no such file.",
+        HomeViewModel.TerminalComponentUnavailable)]
+    [Arguments("unexpected_failure: System.IO.IOException\n   at Kcap.Start()", HomeViewModel.GenericLaunchFailure)]
+    public async Task Launch_and_handoff_hide_loader_output_and_unknown_diagnostics(string reason, string expected) {
+        await Assert.That(HomeViewModel.FriendlyLaunchFailure(reason)).IsEqualTo(expected);
+        await Assert.That(HandoffFailureText.For(reason)).IsEqualTo(
+            expected == HomeViewModel.GenericLaunchFailure ? HandoffFailureText.Generic : expected);
+    }
 
     [Test]
     public async Task A_cancelled_launch_reads_as_cancelled() =>
@@ -70,7 +80,7 @@ public partial class HomeViewModelTests {
             .IsEqualTo(HomeViewModel.EmptyFolderStartMessage);
         await Assert.That(HomeViewModel.FriendlyLaunchFailure(
                 "git commit -m Initial snapshot failed: fatal: unable to write new index file"))
-            .IsEqualTo(HomeViewModel.WorkspacePrepFailed + " Unable to write new index file");
+            .IsEqualTo(HomeViewModel.WorkspacePrepFailed);
     }
 
     [Test]

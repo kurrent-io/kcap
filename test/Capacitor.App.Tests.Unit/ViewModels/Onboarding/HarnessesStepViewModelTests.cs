@@ -340,7 +340,7 @@ public class HarnessesStepViewModelTests {
         await Assert.That(first).IsFalse();
         await Assert.That(second).IsTrue();
         await Assert.That(cursor.Failed).IsTrue();
-        await Assert.That(cursor.Message).IsEqualTo("boom");
+        await Assert.That(cursor.Message).IsEqualTo("Could not finish setting up this tool. Try again.");
         await Assert.That(pi.Succeeded).IsTrue();
         await Assert.That(label).IsEqualTo("Continue");
         await Assert.That(calls).IsEqualTo(3); // the second Next installs nothing again

@@ -113,7 +113,8 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
             Message = null;
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
-            Message = $"Could not look for coding tools: {ex.Message}";
+            Console.Error.WriteLine($"kcap: could not look for coding tools: {ex.Message}");
+            Message = "Could not look for coding tools. Try scanning again.";
         } finally { Scanning = false; }
     }
 
@@ -147,7 +148,8 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
             GrokBotMessage = record ? GrokBotOn : GrokBotOff;
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
-            GrokBotMessage = $"Could not change Grok Bot recording: {ex.Message}";
+            Console.Error.WriteLine($"kcap: could not change Grok Bot recording: {ex.Message}");
+            GrokBotMessage = "Could not change Grok Bot recording. Try again.";
         } finally {
             // The click has already flipped the checkbox, and its one-way binding follows a notification only.
             this.RaisePropertyChanged(nameof(GrokBotRecording));
@@ -248,10 +250,12 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
                 try { row.SetWired(_isWired is null ? null : await Task.Run(() => _isWired(row.Id))); }
                 catch { row.SetWired(null); }
             }
-            // A missing or unlaunchable CLI surfaces as the OS's spawn error, which names a path but not the fix.
-            row.Report(ex is Win32Exception
-                ? "kcap could not start its command line tool. Reinstall kcap, then try again."
-                : ex.Message, failed);
+            Console.Error.WriteLine($"kcap: could not change harness setup: {ex.Message}");
+            row.Report(ex switch {
+                Win32Exception => "kcap could not start its command line tool. Reinstall kcap, then try again.",
+                InvalidOperationException { Message: SettingsProfileStore.ProfileChangedMessage } => SettingsProfileStore.ProfileChangedMessage,
+                _ => "Could not change the connection. Rescan before trying again.",
+            }, failed);
         } finally {
             row.SetWired(row.Wired);
             Busy = false;

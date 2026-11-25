@@ -138,13 +138,6 @@
                                IsVisible="{Binding LockedVisible}" />
                     <TextBlock x:Name="FailureText" Classes="onboardingDetail" Foreground="{StaticResource OnboardingMutedBrush}"
                                TextWrapping="Wrap" Text="{Binding FailureMessage}" />
-                    <StackPanel Spacing="2" IsVisible="{Binding FailureDetailVisible}">
-                        <TextBlock Text="Details from the installer" FontSize="{StaticResource KcapFontSizeCaption}"
-                                   Foreground="{StaticResource OnboardingDimBrush}" />
-                        <SelectableTextBlock x:Name="FailureDetailText" Text="{Binding FailureDetail}"
-                                             TextWrapping="Wrap" FontSize="{StaticResource KcapFontSizeCaption}" LineHeight="16"
-                                             Foreground="{StaticResource OnboardingDimBrush}" />
-                    </StackPanel>
                     <Button x:Name="TryAgainButton" Classes.onboardingPrimary="{Binding !OtherEditionVisible}" Classes.onboardingSecondary="{Binding OtherEditionVisible}" Content="Try again" HorizontalAlignment="Left"
                             Command="{Binding TryAgainCommand}" IsVisible="{Binding TryAgainVisible}" />
                     <Button x:Name="OtherEditionButton" Classes="onboardingPrimary" HorizontalAlignment="Left"

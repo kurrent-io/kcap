@@ -1206,7 +1206,7 @@ public class HandoffComposerViewModelTests {
         await starting;
 
         await Assert.That(next.Text).IsEqualTo("carry on");
-        await Assert.That(next.Error).IsEqualTo("the upload failed");
+        await Assert.That(next.Error).IsEqualTo("Couldn’t upload the files. Check your connection and try again.");
     });
 
     [Test]
@@ -1327,7 +1327,7 @@ public class HandoffComposerViewModelTests {
 
         await vm.StartCommand.Execute();
 
-        await Assert.That(vm.Error).IsEqualTo($"the upload failed. 1 more files come back once this message is sent ({AttachmentTray.CapReason})");
+        await Assert.That(vm.Error).IsEqualTo($"Couldn’t upload the files. Check your connection and try again. 1 more files come back once this message is sent ({AttachmentTray.CapReason})");
     });
 
     // ---- source choices ----

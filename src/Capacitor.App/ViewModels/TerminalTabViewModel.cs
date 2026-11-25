@@ -504,7 +504,7 @@ public sealed class TerminalTabViewModel : ReactiveObject {
                 if (Volatile.Read(ref _resolveState) == ResolveDisposed) return;
                 // Resolving (first claim) or NotFound (late recovery after timeout).
                 if (State.Phase is not (TerminalSessionPhase.Resolving or TerminalSessionPhase.NotFound)) return;
-                Publish(TerminalSessionState.Failed($"couldn't open the terminal: {ex.Message}"), null);
+                Publish(TerminalSessionState.Failed("Couldn’t open the terminal."), null);
             });
         }
     }
@@ -736,11 +736,9 @@ public sealed class TerminalTabViewModel : ReactiveObject {
             outcome = await client.RunAsync(cols, rows, ct).ConfigureAwait(false);
         } catch (OperationCanceledException) {
             return; // retired attempt's own cancellation -- silent, never an error
-        } catch (AttachCallbackException ex) {
-            await FinishAttemptAsync(generation, openingToken, surface, decoder, TerminalSessionState.Failed(Describe(ex))).ConfigureAwait(false);
-            return;
         } catch (Exception ex) {
-            await FinishAttemptAsync(generation, openingToken, surface, decoder, TerminalSessionState.Failed(ex.Message)).ConfigureAwait(false);
+            Console.Error.WriteLine($"kcap: terminal attach failed: {ex.GetBaseException().Message}");
+            await FinishAttemptAsync(generation, openingToken, surface, decoder, TerminalSessionState.Failed("Couldn’t open the terminal.")).ConfigureAwait(false);
             return;
         }
 
@@ -751,6 +749,8 @@ public sealed class TerminalTabViewModel : ReactiveObject {
             return;
         }
 
+        if (outcome is AttachOutcome.Failed(var diagnostic))
+            Console.Error.WriteLine($"kcap: terminal attach failed: {diagnostic}");
         var mapped = outcome switch {
             AttachOutcome.Detached          => TerminalSessionState.DetachedState,
             AttachOutcome.Exited(var code)   => TerminalSessionState.Exited(code),
@@ -787,9 +787,8 @@ public sealed class TerminalTabViewModel : ReactiveObject {
         }
     }
 
-    static string Describe(AttachCallbackException ex) => ex.InnerException?.Message ?? ex.Message;
-
-    const string LostConnection = "the terminal lost connection to the daemon";
+    internal const string LostConnection = "the terminal lost connection to the daemon";
+    internal const string DidNotResume = "This session didn’t come back after the daemon restarted.";
 
     /// What an attempt's end means, read from the resume ledger, which the daemon writes before any
     /// status reaches the cache: Interrupted once the daemon gave up, Resuming while the agent is
@@ -905,7 +904,7 @@ public sealed class TerminalTabViewModel : ReactiveObject {
                 return;
             }
 
-            var end = entry is null ? TerminalSessionState.Failed("This session didn’t come back after the daemon restarted.")
+            var end = entry is null ? TerminalSessionState.Failed(DidNotResume)
                     : entry.State == ResumeState.Interrupted ? TerminalSessionState.Interrupted(entry.LastError)
                     : expired ? TerminalSessionState.Failed(LostConnection)
                     : null;

@@ -79,7 +79,7 @@ public class ServerAttachmentUploaderTests {
     public async Task Status_codes_map_to_kinds() {
         var badRequest = await UploadWithStatusAsync(400, "nope");
         await Assert.That(badRequest.Kind).IsEqualTo(UploadKind.Rejected);
-        await Assert.That(badRequest.Reason).IsEqualTo("nope");
+        await Assert.That(badRequest.Reason).IsEqualTo("bad_request");
 
         var unauthorized = await UploadWithStatusAsync(401, null);
         await Assert.That(unauthorized.Kind).IsEqualTo(UploadKind.Unauthorized);

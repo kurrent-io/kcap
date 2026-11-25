@@ -236,7 +236,7 @@ public class HomeViewModelBaseRefTests {
     [Test]
     [Arguments("invalid_base_ref: a..b", "“a..b” isn't a branch, tag or commit name git accepts.")]
     [Arguments("base_ref_unsupported: daemon 'box' cannot start a session from a chosen branch.",
-        "Daemon 'box' cannot start a session from a chosen branch.")]
+        HomeViewModel.BaseRefUnsupportedByServer)]
     [Arguments("git fetch origin 0123abcd:refs/kcap/fetched/x failed: fatal: remote error: upload-pack: not our ref 0123abcd",
         "There's no branch, tag or commit “0123abcd” on that machine or its origin.")]
     public async Task Base_ref_failures_read_as_sentences(string reason, string expected) {

@@ -71,7 +71,8 @@ public sealed class MachineNameViewModel : ReactiveObject {
                 return c with { Profiles = new Dictionary<string, Profile>(c.Profiles) { [activeName] = profile } };
             }, ct).ConfigureAwait(true);
         } catch (Exception ex) when (ex is not OperationCanceledException) {
-            Message = $"Could not save the machine name: {ex.Message}";
+            Console.Error.WriteLine($"kcap: could not save the machine name: {ex.Message}");
+            Message = "Could not save the machine name. Try again.";
 
             return false;
         }

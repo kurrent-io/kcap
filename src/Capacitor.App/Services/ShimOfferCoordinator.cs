@@ -147,10 +147,19 @@ public sealed class ShimOfferCoordinator {
         // PATH. Success posts no line — the status lane is the launcher's warning banner, and
         // nothing clears it while the daemon stays connected.
         ShimOutcome.Installed => Installed(),
-        ShimOutcome.InstalledButNotOnPath => Status(result.Detail ?? "kcap was linked, but is not yet on your terminal PATH."),
-        ShimOutcome.Failed => Status(result.Detail ?? "Installing the command-line tool failed."),
+        ShimOutcome.InstalledButNotOnPath => Status(PathNotVerified),
+        ShimOutcome.Failed => Status(InstallFailureText(result)),
         _ => Task.CompletedTask,
     };
+
+    internal const string PathNotVerified = "Open a new terminal and run kcap --version. If kcap is missing or opens an older version, put this installation’s folder earlier on your shell’s PATH.";
+
+    internal static string InstallFailureText(ShimResult result) {
+        Console.Error.WriteLine($"kcap: terminal command setup failed: {result.Detail}");
+        return result.UserPathChanged
+            ? "kcap was added to your user PATH, but the change couldn’t be verified. Open a new terminal and run kcap --version."
+            : "Could not finish installing the terminal command. Try again.";
+    }
 
     Task Installed() {
         _offerable.OnNext(false);
