@@ -38,7 +38,7 @@
 3. **Two profiles on one machine.** A hook on profile B with only profile A's daemon running must spawn a watcher, and A's daemon must never take the session. Task 15.
 4. **A hook fires during launch.** A hosted agent's first hook can run before anything else has happened. The claim must exist before the agent process starts. Task 9.
 5. **One session in two processes.** `--resume` in a second terminal while the first is alive means two mods attach for one session id. The second is refused and the first keeps the attachment. Task 18.
-6. **A forged stamp.** A client stamps a row with another session's dispatch, an attached agent's, or one already credited. The server ignores the stamp, the row takes today's path, and the dispatch stays where it was. Task 11
+6. **A forged stamp.** A client stamps a row with another session's dispatch, an attached agent's, or one its named agent's stream doesn't hold. The server ignores the stamp, the row takes today's path, and the dispatch stays where it was. Task 11
 
 ---
 
@@ -79,7 +79,7 @@ public interface IRowStamper {
 
 // The client's answer for one line. It reaches the server only as the stamp on a canonical user message event
 // (Task 11), never on a raw TranscriptBatch
-public sealed record LineStamp(int LineNumber, Guid? DispatchId, bool IsLocal);
+public sealed record LineStamp(int LineNumber, Guid? DispatchId, string? AgentId, bool IsLocal);
 
 // Capacitor.Cli.Core
 public enum RecorderClaimState { None, DaemonFresh, DaemonStale }
@@ -346,9 +346,9 @@ A stamp travels only on the canonical route (`docs/superpowers/specs/2026-11-16-
 - Test: CLI `test/Capacitor.Cli.Core.Tests.Unit/Transcripts/` and `test/Capacitor.Cli.Recording.Tests.Unit/`; server `test/Capacitor.Server.Tests.Ingest/Canonical/` and `test/Capacitor.Server.Tests.Agents/HostedAgentInputProjectorTests.cs`
 
 **Interfaces:**
-- Wire: an event's `stamp` is `{"dispatch_id":"<guid>"}` or `{"local":true}`, and nothing else
-- CLI: `CanonicalBatchStamp(Guid? DispatchId, bool Local)` replaces the reserved `JsonElement? Stamp` on `CanonicalBatchEvent`. `CanonicalBatchAssembler.Assemble(TranscriptBatch raw, IReadOnlyDictionary<int, LineStamp>? stamps, DateTimeOffset receivedAt)`, `CanonicalRoute.Encode(raw, stamps, receivedAt)` and `RecorderCanonicalRoute.TrySendAsync(chunk, stamps, cursor, ct)` take a drain's stamps by line number
-- Server: `CanonicalIngressEvent.Stamp : JsonElement?`, copied by `Ingress` and kept by `CanonicalHeldLine` with the rest of the event. `CanonicalBatchContent.DroppedStamps`, each dropped stamp's line and reason (`malformed`, `subagent`, `not_user_message`). The stored metadata keys `$dispatch_id`, the id as a string, and `$local_input`, `true`, both written only by the reader
+- Wire: an event's `stamp` is `{"dispatch_id":"<guid>","agent_id":"<agent id>"}` or `{"local":true}`, and nothing else
+- CLI: `CanonicalBatchStamp(Guid? DispatchId, string? AgentId, bool Local)` replaces the reserved `JsonElement? Stamp` on `CanonicalBatchEvent`. `CanonicalBatchAssembler.Assemble(TranscriptBatch raw, IReadOnlyDictionary<int, LineStamp>? stamps, DateTimeOffset receivedAt)`, `CanonicalRoute.Encode(raw, stamps, receivedAt)` and `RecorderCanonicalRoute.TrySendAsync(chunk, stamps, cursor, ct)` take a drain's stamps by line number
+- Server: `CanonicalIngressEvent.Stamp : JsonElement?`, copied by `Ingress` and kept by `CanonicalHeldLine` with the rest of the event. `CanonicalBatchContent.DroppedStamps`, each dropped stamp's line and reason (`malformed`, `subagent`, `not_user_message`). The stored metadata keys `$dispatch_id`, the id as a string, with `$dispatch_agent`, and `$local_input`, `true`, all written only by the reader
 
 **What the client does:**
 - `StampLines` keeps what `IRowStamper.StampFor` answers, and the drain hands the stamps to the canonical send. The assembler puts a line's stamp on that line's first `UserMessageReceived`. A Claude line projects at most one
@@ -358,9 +358,9 @@ A stamp travels only on the canonical route (`docs/superpowers/specs/2026-11-16-
 
 **What the server checks.** This is the validation rule, and it sits in two places:
 - The reader has no state. It drops a stamp that isn't an object, holds a field other than `dispatch_id` and `local`, holds neither or both, holds a `dispatch_id` that isn't a GUID or is the empty one, or a `local` that isn't `true`, sits on an event other than `UserMessageReceived`, or sits in a subagent batch, whose stream the projector never reads. It keeps the event, takes the batch and reports the drop, and `HandleCanonicalTranscript` logs a warning with the session, line and reason. It doesn't refuse the batch, as it does for anything else it doesn't understand: that would send the source raw and unstamped until it reconnects. A stamp it takes becomes `$dispatch_id` or `$local_input`, which the reader writes. Nothing else writes those keys: the reader builds metadata only from named fields and the vendor allow-list, which holds no key for Claude and never these two, and the raw normalizers copy no line field into metadata
-- The projector honours `$dispatch_id` only for a dispatch pending in the same session's queue with no delivery state, which is one the server itself dispatched to this session, to a hosted agent. A dispatch already credited, one pending in another session, an attached agent's (a link credits those), a wake-up's (it isn't in the queue) and one the projector hasn't seen yet all leave the row on today's path, exactly as if it were unstamped. Ingest admits only the session's owner, so a stamp can tie a row only to a message someone sent to that session's agent. The projector doesn't compare the row's text with the dispatch's: the server trusts the owner's daemon to pair them, since comparing texts is what keeps breaking
+- The projector reads the dispatch from `HostedAgentInput-{$dispatch_agent}`, backwards from the stream's end, not from its pending queue. The server appends every dispatch and wake-up there before sending it, so the stream holds it before the daemon can paste it; only the launch prompt, appended at SessionStart, can be missing. It honours the dispatch only when the event names the row's session and its transport isn't the mod. A stream without the dispatch, another session's dispatch, and an attached agent's (a link credits those) leave the row on today's path, exactly as if it were unstamped. A wake-up's credits its sender and settles its expectation in the same transaction, as the text match does; any other credits its sender and leaves the pending list. Ingest admits only the session's owner, so a stamp can tie a row only to a message someone sent to that session's agent. The projector doesn't compare the row's text with the dispatch's, and doesn't check whether another row already took the dispatch: the server trusts the owner's daemon to pair them, since comparing texts is what keeps breaking
 - A `$local_input` row is credited to the session's owner, as the owner fallback credits a row, and consumes no dispatch, burst or wake-up
-- Replay: a row sent again has the same event id and isn't stored twice. A stamped row's attribution is written before its pending dispatch is deleted, and attribution is keyed by row, so a projector that processes the row again writes nothing new. A second row stamped with a dispatch already credited finds it gone and takes today's path
+- Replay: a row sent again has the same event id and isn't stored twice. A row already credited takes nothing more, on every path, and whatever its credit names leaves the pending lists; every path writes the credit before removing what it took. A stamped row's credit depends only on the row and the stream, so a projector rebuilt from scratch reaches the same answer
 
 **For G2:** for each stamp it honours, the projector logs whether the FIFO matcher would have chosen the same dispatch, another one, or none, so Task 12's week of comparison needs no second build. Nothing acts on the log
 
@@ -375,7 +375,11 @@ A stamp travels only on the canonical route (`docs/superpowers/specs/2026-11-16-
   - `A_stamped_row_takes_its_dispatch_without_matching_text`, with redacted text that would fail FIFO
   - `An_unstamped_row_still_goes_to_the_matcher`
   - `A_local_row_goes_to_the_owner_and_consumes_no_pending_dispatch`: identical text, remote dispatch pending, local row first, then the stamped row links to its dispatch only
-  - `A_replayed_stamped_row_does_not_attribute_twice`, and `A_second_row_stamped_with_a_credited_dispatch_takes_todays_path`
+  - `A_replayed_stamped_row_does_not_attribute_twice`, and `A_second_row_stamped_with_a_credited_dispatch_is_credited_too`
+  - `A_stamped_row_finds_its_dispatch_after_a_restart`: the dispatch is in its stream but no longer in the pending queue
+  - `A_stamp_naming_a_dispatch_its_agents_stream_lacks_is_ignored`
+  - `A_stamped_wake_up_credits_its_sender_and_settles_it`
+  - `A_replayed_unstamped_row_consumes_no_other_dispatch`, and the same for a burst and a wake-up
   - `A_stamp_naming_another_sessions_dispatch_is_ignored`, and that dispatch stays pending there
   - `A_stamp_naming_an_attached_agents_dispatch_is_ignored`
   - `A_stamp_on_an_event_that_is_not_a_user_message_is_dropped`
@@ -402,7 +406,7 @@ The daemon side stays as the spec's Part 2 designs it, with one change: what tel
 **Interfaces:**
 - `PersonRows(ITranscriptProjection projection, string sessionId, string vendor)` with `string? Text(string line, int lineNumber)`: the line projected with a fresh context, and the text of its first `UserMessageReceived` when `UserMessageClassifier` classes it as a person's. Null for every other line. A slash command's text is the command as typed, from what the projection stores for it, so it compares with what was pasted. `static bool IsPersonText(string text, string vendor)` classes a message's own text as a person-authored row carrying it would be classed
 - `InputLog(string path, TimeProvider time)` with `long AppendPending(InputAuthor author, string text)`, `void MarkWritten(long position)`, `void Abandon(long position)`, `void Suspend(string reason)`, `bool IsSuspended`, `LineStamp? Match(int lineNumber, string rawLine, string? personText)`, `void Acknowledge(int throughLine)`, `void ResetForNewProcess(int firstLine)`
-- `InputAuthor`: a dispatch id, the owner at a local surface, or the daemon's own text, whose row consumes its entry and takes no stamp
+- `InputAuthor`: a dispatch id with the agent it was sent to, the owner at a local surface, or the daemon's own text, whose row consumes its entry and takes no stamp
 - `InputLogStamper(InputLog log, PersonRows rows) : IRowStamper`. `DaemonRecorder` gives one to a hosted Claude agent's root source and `NoStamps` to everything else
 - `IHostedAgentRuntime.SendOwnerInputAsync(string text)`, which defaults to `SendUserInputAsync`: a message the owner sent from a local surface
 - Text is stored as a SHA-256 hash of the text with trailing newlines trimmed. A match record holds a hash of the raw line
@@ -459,7 +463,7 @@ The match rule is unproven on real sessions, because G2 hasn't run. What it deci
 - Produces: an optional `Guid? LaunchDispatchId` on `LaunchAgentCommand` on both sides. The record is bound by name, so a daemon that predates it ignores it
 
 - [ ] **Tests:** `A_launch_prompt_row_is_stamped_with_its_minted_dispatch`, `A_launch_from_an_older_server_stamps_nothing`, `The_launch_command_names_the_dispatch_the_queue_registers`, and `An_older_daemon_ignores_the_launch_dispatch`
-- [ ] **Implement:** mint the id once where the command is built, and give the same id to `RegisterLaunchPrompt`, so the dispatch `FlushLaunchPromptAsync` appends carries it. The daemon passes it to the launch prompt's `AppendPending`. The paste follows the existing launch path, so a launch prompt never reaches the command line. `FlushLaunchPromptAsync` runs on SessionStart, so a launch prompt's row stored before that dispatch is projected finds no pending dispatch, and Task 11's projector leaves it on today's path
+- [ ] **Implement:** mint the id once where the command is built, and give the same id to `RegisterLaunchPrompt`, so the dispatch `FlushLaunchPromptAsync` appends carries it. The daemon passes it to the launch prompt's `AppendPending`. The paste follows the existing launch path, so a launch prompt never reaches the command line. `FlushLaunchPromptAsync` runs on SessionStart, so a launch prompt's row projected before that dispatch is appended finds nothing in the agent's stream, and Task 11's projector leaves it on today's path
 - [ ] **Verify:** those suites
 - [ ] **Commit:** server `[AI-4410] Send a launch prompt's dispatch id to the daemon`, CLI `Carry a launch prompt's dispatch id to the daemon`
 
