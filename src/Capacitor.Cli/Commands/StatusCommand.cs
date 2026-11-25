@@ -173,7 +173,8 @@ public sealed class StatusCommand(
         try {
             using var client = http.Anonymous();
             client.Timeout = TimeSpan.FromSeconds(5);
-            using var resp = await client.GetAsync($"{baseUrl}/auth/config");
+            var       asked  = new Uri($"{baseUrl}/auth/config");
+            using var resp   = await client.GetAsync(asked);
 
             if (!resp.IsSuccessStatusCode) return new ServerReach(baseUrl, false, (int)resp.StatusCode, LastKnownProvider());
 
@@ -181,7 +182,9 @@ public sealed class StatusCommand(
 
             // Status may be the only thing that ever asks this server, so its answer is recorded
             // the way discovery records its own: the fallback above has nothing else to read.
-            if (announced is not null) AuthProviderCache.Set(baseUrl, announced.Provider, config, time, announced.MachineTokenUrl);
+            if (announced is not null)
+                AuthProviderCache.Set(baseUrl, announced.Provider, config, time,
+                    AuthProviderDiscovery.TrustedTokenUrl(asked, resp, announced.MachineTokenUrl));
 
             return new ServerReach(baseUrl, true, null, announced?.Provider ?? LastKnownProvider());
         } catch (Exception ex) {

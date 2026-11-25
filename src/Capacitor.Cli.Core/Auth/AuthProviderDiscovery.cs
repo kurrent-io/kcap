@@ -75,6 +75,16 @@ public sealed class AuthProviderDiscovery(IHttpClientFactory factory, TimeProvid
         return _machineTokenUrls.GetValueOrDefault(baseUrl);
     }
 
+    /// <summary>
+    /// The <c>machine_token_url</c> an <c>/auth/config</c> answer may record, or null. Every writer of
+    /// the field goes through this: the mint sends the client secret there.
+    ///
+    /// <para>The anonymous lane follows redirects, and a plaintext hop anywhere in the chain could have
+    /// rewritten the answer, so only an unredirected answer from a server reached safely names it.</para>
+    /// </summary>
+    public static string? TrustedTokenUrl(Uri asked, HttpResponseMessage response, string? named) =>
+        response.RequestMessage?.RequestUri == asked && MayNameTokenUrl(asked.AbsoluteUri) ? named : null;
+
     static bool MayNameTokenUrl(string baseUrl) =>
         Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
      && (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback));
@@ -89,11 +99,7 @@ public sealed class AuthProviderDiscovery(IHttpClientFactory factory, TimeProvid
             if (response.IsSuccessStatusCode) {
                 var discovered = await response.Content.ReadFromJsonAsync(CapacitorJsonContext.Default.AuthDiscoveryResponse, ct);
                 var provider   = discovered?.Provider ?? "None";
-                // The anonymous lane follows redirects, and a plaintext hop anywhere in the chain could have
-                // rewritten the answer, so only an answer from the URL asked names the token URL.
-                var tokenUrl   = response.RequestMessage?.RequestUri == request
-                    ? discovered?.MachineTokenUrl
-                    : null;
+                var tokenUrl   = TrustedTokenUrl(request, response, discovered?.MachineTokenUrl);
                 _memo[baseUrl]             = provider;
                 _machineTokenUrls[baseUrl] = tokenUrl;
                 AuthProviderCache.Set(baseUrl, provider, config, time, tokenUrl); // only cache successful discovery

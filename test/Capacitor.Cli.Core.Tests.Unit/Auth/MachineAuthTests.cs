@@ -391,6 +391,19 @@ public class MachineAuthTests : IDisposable {
         await Assert.That(named).IsEqualTo(expected);
     }
 
+    /// <summary>Login records the provider from its own fetch, so that fetch drops a token URL that came
+    /// through a redirect the same way discovery does.</summary>
+    [Test]
+    public async Task Login_takes_no_token_url_from_a_redirected_answer() {
+        using var handler = new AnsweredBy("https://discovery.example/auth/config");
+        using var http    = new HttpClient(handler);
+
+        var config = await OAuthLoginFlow.FetchAuthConfigAsync(http, "http://localhost:9473", default, new RecordingAuthProgress());
+
+        await Assert.That(config!.Provider).IsEqualTo("workos");
+        await Assert.That(config.MachineTokenUrl).IsNull();
+    }
+
     sealed class AnsweredBy(string url) : HttpMessageHandler {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
