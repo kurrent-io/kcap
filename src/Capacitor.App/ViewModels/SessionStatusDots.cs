@@ -55,6 +55,10 @@ public static class SessionStatusDots {
             terminalDialog: row.TerminalDialog is not null, interruption: row.Interruption, agentId: row.Id,
             stale: row.IsStale);
 
+    /// The server flags only how long the session has been quiet, so the tip claims nothing about
+    /// whether the agent is still running: an agent killed without a session end stays stale.
+    public const string StaleNextStep = "No end has been recorded, so the agent may still be running. You can still open the session.";
+
     /// First match wins, so two surfaces cannot draw different marks for the same facts.
     /// <paramref name="usageLimitSummary"/> is set only for a question the user must answer.
     /// <paramref name="stale"/> is the server's idle flag, which outranks only the bare "Running" that
@@ -111,6 +115,7 @@ public static class SessionStatusDots {
         Add(facts, harness, "Harness");
         Add(facts, model, "Model");
         Add(facts, usageLimitSummary, "Usage limit");
+        if (kind == AgentStatusKind.Stale) Add(facts, StaleNextStep);
         if (kind == AgentStatusKind.Interrupted) {
             Add(facts, InterruptionReasons.Describe(interruption), "Reason");
             Add(facts, $"Retry with `kcap agent resume{(agentId is null ? "" : " " + agentId)}`, or stop it to discard it.");

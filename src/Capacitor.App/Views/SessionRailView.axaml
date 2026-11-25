@@ -19,6 +19,7 @@
                     <Binding Path="Primary" />
                     <Binding Path="MachineBadge" />
                     <Binding Path="CheckoutPath" />
+                    <Binding Path="LaneNote" />
                 </MultiBinding>
             </Setter>
         </Style>
@@ -612,12 +613,11 @@
                                         <ItemsControl ItemsSource="{Binding Sessions}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="vm:RailSessionViewModel">
-                                                    <Border Classes="railSession" Classes.selected="{Binding IsSelected}" Margin="0,2,0,0"
-                                                            Opacity="{Binding IsStale, Converter={x:Static views:StaleOpacityConverter.Instance}}">
+                                                    <Border Classes="railSession" Classes.selected="{Binding IsSelected}" Margin="0,2,0,0">
                                                         <Grid>
                                                             <Button Command="{Binding OpenCommand}" HorizontalAlignment="Stretch"
                                                                     HorizontalContentAlignment="Stretch" Padding="{DynamicResource KcapSessionRowPadding}"
-                                                                    AutomationProperties.Name="{Binding SessionAccessibleName}"
+                                                                    AutomationProperties.Name="{Binding RowAccessibleName}"
                                                                     Classes="railRow" Classes.selected="{Binding IsSelected}">
                                                                 <StackPanel Spacing="3">
                                                                     <TextBlock Text="{Binding Primary}" FontSize="{StaticResource KcapFontSizeLarge}" LineHeight="20"
