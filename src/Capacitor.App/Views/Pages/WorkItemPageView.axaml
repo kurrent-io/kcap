@@ -121,12 +121,26 @@
         <Style Selector="Button.linkSum /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
-        <Style Selector="Button.detailRow">
+        <Style Selector="Button.resourceCard">
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="Padding" Value="8,6" />
-            <Setter Property="Margin" Value="-8,0" />
-            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="12,10" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="Button.resourceCard /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        </Style>
+        <Style Selector="Button.resourceCard:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.resourceCard:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+        </Style>
+        <Style Selector="Border.resourceIcon">
+            <Setter Property="Width" Value="32" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
         </Style>
         <!-- Without a background, a drag over the gaps between rows hit-tests through the zone and its outline flickers. -->
         <Style Selector="StackPanel.group, StackPanel.part">
@@ -737,28 +751,33 @@
                                 </Grid>
                                 <Border Margin="0,4,0,0" IsVisible="{Binding Links.Count, Converter={x:Static views:CountIsNotZeroConverter.Instance}}">
                                     <ItemsControl x:Name="WorkItemLinks" ItemsSource="{Binding Links}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Spacing="8" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="pages:WorkItemPageLink">
-                                                <Button Classes="kcapGhost detailRow" ToolTip.Tip="{Binding Url}" AutomationProperties.Name="{Binding ShortKey}"
+                                                <Button Classes="kcapGhost resourceCard" ToolTip.Tip="{Binding Url}" AutomationProperties.Name="{Binding ShortKey}"
                                                         Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OpenLinkCommand}"
                                                         CommandParameter="{Binding}">
-                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
-                                                        <Panel VerticalAlignment="Top" Margin="0,1,0,0">
-                                                            <views:AppIcon Kind="{Binding Icon}" Size="14" Foreground="{StaticResource KcapFaintBrush}"
-                                                                           IsVisible="{Binding !IsMerged}" />
-                                                            <views:AppIcon Kind="{Binding Icon}" Size="14" Foreground="{StaticResource KcapSuccessBrush}"
-                                                                           IsVisible="{Binding IsMerged}" />
-                                                        </Panel>
-                                                        <StackPanel Grid.Column="1" Spacing="2">
-                                                            <TextBlock Text="{Binding Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold"
+                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                                        <Border Classes="resourceIcon">
+                                                            <Panel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                <views:AppIcon Kind="{Binding Icon}" Size="16" Foreground="{StaticResource KcapMutedBrush}"
+                                                                               IsVisible="{Binding !IsMerged}" />
+                                                                <views:AppIcon Kind="{Binding Icon}" Size="16" Foreground="{StaticResource KcapSuccessBrush}"
+                                                                               IsVisible="{Binding IsMerged}" />
+                                                            </Panel>
+                                                        </Border>
+                                                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                                            <TextBlock FontSize="13" LineHeight="16" FontWeight="SemiBold"
                                                                        TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
-                                                                       Foreground="{StaticResource KcapTextBrush}"
-                                                                       IsVisible="{Binding Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                                            <TextBlock FontSize="12" Foreground="{StaticResource KcapMutedBrush}">
+                                                                       Foreground="{StaticResource KcapTextBrush}">
                                                                 <Run Text="{Binding ShortKey}" />
-                                                                <Run Text=" · " />
-                                                                <Run Text="{Binding StateLabel}" />
+                                                                <Run Text="{Binding Title}" />
                                                             </TextBlock>
+                                                            <TextBlock Text="{Binding Meta}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" />
                                                         </StackPanel>
                                                     </Grid>
                                                 </Button>
@@ -776,17 +795,28 @@
                                 </Grid>
                                 <Border Margin="0,4,0,0">
                                     <ItemsControl x:Name="WorkItemPages" ItemsSource="{Binding Pages}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Spacing="8" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate x:DataType="pages:WorkItemPublishedPage">
-                                                <Button Classes="kcapGhost detailRow" ToolTip.Tip="{Binding Url}" AutomationProperties.Name="{Binding Title}"
+                                                <Button Classes="kcapGhost resourceCard" ToolTip.Tip="{Binding Url}" AutomationProperties.Name="{Binding Title}"
                                                         Command="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OpenPageCommand}"
                                                         CommandParameter="{Binding}">
-                                                    <StackPanel Spacing="2">
-                                                        <TextBlock Text="{Binding Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold"
-                                                                   TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
-                                                                   Foreground="{StaticResource KcapTextBrush}" />
-                                                        <TextBlock Text="{Binding Meta}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" />
-                                                    </StackPanel>
+                                                    <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                                        <Border Classes="resourceIcon" Background="{StaticResource KcapInfoDimBrush}">
+                                                            <views:AppIcon Kind="FileText" Size="16" Foreground="{StaticResource KcapInfoBrush}"
+                                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                        </Border>
+                                                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                                            <TextBlock Text="{Binding Title}" FontSize="13" LineHeight="16" FontWeight="SemiBold"
+                                                                       TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis"
+                                                                       Foreground="{StaticResource KcapTextBrush}" />
+                                                            <TextBlock Text="{Binding Meta}" FontSize="12" Foreground="{StaticResource KcapMutedBrush}" />
+                                                        </StackPanel>
+                                                    </Grid>
                                                 </Button>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>

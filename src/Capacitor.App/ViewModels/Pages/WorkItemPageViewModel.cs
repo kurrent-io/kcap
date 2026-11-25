@@ -556,7 +556,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         Goal = string.IsNullOrWhiteSpace(read.Goal) ? null : read.Goal.Trim();
         Links = LinksOf(read.Links);
         Pages = [.. read.Pages.Select(page => new WorkItemPublishedPage(
-            page.ArtefactId, string.IsNullOrWhiteSpace(page.Title) ? "Untitled page" : page.Title, $"v{page.LatestVersion} · {Ago(page.UpdatedAt)}", page.Url))];
+            page.ArtefactId, string.IsNullOrWhiteSpace(page.Title) ? "Untitled page" : page.Title, $"Page · v{page.LatestVersion} · {Ago(page.UpdatedAt)}", page.Url))];
 
         var located = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var part in read.Parts)
