@@ -2950,9 +2950,12 @@ public class ChatTabViewSmokeTests {
                 await host.Window.Clipboard!.SetTextAsync("before the tap");
                 using (var tap = host.Window.TouchBegin(copyPoint, RawInputModifiers.None))
                     host.Window.TouchEnd(tap, copyPoint, RawInputModifiers.None);
-                host.Settle();
-                await assistant.CopyAction!.PendingCopyForTesting!;
-                await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo("See [docs](https://example.com/docs).");
+                // A copy that finishes at once returns the shared completed task, so the pending copy cannot tell
+                // the tap's copy from an earlier one; the clipboard can.
+                await WaitUntilAsync(async () => {
+                    host.Settle();
+                    return await host.Window.Clipboard!.TryGetTextAsync() == "See [docs](https://example.com/docs).";
+                }, what: "the tap's copy on the clipboard");
 
                 var tabs = 0;
                 while (!host.Composer.IsFocused && tabs < 8) {
