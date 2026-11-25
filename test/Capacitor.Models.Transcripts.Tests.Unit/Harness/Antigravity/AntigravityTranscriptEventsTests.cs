@@ -247,6 +247,50 @@ public class AntigravityTranscriptEventsTests {
         await Assert.That(ctx.Held).IsEmpty();
     }
 
+    /// <summary>A result written before its own planner waits for that planner rather than taking a call left
+    /// unanswered before the prompt.</summary>
+    [Test]
+    public async Task A_result_before_its_planner_does_not_take_a_call_from_before_the_prompt() {
+        var ctx = Context();
+        string[] lines = [
+            """{"step_index":1,"type":"PLANNER_RESPONSE","created_at":"2026-11-24T22:00:01Z","tool_calls":[{"name":"run_command","args":{"CommandLine":"sleep 100"}}]}""",
+            """{"step_index":2,"source":"USER_EXPLICIT","type":"USER_INPUT","created_at":"2026-11-24T22:00:02Z","content":"<USER_REQUEST>stop and read b</USER_REQUEST>"}""",
+            """{"step_index":4,"type":"GENERIC","created_at":"2026-11-24T22:00:04Z","content":"Showing lines 1-1 of 1\n1: result-b"}""",
+            """{"step_index":3,"type":"PLANNER_RESPONSE","created_at":"2026-11-24T22:00:03Z","tool_calls":[{"name":"read_file","args":{"Path":"/w/b"}}]}""",
+        ];
+
+        var events  = lines.SelectMany(l => Project(l, ctx)).ToList();
+        var calls   = events.Where(e => e.EventType == CanonicalEventTypes.AssistantToolCallsGenerated).Select(CallIdOf).ToList();
+        var results = events.Where(e => e.EventType == CanonicalEventTypes.ToolResultReceived).Select(CallIdOfResult).ToList();
+
+        await Assert.That(results).IsEquivalentTo([calls[1]], CollectionOrdering.Matching);
+    }
+
+    /// <summary>Steps with no step_index cannot be ordered, so a result takes the call of the latest planner received.</summary>
+    [Test]
+    public async Task A_result_without_a_step_pairs_with_the_latest_planner_without_one() {
+        var ctx = Context();
+        Project("""{"type":"PLANNER_RESPONSE","tool_calls":[{"name":"read_file","args":{"Path":"/w/a"}}]}""", ctx);
+        var calls = Project("""{"type":"PLANNER_RESPONSE","tool_calls":[{"name":"read_file","args":{"Path":"/w/b"}}]}""", ctx);
+
+        var result = Project("""{"type":"GENERIC","content":"result-b"}""", ctx).Single();
+
+        await Assert.That(CallIdOfResult(result)).IsEqualTo(CallIdOf(calls.Single()));
+    }
+
+    /// <summary>A prompt with no step_index cannot be ordered, so it is no boundary: a result with no step_index after
+    /// it still answers the call before it.</summary>
+    [Test]
+    public async Task A_prompt_without_a_step_index_is_no_boundary() {
+        var ctx  = Context();
+        var call = Project(Planner(5, Call()), ctx).Single();
+        Project("""{"source":"USER_EXPLICIT","type":"USER_INPUT","content":"<USER_REQUEST>go on</USER_REQUEST>"}""", ctx);
+
+        var result = Project("""{"type":"GENERIC","content":"out"}""", ctx).Single();
+
+        await Assert.That(CallIdOfResult(result)).IsEqualTo(CallIdOf(call));
+    }
+
     // ── failures ──────────────────────────────────────────────────────────────
 
     /// <summary>The <c>Created At</c> and <c>Completed At</c> lines that open a result are dropped, a result with no

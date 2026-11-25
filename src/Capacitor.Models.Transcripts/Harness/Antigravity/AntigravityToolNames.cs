@@ -110,12 +110,13 @@ public static class AntigravityToolNames {
         if (Text(native, "ServerName") is not { Length: > 0 } server || Text(native, "ToolName") is not { Length: > 0 } tool) return null;
 
         var arguments = native["Arguments"] switch {
+            null                                                        => new JsonObject(),
             JsonObject obj                                              => obj.DeepClone().AsObject(),
             JsonValue value when value.TryGetValue<string>(out var json) => ParseObject(json),
             _                                                           => null,
         };
 
-        return ($"mcp__{server}__{tool}", arguments ?? new JsonObject());
+        return arguments is null ? null : ($"mcp__{server}__{tool}", arguments);
     }
 
     static JsonObject? ParseObject(string? json) {

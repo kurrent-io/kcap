@@ -37,6 +37,10 @@ public class AntigravityToolNamesTests {
     [Arguments("run_command", """{"cmd":"x"}""")]
     [Arguments("call_mcp_tool", """{"ToolName":"t"}""")]
     [Arguments("replace_file_content", """{"TargetFile":"/w/h.py"}""")]
+    [Arguments("call_mcp_tool", """{"Arguments":"not-json","ServerName":"s","ToolName":"t"}""")]
+    [Arguments("call_mcp_tool", """{"Arguments":"[1]","ServerName":"s","ToolName":"t"}""")]
+    [Arguments("call_mcp_tool", """{"Arguments":7,"ServerName":"s","ToolName":"t"}""")]
+    [Arguments("call_mcp_tool", """{"Arguments":[1],"ServerName":"s","ToolName":"t"}""")]
     [Arguments("read_file", "not json")]
     [Arguments("read_file", null)]
     public async Task A_tool_it_cannot_translate_keeps_its_name_and_parameters(string native, string? parameters) {
