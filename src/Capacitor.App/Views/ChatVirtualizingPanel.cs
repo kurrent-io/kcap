@@ -131,7 +131,6 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         MeasuredAtEstimatedEnd = scroll is not null && scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - 2;
         EnsureRailLayer();
         var readingLayout = ReadingLayout;
-        if (readingLayout == 0) ClearMessagePool();
         var reset = readingLayout != _lastReadingLayout || _resetReadingMeasurements;
         _lastReadingLayout = readingLayout;
         _resetReadingMeasurements = false;
@@ -184,7 +183,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         foreach (var entry in _realized.ToArray()) {
             if (entry.Key >= first && entry.Key <= last) continue;
             if (!KeepAlive(entry.Value, focused, captured, scrollAnchor, overscan)) {
-                Unrealize(entry.Key, recycleMessage: readingLayout != 0);
+                Unrealize(entry.Key, recycleMessage: true);
                 continue;
             }
             // A warm row above the viewport keeps its stored height. Remeasuring it shifts every
@@ -197,7 +196,6 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
             if (delta != 0)
                 for (var i = entry.Key + 1; i < _starts.Length; i++) _starts[i] += delta;
         }
-        if (readingLayout == 0) ClearMessagePool();
         return new Size(width, _starts[^1]);
     }
 
@@ -419,7 +417,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
                     if (items[i] is { } item) indices[item] = i;
                 var retained = new Dictionary<int, Row>();
                 foreach (var entry in _realized.ToArray()) {
-                    if (!indices.TryGetValue(entry.Value.Item, out var index)) Unrealize(entry.Key, recycleMessage: ReadingLayout != 0);
+                    if (!indices.TryGetValue(entry.Value.Item, out var index)) Unrealize(entry.Key, recycleMessage: true);
                     else {
                         retained.Add(index, entry.Value);
                         if (index != entry.Key) ItemContainerGenerator!.ItemContainerIndexChanged(entry.Value.Container, entry.Key, index);
@@ -457,7 +455,7 @@ public sealed class ChatVirtualizingPanel : VirtualizingPanel {
         var row = Realize(index);
         row.Container.Measure(new Size(RowWidth(row.Item, _lastWidth), double.PositiveInfinity));
         if (focus(row.Container) is null) {
-            Unrealize(index, recycleMessage: ReadingLayout != 0);
+            Unrealize(index, recycleMessage: true);
             return false;
         }
         ScrollIntoView(index);

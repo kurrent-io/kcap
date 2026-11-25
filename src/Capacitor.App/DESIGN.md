@@ -57,7 +57,7 @@ In sessions that support bookmarks and topics, each message keeps its own marks 
 
 The footer sits inside the bottom gap of the row it follows and adds its own height there, 28 DIP with its 4 DIP gap; the row's gap follows the footer. In a 1400 × 760 synthetic workspace in Light Comfortable, including the item gaps, an “ok” prompt measures 94 DIP, and a one-line assistant message inside and ending a reply 44 and 72 DIP. Rows hold their bounds on hover.
 
-When the viewport moves, a row's container can serve another item with the same template: it keeps the row and rebinds it, after clearing the old message's selection, context-menu state and drag and find marks. A row holding focus or a pressed pointer is never recycled. Prompt and reply rows park attached and hidden, up to 12, so taking one back skips styling a fresh row; with the redesign preview off they are released at the end of each layout pass, and resetting the feed releases them.
+When the viewport moves, a row's container can serve another item with the same template: it keeps the row and rebinds it, after clearing the old message's selection, context-menu state and drag and find marks. A row holding focus or a pressed pointer is never recycled. Prompt and reply rows park attached and hidden, up to 12, so taking one back skips styling a fresh row; resetting the feed releases them. None of this depends on the redesign preview.
 
 Inline and fenced code keep their own typography when switching reading faces.
 
