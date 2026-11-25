@@ -106,37 +106,16 @@ public class MachineCommandTests {
     }
 
     /// <summary>
-    /// A user-facing CLI surface must be documented in README.md. Pinned so
-    /// the README and the command cannot drift apart silently — the compiler reads neither.
+    /// A user-facing CLI surface must be documented in its help, where the README sends readers for command detail.
+    /// Pinned so the help and the command cannot drift apart silently: the compiler reads neither.
     /// </summary>
     [Test]
     [Arguments("kcap machine create")]
     [Arguments("kcap machine list")]
     [Arguments("kcap machine revoke")]
     [Arguments("KCAP_CLIENT_SECRET")]
-    public async Task The_readme_documents_the_command(string needle) {
-        var readme = FindReadme();
-
-        await Assert.That(readme).Contains(needle);
-    }
-
-    /// <summary>
-    /// Walks up from the test binary rather than assuming a working directory, because the test host's
-    /// cwd differs between a local `dotnet run` and CI.
-    /// </summary>
-    static string FindReadme() {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-
-        while (dir is not null) {
-            var candidate = Path.Combine(dir.FullName, "README.md");
-
-            if (File.Exists(candidate)) return File.ReadAllText(candidate);
-
-            dir = dir.Parent;
-        }
-
-        throw new FileNotFoundException("README.md not found walking up from the test binary.");
-    }
+    public async Task The_help_documents_the_command(string needle) =>
+        await Assert.That(EmbeddedResources.Load("help-machine.txt")).Contains(needle);
 
     /// <summary>
     /// Revocation's limits, stated. An operator responding to a leaked credential must know the old
