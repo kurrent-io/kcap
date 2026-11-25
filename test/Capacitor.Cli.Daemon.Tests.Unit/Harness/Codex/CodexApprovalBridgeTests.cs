@@ -153,6 +153,108 @@ public class CodexApprovalBridgeTests {
         await Assert.That(r.GetProperty("scope").GetString()).IsEqualTo("turn");           // deny scope, never "session"
     }
 
+    // ── What the person approving is shown ───────────────────────────────────────────────────────
+    static async Task<(AcpInteractionRequest Shown, string? Decision)> Show(
+            string method, string paramsJson, Action<CodexApprovalBridge>? observe = null) {
+        AcpInteractionRequest? shown = null;
+        var bridge = Bridge((request, _) => {
+            shown = request;
+            return Task.FromResult(new AcpInteractionDecision("allow", "accept", "Allow", null, null, null));
+        });
+        observe?.Invoke(bridge);
+        var result = await bridge.HandleAsync(ApprovalRequest(method, paramsJson), CancellationToken.None);
+        return (shown!.Value, await Decision(result));
+    }
+
+    static string? Input(AcpInteractionRequest shown, string property) => shown.ToolInput?.Str(property);
+
+    static JsonElement Changes(string json) => JsonElement.Parse(json);
+
+    /// The card reads a command the way Codex's hook names it, and the answer still goes back on the request.
+    [Test]
+    public async Task A_command_approval_shows_the_script_it_runs_as_a_shell_command() {
+        var (shown, decision) = await Show(CommandMethod, """
+            {"threadId":"thread-1","turnId":"turn-1","itemId":"item-1","startedAtMs":1,
+             "command":"/bin/bash -lc 'touch kcap-permission-check'","cwd":"/wt","reason":"Create the marker"}
+            """);
+
+        await Assert.That(shown.ToolName).IsEqualTo("Bash");
+        await Assert.That(Input(shown, "command")).IsEqualTo("touch kcap-permission-check");
+        await Assert.That(Input(shown, "cwd")).IsEqualTo("/wt");
+        await Assert.That(Input(shown, "description")).IsEqualTo("Create the marker");
+        await Assert.That(shown.ToolCallId).IsEqualTo("item-1");
+        await Assert.That(decision).IsEqualTo("accept");
+    }
+
+    /// Input for a running command, a network grant or another environment asks for more than the command text says.
+    [Test]
+    [Arguments("""{"threadId":"thread-1","itemId":"item-1","command":"cat","kind":"writeStdin"}""")]
+    [Arguments("""{"threadId":"thread-1","itemId":"item-1","command":"curl x","networkApprovalContext":{"host":"x","protocol":"https"}}""")]
+    [Arguments("""{"threadId":"thread-1","itemId":"item-1","command":"ls","environmentId":"remote"}""")]
+    public async Task A_command_approval_asking_for_more_than_its_command_is_shown_as_it_came(string paramsJson) {
+        var (shown, _) = await Show(CommandMethod, paramsJson);
+
+        await Assert.That(shown.ToolName).IsEqualTo("commandExecution");
+        await Assert.That(Input(shown, "threadId")).IsEqualTo("thread-1");
+    }
+
+    [Test]
+    public async Task A_one_file_edit_shows_the_file_and_its_lines() {
+        var (shown, decision) = await Show(FileMethod, """{"threadId":"thread-1","itemId":"fc-1","reason":"Fix the greeting"}""",
+            bridge => bridge.FileChanges.Observe("fc-1", Changes("""
+                [{"path":"/wt/src/a.txt","kind":{"type":"update","move_path":null},"diff":"@@ -1,2 +1,2 @@\n keep\n-hello\n+goodbye\n"}]
+                """)));
+
+        await Assert.That(shown.ToolName).IsEqualTo("Edit");
+        await Assert.That(Input(shown, "file_path")).IsEqualTo("/wt/src/a.txt");
+        await Assert.That(Input(shown, "old_string")).IsEqualTo("keep\nhello");
+        await Assert.That(Input(shown, "new_string")).IsEqualTo("keep\ngoodbye");
+        await Assert.That(Input(shown, "description")).IsEqualTo("Fix the greeting");
+        await Assert.That(decision).IsEqualTo("accept");
+    }
+
+    [Test]
+    public async Task An_edit_in_several_places_shows_each_one() {
+        var (shown, _) = await Show(FileMethod, """{"threadId":"thread-1","itemId":"fc-1"}""",
+            bridge => bridge.FileChanges.Observe("fc-1", Changes("""
+                [{"path":"/wt/a.txt","kind":{"type":"update"},"diff":"--- a.txt\n+++ a.txt\n@@ -1 +1 @@\n-one\n+uno\n@@ -9 +9 @@\n-nine\n+nueve\n\\ No newline at end of file\n"}]
+                """)));
+
+        await Assert.That(shown.ToolName).IsEqualTo("MultiEdit");
+        await Assert.That(Input(shown, "file_path")).IsEqualTo("/wt/a.txt");
+        var edits = shown.ToolInput!.Value.GetProperty("edits").EnumerateArray()
+            .Select(e => $"{e.Str("old_string")}>{e.Str("new_string")}");
+        await Assert.That(string.Join("|", edits)).IsEqualTo("one>uno|nine>nueve");
+    }
+
+    [Test]
+    public async Task A_new_file_shows_as_a_write_of_its_content() {
+        var (shown, _) = await Show(FileMethod, """{"threadId":"thread-1","itemId":"fc-1"}""",
+            bridge => bridge.FileChanges.Observe("fc-1", Changes("""[{"path":"/wt/new.txt","kind":{"type":"add"},"diff":"hello\nworld\n"}]""")));
+
+        await Assert.That(shown.ToolName).IsEqualTo("Write");
+        await Assert.That(Input(shown, "file_path")).IsEqualTo("/wt/new.txt");
+        await Assert.That(Input(shown, "content")).IsEqualTo("hello\nworld\n");
+    }
+
+    /// A change one file cannot show — several files, a delete, a rename, a grant beyond its paths, or one whose
+    /// paths are not yet known — is shown as the patch it is, naming every path it touches.
+    [Test]
+    [Arguments("""[{"path":"/wt/a.txt","kind":{"type":"update"},"diff":"@@ -1 +1 @@\n-a\n+b\n"},{"path":"/wt/b.txt","kind":{"type":"add"},"diff":"x"}]""", "", "/wt/a.txt,/wt/b.txt")]
+    [Arguments("""[{"path":"/wt/gone.txt","kind":{"type":"delete"},"diff":"old\n"}]""", "", "/wt/gone.txt")]
+    [Arguments("""[{"path":"/wt/a.txt","kind":{"type":"update","move_path":"/wt/b.txt"},"diff":""}]""", "", "/wt/a.txt")]
+    [Arguments("""[{"path":"/wt/a.txt","kind":{"type":"update"},"diff":"@@ -1 +1 @@\n-a\n+b\n"}]""", ""","grantRoot":"/wt" """, "/wt/a.txt")]
+    [Arguments(null, "", "")]
+    public async Task A_change_one_file_cannot_show_is_shown_as_the_patch(string? changes, string extra, string paths) {
+        var (shown, _) = await Show(FileMethod, $$"""{"threadId":"thread-1","itemId":"fc-1","reason":"Tidy up"{{extra}} }""",
+            bridge => { if (changes is not null) bridge.FileChanges.Observe("fc-1", Changes(changes)); });
+
+        await Assert.That(shown.ToolName).IsEqualTo("apply_patch");
+        await Assert.That(Input(shown, "description")).IsEqualTo("Tidy up");
+        var shownPaths = shown.ToolInput!.Value.GetProperty("changes").EnumerateArray().Select(c => c.Str("path")).ToList();
+        await Assert.That(string.Join(",", shownPaths)).IsEqualTo(paths);
+    }
+
     // ── Non-approval requests keep the always-decline shapes ─────────────────────────────────────
     [Test]
     public async Task Elicitation_request_declines_with_action_shape() {

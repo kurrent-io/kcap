@@ -169,9 +169,10 @@ internal sealed partial class CodexNotificationMapper {
 
         switch (type) {
             case "commandExecution":
+                var command = item.Str("command") is { } line ? CodexShellCommand.Script(line) : null;
                 return One(new AcpEventEnvelope(
                     Kind: AcpEventKind.ToolCall, ToolCallId: id, ToolName: "shell",
-                    ToolInputJson: RenderCommandOpen(item), ToolKind: CodexToolKinds.Shell(item.Str("command")),
+                    ToolInputJson: RenderCommandOpen(command, item.Str("cwd")), ToolKind: CodexToolKinds.Shell(command),
                     ItemId: id, TimestampIso: ts));
 
             case "mcpToolCall":
@@ -325,12 +326,12 @@ internal sealed partial class CodexNotificationMapper {
         return Encoding.UTF8.GetString(buffer.ToArray());
     }
 
-    static string RenderCommandOpen(JsonElement item) {
+    static string RenderCommandOpen(string? command, string? cwd) {
         using var buffer = new MemoryStream();
         using (var w = new Utf8JsonWriter(buffer)) {
             w.WriteStartObject();
-            WriteNullable(w, "command", item.Str("command"));
-            WriteNullable(w, "cwd", item.Str("cwd"));
+            WriteNullable(w, "command", command);
+            WriteNullable(w, "cwd", cwd);
             w.WriteEndObject();
         }
         return Encoding.UTF8.GetString(buffer.ToArray());

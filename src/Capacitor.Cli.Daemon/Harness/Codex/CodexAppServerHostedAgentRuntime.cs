@@ -619,12 +619,15 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
                 break;
         }
 
+        if (FileChange(n.Method, n.Params) is ({ } itemId, var changes)) {
+            _policy?.Paths.Observe(itemId, changes);
+            _approvalBridge?.FileChanges.Observe(itemId, changes);
+        }
+
         // Translate every notification into canonical/ephemeral envelopes and
         // drain them through the forward buffer. Runs on the read-loop thread, so a full buffer blocks
         // here (a canonical emit) — the intended lossless backpressure onto the app-server's stdout.
         // Gated on envelope-source ingestion (see _emitEnvelopeTranscript).
-        if (_policy is { } policy) ObservePolicyFacts(policy, n.Method, n.Params);
-
         if (_emitEnvelopeTranscript)
             foreach (var mapped in _mapper.Map(n.Method, n.Params)) {
                 var env = _submitted.Stamp(mapped);
@@ -633,16 +636,16 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
             }
     }
 
-    /// <summary>A file change's paths arrive on its started item and its patch updates; its approval names none.</summary>
-    static void ObservePolicyFacts(CodexHostedPolicySeam policy, string method, JsonElement? p) {
+    /// <summary>A file change's changes arrive on its started item and its patch updates; its approval names none.</summary>
+    static (string ItemId, JsonElement Changes)? FileChange(string method, JsonElement? p) {
         switch (method) {
             case "item/fileChange/patchUpdated" when p?.Str("itemId") is { } itemId && p.Value.TryGetProperty("changes", out var changes):
-                policy.Paths.Observe(itemId, changes);
-                break;
+                return (itemId, changes);
             case "item/started" when p?.Obj("item") is { } item && item.Str("type") == "fileChange" && item.Str("id") is { } id
                                   && item.TryGetProperty("changes", out var started):
-                policy.Paths.Observe(id, started);
-                break;
+                return (id, started);
+            default:
+                return null;
         }
     }
 
