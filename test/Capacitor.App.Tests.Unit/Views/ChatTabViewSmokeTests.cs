@@ -2635,7 +2635,7 @@ public class ChatTabViewSmokeTests {
             var assistant = copies[1];
             // The reply ends at its tool call, so its Copy sits after that card, and the message above reveals it.
             await Assert.That(assistant.FindAncestorOfType<ChatRowContainer>()!.DataContext).IsTypeOf<ToolGroupItem>();
-            var row = host.View.GetVisualDescendants().OfType<ChatMessageRow>().Single(r => r.Classes.Contains("messageRow"));
+            var row = host.View.GetVisualDescendants().OfType<ChatMessageRow>().Single(r => r.DataContext is AssistantTextItem);
             host.Window.MouseMove(row.TranslatePoint(new Point(4, 4), host.Window)!.Value);
             host.Settle();
             await Assert.That(assistant.Opacity).IsEqualTo(1);
@@ -3295,9 +3295,10 @@ public class ChatTabViewSmokeTests {
     static IEnumerable<Visual> RowAndFooter(ChatMessageRow row) {
         yield return row;
         if (row.DataContext is not ChatItemViewModel { Reply: { } reply } || row.FindAncestorOfType<ItemsControl>() is not { } list) yield break;
-        foreach (var container in list.GetRealizedContainers().OfType<ChatRowContainer>())
+        foreach (var container in list.GetRealizedContainers().OfType<ChatRowContainer>()) {
             if (container.DataContext is ChatItemViewModel { EndsReply: true } end && ReferenceEquals(end.Reply, reply))
                 yield return container.Footer;
+        }
     }
 
     static TextBlock MessageTime(ChatMessageRow row) =>

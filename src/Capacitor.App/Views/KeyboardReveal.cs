@@ -25,8 +25,14 @@ sealed class KeyboardReveal {
 
     // Focus handed back without a method, as a menu does on closing, keeps the state it found.
     void OnGotFocus(object? sender, FocusChangedEventArgs e) {
-        if (e.NavigationMethod is NavigationMethod.Tab or NavigationMethod.Directional) Set(true);
-        else if (e.NavigationMethod == NavigationMethod.Pointer) Set(false);
+        switch (e.NavigationMethod) {
+            case NavigationMethod.Tab or NavigationMethod.Directional:
+                Set(true);
+                break;
+            case NavigationMethod.Pointer:
+                Set(false);
+                break;
+        }
     }
 
     // A click on a control that already has focus raises no focus change, so the press is caught here.

@@ -15,8 +15,6 @@ namespace Capacitor.App.Views;
 /// The row its template built stays for the next item with the same template, so recycling only rebinds it.
 public sealed class ChatRowContainer : Panel {
     const double FooterGap = 4;
-    readonly ReplyFooter _footer = new() { HorizontalAlignment = HorizontalAlignment.Left };
-    Control? _row;
     readonly KeyboardReveal _keyboard;
     ChatItemViewModel? _item;
     AssistantReply? _active;
@@ -24,38 +22,38 @@ public sealed class ChatRowContainer : Panel {
 
     public ChatRowContainer() {
         Background = Brushes.Transparent;
-        Children.Add(_footer);
+        Children.Add(Footer);
         _keyboard = new KeyboardReveal(this, UpdateActive);
     }
 
     /// The row's own control, as its template built it.
-    public Control? Row => _row;
+    public Control? Row { get; private set; }
 
     /// The template that built <see cref="Row"/>.
     internal IDataTemplate? Template { get; private set; }
 
-    internal ReplyFooter Footer => _footer;
+    internal ReplyFooter Footer { get; } = new() { HorizontalAlignment = HorizontalAlignment.Left };
 
     internal void Show(object? item, IDataTemplate? template) {
         if (_item is not null) _item.PropertyChanged -= OnItemChanged;
         _item = item as ChatItemViewModel;
         if (_item is not null) _item.PropertyChanged += OnItemChanged;
-        if (item is not null && (_row is null || !ReferenceEquals(template, Template))) {
-            if (_row is not null) Children.Remove(_row);
+        if (item is not null && (Row is null || !ReferenceEquals(template, Template))) {
+            if (Row is not null) Children.Remove(Row);
             Template = template;
-            _row = template?.Build(item);
-            if (_row is not null) Children.Insert(0, _row);
+            Row = template?.Build(item);
+            if (Row is not null) Children.Insert(0, Row);
         }
         DataContext = item;
-        _footer.IsVisible = _item?.EndsReply == true;
+        Footer.IsVisible = _item?.EndsReply == true;
         UpdateActive();
     }
 
     /// Lets go of the item, and of what the reader did in this row, so the row can serve another.
     internal void Park() {
         var view = this.FindAncestorOfType<ChatTabView>();
-        if (_row is not null)
-            foreach (var markdown in _row.GetSelfAndVisualDescendants().OfType<MarkdownView>()) {
+        if (Row is not null)
+            foreach (var markdown in Row.GetSelfAndVisualDescendants().OfType<MarkdownView>()) {
                 view?.ReleaseRecycledMarkdown(markdown);
                 markdown.ResetMessageState();
             }
@@ -63,10 +61,15 @@ public sealed class ChatRowContainer : Panel {
     }
 
     void OnItemChanged(object? sender, PropertyChangedEventArgs e) {
-        if (e.PropertyName == nameof(ChatItemViewModel.EndsReply)) {
-            _footer.IsVisible = _item?.EndsReply == true;
-            InvalidateMeasure();
-        } else if (e.PropertyName == nameof(ChatItemViewModel.Reply)) UpdateActive();
+        switch (e.PropertyName) {
+            case nameof(ChatItemViewModel.EndsReply):
+                Footer.IsVisible = _item?.EndsReply == true;
+                InvalidateMeasure();
+                break;
+            case nameof(ChatItemViewModel.Reply):
+                UpdateActive();
+                break;
+        }
     }
 
     protected override void OnPointerEntered(PointerEventArgs e) {
@@ -85,7 +88,7 @@ public sealed class ChatRowContainer : Panel {
     protected override void OnKeyDown(KeyEventArgs e) {
         base.OnKeyDown(e);
         if (e.Handled || e.Key != Key.F10 || e.KeyModifiers != KeyModifiers.Shift
-            || e.Source is not Visual source || !_footer.IsVisualAncestorOf(source)
+            || e.Source is not Visual source || !Footer.IsVisualAncestorOf(source)
             || ReplyMessageRow() is not { ContextFlyout: { } menu } row) return;
         menu.ShowAt(row);
         e.Handled = true;
@@ -124,26 +127,26 @@ public sealed class ChatRowContainer : Panel {
     }
 
     // A card row keeps its gap on the card it hosts rather than on itself.
-    double RowGap => _row switch {
+    double RowGap => Row switch {
         ContentControl { Content: Layoutable card } host => host.Margin.Bottom + card.Margin.Bottom,
         Layoutable row => row.Margin.Bottom,
         _ => 0,
     };
 
     protected override Size MeasureOverride(Size availableSize) {
-        _row?.Measure(availableSize);
-        var size = _row?.DesiredSize ?? default;
-        if (!_footer.IsVisible) return size;
-        _footer.Measure(availableSize);
-        return new Size(Math.Max(size.Width, _footer.DesiredSize.Width), size.Height + FooterGap + _footer.DesiredSize.Height);
+        Row?.Measure(availableSize);
+        var size = Row?.DesiredSize ?? default;
+        if (!Footer.IsVisible) return size;
+        Footer.Measure(availableSize);
+        return new Size(Math.Max(size.Width, Footer.DesiredSize.Width), size.Height + FooterGap + Footer.DesiredSize.Height);
     }
 
     protected override Size ArrangeOverride(Size finalSize) {
-        var footer = _footer.IsVisible ? FooterGap + _footer.DesiredSize.Height : 0;
+        var footer = Footer.IsVisible ? FooterGap + Footer.DesiredSize.Height : 0;
         var content = Math.Max(0, finalSize.Height - footer);
-        _row?.Arrange(new Rect(0, 0, finalSize.Width, content));
-        if (_footer.IsVisible)
-            _footer.Arrange(new Rect(0, content - RowGap + FooterGap, _footer.DesiredSize.Width, _footer.DesiredSize.Height));
+        Row?.Arrange(new Rect(0, 0, finalSize.Width, content));
+        if (Footer.IsVisible)
+            Footer.Arrange(new Rect(0, content - RowGap + FooterGap, Footer.DesiredSize.Width, Footer.DesiredSize.Height));
         return finalSize;
     }
 }

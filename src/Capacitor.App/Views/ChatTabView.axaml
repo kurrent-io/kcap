@@ -475,7 +475,7 @@
                     </views:ChatMessageRow>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantTextItem">
-                    <views:ChatMessageRow Classes="messageRow" Background="Transparent" Margin="{DynamicResource KcapTranscriptGap}"
+                    <views:ChatMessageRow Background="Transparent" Margin="{DynamicResource KcapTranscriptGap}"
                                           Author="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" Timestamp="{Binding Time}">
                         <DockPanel Classes="messageLayout">
                             <views:ChatMessageHeader Orientation="Horizontal" Spacing="8">
