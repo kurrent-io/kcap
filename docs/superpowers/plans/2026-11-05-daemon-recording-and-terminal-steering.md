@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-> **Execution:** subagent-driven, by the owner's choice. The owner lifted the hold on 2026-11-06, and agreed that the FIFO matcher stays for raw terminal typing and to the two columns in Task 17.
+> **Execution:** subagent-driven, by the owner's choice. The owner lifted the hold on 2026-11-06, and agreed to the two columns in Task 17. On 2026-11-25 they set deleting the FIFO matcher as the aim, once stamps and links cover everything it handles, and ruled that the server doesn't compare a stamped row's text with its dispatch's.
 
 **Goal:** Move transcript recording into the daemon, give remote messages an exact author, and let a person steer their own running terminal Claude session without moving it.
 

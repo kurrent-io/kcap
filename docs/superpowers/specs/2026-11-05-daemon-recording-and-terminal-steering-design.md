@@ -30,7 +30,7 @@ The two meet here. Daemon recording was meant to fix authorship, because the dae
 1. The daemon records every session it can serve, with no per-session watcher process.
 2. Every remote message has an exact author: by stamp for hosted PTY sessions, by link for terminal sessions. Remote terminal typing is the exception, because nothing proves which keystroke made which row.
 3. A person can send a message to their own running terminal Claude session from another surface.
-4. The FIFO matcher shrinks to the cases that can't be stamped. It can retire only if remote terminal typing gets an exact signal.
+4. The FIFO matcher is deleted once stamps and links cover every way a message reaches a hosted session. Until then it handles only what they don't cover: older daemons and CLIs, Codex until it's on the canonical route, and remote terminal typing.
 
 ## Non-goals for the first version
 
@@ -43,7 +43,7 @@ The two meet here. Daemon recording was meant to fix authorship, because the dae
 - A server-side message queue. See the end of this document.
 - Attachments and `@file` mentions in steering. A plugin prompt doesn't expand them, so steering is text only.
 - Removing `kcap watch`.
-- Removing the FIFO matcher. This work shrinks it.
+- Deleting the FIFO matcher. This work shrinks it, and it goes once nothing it handles is left.
 - Stamping raw input from remote typing or an attached client.
 
 ## Anti-goals
@@ -73,7 +73,8 @@ These would make the work a failure even if it functioned.
 - Steering has one switch rather than one per session, stored with the daemon's consent settings, separate from launch consent, and off until set. `kcap setup` offers it. There is no per-session step, because a person can't turn on a per-session switch after leaving the terminal.
 - Remote tool approvals and remote interrupt stay out of the first version and come straight after it.
 - There are no new Postgres tables. The only schema change is two nullable columns on `hosted_agent_pending_dispatches`.
-- The FIFO matcher stays for raw terminal typing, which can't be stamped.
+- The FIFO matcher is to be deleted, not kept. Text matching breaks on complex text such as markdown and line breaks, and every fix to it is followed by another. It stays only until stamps and links cover older daemons, Codex and remote terminal typing.
+- The server doesn't compare a stamped row's text with its dispatch's. It trusts the owner's daemon to pair them.
 - A stamp travels only as metadata on the canonical user message event, never on a raw batch, and it needs no new format number. An older server that ignores it treats the row as unstamped
 - The server writes a stamp's metadata itself, from a stamp it has checked, and trusts nothing else the client could forge. It has no vendor branch for stamps
 - A message waiting in the daemon is rejected visibly if the daemon restarts or loses the server, and the sender sends it again.
@@ -188,7 +189,7 @@ As AI-4410 describes, on the canonical route (`2026-11-16-canonical-transcript-i
 
 **Placement.** The recorder puts a line's stamp on the first user message event that line produces, and a Claude line produces at most one. A line that produces none, because capture replaced it with a capture-loss line or the projection rejected it, has nowhere to carry its stamp: the recorder drops it and logs the line. The stamp's entry is already retired, so later rows keep their positions, and the dispatch stays pending until the FIFO matcher or the session-end flush settles it. The spool keeps raw lines, so a spooled tail drains unstamped
 
-**Trust.** The server takes nothing about the stamp from the client but the stamp itself, and checks it twice. The canonical reader, with no state, refuses the batch as unsupported when a stamp is malformed (not an object, an unknown field, neither field or both, a `dispatch_id` that isn't a non-empty GUID, a `local` that isn't `true`), sits on an event that isn't a user message, or sits in a subagent batch. That is its rule for anything it doesn't understand, and the client resends those lines raw. From a stamp it takes, the reader itself writes `$dispatch_id` or `$local_input`, and nothing else can write those keys: event metadata comes only from named fields and a per-vendor allow-list that never holds them. The projector honours `$dispatch_id` only when it names a dispatch pending in the same session's queue with no delivery state, which is one the server dispatched to that session, to a hosted agent. One already credited, one pending in another session, an attached agent's, a wake-up's, or one not yet projected leave the row on today's path, as if unstamped. Ingest admits only the session's owner, so a stamp ties a row only to a message someone was allowed to send to that session's agent, and the owner, who writes the transcript, gains nothing they couldn't get by typing the same text. A row sent again keeps its event id and isn't stored twice, attribution is keyed by row, and a credited dispatch leaves the queue, so a replayed stamped row never attributes twice. A held canonical line keeps its events, stamp included, and its retry passes the same checks
+**Trust.** The server takes nothing about the stamp from the client but the stamp itself, and checks it twice. The canonical reader, with no state, refuses the batch as unsupported when a stamp is malformed (not an object, an unknown field, neither field or both, a `dispatch_id` that isn't a non-empty GUID, a `local` that isn't `true`), sits on an event that isn't a user message, or sits in a subagent batch. That is its rule for anything it doesn't understand, and the client resends those lines raw. From a stamp it takes, the reader itself writes `$dispatch_id` or `$local_input`, and nothing else can write those keys: event metadata comes only from named fields and a per-vendor allow-list that never holds them. The projector honours `$dispatch_id` only when it names a dispatch pending in the same session's queue with no delivery state, which is one the server dispatched to that session, to a hosted agent. One already credited, one pending in another session, an attached agent's, a wake-up's, or one not yet projected leave the row on today's path, as if unstamped. Ingest admits only the session's owner, so a stamp can tie a row only to a message someone sent to that session's agent. It can tie it to a row with other words, because the projector doesn't compare the texts: the server trusts the owner's daemon to pair a row with its dispatch, since comparing texts is what keeps breaking. A row sent again keeps its event id and isn't stored twice, attribution is keyed by row, and a credited dispatch leaves the queue, so a replayed stamped row never attributes twice. A held canonical line keeps its events, stamp included, and its retry passes the same checks
 
 **Input log.** The daemon knows every message it pastes. Before writing a remote message or a launch prompt to the PTY, it appends an entry to a per-session log holding its position, dispatch id, sender and a hash of its text, marked Pending. After the write it marks the entry Written. The log lives in the daemon's owner-only state directory and holds no message text.
 
