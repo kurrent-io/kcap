@@ -203,7 +203,7 @@ internal sealed class RemoteTranscriptFeed : IChatTranscriptFeed {
                 LogOnce(attempt, $"remote transcript subscription failed: {ex.Message}");
                 Enqueue(attempt, FeedStatus.Failed, ex.Message.Contains(WireTokens.StreamNotAuthorized, StringComparison.Ordinal)
                     ? "not authorized to read this session's stream"
-                    : "Couldn’t read this session’s messages.");
+                    : "Couldn’t read this session’s messages. Reopen the session to try again.");
                 return;
             } catch (Exception ex) {
                 LogOnce(attempt, $"remote transcript: {ex.Message}");

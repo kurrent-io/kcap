@@ -182,7 +182,7 @@ sealed class LocalUpgrade(LocalStack stack, IProgress<LocalInstallEvent> progres
 
             case LocalUpgradeJournal.Stopping or LocalUpgradeJournal.Restarting:
                 var (started, restart) = await RestartOldAsync(lease, entry, details);
-                if (!started) throw Failed(LocalInstallFailureCode.RecoveryFailed, $"An interrupted upgrade to {details.To} was undone. {restart}");
+                if (!started) throw Failed(LocalInstallFailureCode.RecoveryRestartFailed, $"An interrupted upgrade to {details.To} was undone. {restart}");
                 return;
 
             case LocalUpgradeJournal.Switching:

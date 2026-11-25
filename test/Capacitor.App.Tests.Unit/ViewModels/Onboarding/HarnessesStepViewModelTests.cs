@@ -582,7 +582,8 @@ public class HarnessesStepViewModelTests {
         });
 
         await Assert.That(left).IsFalse();
-        await Assert.That(message).StartsWith("Could not finish installing the terminal command.");
+        await Assert.That(message).StartsWith("A command already exists at ");
+        await Assert.That(message).Contains("Move that command");
         await Assert.That(calls).IsEqualTo(0);
     }
 

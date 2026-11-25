@@ -175,8 +175,8 @@ public sealed partial class PullRequestContextViewModel {
             "not_found" => "This pull request could not be found.",
             "tool_signed_out" => "The local CLI is not signed in for this host. Sign in and refresh.",
             "tool_denied" => "Your account cannot read this pull request.",
+            _ when read.Reader is { } tool => $"Couldn't read this pull request through {tool}. Refresh to try again.",
             "tool_failed" => "The local CLI could not read this pull request. Refresh to try again.",
-            _ when read.Reader is not null => "The local CLI could not read this pull request. Refresh to try again.",
             _ => "Couldn't load pull request context. Refresh to try again."
         }
     };

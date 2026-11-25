@@ -204,6 +204,10 @@ public sealed class FeedbackViewModel : ReactiveObject, IDisposable {
             }
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
             // The app is quitting; nothing to show.
+        } catch (Exception ex) when (_mail is not null) {
+            Console.Error.WriteLine($"kcap: could not prepare the feedback email: {ex.GetType().Name}");
+            FullReport = FeedbackMail.Body(submission);
+            Outcome = $"kcap couldn’t finish preparing the email. Copy the report below into the draft, or email it to {FeedbackMail.Address}.";
         } catch (CapacitorApiException ex) when (ex.Status == 401) {
             Outcome = HomeViewModel.SignInExpiredNotice;
             SignInOffered = _signIn is not null;

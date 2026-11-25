@@ -149,7 +149,7 @@ public sealed class HarnessesSettingsViewModel : ReactiveObject, IDisposable {
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: could not change Grok Bot recording: {ex.Message}");
-            GrokBotMessage = "Could not change Grok Bot recording. Try again.";
+            GrokBotMessage = SettingsProfileStore.SaveFailureText(ex, "Could not change Grok Bot recording. Try again.");
         } finally {
             // The click has already flipped the checkbox, and its one-way binding follows a notification only.
             this.RaisePropertyChanged(nameof(GrokBotRecording));

@@ -13,7 +13,7 @@ public sealed record AuthIdentity(string Profile, string CanonicalServer);
 /// durable was published, the same way <see cref="SigninDenied"/> does — but a caller that headlines
 /// it as an error is telling the user something untrue.
 /// </remarks>
-public enum AuthFailureReason { Other, Unreachable, SigninDenied, NoTenantsFound, ProvisioningInProgress }
+public enum AuthFailureReason { Other, Unreachable, SigninDenied, NoTenantsFound, ProvisioningInProgress, ConfigUnreadable, ProfileChanged }
 
 /// <summary>
 /// Outcome of an onboarding operation. <see cref="Cancelled"/> is strictly pre-boundary — once the

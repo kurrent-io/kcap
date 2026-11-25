@@ -2527,7 +2527,7 @@ public partial class App : Application {
         // Showing a window is legal before Avalonia's main loop starts (StartWithClassicDesktopLifetime
         // does the same); calling desktop.Shutdown(1) directly throws when startup faulted
         // synchronously, before the main loop began.
-        var errorWindow = BuildStartupErrorWindow(ex);
+        var errorWindow = BuildStartupErrorWindow(ex, Program.StartupCrashLogPath);
         if (desktop.MainWindow is null) desktop.MainWindow = errorWindow;
         errorWindow.Closed += (_, _) => desktop.Shutdown(1);
         errorWindow.Show();
@@ -2537,7 +2537,7 @@ public partial class App : Application {
     static IBrush? KcapBrush(string key) =>
         Current?.TryGetResource(key, null, out var brush) == true ? brush as IBrush : null;
 
-    internal static Window BuildStartupErrorWindow(Exception ex) =>
+    internal static Window BuildStartupErrorWindow(Exception ex, string? crashLogPath = null) =>
         new() {
             Title = "kcap — startup failed",
             Icon = ProductIcon.WindowIcon,
@@ -2552,7 +2552,9 @@ public partial class App : Application {
                             "kcap couldn’t load a required component. Update or reinstall kcap, then open it again.",
                         UnauthorizedAccessException =>
                             "kcap couldn’t access files it needs to start. Check your permissions, then open kcap again.",
-                        _ => "kcap couldn’t start. Close this window and open kcap again. If it keeps happening, check the app crash log.",
+                        _ when crashLogPath is not null =>
+                            $"kcap couldn’t start. Close this window and open kcap again. If it keeps happening, look for the crash log at {crashLogPath} and contact support.",
+                        _ => "kcap couldn’t start. Close this window and open kcap again. Contact support if it keeps happening.",
                     },
                     TextWrapping = TextWrapping.Wrap,
                 },

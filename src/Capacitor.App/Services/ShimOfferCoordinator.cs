@@ -147,18 +147,28 @@ public sealed class ShimOfferCoordinator {
         // PATH. Success posts no line — the status lane is the launcher's warning banner, and
         // nothing clears it while the daemon stays connected.
         ShimOutcome.Installed => Installed(),
-        ShimOutcome.InstalledButNotOnPath => Status(PathNotVerified),
-        ShimOutcome.Failed => Status(InstallFailureText(result)),
+        ShimOutcome.InstalledButNotOnPath or ShimOutcome.Failed => Status(InstallFailureText(result)),
         _ => Task.CompletedTask,
     };
 
-    internal const string PathNotVerified = "Open a new terminal and run kcap --version. If kcap is missing or opens an older version, put this installation’s folder earlier on your shell’s PATH.";
-
     internal static string InstallFailureText(ShimResult result) {
-        Console.Error.WriteLine($"kcap: terminal command setup failed: {result.Detail}");
-        return result.UserPathChanged
-            ? "kcap was added to your user PATH, but the change couldn’t be verified. Open a new terminal and run kcap --version."
-            : "Could not finish installing the terminal command. Try again.";
+        Console.Error.WriteLine($"kcap: terminal command setup incomplete: {result.Detail}");
+        var folder = result.Folder ?? "the folder that contains kcap";
+        return result.PathIssue switch {
+            ShimPathIssue.InvalidTarget => "kcap’s installation path can’t be added to PATH. Move kcap to a folder with a simple name and try again.",
+            ShimPathIssue.UnsupportedShell => $"kcap couldn’t configure this shell automatically. Add {folder} to your shell’s PATH, then open a new terminal.",
+            ShimPathIssue.ExistingCommand => $"A command already exists at {Path.Combine(folder, "kcap")}. Move that command if you want to use this copy, then try again.",
+            ShimPathIssue.LinkFolderOccupied => $"kcap couldn’t create the terminal command because {folder} is a file. Move the file, then try again.",
+            ShimPathIssue.LinkFailed => $"kcap couldn’t create the terminal command in {folder}. Check that you can write to that folder and try again.",
+            ShimPathIssue.ShellProfileNotUpdated => $"kcap is linked in {folder}, but its shell settings couldn’t be updated. Add {folder} to your shell’s PATH and open a new terminal.",
+            ShimPathIssue.FolderMissingFromPath => $"kcap is linked in {folder}, but that folder is missing from PATH. Add it to your shell’s PATH and open a new terminal.",
+            ShimPathIssue.AnotherCommandFirst => $"Your shell finds another kcap before the one in {folder}. Move {folder} earlier in your shell’s PATH and open a new terminal.",
+            ShimPathIssue.LinkUnverified => $"kcap is linked in {folder}, but the app couldn’t verify which copy your shell uses. Open a new terminal and run kcap --version.",
+            ShimPathIssue.UserPathNotUpdated => $"kcap couldn’t update your user PATH. Open Windows Environment Variables and add {folder} to your user PATH.",
+            ShimPathIssue.UserPathUnverified => $"{folder} is on your user PATH, but kcap couldn’t verify the terminal command. Open a new terminal and run kcap --version.",
+            _ when result.Outcome == ShimOutcome.InstalledButNotOnPath => "The terminal can’t find the installed command yet. Check your shell’s PATH, then open a new terminal.",
+            _ => "Could not finish installing the terminal command. Try again.",
+        };
     }
 
     Task Installed() {

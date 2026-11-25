@@ -72,6 +72,7 @@ public class ServerAttachmentUploaderTests {
 
         await Assert.That(outcome.Kind).IsEqualTo(UploadKind.Rejected);
         await Assert.That(outcome.Reason).IsEqualTo(ServerAttachmentUploader.UnexpectedResponse);
+        await Assert.That(outcome.FailureText).Contains("contact support if it keeps happening");
         await Assert.That(outcome.Ids).IsEmpty();
     }
 
@@ -87,7 +88,8 @@ public class ServerAttachmentUploaderTests {
 
         var serverError = await UploadWithStatusAsync(500, null);
         await Assert.That(serverError.Kind).IsEqualTo(UploadKind.Unreachable);
-        await Assert.That(serverError.Reason).IsEqualTo("server_status_500");
+        await Assert.That(serverError.Reason).IsEqualTo(UploadOutcome.ServerFailed);
+        await Assert.That(serverError.FailureText).Contains("server couldn’t finish the upload");
 
         const string closedPort = "http://127.0.0.1:1";
         var profiles = Resolutions.At(closedPort, Config.Root);
@@ -102,6 +104,18 @@ public class ServerAttachmentUploaderTests {
         var refused = await new ServerAttachmentUploader(provider.GetRequiredService<ICapacitorHttpClient>(), profiles)
             .UploadAsync(TwoFiles(), CancellationToken.None);
         await Assert.That(refused.Kind).IsEqualTo(UploadKind.Unreachable);
+    }
+
+    [Test]
+    [Arguments(403, "Check your workspace permissions")]
+    [Arguments(413, "Try fewer or smaller files")]
+    [Arguments(415, "try a different format")]
+    [Arguments(429, "Wait a moment and try again")]
+    public async Task A_known_upload_refusal_offers_a_specific_next_step(int status, string guidance) {
+        var result = await UploadWithStatusAsync(status, "internal details");
+
+        await Assert.That(result.FailureText).Contains(guidance);
+        await Assert.That(result.FailureText).DoesNotContain("internal details");
     }
 
     async Task<UploadOutcome> UploadWithStatusAsync(int statusCode, string? body) {

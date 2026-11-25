@@ -34,9 +34,12 @@ public partial class HomeViewModelTests {
     }
 
     [Test]
-    public async Task DenialReasonRendersFriendly() =>
-        await Assert.That(HomeViewModel.FriendlyLaunchFailure("launch_denied_by_owner: prompt_no_ui"))
-            .Contains("consent policy denied");
+    [Arguments("owner approval required and no approval UI attached within 5.0s grace", "open kcap there")]
+    [Arguments("owner did not respond within 30s", "be ready to approve")]
+    [Arguments("declined by daemon owner", "before requesting it again")]
+    [Arguments("denied by daemon owner policy", "review the launch rules")]
+    public async Task A_consent_denial_suggests_the_action_that_matches_its_cause(string reason, string guidance) =>
+        await Assert.That(HomeViewModel.FriendlyLaunchFailure($"launch_denied_by_owner: {reason}")).Contains(guidance);
 
     [Test]
     public async Task A_full_daemon_reads_as_a_notice_without_the_hub_lead() {
@@ -53,7 +56,7 @@ public partial class HomeViewModelTests {
     public async Task Known_hub_refusal_loses_the_transport_lead() =>
         await Assert.That(HomeViewModel.FriendlyLaunchFailure(
                 "An unexpected error occurred invoking 'RequestLaunchAgentV2' on the server. HubException: Machine is offline."))
-            .IsEqualTo("Machine is offline.");
+            .IsEqualTo("The machine is offline. Reconnect it or choose another machine.");
 
     [Test]
     [Arguments("Unable to load shared library 'libpty_shim' or one of its dependencies.\ndlopen(/Applications/kcap.app/Contents/MacOS/libpty_shim.dylib): no such file.",
@@ -67,7 +70,8 @@ public partial class HomeViewModelTests {
 
     [Test]
     public async Task A_cancelled_launch_reads_as_cancelled() =>
-        await Assert.That(HomeViewModel.FriendlyLaunchFailure(WireTokens.LaunchCancelled)).IsEqualTo("The launch was cancelled.");
+        await Assert.That(HomeViewModel.FriendlyLaunchFailure(WireTokens.LaunchCancelled))
+            .IsEqualTo("The launch was cancelled. Start again when you’re ready.");
 
     [Test]
     public async Task An_empty_snapshot_failure_is_a_sentence() {

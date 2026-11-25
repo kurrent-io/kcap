@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -34,6 +35,8 @@ public class InstallLocationWindowTests {
             foreach (var name in new[] { "QuitButton", "MoveButton" }) {
                 var button = window.FindControl<Button>(name)!;
                 await Assert.That(button is { IsEffectivelyVisible: true, IsEnabled: true }).IsTrue();
+                var bottom = button.TranslatePoint(new Point(button.Bounds.Width, button.Bounds.Height), window)!.Value;
+                await Assert.That(bottom.Y).IsLessThanOrEqualTo(window.ClientSize.Height);
             }
         } finally { window.Close(); }
     });

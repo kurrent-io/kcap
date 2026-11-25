@@ -2295,7 +2295,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             if (outcome.Unauthorized)
                 StartError = null;
             else if (SameLaunchTarget(draft.RepoPath, draft.Machine, draft.Remote))
-                ShowLaunchRefusal(FriendlyLaunchFailure(outcome.Error), !draft.Remote);
+                ShowLaunchRefusal(FriendlyLaunchFailure(outcome.Error, machine: draft.Machine), !draft.Remote);
             return;
         }
 
@@ -2480,7 +2480,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             AgentOrigin lane) {
         var sameTarget = SameLaunchTarget(repoPath, machine, lane == AgentOrigin.Remote);
         var local = sameTarget && lane != AgentOrigin.Remote;
-        var friendly = FriendlyLaunchFailure(reason);
+        var friendly = FriendlyLaunchFailure(reason, machine: machine);
         // A text-only refusal names the folder+machine that was launched. Files that were not
         // handed back still need the re-attach line on whatever target is selected now — the
         // bytes left with the failed launch and the user must re-stage them for the next send.
@@ -2562,15 +2562,15 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     /// commit an empty tree instead so a greenfield folder can launch. Wording stays neutral about
     /// whether the folder is a git repo — an initialized commitless repo takes the same path.
     internal const string EmptyFolderStartMessage =
-        "There's nothing in this folder to start from.";
+        "There's nothing in this folder to start from. Add a file or choose another folder, then start again.";
 
     /// Shown when preparing the workspace failed for some other git reason.
-    internal const string WorkspacePrepFailed = "Couldn't prepare a workspace for this folder.";
+    internal const string WorkspacePrepFailed = "Git couldn't prepare a workspace for this folder. Check that you can write to the checkout or choose another folder.";
 
     internal const string GenericLaunchFailure = "Couldn't start the session. Try again.";
     internal const string TerminalComponentUnavailable =
         "Couldn't start the session because kcap's terminal component couldn't load. Update or reinstall kcap on the machine running the agent, then try again.";
-    internal static string FriendlyLaunchFailure(string? reason, string fallback = GenericLaunchFailure) {
+    internal static string FriendlyLaunchFailure(string? reason, string fallback = GenericLaunchFailure, string? machine = null) {
         if (string.IsNullOrWhiteSpace(reason)) return fallback;
         reason = WithoutHubLead(reason);
         if (DaemonFull().Match(reason) is { Success: true } full)
@@ -2579,9 +2579,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             return $"Daemon '{capacity.Groups["name"].Value}' is at capacity. {AtCapacityAdvice}";
         if (reason.StartsWith("At max capacity (", StringComparison.Ordinal))
             return $"The machine is at capacity. {AtCapacityAdvice}";
-        if (reason == "Machine is offline.") return "Machine is offline.";
+        if (reason == "Machine is offline.") return "The machine is offline. Reconnect it or choose another machine.";
         if (reason == WireTokens.LaunchCancelled)
-            return "The launch was cancelled.";
+            return "The launch was cancelled. Start again when you’re ready.";
         if (reason.Contains("Unable to load shared library 'libpty_shim'", StringComparison.Ordinal)
          || reason.Contains("in shared library 'libpty_shim'", StringComparison.Ordinal))
             return TerminalComponentUnavailable;
@@ -2591,21 +2591,30 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             return "kcap isn't allowed to work in that folder. Choose a different folder or update the machine's allowed repositories.";
         if (reason.StartsWith("Repo path does not exist:", StringComparison.Ordinal))
             return "The selected folder doesn't exist on that machine. Choose another folder.";
+        if (reason.StartsWith("No origin remote at ", StringComparison.Ordinal))
+            return "The checkout has no origin remote. Choose a checkout linked to the repository and try again.";
+        if (reason.StartsWith("Unknown vendor:", StringComparison.Ordinal))
+            return "The selected coding tool isn’t available on that machine. Choose another tool or install it there, then try again.";
+        if (reason.StartsWith(AccountResolution.Unavailable + ":", StringComparison.Ordinal))
+            return "The selected coding account isn’t available on that machine. Choose the default account or pick another.";
         if (MissingRemoteRef(reason) is { } missing && IsSingleLineRef(missing))
-            return $"There's no branch, tag or commit “{missing}” on that machine or its origin.";
+            return $"There's no branch, tag or commit “{missing}” on that machine or its origin. Choose another starting point or push the ref to origin.";
         if (reason.StartsWith("invalid_base_ref:", StringComparison.Ordinal)
          || reason.StartsWith("base_ref_invalid:", StringComparison.Ordinal)) {
             var name = reason[(reason.IndexOf(':') + 1)..].Trim();
             return IsSingleLineRef(name)
-                ? $"“{name}” isn't a branch, tag or commit name git accepts."
+                ? $"“{name}” isn't a branch, tag or commit name Git accepts. Choose another starting point."
                 : "Choose a valid branch, tag or commit.";
         }
-        if (reason.StartsWith("base_ref_unsupported:", StringComparison.Ordinal)) return BaseRefUnsupportedByServer;
+        if (reason.StartsWith("base_ref_unsupported:", StringComparison.Ordinal)) {
+            var target = string.IsNullOrWhiteSpace(machine) ? "The selected machine" : machine;
+            return $"{target} can’t start a session from a chosen branch yet. Use the checked-out branch to start the session.";
+        }
         if (reason.StartsWith("base_ref_not_allowed:", StringComparison.Ordinal)) return "Choose a different branch, tag or commit.";
         if (reason.StartsWith(WireTokens.LaunchDeniedByOwnerPrefix, StringComparison.Ordinal))
-            return "That machine's consent policy denied the launch. Approve it there, or pre-set a rule with kcap consent.";
+            return ConsentFailureText(reason[WireTokens.LaunchDeniedByOwnerPrefix.Length..].TrimStart(':', ' '));
         if (reason.StartsWith("attachment_unavailable:", StringComparison.Ordinal))
-            return "the attached files could not be delivered to the machine";
+            return "The attached files couldn’t reach the machine. Check that it’s connected, then try again.";
         if (reason.StartsWith("standalone_snapshot_empty", StringComparison.Ordinal))
             return EmptyFolderStartMessage;
         if (IsEmptySnapshotCommit(reason))
@@ -2616,6 +2625,16 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     }
 
     static bool IsSingleLineRef(string value) => value.Length is > 0 and <= 200 && !value.Any(c => char.IsControl(c) || char.IsWhiteSpace(c));
+
+    static string ConsentFailureText(string reason) {
+        if (reason == "prompt_no_ui" || reason.StartsWith("owner approval required and no approval UI", StringComparison.Ordinal))
+            return "That machine's consent policy denied the launch because no approval window was available. Ask its owner to open kcap there, then try again.";
+        if (reason == "prompt_timeout" || reason.StartsWith("owner did not respond within ", StringComparison.Ordinal))
+            return "The launch approval timed out. Ask the owner to be ready to approve it, then try again.";
+        if (reason.StartsWith("declined by daemon owner", StringComparison.Ordinal))
+            return "The machine’s owner declined the launch. Ask the owner before requesting it again.";
+        return "That machine's consent policy denied the launch. Ask its owner to review the launch rules with kcap consent.";
+    }
 
     /// The launch feature a server lists once it forwards a base ref to the daemon.
     internal const string BaseRefLaunchFeature = "base-ref/1";

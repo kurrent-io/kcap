@@ -103,9 +103,8 @@ public sealed class PathFixViewModel : ReactiveObject {
                 Message = null;
                 break;
             case ShimOutcome.InstalledButNotOnPath:
-                Message = _onLocalPath()
-                    ? "Installed, but your terminal cannot find it yet, so harnesses started from a terminal may not record."
-                    : ShimOfferCoordinator.PathNotVerified;
+                Message = ShimOfferCoordinator.InstallFailureText(result);
+                if (_onLocalPath()) Message += " Until then, coding tools started from a terminal may not record.";
                 break;
             default: // Failed
                 Message = ShimOfferCoordinator.InstallFailureText(result);

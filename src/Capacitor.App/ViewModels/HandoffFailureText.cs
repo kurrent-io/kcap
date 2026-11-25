@@ -6,14 +6,14 @@ public static partial class HandoffFailureText {
     public const string StartChanged =
         "The branch changed after it was checked, so nothing was started. Check the new starting point and start again.";
     public const string SourceUnavailable =
-        "You can no longer hand off this session. It may have been deleted, or your access to it changed.";
+        "The original session is no longer available for handoff. Check that you can still open it, or start a new session.";
     public const string InvalidHandoff =
         "Your local kcap daemon couldn't start this hand-off, so nothing was started. Update kcap and try again.";
     public const string RepoMismatch =
-        "The checkout on this machine isn't a clone of this session's repository, so nothing was started.";
+        "The checkout on this machine is for a different repository. Choose a checkout of the original repository and try again.";
     public const string RepoNotAllowed =
-        "Your local kcap daemon isn't allowed to work in that checkout, so nothing was started.";
-    public const string NotOwner = "Only this machine's owner can hand off a session to it";
+        "The local daemon isn't allowed to use that checkout. Choose an allowed checkout or update the machine's allowed repositories.";
+    public const string NotOwner = "Only this machine's owner can hand off a session to it. Choose a machine you own.";
     public const string Generic = "Couldn't start the hand-off. Try again.";
 
     public static string For(string? reason) {

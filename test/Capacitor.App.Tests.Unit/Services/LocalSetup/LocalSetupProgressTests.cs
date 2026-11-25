@@ -188,7 +188,7 @@ public class LocalSetupProgressTests {
 
         await Assert.That(p.Embeddings.Row.State).IsEqualTo(RowState.Skipped);
         await Assert.That(p.Embeddings.Skipped).IsTrue();
-        await Assert.That(p.Embeddings.Summary).IsEqualTo("kcap couldn’t reach Ollama. Open Search settings to check your model or choose another one.");
+        await Assert.That(p.Embeddings.Summary).IsEqualTo("kcap couldn’t reach Ollama. Keyword search is still available. Start Ollama, then choose a model in Search settings.");
         await Assert.That(p.FailedCode).IsNull();
         await Assert.That(p.FirstStart.State).IsEqualTo(RowState.Running);
     }
@@ -206,12 +206,12 @@ public class LocalSetupProgressTests {
         const string Declined = "{\"v\":1,\"event\":\"embeddings_skipped\",\"code\":\"declined\",\"message\":\"Search by meaning is off; search works by keyword.\"}";
 
         var removed = Run(Declined,
-            "{\"v\":1,\"event\":\"embeddings_builtin_removed\",\"path\":\"/r/models\",\"bytes\":2097152,\"message\":\"Removed the built-in search model from /r/models, freeing 2 MB.\"}");
+            "{\"v\":1,\"event\":\"embeddings_builtin_removed\",\"path\":\"/r/models\",\"bytes\":2097152,\"bytes_left\":0,\"message\":\"raw diagnostic\"}");
         var kept = Run(Declined,
             "{\"v\":1,\"event\":\"embeddings_builtin_removed\",\"path\":\"/r/models\",\"bytes\":0,\"message\":\"The built-in search model in /r/models (3 MB) could not be removed; kcap setup --local removes it once nothing holds it open.\"}");
 
-        await Assert.That(removed.Embeddings.Summary).IsEqualTo("Search by keyword, as chosen. Removed the built-in search model from /r/models, freeing 2 MB.");
-        await Assert.That(kept.Embeddings.Summary).IsEqualTo("Search by keyword, as chosen. The built-in search model in /r/models (3 MB) could not be removed.");
+        await Assert.That(removed.Embeddings.Summary).IsEqualTo("Search by keyword, as chosen. Removed the built-in search model in /r/models, freeing 2 MB.");
+        await Assert.That(kept.Embeddings.Summary).IsEqualTo("Search by keyword, as chosen. kcap couldn’t remove the unused built-in search model in /r/models. Close any apps using those files before removing them.");
     }
 
     /// Keyword search left as the recommendation passes no flag, so setup still probes Ollama and reports it missing.
@@ -230,7 +230,7 @@ public class LocalSetupProgressTests {
         foreach (var asked in new[] { LocalEmbeddingChoice.Default, LocalEmbeddingChoice.Builtin, LocalEmbeddingChoice.Recommended(LocalEmbeddingChoice.Builtin) }) {
             var p = Asked(asked, OllamaNotFound);
 
-            await Assert.That(p.Embeddings.Summary).IsEqualTo("kcap couldn’t reach Ollama. Open Search settings to check your model or choose another one.");
+            await Assert.That(p.Embeddings.Summary).IsEqualTo("kcap couldn’t reach Ollama. Keyword search is still available. Start Ollama, then choose a model in Search settings.");
         }
     }
 

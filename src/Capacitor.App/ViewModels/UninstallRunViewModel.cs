@@ -19,6 +19,8 @@ public sealed class UninstallRunViewModel : ReactiveObject {
     bool                   _prepared;
     bool?                  _hadSettings;
     bool?                  _hadCommand;
+    bool                   _purgedLocal;
+    const string PurgeConfirmation = "Deleted the local server and every session it recorded";
     UninstallRunState      _state = UninstallRunState.Running;
     string?                _failureMessage;
 
@@ -103,6 +105,7 @@ public sealed class UninstallRunViewModel : ReactiveObject {
     public async Task RunAsync() {
         _failureMessage = null;
         Lines.Clear();
+        if (_purgedLocal) Lines.Add(PurgeConfirmation + ".");
         Receipt.Clear();
 
         // Running disables Close, so no exception may leave the run there.
@@ -140,10 +143,12 @@ public sealed class UninstallRunViewModel : ReactiveObject {
             }, CancellationToken.None);
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: could not run uninstall: {ex.Message}");
-            Fail("Could not start uninstall. Try again.");
+            ConfirmPurge(Volatile.Read(ref purged) == 1);
+            Fail("Could not finish running uninstall. Try again.");
             return;
         }
 
+        ConfirmPurge(Volatile.Read(ref purged) == 1);
         if (result is not { ExitCode: 0, TimedOut: false }) {
             foreach (var line in result.Tail) Console.Error.WriteLine($"kcap uninstall: {line.Text}");
             Fail(result switch {
@@ -197,16 +202,22 @@ public sealed class UninstallRunViewModel : ReactiveObject {
         }
 
         Lines.Add(_removal.RemovedLine);
-        FillReceipt(Volatile.Read(ref purged) == 1, supportFilesLeft);
+        FillReceipt(supportFilesLeft);
         State = UninstallRunState.Finished;
+    }
+
+    void ConfirmPurge(bool confirmed) {
+        if (!confirmed || _purgedLocal) return;
+        _purgedLocal = true;
+        Lines.Add(PurgeConfirmation + ".");
     }
 
     /// Claims only what a zero exit from `kcap uninstall` and the steps after it guarantee. That exit says nothing is
     /// left, not that something was there, so a line says "removed" or "kept" only for what was seen beforehand.
-    void FillReceipt(bool purgedLocal, bool supportFilesLeft) {
+    void FillReceipt(bool supportFilesLeft) {
         Receipt.Add(new("kcap is out of your coding agents’ user settings"));
         Receipt.Add(new("No kcap background service is left"));
-        if (purgedLocal) Receipt.Add(new("Deleted the local server and every session it recorded"));
+        if (_purgedLocal) Receipt.Add(new(PurgeConfirmation));
         if (_hadSettings == true)
             Receipt.Add(new(_keepConfig ? "Kept your kcap settings and sign-in for a reinstall" : "Removed your kcap settings and sign-in"));
         if (_hadCommand == true) Receipt.Add(new("Removed the kcap command the app installed"));

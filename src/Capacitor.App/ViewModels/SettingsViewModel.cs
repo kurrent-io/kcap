@@ -158,7 +158,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
             message = value == Volatile.Read(ref _autoResume) ? "Saved. The daemon reads this when it starts." : null;
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: could not save auto-resume: {ex.Message}");
-            message = "Could not save the setting. Try again.";
+            message = SettingsProfileStore.SaveFailureText(ex, "Could not save the setting. Try again.");
         } finally {
             _autoResumeSaves.Release();
         }
@@ -399,8 +399,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: could not save daemon settings: {ex.Message}");
-            Message = ex is InvalidOperationException { Message: SettingsProfileStore.ProfileChangedMessage }
-                ? SettingsProfileStore.ProfileChangedMessage : "Could not save settings. Try again.";
+            Message = SettingsProfileStore.SaveFailureText(ex, "Could not save settings. Try again.");
         } finally { IsBusy = false; }
     }
 

@@ -79,13 +79,17 @@ public sealed class RailSessionActions(
         var lines = result.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         var summary = lines.FirstOrDefault() ?? "";
         var running = lines.Any(line => line.StartsWith("This agent is still running", StringComparison.Ordinal));
-        const string RunningGuidance = " The agent is still running. Stop it to end the session.";
-        var otherServer = lines.Any(line => line.EndsWith("Run kcap disable under the profile for that server.", StringComparison.Ordinal)
-            || line.StartsWith("An earlier kcap disable found a daemon sending this session to ", StringComparison.Ordinal));
+        const string RunningGuidance = " The agent is still running and its new output can reach the server. Stop it to finish.";
+        var otherServer = lines.Any(IsOtherServerCaveat);
         const string OtherServerGuidance = " Data may remain on another server. Switch to that server’s profile to delete it there.";
         if (summary.StartsWith("Session disabled locally", StringComparison.Ordinal)) {
             Console.Error.WriteLine($"kcap: session disabled locally: {result.Stderr}");
-            return $"Recording was disabled on this machine. Couldn't delete {label} from the server. Reconnect and try again."
+            var guidance = result.ExitCode switch {
+                2 => "Check the server address in your current profile, then try again.",
+                1 => "Check that you can open the session on the server, then try again.",
+                _ => "Reconnect and try again.",
+            };
+            return $"Recording was disabled on this machine. Couldn't delete {label} from the server. {guidance}"
                 + (running ? RunningGuidance : "") + (otherServer ? OtherServerGuidance : "");
         }
 
@@ -102,11 +106,18 @@ public sealed class RailSessionActions(
         var confirmation = alreadyDeleted ? $"The server has no data for {label}." : $"Deleted {label} from {location}.";
         if (hasWarnings) {
             Console.Error.WriteLine($"kcap: session deletion warnings: {result.Stdout}\n{result.Stderr}");
-            if (otherServer) return confirmation + OtherServerGuidance + (running ? RunningGuidance : "");
-            return confirmation + " Recording may still be active. Stop the session if it's still running.";
+            var unconfirmed = !otherServer || lines.Skip(1).Any(line => !IsOtherServerCaveat(line)
+                && !line.StartsWith("This agent is still running", StringComparison.Ordinal));
+            const string RecordingGuidance = " Recording may still be active. Stop the session if it's still running.";
+            return confirmation + (unconfirmed ? RecordingGuidance : "") + (otherServer ? OtherServerGuidance : "")
+                + (running ? RunningGuidance : "");
         }
         return confirmation + (running ? RunningGuidance : "");
     }
+
+    static bool IsOtherServerCaveat(string line) =>
+        line.EndsWith("Run kcap disable under the profile for that server.", StringComparison.Ordinal)
+        || line.StartsWith("An earlier kcap disable found a daemon sending this session to ", StringComparison.Ordinal);
 
     static string Failure(string what, ProcessResult? result) {
         if (result is { } failed)

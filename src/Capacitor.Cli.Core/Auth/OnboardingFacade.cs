@@ -60,7 +60,7 @@ static class CommitBoundary {
         const string changed = "the profiles kept changing during sign-in; nothing saved.";
         progress.Error($"Error: {changed}");
 
-        return new AuthResult.Failed(changed);
+        return new AuthResult.Failed(changed, AuthFailureReason.ProfileChanged);
     }
 
     /// <summary>Null when <paramref name="stillNamed"/> refused the config under the lock: nothing
@@ -112,11 +112,11 @@ static class CommitBoundary {
             } catch (CommitPreconditionFailedException ex) {
                 progress.Error($"Error: {ex.Message}");
 
-                return new AuthResult.Failed(ex.Message);
+                return new AuthResult.Failed(ex.Message, AuthFailureReason.ProfileChanged);
             } catch (ConfigUnreadableException) {
                 progress.Error("Error: sign-in could not be saved: the configuration file could not be read.");
 
-                return new AuthResult.Failed("config unreadable");
+                return new AuthResult.Failed("config unreadable", AuthFailureReason.ConfigUnreadable);
             } catch (Exception ex) {
                 // A durable publication's directory sync can throw after the rename, so a Failed commit may already be visible; the caller retries.
                 progress.Error($"Error: sign-in could not be saved: {ex.Message}");

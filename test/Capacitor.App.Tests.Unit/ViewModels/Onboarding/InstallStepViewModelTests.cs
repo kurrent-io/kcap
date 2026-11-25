@@ -680,12 +680,13 @@ public class InstallStepViewModelTests {
         await Assert.That(cli.SetupLocalCallCount).IsEqualTo(2);
     }
 
-    /// Where the app has no repair, trying again cannot clear an older kcap, so the page says what the
-    /// installer said: which copy, and to update or remove it.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Without_a_repair_an_older_kcap_refusal_still_explains_what_to_do() {
-        var cli = new FakeKcapCli { SetupLocalBehavior = RefusedThenCommitted() };
+    [Arguments("/usr/local/bin/kcap", false, "Update or remove that copy")]
+    [Arguments("/Applications/kcap.app/Contents/MacOS/kcap", true, "Update the desktop app")]
+    public async Task Without_a_repair_an_older_kcap_refusal_names_the_copy_and_its_fix(string path, bool desktopApp, string nextStep) {
+        var refusal = $$"""{"v":1,"event":"failed","code":"client_below_floor","message":"raw-diagnostic","path":"{{path}}","client_is_desktop_app":{{(desktopApp ? "true" : "false")}}}""";
+        var cli = new FakeKcapCli { SetupLocalBehavior = LocalSetupScript.Prints(1, refusal) };
 
         var message = await AvaloniaSession.DispatchAsync(async () => {
             var install = Step(Controller(cli, LocalSetupScript.NoSetup(Config), Probe()));
@@ -693,8 +694,9 @@ public class InstallStepViewModelTests {
             return install.FailureMessage;
         });
 
-        await Assert.That(message).Contains("An older kcap");
-        await Assert.That(message).Contains("Update or remove it");
+        await Assert.That(message).Contains(path);
+        await Assert.That(message).Contains(nextStep);
+        await Assert.That(message).DoesNotContain("raw-diagnostic");
     }
 
     static Func<Action<StreamedLine>, CancellationToken, CancellationToken, Task<StreamingResult>> RefusedThenCommitted() {

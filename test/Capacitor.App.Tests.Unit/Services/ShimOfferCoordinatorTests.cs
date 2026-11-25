@@ -565,7 +565,7 @@ public class ShimOfferCoordinatorTests {
         h.Coordinator.Start();
 
         await WaitUntilAsync(() => h.Surface.StatusMessages.Count == 1, what: "the failed status line");
-        await Assert.That(h.Surface.StatusMessages[0]).Contains("Try again");
+        await Assert.That(h.Surface.StatusMessages[0]).Contains("is a file. Move the file, then try again.");
         await Assert.That(h.Store.State.ShimDenied).IsFalse(); // Failed is not the same as declined/canceled
     }
 

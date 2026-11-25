@@ -54,7 +54,9 @@ public class WizardSimpleStepsTests {
         await Assert.That(disclosure).Contains("No administrator rights are needed");
         await Assert.That(store.Updates).IsEqualTo(1);
         if (!verified) {
-            await Assert.That(message).Contains("was added to your user PATH");
+            await Assert.That(message).Contains("is on your user PATH");
+            await Assert.That(message).Contains(Path.GetDirectoryName(target)!);
+            await Assert.That(message).Contains("Open a new terminal");
             await Assert.That(message).DoesNotContain("nothing changed");
         }
     }
@@ -122,7 +124,9 @@ public class WizardSimpleStepsTests {
 
     static readonly ShimResult[] UnfinishedShims = [
         new(ShimOutcome.InstalledButNotOnPath, null),
-        new(ShimOutcome.InstalledButNotOnPath, "Add: export PATH=\"/Users/a/.local/bin:$PATH\""),
+        new(ShimOutcome.InstalledButNotOnPath, "Add: export PATH=\"/Users/a/.local/bin:$PATH\"") {
+            PathIssue = ShimPathIssue.FolderMissingFromPath, Folder = "/Users/a/.local/bin",
+        },
         new(ShimOutcome.Failed, "Permission denied."),
     ];
 
@@ -145,7 +149,7 @@ public class WizardSimpleStepsTests {
 
         foreach (var message in messages) {
             await Assert.That(message).IsNotNull();
-            await Assert.That(message!).DoesNotContain("kcap ");
+            await Assert.That(message!).DoesNotContain("run kcap");
             await Assert.That(message).DoesNotContain("export PATH");
         }
     }
@@ -155,8 +159,9 @@ public class WizardSimpleStepsTests {
     public async Task The_path_fix_on_the_cloud_path_keeps_its_terminal_recovery() {
         var messages = await PathFixMessagesAsync(onLocalPath: false);
 
-        await Assert.That(messages[0]).Contains("run kcap --version");
-        await Assert.That(messages[1]).Contains("earlier on your shell’s PATH");
+        await Assert.That(messages[0]).Contains("open a new terminal");
+        await Assert.That(messages[1]).Contains("/Users/a/.local/bin");
+        await Assert.That(messages[1]).Contains("Add it to your shell’s PATH");
         await Assert.That(messages[2]).Contains("Could not finish installing the terminal command");
     }
 
@@ -304,8 +309,8 @@ public class WizardSimpleStepsTests {
 
         await Assert.That(satisfied).IsFalse();
         await Assert.That(message).IsNotNull();
-        await Assert.That(message).StartsWith("Could not finish installing the terminal command.");
-        await Assert.That(message).Contains("Try again");
+        await Assert.That(message).StartsWith("kcap couldn’t create the terminal command");
+        await Assert.That(message).Contains("is a file. Move the file, then try again.");
     }
 
     [Test]

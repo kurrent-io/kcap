@@ -206,11 +206,19 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
         _ when NotPublished                          => NotPublishedText,
         _ when GaveUp                                => GaveUpText,
         { Affordance: LocalInstallAffordance.Busy }  => BusyText,
-        { Code: "client_below_floor" } when !_canRepair => "An older kcap is blocking setup. Update or remove it, then try again.",
+        { Code: "client_below_floor" } failed when !_canRepair => OldClientRefusal(failed),
         { Code: "client_below_floor" }                => OldClientText,
         { Affordance: LocalInstallAffordance.Retry } failed => LocalFailureText.For(failed.Code, RetryGuidance(failed.Code)),
         { Code: "answer_required" }                  => AnswerRequiredText,
         var failed                                   => LocalFailureText.For(failed.Code, "Could not finish setting up the local server."),
+    };
+
+    static string OldClientRefusal(LocalInstallOutcome.Failed failure) => failure switch {
+        { ClientPath: { Length: > 0 } path, ClientIsDesktopApp: true } =>
+            $"The kcap desktop app at {path} is too old for local setup. Update the desktop app and try again.",
+        { ClientPath: { Length: > 0 } path, ClientIsDesktopApp: false } =>
+            $"The kcap command at {path} is too old for local setup. Update or remove that copy and try again.",
+        _ => "An older kcap is blocking setup. Update kcap and try again.",
     };
 
     public bool LockedVisible   => Failure is { LockedToLocal: true } && !Running && !RefusalVisible;

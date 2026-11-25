@@ -33,12 +33,20 @@ public sealed class ServerAttachmentUploader(ICapacitorHttpClient? http, Profile
                         var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
                         return ParseIds(body, files.Count);
                     case HttpStatusCode.Unauthorized: return UploadOutcome.Unauthorized("not_signed_in");
+                    case HttpStatusCode.Forbidden: return UploadOutcome.Rejected(UploadOutcome.Forbidden);
+                    case HttpStatusCode.RequestEntityTooLarge: return UploadOutcome.Rejected(UploadOutcome.TooLarge);
+                    case HttpStatusCode.UnsupportedMediaType: return UploadOutcome.Rejected(UploadOutcome.UnsupportedType);
+                    case HttpStatusCode.TooManyRequests: return UploadOutcome.Unreachable(UploadOutcome.RateLimited);
                     case HttpStatusCode.BadRequest: return UploadOutcome.Rejected("bad_request");
+                    case >= HttpStatusCode.InternalServerError: return UploadOutcome.Unreachable(UploadOutcome.ServerFailed);
                     default: return UploadOutcome.Unreachable($"server_status_{(int)response.StatusCode}");
                 }
             }
         } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
             throw;
+        } catch (HttpRequestException ex) {
+            Console.Error.WriteLine($"kcap: attachment upload failed: {ex.HttpRequestError}");
+            return UploadOutcome.Unreachable("upload_failed");
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: attachment upload failed: {ex.GetType().Name}");
             return UploadOutcome.Unreachable("upload_failed");

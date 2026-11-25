@@ -68,6 +68,10 @@ public sealed class LocalSetupProgress(LocalEmbeddingChoice? embeddings = null) 
         private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
+    public string? FailedClientPath { get; private set; }
+
+    public bool? FailedClientIsDesktopApp { get; private set; }
+
     public string? FailedMessage {
         get;
         private set => this.RaiseAndSetIfChanged(ref field, value);
@@ -141,6 +145,8 @@ public sealed class LocalSetupProgress(LocalEmbeddingChoice? embeddings = null) 
             case "failed":
                 FailedCode    = root.Str("code");
                 FailedMessage = root.Str("message");
+                FailedClientPath = FailedCode == "client_below_floor" ? root.Str("path") : null;
+                FailedClientIsDesktopApp = FailedCode == "client_below_floor" ? root.Bool("client_is_desktop_app") : null;
                 break;
         }
         this.RaisePropertyChanged(nameof(Plan));

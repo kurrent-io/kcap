@@ -74,9 +74,9 @@ class DisableCommand(ConfigRoot config, WatcherManager watchers, HostedAgent hos
         } catch (CapacitorApiException ex) {
             await stderr.WriteLineAsync(ex.Message);
 
-            // Local state has already changed, so a server that was never reached is not a failure.
+            // A server that was never reached does not undo a local disable.
             if (ex.Status is not null) exit = 1;
-            else await stdout.WriteLineAsync(Local(marked, sure));
+            await stdout.WriteLineAsync(Local(marked, sure));
         } catch (UnusableServerUrlException ex) {
             await stderr.WriteLineAsync(ex.Message);
             await stdout.WriteLineAsync(Local(marked, sure));

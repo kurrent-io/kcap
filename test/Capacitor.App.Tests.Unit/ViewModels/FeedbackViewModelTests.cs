@@ -390,6 +390,21 @@ public class FeedbackViewModelTests {
         await Assert.That(vm.CanSend).IsTrue();
     }
 
+    [Test]
+    public async Task A_mail_error_keeps_the_report_available_to_copy() {
+        using var vm = new FeedbackViewModel(new ScriptedFeedbackApi(), FeedbackCategory.Bug,
+            new BehaviorSubject<string>(TrailerA), "macOS 15.6", null,
+            mail: _ => throw new InvalidOperationException("mail-diagnostic"));
+        vm.Message = "It broke.";
+
+        await vm.SendCommand.Execute().ToTask();
+
+        await Assert.That(vm.IsSent).IsFalse();
+        await Assert.That(vm.FullReport).Contains("It broke.");
+        await Assert.That(vm.Outcome).Contains("Copy the report below");
+        await Assert.That(vm.Outcome).DoesNotContain("mail-diagnostic");
+    }
+
     sealed class BlockingFeedbackApi : IFeedbackApi {
         readonly TaskCompletionSource<FeedbackResult> _gate = new();
         public TaskCompletionSource Started { get; } = new();

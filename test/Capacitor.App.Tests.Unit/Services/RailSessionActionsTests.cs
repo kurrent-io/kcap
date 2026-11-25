@@ -123,15 +123,21 @@ public class RailSessionActionsTests {
     public static IEnumerable<Func<(ProcessResult Result, string Told)>> DeleteOutcomes() {
         yield return () => (new ProcessResult(0, "Session x disabled. Server data deleted.\n", "", false), "Deleted Fix it from kcap");
         yield return () => (new ProcessResult(0, "Session x disabled. Server data deleted.\nThis agent is still running.\n", "", false),
-            "Deleted Fix it from kcap. The agent is still running. Stop it to end the session");
+            "Deleted Fix it from kcap. The agent is still running and its new output can reach the server. Stop it to finish");
         yield return () => (new ProcessResult(0, "Session disabled locally (hooks silenced). Server data not deleted.\n", "connection refused\n", false),
             "Recording was disabled on this machine. Couldn't delete Fix it from the server. Reconnect and try again");
         yield return () => (new ProcessResult(0, "Session disabled locally (hooks silenced). Server data not deleted.\nThis agent is still running.\n", "connection refused\n", false),
-            "Recording was disabled on this machine. Couldn't delete Fix it from the server. Reconnect and try again. The agent is still running. Stop it to end the session");
+            "Recording was disabled on this machine. Couldn't delete Fix it from the server. Reconnect and try again. The agent is still running and its new output can reach the server. Stop it to finish");
         yield return () => (new ProcessResult(1, "Session x disabled. Server data deleted.\nA daemon that recorded this session or hosts its agent sends to https://another.example, and nothing was deleted there. Run kcap disable under the profile for that server.\n", "", false),
             "Deleted Fix it from the server. Data may remain on another server. Switch to that server’s profile to delete it there");
+        yield return () => (new ProcessResult(1, "Session x disabled. Server data deleted.\nA watcher recording this session could not be stopped, so it may still be sending.\nA daemon that recorded this session or hosts its agent sends to https://another.example, and nothing was deleted there. Run kcap disable under the profile for that server.\n", "", false),
+            "Deleted Fix it from the server. Recording may still be active. Stop the session if it's still running. Data may remain on another server. Switch to that server’s profile to delete it there");
         yield return () => (new ProcessResult(1, "Session x disabled. Server data deleted.\nA send may still land.\n", "", false),
             "Deleted Fix it from the server. Recording may still be active. Stop the session if it's still running");
+        yield return () => (new ProcessResult(1, "Session disabled locally (hooks silenced). Server data not deleted.\n", "Server returned 403\n", false),
+            "Recording was disabled on this machine. Couldn't delete Fix it from the server. Check that you can open the session on the server, then try again");
+        yield return () => (new ProcessResult(2, "Session disabled locally (hooks silenced). Server data not deleted.\n", "Bad server address\n", false),
+            "Recording was disabled on this machine. Couldn't delete Fix it from the server. Check the server address in your current profile, then try again");
         yield return () => (new ProcessResult(1, "", "Server returned 500\n", false), "Couldn't delete Fix it. Try again");
         yield return () => (new ProcessResult(-1, "", "", true), "Couldn't delete Fix it. kcap did not answer in time");
     }

@@ -518,6 +518,8 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
                     AuthFailureReason.Unreachable => "Check your connection to the server and try again.",
                     AuthFailureReason.SigninDenied => "Allow access in your browser and try again.",
                     AuthFailureReason.NoTenantsFound => "Ask your workspace administrator to invite you, then try again.",
+                    AuthFailureReason.ConfigUnreadable => "kcap couldn’t read its settings. Check that you can open the settings file or restore a working copy, then try again.",
+                    AuthFailureReason.ProfileChanged => "The profile settings changed during sign-in. Reopen sign-in for the profile you want and try again.",
                     _ => "Try signing in again.",
                 } : "Try signing in again.";
                 SetStatus("Sign-in failed.", isError: true, guidance);
@@ -656,6 +658,9 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
             _urlOpener.Open(url);
         } catch (Exception ex) {
             Console.Error.WriteLine($"kcap: could not open the browser for sign-in: {ex.Message}");
+            StatusDetail = url == BrowserUrl
+                ? "kcap couldn’t open your browser. Copy the sign-in link and open it in a browser to continue."
+                : "kcap couldn’t open your browser. Open the address shown below in a browser and enter the code.";
         }
     }
 

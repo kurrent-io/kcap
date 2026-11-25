@@ -609,7 +609,9 @@ public class SettingsWindowSmokeTests {
     });
 
     [Test]
-    public Task Failed_grok_bot_save_restores_the_checkbox_to_the_saved_setting() => AvaloniaSession.RunOnUiAsync(async () => {
+    [Arguments(true, "restore a working copy")]
+    [Arguments(false, "Restart the app")]
+    public Task Failed_grok_bot_save_restores_the_checkbox_and_explains_how_to_recover(bool malformed, string nextStep) => AvaloniaSession.RunOnUiAsync(async () => {
         ConfigMutator.Mutate(Config.Root, c => c with { Profiles = new() {
             ["work"] = new Profile { ServerUrl = "https://work.example" }
         } });
@@ -625,11 +627,14 @@ public class SettingsWindowSmokeTests {
             Click(window, window.FindControl<TabItem>("HarnessesTab")!);
             var view = window.GetVisualDescendants().OfType<HarnessesSettingsView>().Single();
             var checkbox = view.FindControl<CheckBox>("GrokBotRecordCheck")!;
-            await File.WriteAllTextAsync(AppConfig.GetConfigPath(Config.Root), "{not json");
+            if (malformed)
+                await File.WriteAllTextAsync(AppConfig.GetConfigPath(Config.Root), "{not json");
+            else
+                ConfigMutator.Mutate(Config.Root, c => c with { Profiles = new() });
             Click(window, checkbox);
             await WaitUntilAsync(() => !harnesses.Busy && harnesses.GrokBotMessage is not null);
             Settle(window);
-            await Assert.That(harnesses.GrokBotMessage!).StartsWith("Could not change Grok Bot recording");
+            await Assert.That(harnesses.GrokBotMessage!).Contains(nextStep);
             await Assert.That(checkbox.IsChecked).IsFalse();
         } finally { window.Close(); }
     });

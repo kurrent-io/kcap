@@ -260,6 +260,27 @@ public class UninstallRunViewModelTests {
         await Assert.That(purged.Receipt.Any(i => i.Text.Contains("local server"))).IsTrue();
     }
 
+    [Test]
+    public async Task A_confirmed_purge_is_visible_after_link_cleanup_fails() {
+        var (vm, cli, removal, _) = Build(purgeLocal: true);
+        cli.UninstallBehavior = onLine => {
+            onLine(new StreamedLine(ProcessStreamKind.Stdout, "Purged the local server in /home/me/.local/share/kcap/local."));
+            return Task.FromResult(Exit(0));
+        };
+        removal.LeftLinks = ["/usr/local/bin/kcap"];
+
+        await vm.RunAsync();
+
+        await Assert.That(vm.State).IsEqualTo(UninstallRunState.Failed);
+        await Assert.That(vm.Lines).Contains("Deleted the local server and every session it recorded.");
+        await Assert.That(string.Join("\n", vm.Lines)).DoesNotContain("/home/me");
+
+        cli.UninstallBehavior = _ => Task.FromResult(Exit(0));
+        await vm.RunAsync();
+
+        await Assert.That(vm.Lines).Contains("Deleted the local server and every session it recorded.");
+    }
+
     /// A zero exit proves nothing is left, not that something was there.
     [Test]
     public async Task Receipt_says_removed_or_kept_only_for_what_was_there_before_the_run() {

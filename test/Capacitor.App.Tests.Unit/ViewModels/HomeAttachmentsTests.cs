@@ -700,7 +700,7 @@ public class HomeAttachmentsTests {
                 rig.Failures.OnNext(new LaunchFailure(LaunchedId, "attachment_unavailable: 3 of 3 gone"));
 
                 await Assert.That(rig.Vm.StartError)
-                    .IsEqualTo("the attached files could not be delivered to the machine — your draft is back");
+                    .IsEqualTo("The attached files couldn’t reach the machine. Check that it’s connected, then try again — your draft is back");
             }
         });
     }
