@@ -27,6 +27,13 @@ public partial class HomeViewModelTests {
     }
 
     [Test]
+    public async Task A_folder_the_daemon_cannot_read_names_the_daemon_and_the_folder() {
+        var text = HomeViewModel.FriendlyLaunchFailure("Access to the path '/Users/me/Documents/repo' is denied.");
+        await Assert.That(text).StartsWith(HomeViewModel.FolderDeniedLead);
+        await Assert.That(text).Contains("/Users/me/Documents/repo");
+    }
+
+    [Test]
     public async Task DenialReasonRendersFriendly() =>
         await Assert.That(HomeViewModel.FriendlyLaunchFailure("launch_denied_by_owner: prompt_no_ui"))
             .Contains("consent policy denied");
