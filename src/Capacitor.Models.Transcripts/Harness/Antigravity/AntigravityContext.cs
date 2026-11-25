@@ -15,8 +15,12 @@ public sealed class AntigravityContext(string idScope) : TranscriptContext {
     /// The time each usage row was first given, by its event id.
     internal Dictionary<Guid, string?> UsageTimes { get; } = [];
 
-    /// Calls waiting for their result step, oldest first.
-    internal Queue<string> PendingCallIds { get; } = new();
+    /// Calls waiting for their result step, oldest first. Only the latest planner's calls wait: a planner drops an
+    /// earlier one's, whose result never came.
+    internal List<string> PendingCallIds { get; } = [];
+
+    /// The <c>step_index</c> of the planner that made each queued call.
+    internal Dictionary<string, long> CallSteps { get; } = new(StringComparer.Ordinal);
 
     internal HashSet<string> QueuedCallIds { get; } = new(StringComparer.Ordinal);
 
