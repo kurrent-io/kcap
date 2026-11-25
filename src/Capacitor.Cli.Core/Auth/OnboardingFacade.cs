@@ -165,16 +165,15 @@ static class CommitBoundary {
     }
 
     /// Every writer of <c>active_profile</c> settles the outgoing profile's legacy credential first,
-    /// so the name the legacy file follows never moves away from it. Null on success, else the line
-    /// to report.
-    internal static async Task<string?> SettleLegacyCredentialAsync(ConfigRoot root, TokenStore store, CancellationToken ct) {
+    /// so the name the legacy file follows never moves away from it.
+    internal static async Task<AuthResult.Failed?> SettleLegacyCredentialAsync(ConfigRoot root, TokenStore store, CancellationToken ct) {
         if (!ConfigMutator.TryLoadPure(AppConfig.GetConfigPath(root), out var before))
-            return "Error: the configuration file could not be read.";
+            return new AuthResult.Failed("Error: the configuration file could not be read.", AuthFailureReason.ConfigUnreadable);
         try {
             await store.MigrateLegacyAsync(before.ActiveName, ct);
             return null;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TimeoutException or ArgumentException) {
-            return $"Error: could not move the saved sign-in of profile '{before.ActiveName}': {ex.Message}";
+            return new AuthResult.Failed($"Error: could not move the saved sign-in of profile '{before.ActiveName}': {ex.Message}");
         }
     }
 
@@ -575,7 +574,7 @@ public sealed class OnboardingFacade(
         }
 
         if (await CommitBoundary.SettleLegacyCredentialAsync(root, store, ct) is { } settleError)
-            return Fail(settleError, settleError, ct);
+            return Fail(settleError.Message, ct, settleError.Reason);
 
         return await CommitBoundary.CommitNamedAsync(root, outcome.Tenants, outcome.Picked!, (tenants, picked) => new CommitRequest(
                 [.. tenants.Select(t => new AuthIdentity(t.ProfileName, canonicalByOrigin[t.Origin]))],
