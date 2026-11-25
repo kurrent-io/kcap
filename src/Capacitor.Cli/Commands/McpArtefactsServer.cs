@@ -316,7 +316,7 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
 
         if (args?["update_id"] is null) return ($"{baseUrl}/api/artefacts", BuildPublishBody(args, html, getEnv));
 
-        if (args?["work_items"] is not null) throw new ArgumentException(UpdateLinksNothingMessage);
+        if (args["work_items"] is not null) throw new ArgumentException(UpdateLinksNothingMessage);
 
         var url = ArtefactUrl(baseUrl, args, "versions", idKey: "update_id");
 
