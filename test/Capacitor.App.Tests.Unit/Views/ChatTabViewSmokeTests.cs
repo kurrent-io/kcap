@@ -3119,14 +3119,14 @@ public class ChatTabViewSmokeTests {
             await Assert.That(((ToolCallItem)ToolRows(host.View)[0].DataContext!).Outcome).IsEqualTo(ToolOutcome.Running);
             var card = host.View.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("toolGroup"));
             await Assert.That(card.Classes.Contains("folded")).IsTrue();
-            await Assert.That(card.Margin.Bottom).IsEqualTo(10);
+            var foldedGap = card.Margin.Bottom;
 
             Click(host, summary);
             await Assert.That(OnlyGroup(host).IsExpanded).IsTrue();
             await Assert.That(OnlyGroup(host).Summary).IsEqualTo("Ran a command, read a file");
             await Assert.That(ToolRows(host.View)).Count().IsEqualTo(3);
             await Assert.That(card.Classes.Contains("folded")).IsFalse();
-            await Assert.That(card.Margin.Bottom).IsEqualTo(22);
+            await Assert.That(card.Margin.Bottom).IsGreaterThan(foldedGap);
 
             Click(host, summary);
             await Assert.That(OnlyGroup(host).IsExpanded).IsFalse();

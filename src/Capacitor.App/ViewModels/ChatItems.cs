@@ -508,21 +508,23 @@ public sealed class ToolGroupItem : ChatItemViewModel, IExpandableItem {
     /// Summary chrome only when folding would hide something — a single call is the row itself.
     public bool ShowsSummaryHeader => _hasSummary && _calls.Count > 1;
 
-    /// Lone-call cards have no summary phrase, so a kind chip names what the callout is.
-    public bool ShowsKindChip => _calls.Count == 1;
+    /// A plain header for a group the summary cannot name: a lone call, or calls none of which has
+    /// settled. Neutral wording, since an unsettled call may be waiting on permission or never resolve.
+    public bool ShowsKindChip => _calls.Count == 1 || (_calls.Count > 1 && !_hasSummary);
 
-    public string KindChip =>
-        _calls.Count == 1 ? _calls[0].Chip ?? ToolSummary.ChipLabel(_calls[0].Category) : "";
+    public string KindChip => _calls.Count switch {
+        1 => _calls[0].Chip ?? ToolSummary.ChipLabel(_calls[0].Category),
+        > 1 when !_hasSummary => $"{_calls.Count} tool calls",
+        _ => "",
+    };
 
     public LucideIconKind? HeaderIconKind {
         get {
+            if (_calls.Count == 0) return null;
             if (_calls.Count == 1) return ToolCategoryIcons.ForCategory(_calls[0].Category);
-            var firstSettled = _calls.FirstOrDefault(c => c.IsSettled);
-            if (firstSettled is null) return null;
             // Match the categories named by Summary; live rows are shown separately.
-            var category = _calls.Any(c => c.IsSettled && c.Category != firstSettled.Category)
-                ? ToolCategory.Other
-                : firstSettled.Category;
+            var named = _hasSummary ? _calls.Where(c => c.IsSettled).ToList() : _calls.ToList();
+            var category = named.Any(c => c.Category != named[0].Category) ? ToolCategory.Other : named[0].Category;
             return ToolCategoryIcons.ForCategory(category);
         }
     }
@@ -601,7 +603,7 @@ public sealed class ToolGroupItem : ChatItemViewModel, IExpandableItem {
         HasFailure = failed;
         HasSummary = settled.Count > 0;
         this.RaisePropertyChanged(nameof(ShowsSummaryHeader));
-        this.RaisePropertyChanged(nameof(HeaderIconKind));
+        RefreshLoneChrome();
         NotifyVisible();
     }
 

@@ -5,6 +5,7 @@
     <Thickness x:Key="KcapActionPadding">16,8</Thickness>
     <Thickness x:Key="KcapChoicePadding">14,8</Thickness>
     <Thickness x:Key="KcapChatCardPadding">14,10</Thickness>
+    <Thickness x:Key="KcapSystemCardPadding">12,7</Thickness>
     <Thickness x:Key="KcapTranscriptGap">0,8,0,12</Thickness>
     <Thickness x:Key="KcapUserTurnPadding">14,11</Thickness>
     <Thickness x:Key="KcapComposerPadding">13,8,13,12</Thickness>

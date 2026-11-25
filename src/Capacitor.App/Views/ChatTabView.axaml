@@ -33,7 +33,7 @@
             <Setter Property="Opacity" Value="0.6" />
         </Style>
         <Style Selector="Border.toolGroup">
-            <Setter Property="Margin" Value="0,4,0,22" />
+            <Setter Property="Margin" Value="0,2,0,14" />
         </Style>
         <Style Selector="Border.findBar">
             <Setter Property="HorizontalAlignment" Value="Right" />
@@ -52,7 +52,7 @@
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         </Style>
         <Style Selector="Border.toolGroup.folded">
-            <Setter Property="Margin" Value="0,4,0,10" />
+            <Setter Property="Margin" Value="0,2,0,8" />
         </Style>
         <!-- Same specificity as folded: this must stay last so a packed group keeps the 4px gap. -->
         <Style Selector="Border.toolGroup.packsWithCard">
@@ -261,6 +261,10 @@
         <Style Selector="SelectableTextBlock.toolLine.labelled,
                          TextBlock.toolLine.labelled">
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="Button.toolRow TextBlock.toolLine">
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
+            <Setter Property="LineHeight" Value="16" />
         </Style>
         <!-- A tool row is the toggle for what its call recorded, so it keeps the row's own height
              rather than a summary header's. -->
@@ -571,7 +575,7 @@
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:ToolCallItem">
                     <Panel>
-                        <Grid x:Name="ToolCallRow" Margin="0,0,0,4" MinHeight="18" HorizontalAlignment="Stretch" IsVisible="{Binding !HasCard}"
+                        <Grid x:Name="ToolCallRow" Margin="0,0,0,2" MinHeight="18" HorizontalAlignment="Stretch" IsVisible="{Binding !HasCard}"
                               RowDefinitions="Auto,Auto,Auto,Auto">
                             <!-- The whole row opens what the call recorded. Its text is plain, not
                                  selectable: a selectable block takes the press before the button sees it,
@@ -720,7 +724,7 @@
                                 Classes.folded="{Binding !IsExpanded}"
                                 IsVisible="{Binding !SuppressedForPendingQuestion}"
                                 ClipToBounds="True">
-                            <StackPanel Spacing="6">
+                            <StackPanel Spacing="3">
                                 <views:ChatKindHeader IsVisible="{Binding ShowsKindChip}"
                                                       Label="{Binding KindChip}" IconKind="{Binding HeaderIconKind}" />
                                 <Button Classes="toolSummary" IsVisible="{Binding ShowsSummaryHeader}"
