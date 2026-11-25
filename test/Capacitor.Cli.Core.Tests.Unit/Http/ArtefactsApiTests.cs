@@ -72,16 +72,16 @@ public class ArtefactsApiTests : IDisposable {
         _server.Given(Request.Create().WithPath("/api/artefacts").UsingPost())
                .RespondWith(Response.Create().WithStatusCode(HttpStatusCode.Created)
                                     .WithHeader("Content-Type", "application/json")
-                                    .WithBody(DetailJson.Replace("\"notice\": null", "\"notice\": null, \"work_items_not_linked\": [\"AI-9\"]")));
+                                    .WithBody(DetailJson.Replace("\"notice\": null", "\"notice\": null, \"work_items_not_linked\": [\"PROJ-9\"]")));
 
-        var result = await Api().PublishAsync(new PublishArtefactBody("Plan", "<p>x</p>", null, null, "adr", ["AI-1", "AI-9"]));
+        var result = await Api().PublishAsync(new PublishArtefactBody("Plan", "<p>x</p>", null, null, "adr", ["PROJ-1", "PROJ-9"]));
 
         var sent = System.Text.Json.Nodes.JsonNode.Parse(_server.LogEntries[^1].RequestMessage.Body!)!;
         await Assert.That(sent["kind"]!.GetValue<string>()).IsEqualTo("adr");
-        await Assert.That(sent["work_items"]!.AsArray().Select(n => n!.GetValue<string>())).IsEquivalentTo(["AI-1", "AI-9"]);
+        await Assert.That(sent["work_items"]!.AsArray().Select(n => n!.GetValue<string>())).IsEquivalentTo(["PROJ-1", "PROJ-9"]);
 
         var written = await Assert.That(result).IsTypeOf<ArtefactWriteResult.Written>();
-        await Assert.That(written!.Detail.WorkItemsNotLinked).IsEquivalentTo(["AI-9"]);
+        await Assert.That(written!.Detail.WorkItemsNotLinked).IsEquivalentTo(["PROJ-9"]);
     }
 
     [Test]

@@ -37,15 +37,15 @@ public class ArtefactCommandTests {
 
     [Test]
     public async Task A_publish_carries_its_kind_and_every_work_item_and_names_those_not_linked() {
-        var api = new RecordingArtefactsApi { NotLinked = ["AI-9"] };
+        var api = new RecordingArtefactsApi { NotLinked = ["PROJ-9"] };
 
         using var console = ConsoleOutput.StartFullCapture();
-        var exit = await new ArtefactCommand(api).HandleAsync(["page", "publish", Page(), "--kind", "adr", "--work-item", "AI-1", "--work-item", "AI-9"]);
+        var exit = await new ArtefactCommand(api).HandleAsync(["page", "publish", Page(), "--kind", "adr", "--work-item", "PROJ-1", "--work-item", "PROJ-9"]);
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(api.Published!.Kind).IsEqualTo("adr");
-        await Assert.That(api.Published.WorkItems).IsEquivalentTo(["AI-1", "AI-9"]);
-        await Assert.That(console.GetCapturedError()).Contains("Not linked (no such work item you can see, or more than one): AI-9");
+        await Assert.That(api.Published.WorkItems).IsEquivalentTo(["PROJ-1", "PROJ-9"]);
+        await Assert.That(console.GetCapturedError()).Contains("Not linked (no such work item you can see, or more than one): PROJ-9");
     }
 
     [Test]
@@ -58,7 +58,7 @@ public class ArtefactCommandTests {
         }
 
         using var console = ConsoleOutput.StartFullCapture();
-        var exit = await new ArtefactCommand(api).HandleAsync(["page", "publish", Page(), "--update", "a1", "--work-item", "AI-1"]);
+        var exit = await new ArtefactCommand(api).HandleAsync(["page", "publish", Page(), "--update", "a1", "--work-item", "PROJ-1"]);
 
         await Assert.That(exit).IsEqualTo(1);
         await Assert.That(api.Calls).IsEquivalentTo(["version:a1"]);

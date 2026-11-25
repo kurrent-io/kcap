@@ -533,7 +533,7 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
                 ["path"]        = new("string", "A local HTML file to publish instead of inline 'html'."),
                 ["description"] = new("string", "One line saying what the page is for."),
                 ["kind"]        = new("string", "What kind of page this is: prd, adr, design, report or other. With update_id, changes it."),
-                ["work_items"]  = new("array", "Work items to link a new page to, each a tracker issue key (such as AI-123) or a kcap work item id. Not with update_id.",
+                ["work_items"]  = new("array", "Work items to link a new page to, each a tracker issue key (such as PROJ-123) or a kcap work item id. Not with update_id.",
                                       new("string", "An issue key or work item id.")),
                 ["session_ids"] = new("array", "Sessions this page came out of; with update_id, added to those it already cites. Defaults to the current kcap-hooked session when omitted.",
                                       new("string", "A session id.")),

@@ -1161,7 +1161,7 @@ Publish a self-contained HTML page to the kcap server and get back a link — th
 ```bash
 kcap page publish plan.html --title "Migration plan"
 kcap page publish plan.html --update art_01J9...      # new version, same URL
-kcap page publish adr.html --kind adr --work-item AI-123   # a kind, linked to a work item
+kcap page publish adr.html --kind adr --work-item PROJ-123   # a kind, linked to a work item
 kcap page list --mine                                 # who can open each, and its object key
 kcap page get art_01J9... --html                      # a page you can see, yours or shared
 kcap page delete art_01J9...

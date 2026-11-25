@@ -53,7 +53,7 @@ LIMITS
 EXAMPLES
 
   kcap page publish plan.html --title "Migration plan"
-  kcap page publish plan.html --kind design --work-item AI-123
+  kcap page publish plan.html --kind design --work-item PROJ-123
   kcap page publish plan.html --update art_01J9...
   kcap page list --mine
   kcap page search retention numbers

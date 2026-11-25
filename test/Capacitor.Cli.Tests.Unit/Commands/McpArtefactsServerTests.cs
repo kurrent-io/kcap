@@ -94,10 +94,10 @@ public class McpArtefactsServerTests {
     [Test]
     public async Task A_new_page_carries_its_kind_and_work_items() {
         var (_, body) = McpArtefactsServer.BuildPublishRequest(
-            "https://kcap.test", Args("""{"title":"Plan","kind":"prd","work_items":["AI-1","wi-2"]}"""), "<p>x</p>");
+            "https://kcap.test", Args("""{"title":"Plan","kind":"prd","work_items":["PROJ-1","wi-2"]}"""), "<p>x</p>");
 
         await Assert.That(body["kind"]!.GetValue<string>()).IsEqualTo("prd");
-        await Assert.That(body["work_items"]!.AsArray().Select(n => n!.GetValue<string>())).IsEquivalentTo(["AI-1", "wi-2"]);
+        await Assert.That(body["work_items"]!.AsArray().Select(n => n!.GetValue<string>())).IsEquivalentTo(["PROJ-1", "wi-2"]);
     }
 
     /// <summary>A revision may change the kind, but the server links work items only on a new page, so a list passed with
@@ -109,7 +109,7 @@ public class McpArtefactsServerTests {
 
         await Assert.That(body["kind"]!.GetValue<string>()).IsEqualTo("adr");
         await Assert.That(() => McpArtefactsServer.BuildPublishRequest(
-                              "https://kcap.test", Args("""{"title":"Plan","update_id":"a1","work_items":["AI-1"]}"""), "<p>x</p>"))
+                              "https://kcap.test", Args("""{"title":"Plan","update_id":"a1","work_items":["PROJ-1"]}"""), "<p>x</p>"))
                     .Throws<ArgumentException>().WithMessage(McpArtefactsServer.UpdateLinksNothingMessage);
     }
 
