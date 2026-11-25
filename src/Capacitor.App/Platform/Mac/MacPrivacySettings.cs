@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using Capacitor.App.Services;
 
 namespace Capacitor.App.Platform.Mac;
 
@@ -7,13 +7,11 @@ namespace Capacitor.App.Platform.Mac;
 internal static class MacPrivacySettings {
     const string FilesAndFolders = "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders";
 
-    public static void OpenFilesAndFolders() =>
-        // Off the caller's thread: Process.Start can block while another spawn in the app is stalled.
-        _ = Task.Run(() => {
-            try {
-                using var process = Process.Start(new ProcessStartInfo("/usr/bin/open") { ArgumentList = { FilesAndFolders }, UseShellExecute = false });
-            } catch (Exception ex) {
-                Console.Error.WriteLine($"kcap: opening Privacy settings failed: {ex.Message}");
-            }
-        });
+    public static void OpenFilesAndFolders(IUrlOpener opener) {
+        try {
+            opener.Open(FilesAndFolders);
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: opening Privacy settings failed: {ex.Message}");
+        }
+    }
 }

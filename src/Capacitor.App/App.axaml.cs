@@ -2677,7 +2677,7 @@ public partial class App : Application {
             pickers: pickers,
             launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) {
                 LocalStack = localStack, UsageNotice = usageNotice, NextWork = nextWorkBand,
-                OpenFolderPrivacySettings = OperatingSystem.IsMacOS() ? MacPrivacySettings.OpenFilesAndFolders : null,
+                OpenFolderPrivacySettings = OperatingSystem.IsMacOS() ? () => MacPrivacySettings.OpenFilesAndFolders(new ShellUrlOpener()) : null,
             };
         homeRef = home;
         if (localServer is not null) home.AttachLocalServerRecovery(localServer);
