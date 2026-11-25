@@ -82,7 +82,7 @@ Publish a self-contained HTML page — a plan, a report, a comparison, the artif
 
 | Tool | Description |
 |------|-------------|
-| `publish_page` | Publish a page, private to you (`title`, and either `html` or a local `path`); optional `description`, `kind`, `work_items` to link a new page to, `session_ids`, `response_schema` to make it answerable, and `update_id` to revise an existing page without changing its URL. Returns its `url` and `object_key` |
+| `publish_page` | Publish a page, private to you (`title`, and either `html` or a local `path`); optional `description`, `session_ids`, `response_schema` to make it answerable, and `update_id` to revise an existing page without changing its URL. Returns its `url` and `object_key` |
 | `get_page_guide` | How a page people answer sends its answers — the `postMessage` protocol, the rules every answer is checked against, and a worked example, served by the kcap server. Read it before publishing with a `response_schema` |
 | `await_page_responses` | Block until people have answered — the human checkpoint. Returns on a respondent count, on a close, or on a timeout (which is not an error) |
 | `get_page_results` | Tallies and each person's current answer, without waiting |
