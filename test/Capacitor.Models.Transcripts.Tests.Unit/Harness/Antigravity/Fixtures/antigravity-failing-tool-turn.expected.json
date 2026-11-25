@@ -38,16 +38,21 @@
           "toolCalls": [
             {
               "callId": "bfe6d5710cd520010e9bb16d9e9348bb",
-              "toolName": "list_dir",
+              "toolName": "LS",
               "arguments": {
-                "DirectoryPath": "/Users/tony/antigravity-spike",
+                "path": "/Users/tony/antigravity-spike",
                 "toolAction": "Listing the workspace directory",
                 "toolSummary": "Workspace directory listing"
               },
               "toolKind": "search"
             }
           ],
-          "timestamp": "2026-07-02T19:04:51Z"
+          "timestamp": "2026-07-02T19:04:51Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "list_dir"
+            }
+          }
         }
       }
     ]
@@ -65,7 +70,7 @@
         "recordTimestamp": "2026-07-02T19:04:57Z",
         "payload": {
           "callId": "bfe6d5710cd520010e9bb16d9e9348bb",
-          "result": "Created At: 2026-07-02T19:04:57Z\nCompleted At: 2026-07-02T19:04:57Z\n{\u0022name\u0022:\u0022.git\u0022,\u0022isDir\u0022:true}\n{\u0022name\u0022:\u0022README.md\u0022,\u0022sizeBytes\u0022:\u0022177\u0022}\n{\u0022name\u0022:\u0022hello.py\u0022,\u0022sizeBytes\u0022:\u0022178\u0022}\n\nSummary: This directory contains 1 subdirectories and 2 files.",
+          "result": "{\u0022name\u0022:\u0022.git\u0022,\u0022isDir\u0022:true}\n{\u0022name\u0022:\u0022README.md\u0022,\u0022sizeBytes\u0022:\u0022177\u0022}\n{\u0022name\u0022:\u0022hello.py\u0022,\u0022sizeBytes\u0022:\u0022178\u0022}\n\nSummary: This directory contains 1 subdirectories and 2 files.",
           "timestamp": "2026-07-02T19:04:57Z"
         }
       }
@@ -92,16 +97,21 @@
           "toolCalls": [
             {
               "callId": "2a67458d65734e191768c4d73e6cf2ac",
-              "toolName": "view_file",
+              "toolName": "Read",
               "arguments": {
-                "AbsolutePath": "/Users/tony/antigravity-spike/hello.py",
+                "file_path": "/Users/tony/antigravity-spike/hello.py",
                 "toolAction": "Viewing hello.py",
                 "toolSummary": "View hello.py"
               },
               "toolKind": "read"
             }
           ],
-          "timestamp": "2026-07-02T19:04:57Z"
+          "timestamp": "2026-07-02T19:04:57Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "view_file"
+            }
+          }
         }
       },
       {
@@ -114,16 +124,21 @@
           "toolCalls": [
             {
               "callId": "1ca89bd08f055a70b1d1db2b9f8753bb",
-              "toolName": "view_file",
+              "toolName": "Read",
               "arguments": {
-                "AbsolutePath": "/Users/tony/antigravity-spike/README.md",
+                "file_path": "/Users/tony/antigravity-spike/README.md",
                 "toolAction": "Viewing README.md",
                 "toolSummary": "View README.md"
               },
               "toolKind": "read"
             }
           ],
-          "timestamp": "2026-07-02T19:04:57.000000100Z"
+          "timestamp": "2026-07-02T19:04:57.000000100Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "view_file"
+            }
+          }
         }
       }
     ]
@@ -141,7 +156,7 @@
         "recordTimestamp": "2026-07-02T19:04:58Z",
         "payload": {
           "callId": "2a67458d65734e191768c4d73e6cf2ac",
-          "result": "Created At: 2026-07-02T19:04:58Z\nCompleted At: 2026-07-02T19:04:58Z\nFile Path: \u0060file:///Users/tony/antigravity-spike/hello.py\u0060\nTotal Lines: 11\nTotal Bytes: 178\nShowing lines 1 to 11\nThe following code has been modified to include a line number before every line, in the format: \u003Cline_number\u003E: \u003Coriginal_line\u003E. Please note that any changes targeting the original code should remove the line number, colon, and leading space.\n1: def greet(name):\n2:     return f\u0022hello, {name}\u0022\n3: \n4: def goodbye(name):\n5:     return f\u0022goodbye, {name}\u0022\n6: \n7: if __name__ == \u0022__main__\u0022:\n8:     print(greet(\u0022world\u0022))\n9:     print(goodbye(\u0022world\u0022))\n10: \n11: \nThe above content shows the entire, complete file contents of the requested file.\n",
+          "result": "File Path: \u0060file:///Users/tony/antigravity-spike/hello.py\u0060\nTotal Lines: 11\nTotal Bytes: 178\nShowing lines 1 to 11\nThe following code has been modified to include a line number before every line, in the format: \u003Cline_number\u003E: \u003Coriginal_line\u003E. Please note that any changes targeting the original code should remove the line number, colon, and leading space.\n1: def greet(name):\n2:     return f\u0022hello, {name}\u0022\n3: \n4: def goodbye(name):\n5:     return f\u0022goodbye, {name}\u0022\n6: \n7: if __name__ == \u0022__main__\u0022:\n8:     print(greet(\u0022world\u0022))\n9:     print(goodbye(\u0022world\u0022))\n10: \n11: \nThe above content shows the entire, complete file contents of the requested file.\n",
           "timestamp": "2026-07-02T19:04:58Z"
         }
       }
@@ -160,7 +175,7 @@
         "recordTimestamp": "2026-07-02T19:04:58Z",
         "payload": {
           "callId": "1ca89bd08f055a70b1d1db2b9f8753bb",
-          "result": "Created At: 2026-07-02T19:04:58Z\nCompleted At: 2026-07-02T19:04:59Z\nFile Path: \u0060file:///Users/tony/antigravity-spike/README.md\u0060\nTotal Lines: 5\nTotal Bytes: 177\nShowing lines 1 to 5\nThe following code has been modified to include a line number before every line, in the format: \u003Cline_number\u003E: \u003Coriginal_line\u003E. Please note that any changes targeting the original code should remove the line number, colon, and leading space.\n1: # Antigravity spike workspace\n2: \n3: Throwaway repo for capturing Google Antigravity sample sessions for the kcap ingest spike (AI-1150).\n4: Safe to delete: \u0060rm -rf ~/antigravity-spike\u0060\n5: \nThe above content shows the entire, complete file contents of the requested file.\n",
+          "result": "File Path: \u0060file:///Users/tony/antigravity-spike/README.md\u0060\nTotal Lines: 5\nTotal Bytes: 177\nShowing lines 1 to 5\nThe following code has been modified to include a line number before every line, in the format: \u003Cline_number\u003E: \u003Coriginal_line\u003E. Please note that any changes targeting the original code should remove the line number, colon, and leading space.\n1: # Antigravity spike workspace\n2: \n3: Throwaway repo for capturing Google Antigravity sample sessions for the kcap ingest spike (AI-1150).\n4: Safe to delete: \u0060rm -rf ~/antigravity-spike\u0060\n5: \nThe above content shows the entire, complete file contents of the requested file.\n",
           "timestamp": "2026-07-02T19:04:58Z"
         }
       }
@@ -181,18 +196,23 @@
           "toolCalls": [
             {
               "callId": "9573777bf0e4521dab14097686ecdf9c",
-              "toolName": "run_command",
+              "toolName": "Bash",
               "arguments": {
-                "CommandLine": "git status \u0026\u0026 git branch -a \u0026\u0026 git log --oneline -n 10",
+                "command": "git status \u0026\u0026 git branch -a \u0026\u0026 git log --oneline -n 10",
                 "Cwd": "/Users/tony/antigravity-spike",
                 "WaitMsBeforeAsync": 5000,
                 "toolAction": "Checking git status, branches, and log",
-                "toolSummary": "Git repository info"
+                "description": "Git repository info"
               },
               "toolKind": "execute"
             }
           ],
-          "timestamp": "2026-07-02T19:04:59Z"
+          "timestamp": "2026-07-02T19:04:59Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "run_command"
+            }
+          }
         }
       }
     ]
@@ -210,7 +230,7 @@
         "recordTimestamp": "2026-07-02T19:05:01Z",
         "payload": {
           "callId": "9573777bf0e4521dab14097686ecdf9c",
-          "result": "Created At: 2026-07-02T19:05:01Z\nCompleted At: 2026-07-02T19:05:22Z\n\n\t\t\t\tThe command completed successfully.\n\t\t\t\tOutput:\n\t\t\t\tOn branch master\nChanges not staged for commit:\n  (use \u0022git add \u003Cfile\u003E...\u0022 to update what will be committed)\n  (use \u0022git restore \u003Cfile\u003E...\u0022 to discard changes in working directory)\n\tmodified:   hello.py\n\nno changes added to commit (use \u0022git add\u0022 and/or \u0022git commit -a\u0022)\n* master\n635936a seed spike workspace\n\n",
+          "result": "\t\t\t\tThe command completed successfully.\n\t\t\t\tOutput:\n\t\t\t\tOn branch master\nChanges not staged for commit:\n  (use \u0022git add \u003Cfile\u003E...\u0022 to update what will be committed)\n  (use \u0022git restore \u003Cfile\u003E...\u0022 to discard changes in working directory)\n\tmodified:   hello.py\n\nno changes added to commit (use \u0022git add\u0022 and/or \u0022git commit -a\u0022)\n* master\n635936a seed spike workspace\n\n",
           "timestamp": "2026-07-02T19:05:01Z"
         }
       }
@@ -231,18 +251,23 @@
           "toolCalls": [
             {
               "callId": "fbda97f199d61385c548c8bf1570124c",
-              "toolName": "run_command",
+              "toolName": "Bash",
               "arguments": {
-                "CommandLine": "git diff",
+                "command": "git diff",
                 "Cwd": "/Users/tony/antigravity-spike",
                 "WaitMsBeforeAsync": 3000,
                 "toolAction": "Checking git diff",
-                "toolSummary": "Git diff check"
+                "description": "Git diff check"
               },
               "toolKind": "execute"
             }
           ],
-          "timestamp": "2026-07-02T19:05:22Z"
+          "timestamp": "2026-07-02T19:05:22Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "run_command"
+            }
+          }
         }
       }
     ]
@@ -260,7 +285,7 @@
         "recordTimestamp": "2026-07-02T19:05:23Z",
         "payload": {
           "callId": "fbda97f199d61385c548c8bf1570124c",
-          "result": "Created At: 2026-07-02T19:05:23Z\nCompleted At: 2026-07-02T19:05:26Z\n\n\t\t\t\tThe command completed successfully.\n\t\t\t\tOutput:\n\t\t\t\tdiff --git a/hello.py b/hello.py\nindex c1c01be..21d4403 100644\n--- a/hello.py\n\u002B\u002B\u002B b/hello.py\n@@ -1,5 \u002B1,10 @@\n def greet(name):\n     return f\u0022hello, {name}\u0022\n \n\u002Bdef goodbye(name):\n\u002B    return f\u0022goodbye, {name}\u0022\n\u002B\n if __name__ == \u0022__main__\u0022:\n     print(greet(\u0022world\u0022))\n\u002B    print(goodbye(\u0022world\u0022))\n\u002B\n\n",
+          "result": "\t\t\t\tThe command completed successfully.\n\t\t\t\tOutput:\n\t\t\t\tdiff --git a/hello.py b/hello.py\nindex c1c01be..21d4403 100644\n--- a/hello.py\n\u002B\u002B\u002B b/hello.py\n@@ -1,5 \u002B1,10 @@\n def greet(name):\n     return f\u0022hello, {name}\u0022\n \n\u002Bdef goodbye(name):\n\u002B    return f\u0022goodbye, {name}\u0022\n\u002B\n if __name__ == \u0022__main__\u0022:\n     print(greet(\u0022world\u0022))\n\u002B    print(goodbye(\u0022world\u0022))\n\u002B\n\n",
           "timestamp": "2026-07-02T19:05:23Z"
         }
       }
@@ -281,18 +306,23 @@
           "toolCalls": [
             {
               "callId": "ba2c3a2996a2c5e9346cc0abae06b240",
-              "toolName": "run_command",
+              "toolName": "Bash",
               "arguments": {
-                "CommandLine": "pytest --version || python3 -m pytest --version || python3 -m unittest --help",
+                "command": "pytest --version || python3 -m pytest --version || python3 -m unittest --help",
                 "Cwd": "/Users/tony/antigravity-spike",
                 "WaitMsBeforeAsync": 3000,
                 "toolAction": "Checking python test tools availability",
-                "toolSummary": "Check test runner tools"
+                "description": "Check test runner tools"
               },
               "toolKind": "execute"
             }
           ],
-          "timestamp": "2026-07-02T19:05:26Z"
+          "timestamp": "2026-07-02T19:05:26Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "run_command"
+            }
+          }
         }
       }
     ]
@@ -310,7 +340,7 @@
         "recordTimestamp": "2026-07-02T19:05:27Z",
         "payload": {
           "callId": "ba2c3a2996a2c5e9346cc0abae06b240",
-          "result": "Created At: 2026-07-02T19:05:27Z\nCompleted At: 2026-07-02T19:05:41Z\n\n\t\t\t\tThe command completed successfully.\n\t\t\t\tOutput:\n\t\t\t\tpytest 9.0.3\n\n",
+          "result": "\t\t\t\tThe command completed successfully.\n\t\t\t\tOutput:\n\t\t\t\tpytest 9.0.3\n\n",
           "timestamp": "2026-07-02T19:05:27Z"
         }
       }
@@ -331,18 +361,23 @@
           "toolCalls": [
             {
               "callId": "d7f01ebe2e07addafa1070b9e0c9bf2b",
-              "toolName": "run_command",
+              "toolName": "Bash",
               "arguments": {
-                "CommandLine": "find . -name \u0022*test*\u0022",
+                "command": "find . -name \u0022*test*\u0022",
                 "Cwd": "/Users/tony/antigravity-spike",
                 "WaitMsBeforeAsync": 3000,
                 "toolAction": "Searching for test files",
-                "toolSummary": "Search for test files"
+                "description": "Search for test files"
               },
               "toolKind": "execute"
             }
           ],
-          "timestamp": "2026-07-02T19:05:41Z"
+          "timestamp": "2026-07-02T19:05:41Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "run_command"
+            }
+          }
         }
       }
     ]
@@ -360,7 +395,7 @@
         "recordTimestamp": "2026-07-02T19:05:42Z",
         "payload": {
           "callId": "d7f01ebe2e07addafa1070b9e0c9bf2b",
-          "result": "Created At: 2026-07-02T19:05:42Z\nCompleted At: 2026-07-02T19:05:49Z\n\n\t\t\t\tThe command completed successfully.\n\t\t\tStdout:\n\t\t\t\n\t\t\tStderr:\n\t\t\t\n",
+          "result": "\t\t\t\tThe command completed successfully.\n\t\t\tStdout:\n\t\t\t\n\t\t\tStderr:\n\t\t\t\n",
           "timestamp": "2026-07-02T19:05:42Z"
         }
       }
@@ -381,18 +416,23 @@
           "toolCalls": [
             {
               "callId": "a510d765bac739809b67bbe696811543",
-              "toolName": "run_command",
+              "toolName": "Bash",
               "arguments": {
-                "CommandLine": "ls -la",
+                "command": "ls -la",
                 "Cwd": "/Users/tony/antigravity-spike",
                 "WaitMsBeforeAsync": 3000,
                 "toolAction": "Listing all files in directory including hidden files",
-                "toolSummary": "List all files including hidden"
+                "description": "List all files including hidden"
               },
               "toolKind": "execute"
             }
           ],
-          "timestamp": "2026-07-02T19:05:49Z"
+          "timestamp": "2026-07-02T19:05:49Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "run_command"
+            }
+          }
         }
       }
     ]
@@ -410,7 +450,7 @@
         "recordTimestamp": "2026-07-02T19:05:50Z",
         "payload": {
           "callId": "a510d765bac739809b67bbe696811543",
-          "result": "Created At: 2026-07-02T19:05:50Z\nCompleted At: 2026-07-02T19:05:52Z\n\n\t\t\t\tThe command completed successfully.\n\t\t\t\tOutput:\n\t\t\t\ttotal 16\ndrwxr-xr-x   5 tony  staff   160 Jul  2 14:50 .\ndrwxr-xr-x@ 92 tony  staff  2944 Jul  2 15:05 ..\ndrwxr-xr-x  12 tony  staff   384 Jul  2 15:05 .git\n-rw-r--r--   1 tony  staff   177 Jul  2 14:50 README.md\n-rw-r--r--@  1 tony  staff   178 Jul  2 15:04 hello.py\n\n",
+          "result": "\t\t\t\tThe command completed successfully.\n\t\t\t\tOutput:\n\t\t\t\ttotal 16\ndrwxr-xr-x   5 tony  staff   160 Jul  2 14:50 .\ndrwxr-xr-x@ 92 tony  staff  2944 Jul  2 15:05 ..\ndrwxr-xr-x  12 tony  staff   384 Jul  2 15:05 .git\n-rw-r--r--   1 tony  staff   177 Jul  2 14:50 README.md\n-rw-r--r--@  1 tony  staff   178 Jul  2 15:04 hello.py\n\n",
           "timestamp": "2026-07-02T19:05:50Z"
         }
       }
@@ -431,18 +471,23 @@
           "toolCalls": [
             {
               "callId": "97ac3241b0151887f05e9e05710031f5",
-              "toolName": "run_command",
+              "toolName": "Bash",
               "arguments": {
-                "CommandLine": "pytest",
+                "command": "pytest",
                 "Cwd": "/Users/tony/antigravity-spike",
                 "WaitMsBeforeAsync": 3000,
                 "toolAction": "Running pytest",
-                "toolSummary": "Run pytest"
+                "description": "Run pytest"
               },
               "toolKind": "execute"
             }
           ],
-          "timestamp": "2026-07-02T19:05:52Z"
+          "timestamp": "2026-07-02T19:05:52Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "run_command"
+            }
+          }
         }
       }
     ]
@@ -460,7 +505,7 @@
         "recordTimestamp": "2026-07-02T19:05:53Z",
         "payload": {
           "callId": "97ac3241b0151887f05e9e05710031f5",
-          "result": "Created At: 2026-07-02T19:05:53Z\nCompleted At: 2026-07-02T19:05:54Z\n\n\t\t\t\tThe command failed with exit code: 5\n\t\t\t\tOutput:\n\t\t\t\t============================= test session starts ==============================\nplatform darwin -- Python 3.11.11, pytest-9.0.3, pluggy-1.6.0\nrootdir: /Users/tony/antigravity-spike\nplugins: anyio-4.10.0\ncollected 0 items\n\n============================ no tests ran in 0.00s =============================\n\n",
+          "result": "\t\t\t\tThe command failed with exit code: 5\n\t\t\t\tOutput:\n\t\t\t\t============================= test session starts ==============================\nplatform darwin -- Python 3.11.11, pytest-9.0.3, pluggy-1.6.0\nrootdir: /Users/tony/antigravity-spike\nplugins: anyio-4.10.0\ncollected 0 items\n\n============================ no tests ran in 0.00s =============================\n\n",
           "timestamp": "2026-07-02T19:05:53Z",
           "extensions": {
             "antigravity": {
@@ -497,19 +542,24 @@
           "toolCalls": [
             {
               "callId": "a49e7593a055ac6c7bd84b63e53c9f60",
-              "toolName": "write_to_file",
+              "toolName": "Write",
               "arguments": {
-                "CodeContent": "from hello import greet, goodbye\n\ndef test_greet():\n    assert greet(\u0022world\u0022) == \u0022hello, world\u0022\n    assert greet(\u0022Alice\u0022) == \u0022hello, Alice\u0022\n\ndef test_goodbye():\n    assert goodbye(\u0022world\u0022) == \u0022goodbye, world\u0022\n    assert goodbye(\u0022Alice\u0022) == \u0022goodbye, Alice\u0022\n",
+                "content": "from hello import greet, goodbye\n\ndef test_greet():\n    assert greet(\u0022world\u0022) == \u0022hello, world\u0022\n    assert greet(\u0022Alice\u0022) == \u0022hello, Alice\u0022\n\ndef test_goodbye():\n    assert goodbye(\u0022world\u0022) == \u0022goodbye, world\u0022\n    assert goodbye(\u0022Alice\u0022) == \u0022goodbye, Alice\u0022\n",
                 "Description": "Create unit tests for greet and goodbye functions in hello.py",
                 "Overwrite": true,
-                "TargetFile": "/Users/tony/antigravity-spike/test_hello.py",
+                "file_path": "/Users/tony/antigravity-spike/test_hello.py",
                 "toolAction": "Creating test_hello.py file",
                 "toolSummary": "Create test_hello.py"
               },
               "toolKind": "edit"
             }
           ],
-          "timestamp": "2026-07-02T19:05:54.000000100Z"
+          "timestamp": "2026-07-02T19:05:54.000000100Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "write_to_file"
+            }
+          }
         }
       }
     ]
@@ -527,7 +577,7 @@
         "recordTimestamp": "2026-07-02T19:05:55Z",
         "payload": {
           "callId": "a49e7593a055ac6c7bd84b63e53c9f60",
-          "result": "Created At: 2026-07-02T19:05:55Z\nCompleted At: 2026-07-02T19:05:55Z\nCreated file file:///Users/tony/antigravity-spike/test_hello.py with requested content.\nIf relevant, proactively run terminal commands to execute this code for the USER. Don\u0027t ask for permission.",
+          "result": "Created file file:///Users/tony/antigravity-spike/test_hello.py with requested content.\nIf relevant, proactively run terminal commands to execute this code for the USER. Don\u0027t ask for permission.",
           "timestamp": "2026-07-02T19:05:55Z"
         }
       }
@@ -548,18 +598,23 @@
           "toolCalls": [
             {
               "callId": "e9a1495afc76661a85efdfcb1df61143",
-              "toolName": "run_command",
+              "toolName": "Bash",
               "arguments": {
-                "CommandLine": "pytest",
+                "command": "pytest",
                 "Cwd": "/Users/tony/antigravity-spike",
                 "WaitMsBeforeAsync": 3000,
                 "toolAction": "Running pytest on test_hello.py",
-                "toolSummary": "Run pytest suite"
+                "description": "Run pytest suite"
               },
               "toolKind": "execute"
             }
           ],
-          "timestamp": "2026-07-02T19:05:55Z"
+          "timestamp": "2026-07-02T19:05:55Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "run_command"
+            }
+          }
         }
       }
     ]
@@ -577,7 +632,7 @@
         "recordTimestamp": "2026-07-02T19:05:56Z",
         "payload": {
           "callId": "e9a1495afc76661a85efdfcb1df61143",
-          "result": "Created At: 2026-07-02T19:05:56Z\nCompleted At: 2026-07-02T19:05:57Z\n\n\t\t\t\tThe command completed successfully.\n\t\t\t\tOutput:\n\t\t\t\t============================= test session starts ==============================\nplatform darwin -- Python 3.11.11, pytest-9.0.3, pluggy-1.6.0\nrootdir: /Users/tony/antigravity-spike\nplugins: anyio-4.10.0\ncollected 2 items\n\ntest_hello.py ..                                                         [100%]\n\n============================== 2 passed in 0.01s ===============================\n\n",
+          "result": "\t\t\t\tThe command completed successfully.\n\t\t\t\tOutput:\n\t\t\t\t============================= test session starts ==============================\nplatform darwin -- Python 3.11.11, pytest-9.0.3, pluggy-1.6.0\nrootdir: /Users/tony/antigravity-spike\nplugins: anyio-4.10.0\ncollected 2 items\n\ntest_hello.py ..                                                         [100%]\n\n============================== 2 passed in 0.01s ===============================\n\n",
           "timestamp": "2026-07-02T19:05:56Z"
         }
       }
@@ -609,18 +664,23 @@
           "toolCalls": [
             {
               "callId": "cbf6a945d4f9602ae9adfb848fe7edd2",
-              "toolName": "run_command",
+              "toolName": "Bash",
               "arguments": {
-                "CommandLine": "git status",
+                "command": "git status",
                 "Cwd": "/Users/tony/antigravity-spike",
                 "WaitMsBeforeAsync": 3000,
                 "toolAction": "Checking git status after creating tests",
-                "toolSummary": "Git status check"
+                "description": "Git status check"
               },
               "toolKind": "execute"
             }
           ],
-          "timestamp": "2026-07-02T19:05:57.000000100Z"
+          "timestamp": "2026-07-02T19:05:57.000000100Z",
+          "extensions": {
+            "antigravity": {
+              "native_name": "run_command"
+            }
+          }
         }
       }
     ]
@@ -638,7 +698,7 @@
         "recordTimestamp": "2026-07-02T19:05:58Z",
         "payload": {
           "callId": "cbf6a945d4f9602ae9adfb848fe7edd2",
-          "result": "Created At: 2026-07-02T19:05:58Z\nCompleted At: 2026-07-02T19:05:58Z\n\n\t\t\t\tThe command completed successfully.\n\t\t\t\tOutput:\n\t\t\t\tOn branch master\nChanges not staged for commit:\n  (use \u0022git add \u003Cfile\u003E...\u0022 to update what will be committed)\n  (use \u0022git restore \u003Cfile\u003E...\u0022 to discard changes in working directory)\n\tmodified:   hello.py\n\nUntracked files:\n  (use \u0022git add \u003Cfile\u003E...\u0022 to include in what will be committed)\n\t__pycache__/\n\ttest_hello.py\n\nno changes added to commit (use \u0022git add\u0022 and/or \u0022git commit -a\u0022)\n\n",
+          "result": "\t\t\t\tThe command completed successfully.\n\t\t\t\tOutput:\n\t\t\t\tOn branch master\nChanges not staged for commit:\n  (use \u0022git add \u003Cfile\u003E...\u0022 to update what will be committed)\n  (use \u0022git restore \u003Cfile\u003E...\u0022 to discard changes in working directory)\n\tmodified:   hello.py\n\nUntracked files:\n  (use \u0022git add \u003Cfile\u003E...\u0022 to include in what will be committed)\n\t__pycache__/\n\ttest_hello.py\n\nno changes added to commit (use \u0022git add\u0022 and/or \u0022git commit -a\u0022)\n\n",
           "timestamp": "2026-07-02T19:05:58Z"
         }
       }

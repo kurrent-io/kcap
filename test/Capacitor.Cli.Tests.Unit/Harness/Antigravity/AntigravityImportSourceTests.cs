@@ -235,20 +235,21 @@ public class AntigravityImportSourceTests {
         await Assert.That(byDashless[0].SessionId).IsEqualTo(dashless);
     }
 
+    /// <summary>Every step but the noise ones can project: current versions write each tool result as GENERIC.</summary>
     [Test]
-    public async Task IsImportRelevantLine_matches_event_producing_steps_only() {
-        await Assert.That(AntigravityImportSource.IsImportRelevantLine(UserLine("2026-07-02T19:00:00Z"))).IsTrue();
-        await Assert.That(AntigravityImportSource.IsImportRelevantLine(
-            """{"type":"PLANNER_RESPONSE","content":"ok"}""")).IsTrue();
-        await Assert.That(AntigravityImportSource.IsImportRelevantLine(
-            """{"type":"RUN_COMMAND","content":"ran"}""")).IsTrue();
-        // Noise steps never advance the watermark.
-        await Assert.That(AntigravityImportSource.IsImportRelevantLine(
-            """{"type":"CHECKPOINT"}""")).IsFalse();
-        await Assert.That(AntigravityImportSource.IsImportRelevantLine(
-            """{"type":"GENERIC","content":"active subagents"}""")).IsFalse();
-        await Assert.That(AntigravityImportSource.IsImportRelevantLine("not json")).IsFalse();
-    }
+    [Arguments("""{"type":"USER_INPUT","content":"hi"}""", true)]
+    [Arguments("""{"type":"PLANNER_RESPONSE","content":"ok"}""", true)]
+    [Arguments("""{"type":"GENERIC","content":"Command exited with code 0."}""", true)]
+    [Arguments("""{"type":"RUN_COMMAND","content":"ran"}""", true)]
+    [Arguments("""{"type":"ERROR_MESSAGE","error":"overloaded"}""", true)]
+    [Arguments("""{"type":"CHECKPOINT"}""", false)]
+    [Arguments("""{"type":"CONVERSATION_HISTORY"}""", false)]
+    [Arguments("""{"type":"SYSTEM_MESSAGE"}""", false)]
+    [Arguments("""{"type":"EPHEMERAL_MESSAGE"}""", false)]
+    [Arguments("""{"content":"no type"}""", false)]
+    [Arguments("not json", false)]
+    public async Task IsImportRelevantLine_matches_steps_that_can_project(string line, bool relevant) =>
+        await Assert.That(AntigravityImportSource.IsImportRelevantLine(line)).IsEqualTo(relevant);
 
     [Test]
     public async Task Discover_is_empty_when_no_antigravity_data() {

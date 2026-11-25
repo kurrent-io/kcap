@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Text.Json.Nodes;
 using Capacitor.Models.Transcripts.Harness.Antigravity;
 using Google.Protobuf;
@@ -109,16 +110,32 @@ public class AntigravityTranscriptEventsTests {
 
         await Assert.That(e.EventId).IsEqualTo(TranscriptIds.Sibling(id, "toolcall:1"));
         await Assert.That(call.CallId).IsEqualTo(TranscriptIds.Sibling(id, "call:1").ToString("N"));
-        await Assert.That(call.ToolName).IsEqualTo("run_command");
+    }
+
+    /// <summary>The call is named as <see cref="AntigravityToolNames"/> translates it, its kind read from the native
+    /// name, and the native name rides the <c>antigravity</c> slug, as the server stores it.</summary>
+    [Test]
+    public async Task A_translated_call_takes_claudes_name_and_keeps_its_native_one() {
+        var calls = (AssistantToolCallsGenerated)Project(Planner(9, """{"name":"run_command","args":{"CommandLine":"python hello.py","Cwd":"/repo"}}"""), Context()).Single().Payload;
+        var call  = calls.ToolCalls.Single();
+
+        await Assert.That(call.ToolName).IsEqualTo("Bash");
         await Assert.That(call.ToolKind).IsEqualTo(AcpToolKind.Execute);
-        await Assert.That(Compact(call.Arguments)).IsEqualTo("""{"CommandLine":"python hello.py","Cwd":"/repo"}""");
+        await Assert.That(Compact(call.Arguments)).IsEqualTo("""{"command":"python hello.py","Cwd":"/repo"}""");
+        await Assert.That(Compact(calls.Extensions[AntigravityExtension.Slug])).IsEqualTo("""{"native_name":"run_command"}""");
     }
 
     [Test]
-    public async Task A_call_without_object_args_has_no_arguments() {
-        var e = Project(Planner(9, """{"name":"run_command","args":"x"}"""), Context()).Single();
+    [Arguments("""{"name":"run_command","args":"x"}""", "run_command", null)]
+    [Arguments("""{"name":"run_command","args":{"cmd":"x"}}""", "run_command", """{"cmd":"x"}""")]
+    [Arguments("""{"name":"send_message","args":{"Message":"hi"}}""", "send_message", """{"Message":"hi"}""")]
+    public async Task A_call_it_cannot_translate_keeps_its_native_name_and_args(string entry, string name, string? args) {
+        var calls = (AssistantToolCallsGenerated)Project(Planner(9, entry), Context()).Single().Payload;
+        var call  = calls.ToolCalls.Single();
 
-        await Assert.That(((AssistantToolCallsGenerated)e.Payload).ToolCalls[0].Arguments).IsNull();
+        await Assert.That(call.ToolName).IsEqualTo(name);
+        await Assert.That(call.Arguments is null ? null : Compact(call.Arguments)).IsEqualTo(args);
+        await Assert.That(calls.Extensions).IsEmpty();
     }
 
     [Test]
@@ -155,23 +172,110 @@ public class AntigravityTranscriptEventsTests {
         await Assert.That(result.HasResult).IsFalse();
     }
 
+    public static IEnumerable<Func<(string Fixture, string[] Pairs)>> CapturedSessions() {
+        yield return () => ("antigravity-generic-results-desktop", [
+            "Bash | Command failed to run: /work/demo: no such directory. | failed",
+            "Write | Created file. | ok",
+            "Read | Showing lines 1-2 of 2 | ok",
+            "Edit | Made 1 replacement in /work/demo/file1.txt starting at line 1 (+1/-1 lines). | ok",
+            "Write | Created file. | ok",
+            "Bash | Command exited with code 0. | ok",
+            "Bash | Command exited with code 0. | ok",
+            "Bash | Command exited with code 1. | failed",
+            """mcp__kcap-workitems__get_next_work | {"items":[]} | ok""",
+        ]);
+        yield return () => ("antigravity-generic-results-cli-calls", [
+            "Bash | Command exited with code 0. | ok",
+            "Read | Showing lines 1-2 of 2 | ok",
+            "Edit | Made 1 replacement in /work/demo/notes.txt starting at line 2 (+1/-1 lines). | ok",
+            "Write | Created file. | ok",
+            """Bash | Encountered error in step execution: permission check failed for unsandboxed "ls -la ; grep -rn 'abc' . ; false": user denied permission to run command: | failed""",
+        ]);
+        yield return () => ("antigravity-generic-results-cli-failures", [
+            "Bash | Command exited with code 1. | failed",
+            "Read | Encountered error in step execution: file does not exist | failed",
+            """Bash | Encountered error in step execution: permission check failed for unsandboxed "ls -la": user denied permission to run command: | failed""",
+        ]);
+    }
+
+    /// <summary>In sessions captured from the desktop app and the agy CLI, each call pairs with the result step after
+    /// it, whatever that step's type; a model error with no call to answer is skipped, and nothing is left held.</summary>
+    [Test]
+    [MethodDataSource(nameof(CapturedSessions))]
+    public async Task Each_call_pairs_with_the_result_after_it(string fixture, string[] pairs) {
+        var ctx   = Context();
+        var lines = (await File.ReadAllLinesAsync(Path.Combine(SourceDir(), "Fixtures", fixture + ".jsonl")))
+                    .Where(l => l.Length > 0).OrderBy(Projection.StepOrder);
+
+        var events  = lines.SelectMany((l, i) => Project(l, ctx, i)).Select(e => e.Payload).ToList();
+        var results = events.OfType<ToolResultReceived>().ToList();
+        var paired  = events.OfType<AssistantToolCallsGenerated>().Select(c => c.ToolCalls[0]).Select(call =>
+            results.SingleOrDefault(r => r.CallId == call.CallId) is { } r
+                ? $"{call.ToolName} | {r.Result.Split('\n')[0].Trim()} | {(r.Extensions.ContainsKey(AntigravityExtension.Slug) ? "failed" : "ok")}"
+                : $"{call.ToolName} | no result");
+
+        await Assert.That(paired).IsEquivalentTo(pairs, CollectionOrdering.Matching);
+        await Assert.That(results.Count).IsEqualTo(pairs.Length);
+        await Assert.That(ctx.Held).IsEmpty();
+    }
+
+    static string SourceDir([CallerFilePath] string path = "") => Path.GetDirectoryName(path)!;
+
+    /// <summary>A call whose result never came, then a planner with no calls and a model error, leave the next
+    /// planner's call to pair with its own result.</summary>
+    [Test]
+    public async Task A_call_without_a_result_does_not_take_a_later_planners_result() {
+        var ctx = Context();
+        string[] lines = [
+            """{"step_index":1,"type":"PLANNER_RESPONSE","created_at":"2026-11-24T22:00:01Z","tool_calls":[{"name":"run_command","args":{"CommandLine":"a"}},{"name":"run_command","args":{"CommandLine":"b"}}]}""",
+            """{"step_index":2,"type":"GENERIC","created_at":"2026-11-24T22:00:02Z","content":"Command exited with code 0.\n\nCommand output:\nresult-a"}""",
+            """{"step_index":3,"type":"PLANNER_RESPONSE","created_at":"2026-11-24T22:00:03Z"}""",
+            """{"step_index":4,"type":"ERROR_MESSAGE","created_at":"2026-11-24T22:00:04Z","error":"model output error","content":"Error: model output error"}""",
+            """{"step_index":5,"type":"PLANNER_RESPONSE","created_at":"2026-11-24T22:00:05Z","tool_calls":[{"name":"read_file","args":{"Path":"/w/c"}}]}""",
+            """{"step_index":6,"type":"GENERIC","created_at":"2026-11-24T22:00:06Z","content":"Showing lines 1-1 of 1\n1: result-c"}""",
+        ];
+
+        var events  = lines.SelectMany(l => Project(l, ctx)).ToList();
+        var calls   = events.Where(e => e.EventType == CanonicalEventTypes.AssistantToolCallsGenerated).Select(CallIdOf).ToList();
+        var results = events.Where(e => e.EventType == CanonicalEventTypes.ToolResultReceived)
+                            .Select(e => (ToolResultReceived)e.Payload).ToDictionary(r => r.CallId, r => r.Result);
+
+        await Assert.That(results.Count).IsEqualTo(2);
+        await Assert.That(results[calls[0]]).Contains("result-a");
+        await Assert.That(results.ContainsKey(calls[1])).IsFalse();
+        await Assert.That(results[calls[2]]).Contains("result-c");
+        await Assert.That(ctx.Held).IsEmpty();
+    }
+
     // ── failures ──────────────────────────────────────────────────────────────
 
+    /// <summary>The <c>Created At</c> and <c>Completed At</c> lines that open a result are dropped, a result with no
+    /// text keeps its error, and a failure is read from the status, the error, or a command's own exit line.</summary>
     [Test]
-    [Arguments("""{"step_index":10,"type":"RUN_COMMAND","content":"boom","error":"exit code 1"}""", true)]
-    [Arguments("""{"step_index":10,"type":"VIEW_FILE","content":"x","error":"not found"}""", true)]
-    [Arguments("""{"step_index":10,"type":"RUN_COMMAND","content":"Completed At: ...\nThe command failed with exit code: 5\nOutput:\nFAILED"}""", true)]
-    [Arguments("""{"step_index":10,"type":"CODE_ACTION","content":"THE COMMAND FAILED WITH EXIT CODE:   2"}""", true)]
-    [Arguments("""{"step_index":10,"type":"RUN_COMMAND","content":"The command failed with exit code: n/a"}""", false)]
-    [Arguments("""{"step_index":10,"type":"VIEW_FILE","content":"The command failed with exit code: 5"}""", false)]
-    [Arguments("""{"step_index":10,"type":"LIST_DIRECTORY","content":"The command failed with exit code: 5"}""", false)]
-    [Arguments("""{"step_index":10,"type":"RUN_COMMAND","content":"The command completed successfully.","error":""}""", false)]
-    public async Task Only_an_error_or_a_commands_failure_line_marks_a_result_failed(string line, bool failed) {
+    [Arguments("GENERIC", "DONE", null, "Created At: 2026-11-24T17:17:06-05:00\nCompleted At: 2026-11-24T17:17:07-05:00\nCreated At: 2026-11-24T17:17:06-05:00\nCompleted At: 2026-11-24T17:17:07-05:00\nCommand exited with code 1.\n\nNo output from the command.", "Command exited with code 1.\n\nNo output from the command.", true)]
+    [Arguments("GENERIC", "DONE", null, "Command exited with code 0.\n\nCommand output:\nok", "Command exited with code 0.\n\nCommand output:\nok", false)]
+    [Arguments("GENERIC", "DONE", null, "Command failed to run: /w: no such directory.", "Command failed to run: /w: no such directory.", true)]
+    [Arguments("GENERIC", "ERROR", "file does not exist", "Created At: 2026-11-24T17:17:13-05:00\nEncountered error in step execution: file does not exist", "Encountered error in step execution: file does not exist", true)]
+    [Arguments("GENERIC", "ERROR", null, "denied", "denied", true)]
+    [Arguments("ERROR_MESSAGE", "DONE", "The model API is currently overloaded", null, "The model API is currently overloaded", true)]
+    [Arguments("GENERIC", "DONE", null, "Showing lines 1-2 of 2\n1: The command failed with exit code: 3\n2: Command exited with code 4.", "Showing lines 1-2 of 2\n1: The command failed with exit code: 3\n2: Command exited with code 4.", false)]
+    [Arguments("RUN_COMMAND", "DONE", null, "Created At: 2026-07-02T19:05:53Z\nCompleted At: 2026-07-02T19:05:54Z\n\n\t\tThe command failed with exit code: 5\n\t\tOutput:", "\t\tThe command failed with exit code: 5\n\t\tOutput:", true)]
+    [Arguments("CODE_ACTION", "DONE", null, "THE COMMAND FAILED WITH EXIT CODE:   2", "THE COMMAND FAILED WITH EXIT CODE:   2", true)]
+    [Arguments("RUN_COMMAND", "DONE", null, "The command failed with exit code: n/a", "The command failed with exit code: n/a", false)]
+    [Arguments("VIEW_FILE", "DONE", null, "The command failed with exit code: 5", "The command failed with exit code: 5", false)]
+    [Arguments("RUN_COMMAND", "DONE", "", "The command completed successfully.\nOutput:\nhello", "The command completed successfully.\nOutput:\nhello", false)]
+    [Arguments("RUN_COMMAND", "DONE", "exit code 1", "boom", "boom", true)]
+    public async Task A_result_keeps_its_text_without_timing_lines_and_reads_its_failure(
+            string type, string status, string? error, string? content, string text, bool failed) {
+        var step = new JsonObject { ["step_index"] = 10, ["type"] = type, ["status"] = status, ["created_at"] = "2026-11-24T22:17:07Z" };
+        if (error is not null) step["error"] = error;
+        if (content is not null) step["content"] = content;
         var ctx = Context();
         Project(Planner(9, Call()), ctx);
 
-        var result = (ToolResultReceived)Project(line, ctx).Single().Payload;
+        var result = (ToolResultReceived)Project(step.ToJsonString(), ctx).Single().Payload;
 
+        await Assert.That(result.Result).IsEqualTo(text);
         await Assert.That(result.Extensions.ContainsKey(AntigravityExtension.Slug)).IsEqualTo(failed);
         if (failed) await Assert.That(Compact(result.Extensions[AntigravityExtension.Slug])).IsEqualTo("""{"is_error":true}""");
     }
@@ -285,8 +389,8 @@ public class AntigravityTranscriptEventsTests {
     [Test]
     [Arguments("""{"step_index":1,"source":"SYSTEM","type":"CONVERSATION_HISTORY","created_at":"2026-07-02T19:04:07Z","content":"…"}""")]
     [Arguments("""{"step_index":4,"source":"SYSTEM","type":"CHECKPOINT","created_at":"2026-07-02T19:04:09Z"}""")]
-    [Arguments("""{"step_index":28,"source":"MODEL","type":"GENERIC","content":"You have 2 active subagent(s)"}""")]
-    [Arguments("""{"step_index":29,"type":"INVOKE_SUBAGENT"}""")]
+    [Arguments("""{"step_index":7,"source":"SYSTEM","type":"SYSTEM_MESSAGE","created_at":"2026-11-24T22:35:22Z","content":"<SYSTEM_MESSAGE>Reminder</SYSTEM_MESSAGE>"}""")]
+    [Arguments("""{"step_index":8,"source":"SYSTEM","type":"EPHEMERAL_MESSAGE","created_at":"2026-11-24T22:35:22Z","content":"…"}""")]
     [Arguments("""{"step_index":30,"content":"no type"}""")]
     [Arguments("""{"step_index":31,"type":7}""")]
     public async Task Noise_and_untyped_steps_emit_nothing(string line) {
@@ -448,7 +552,8 @@ public class AntigravityTranscriptEventsTests {
         await Assert.That(events[0].LineNumber).IsNull();
     }
 
-    /// <summary>A result follows its call, so a planner at the same or a higher step cannot own it.</summary>
+    /// <summary>A result follows its call, so a planner at the same or a higher step cannot own it; the planner
+    /// below it does.</summary>
     [Test]
     [Arguments(5)]
     [Arguments(3)]
@@ -461,7 +566,7 @@ public class AntigravityTranscriptEventsTests {
 
         await Assert.That(events.Select(e => e.EventType)).IsEquivalentTo([CanonicalEventTypes.AssistantToolCallsGenerated], CollectionOrdering.Matching);
         await Assert.That(later.Count(e => e.EventType == CanonicalEventTypes.ToolResultReceived)).IsEqualTo(1);
-        await Assert.That(CallIdOfResult(later[1])).IsEqualTo(CallIdOf(events[0]));
+        await Assert.That(CallIdOfResult(later[1])).IsEqualTo(CallIdOf(later[0]));
     }
 
     /// <summary>Held across flushes, results can be held in any order; they pair with calls lowest step first.</summary>
@@ -493,16 +598,17 @@ public class AntigravityTranscriptEventsTests {
         await Assert.That(CallIdOfResult(second[1])).IsEqualTo(CallIdOf(second[0]));
     }
 
-    /// <summary>A planner claims with the oldest waiting call, which can be an earlier planner's.</summary>
+    /// <summary>A held result takes a call of the latest planner below its step, even when a planner above it
+    /// queued earlier.</summary>
     [Test]
-    public async Task A_held_result_takes_the_oldest_waiting_call() {
+    public async Task A_held_result_takes_a_call_of_the_latest_planner_below_it() {
         var ctx = Context();
         Project(RunCommand(4, "early"), ctx);
-        var oldest = Project(Planner(5, Call()), ctx).Single();
+        Project(Planner(5, Call()), ctx);
 
         var events = Project(Planner(3, Call()), ctx);
 
-        await Assert.That(CallIdOfResult(events[1])).IsEqualTo(CallIdOf(oldest));
+        await Assert.That(CallIdOfResult(events[1])).IsEqualTo(CallIdOf(events[0]));
     }
 
     // ── a line delivered again ────────────────────────────────────────────────
