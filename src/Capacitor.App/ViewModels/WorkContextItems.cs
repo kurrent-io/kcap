@@ -59,9 +59,26 @@ public sealed class WorkContextLinkViewModel : ReactiveObject {
             var identity = string.IsNullOrWhiteSpace(Key) ? (Eyebrow == "ISSUE" ? "Issue" : "Pull request") : Key;
             return new(hasTitle ? Title : identity, string.IsNullOrWhiteSpace(state) ? null : state, tone,
                 KcapTipDetail.Present(KcapTipDetail.Note(hasTitle ? KcapTip.Join(destination, identity) : destination),
-                    KcapTipDetail.Note(CanOpen ? "Opens in browser" : "Link unavailable")));
+                    KcapTipDetail.Note(CanOpen ? "Opens in browser" : "Link unavailable"))) {
+                Glyph = StateGlyph(state?.ToLowerInvariant()),
+            };
         }
     }
+    StatusGlyphKind StateGlyph(string? state) => Eyebrow == "ISSUE" ? state switch {
+        "open" or "todo" or "backlog" => StatusGlyphKind.Pending,
+        "in progress" or "in flight" or "started" => StatusGlyphKind.Activity,
+        "done" or "completed" or "shipped" => StatusGlyphKind.Success,
+        "closed" or "canceled" or "cancelled" => StatusGlyphKind.Stopped,
+        "blocked" => StatusGlyphKind.Attention,
+        _ => StatusGlyphKind.Unknown,
+    } : state switch {
+        "open" => StatusGlyphKind.OpenPullRequest,
+        "draft" => StatusGlyphKind.DraftPullRequest,
+        "merged" => StatusGlyphKind.MergedPullRequest,
+        "closed" => StatusGlyphKind.ClosedPullRequest,
+        _ => StatusGlyphKind.Unknown,
+    };
+
     public ReactiveCommand<Unit, Unit> OpenCommand { get; }
 
     public WorkContextLinkViewModel(string eyebrow, string key, string title, string? url, IUrlOpener opener, string identity = "", string? state = null) {

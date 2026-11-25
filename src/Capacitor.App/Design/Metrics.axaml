@@ -11,6 +11,7 @@
     <Thickness x:Key="KcapSessionRowPadding">8,6</Thickness>
     <x:Int32 x:Key="KcapReadingLayout">0</x:Int32>
     <Thickness x:Key="KcapContextDividerThickness">1,0,0,0</Thickness>
+    <x:Boolean x:Key="KcapStatusPreview">False</x:Boolean>
     <CornerRadius x:Key="KcapControlRadius">8</CornerRadius>
     <CornerRadius x:Key="KcapChatCardRadius">10</CornerRadius>
 </ResourceDictionary>

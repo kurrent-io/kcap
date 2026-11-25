@@ -27,6 +27,12 @@
         <Color x:Key="KcapDangerBrush">#A62B40</Color>
         <Color x:Key="KcapDangerDimBrush">#FCE9EC</Color>
         <Color x:Key="KcapPurpleBrush">#644397</Color>
+        <Color x:Key="KcapActivityBrush">#24232A</Color>
+        <Color x:Key="KcapRetryBrush">#24232A</Color>
+        <Color x:Key="KcapActivityDimBrush">#ECEAF0</Color>
+        <Color x:Key="KcapPrOpenBrush">#096449</Color>
+        <Color x:Key="KcapPrMergedBrush">#644397</Color>
+        <Color x:Key="KcapPrClosedBrush">#A62B40</Color>
         <Color x:Key="KcapPurpleDimBrush">#F1ECFA</Color>
         <Color x:Key="KcapInfoBrush">#315AA3</Color>
         <Color x:Key="KcapInfoDimBrush">#EAEEFA</Color>
@@ -77,6 +83,12 @@
         <Color x:Key="KcapDangerBrush">#FF9087</Color>
         <Color x:Key="KcapDangerDimBrush">#3E282A</Color>
         <Color x:Key="KcapPurpleBrush">#C6A0F6</Color>
+        <Color x:Key="KcapActivityBrush">#E2E2E0</Color>
+        <Color x:Key="KcapRetryBrush">#E2E2E0</Color>
+        <Color x:Key="KcapActivityDimBrush">#38393B</Color>
+        <Color x:Key="KcapPrOpenBrush">#64D998</Color>
+        <Color x:Key="KcapPrMergedBrush">#C6A0F6</Color>
+        <Color x:Key="KcapPrClosedBrush">#FF9087</Color>
         <Color x:Key="KcapPurpleDimBrush">#342B40</Color>
         <Color x:Key="KcapInfoBrush">#86B9F0</Color>
         <Color x:Key="KcapInfoDimBrush">#283442</Color>

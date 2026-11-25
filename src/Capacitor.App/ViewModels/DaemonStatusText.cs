@@ -3,11 +3,9 @@ using Capacitor.Cli.Core.LocalIpc;
 
 namespace Capacitor.App.ViewModels;
 
-/// Settings' words for the daemon, kept apart: whether its process runs and the app is attached to it, and
-/// separately whether it is connected to its server. Running is never read as connected, nor the reverse.
 public static class DaemonStatusText {
-    public static string Attach(AttachStatus status, DaemonInfoDto? daemon) => status.State switch {
-        AttachState.Connected  => daemon?.Name is { Length: > 0 } name ? $"running · {name}" : "running",
+    public static string Attach(AttachStatus status, DaemonInfoDto? daemon, bool preview = false) => status.State switch {
+        AttachState.Connected  => WithName(preview ? "connected" : "running", daemon?.Name),
         AttachState.Connecting => "connecting",
         _ => status.Reason switch {
             "daemon_unreachable"         => "not running",
@@ -16,6 +14,27 @@ public static class DaemonStatusText {
             ExpectedDaemonRestart.StartingReason => "starting",
             _                            => "unreachable",
         },
+    };
+
+    static string WithName(string state, string? name) => name is { Length: > 0 } ? $"{state} · {name}" : state;
+
+    internal static StatusGlyphKind AttachGlyph(AttachStatus status) => status.State switch {
+        AttachState.Connected => StatusGlyphKind.Healthy,
+        AttachState.Connecting => StatusGlyphKind.Activity,
+        _ => status.Reason switch {
+            ExpectedDaemonRestart.Reason or ExpectedDaemonRestart.StartingReason => StatusGlyphKind.Activity,
+            "daemon_unreachable" => StatusGlyphKind.Stopped,
+            "daemon_incompatible" => StatusGlyphKind.Attention,
+            _ => StatusGlyphKind.Failure,
+        },
+    };
+
+    internal static StatusGlyphKind? ServerGlyph(AttachStatus status, DaemonInfoDto? daemon) => Connection(status, daemon) switch {
+        "connected" => StatusGlyphKind.Healthy,
+        "connecting" or "reconnecting" => StatusGlyphKind.Activity,
+        "disconnected" or "signed out" or "sign-in rejected" => StatusGlyphKind.Attention,
+        null => null,
+        _ => StatusGlyphKind.Unknown,
     };
 
     public static string? AttachHint(AttachStatus status) => status.State switch {

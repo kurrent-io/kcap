@@ -1,23 +1,36 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
              xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
              x:Class="Capacitor.App.Views.KcapTooltip" x:DataType="vm:KcapTip" MaxWidth="320">
-    <UserControl.Styles>
-        <Style Selector="TextBlock.tipState"><Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" /></Style>
-        <Style Selector="TextBlock.tipState.danger"><Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" /></Style>
-        <Style Selector="TextBlock.tipState.active"><Setter Property="Foreground" Value="{StaticResource KcapPurpleBrush}" /></Style>
-    </UserControl.Styles>
     <StackPanel Spacing="5">
         <StackPanel Spacing="1">
             <TextBlock Text="{Binding Title}" TextWrapping="Wrap" FontWeight="SemiBold"
                        FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapTextBrush}" />
-            <TextBlock Text="{Binding State}" TextWrapping="Wrap" Classes="tipState" FontWeight="SemiBold"
-                       Classes.danger="{Binding IsDanger}" Classes.active="{Binding IsActive}"
-                       IsVisible="{Binding State, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-            <TextBlock Text="{Binding StateDetail}" TextWrapping="Wrap"
-                       IsVisible="{Binding StateDetail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                       FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" />
+            <Grid IsVisible="{Binding State, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                  ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto">
+                <views:StatusGlyph Kind="{Binding Glyph}" Margin="0,0,5,0" VerticalAlignment="Center" />
+                <TextBlock Grid.Column="1" Text="{Binding State}" TextWrapping="Wrap" FontWeight="SemiBold"
+                           Foreground="{StaticResource KcapMutedBrush}" />
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding StateDetail}" TextWrapping="Wrap" Margin="0,1,0,0"
+                           IsVisible="{Binding StateDetail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                           FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" />
+            </Grid>
         </StackPanel>
+        <ItemsControl ItemsSource="{Binding PullRequestSignals}" IsVisible="{Binding HasSignals}">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="2" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:PullRequestStatus">
+                    <DockPanel>
+                        <views:StatusGlyph Kind="{Binding PreviewGlyph}" DockPanel.Dock="Left" Margin="0,0,5,0" VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding PreviewText}" TextWrapping="Wrap" FontSize="{StaticResource KcapFontSizeSmall}"
+                                   Foreground="{StaticResource KcapMutedBrush}" />
+                    </DockPanel>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
         <ItemsControl ItemsSource="{Binding Details}" IsVisible="{Binding HasDetails}">
             <ItemsControl.Styles>
                 <Style Selector="TextBlock.tipValue">

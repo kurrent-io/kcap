@@ -8,6 +8,7 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using Capacitor.App.ViewModels;
 using Capacitor.App.Views;
 using Capacitor.Cli.Core.PullRequests;
 using static Capacitor.App.Tests.Unit.AvaloniaSession;
@@ -624,5 +625,38 @@ public class PullRequestPresentationTests {
         await h.SettleAsync();
         await Assert.That(h.Model.ChecksStatus.Text).IsEqualTo("Checks pending · 0/1");
         await Assert.That(h.Model.ChecksStatus.Detail).IsEqualTo("Checks are still running (0 failed · 1 pending · 0 passed).");
+    });
+
+    [Test]
+    public Task Preview_checks_show_running_only_when_a_current_check_has_started() => RunOnUiAsync(async () => {
+        using var preview = new TooltipPreviewScope();
+        foreach (var running in new[] { false, true }) {
+            preview.Enable(ClassicAppearance.Dark, previewStatuses: true);
+            await using var host = new PullRequestViewTestHost();
+            host.Source.RollupFor = _ => "pending";
+            host.Source.PageItem = section => section == "checks" ? new PullRequestCheckDto {
+                Id = "check", Availability = "available", Name = "CI", Outcome = "pending",
+                Status = running ? "in_progress" : "queued", HeadSha = new string('a', 40),
+            } : null;
+            await host.ShowAsync();
+
+            var card = host.Card.FindControl<Button>("SidebarChecksButton")!;
+            var tab = host.Reader.FindControl<TabStripItem>("ChecksTab")!;
+            await Assert.That(AutomationProperties.GetName(card)).IsEqualTo("Open checks: Checks pending");
+            await Assert.That(ToolTip.GetTip(card)).IsEqualTo("Checks are pending.");
+
+            await host.Model.ShowSectionCommand.Execute("checks");
+            await host.SettleAsync();
+            var label = running ? "Checks running · 0/1" : "Checks pending · 0/1";
+            await Assert.That(host.Model.ChecksStatus.PreviewGlyph).IsEqualTo(running ? StatusGlyphKind.Activity : StatusGlyphKind.Pending);
+            await Assert.That(AutomationProperties.GetName(card)).IsEqualTo($"Open checks: {label}");
+            await Assert.That(AutomationProperties.GetName(tab)).IsEqualTo($"Checks: {label}");
+            await Assert.That(card.GetVisualDescendants().OfType<TextBlock>().Any(text => text.IsEffectivelyVisible && text.Text == label)).IsTrue();
+
+            preview.Disable();
+            TooltipPreviewScope.Pump(host.Window);
+            await Assert.That(AutomationProperties.GetName(card)).IsEqualTo("Open checks: Checks pending · 0/1");
+            await Assert.That(ToolTip.GetTip(card)).IsEqualTo("Checks are still running (0 failed · 1 pending · 0 passed).");
+        }
     });
 }

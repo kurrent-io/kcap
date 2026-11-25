@@ -17,6 +17,7 @@ TEXT = ["KcapTextBrush", "KcapMutedBrush", "KcapFaintBrush", "KcapPlaceholderBru
 STATUS_ROLES = ["Success", "Warning", "Danger", "Info", "Purple"]
 STATUS_INKS = [f"Kcap{role}Brush" for role in STATUS_ROLES]
 STATUS_FILLS = [f"Kcap{role}DimBrush" for role in STATUS_ROLES]
+PREVIEW_GLYPHS = ["KcapActivityBrush", "KcapPrOpenBrush", "KcapPrMergedBrush", "KcapPrClosedBrush"]
 STATUS_TEXT = ["KcapMutedBrush", "KcapFaintBrush", "KcapDangerBrush", "KcapSuccessBrush", "KcapWarningBrush"]
 EDGES = ["KcapFieldBorderBrush"]
 
@@ -55,7 +56,7 @@ def ratio(a, b):
 
 
 def audit(palette, opacities, edges=EDGES):
-    missing = sorted(set(SURFACES + TEXT + STATUS_INKS + STATUS_FILLS + STATUS_TEXT + edges) - palette.keys())
+    missing = sorted(set(SURFACES + TEXT + STATUS_INKS + STATUS_FILLS + STATUS_TEXT + PREVIEW_GLYPHS + ["KcapActivityDimBrush"] + edges) - palette.keys())
     if missing:
         print("Missing palette entries: " + ", ".join(missing))
         return 1
@@ -95,6 +96,12 @@ def audit(palette, opacities, edges=EDGES):
             check("KcapTextBrush", fill, 4.5)
     for role in [*TEXT, *STATUS_INKS]:
         check(role, "KcapSelectionBrush", 4.5)
+    print("Status graphics and activity label")
+    for bg in [*SURFACES, "KcapSelectionBrush"]:
+        for glyph in PREVIEW_GLYPHS:
+            check(glyph, bg, 3.0)
+        check("KcapActivityBrush", bg, 4.5)
+    check("KcapActivityBrush", "KcapActivityDimBrush", 4.5)
     if failures:
         print(f"\n{len(failures)} pair(s) below the threshold")
         return 1

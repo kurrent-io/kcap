@@ -14,6 +14,13 @@ internal sealed class ClassicPreviewPalette(Application application) {
 
     ClassicAppearance _theme;
     bool _higherContrast;
+    bool _statusPreview;
+
+    public void SetStatusPreview(bool enabled) {
+        if (_statusPreview == enabled) return;
+        _statusPreview = enabled;
+        TryApply(_theme);
+    }
 
     public void SetHigherContrast(bool enabled) {
         if (_higherContrast == enabled) return;
@@ -40,6 +47,12 @@ internal sealed class ClassicPreviewPalette(Application application) {
         foreach (var key in palette.Keys) {
             if (!application.TryFindResource(key, out var target) || target is not SolidColorBrush brush || palette[key] is not Color color)
                 return false;
+            if (!_statusPreview) color = key switch {
+                "KcapActivityBrush" => (Color)palette["KcapPurpleBrush"]!,
+                "KcapActivityDimBrush" => (Color)palette["KcapPurpleDimBrush"]!,
+                "KcapRetryBrush" => (Color)palette["KcapMutedBrush"]!,
+                _ => color,
+            };
             colors.Add((brush, _higherContrast ? ContrastColor(key, color, palette) : color));
         }
         // StaticResource consumers, including already-open flyouts, hold the original brush instance.

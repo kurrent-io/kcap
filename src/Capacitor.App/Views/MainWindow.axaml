@@ -145,10 +145,15 @@
                              out of the icon's strokes. -->
                         <Panel x:Name="RailAttentionMark" IsVisible="False" IsHitTestVisible="False"
                                HorizontalAlignment="Left" VerticalAlignment="Top">
-                            <Ellipse Width="10" Height="10" Margin="1,1,0,0" HorizontalAlignment="Left" VerticalAlignment="Top"
-                                     Fill="{Binding RailAttentionBrush}"
-                                     Stroke="{StaticResource KcapCanvasBrush}" StrokeThickness="2"
-                                     IsVisible="{Binding !RailAttention.HasSessionCount}" />
+                            <Panel IsVisible="{Binding !RailAttention.HasSessionCount}">
+                                <Panel Classes="stockStatus">
+                                    <Ellipse Width="10" Height="10" Margin="1,1,0,0" HorizontalAlignment="Left" VerticalAlignment="Top"
+                                             Fill="{Binding RailAttentionBrush}"
+                                             Stroke="{StaticResource KcapCanvasBrush}" StrokeThickness="2" />
+                                </Panel>
+                                <views:StatusGlyph Kind="{Binding RailAttention.Glyph}" Margin="1,1,0,0"
+                                                   HorizontalAlignment="Left" VerticalAlignment="Top" />
+                            </Panel>
                             <Border CornerRadius="7" Padding="1.5" Margin="3,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Top"
                                     Background="{StaticResource KcapCanvasBrush}"
                                     IsVisible="{Binding RailAttention.HasSessionCount}">

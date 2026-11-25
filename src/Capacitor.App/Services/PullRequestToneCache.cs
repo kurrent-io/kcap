@@ -36,6 +36,8 @@ public sealed class PullRequestToneCache : IDisposable {
         public long                    Version = version;
         public PullRequestTone?        Tone;
         public RailPullRequestSummary? Summary;
+        public RailPullRequestSummary? Listed;
+        public bool                    IsListed;
         /// When the summary's reads were taken and how many seconds of access they carried; null
         /// once its titles are dropped.
         public (long Started, double Seconds)? Access;
@@ -79,11 +81,13 @@ public sealed class PullRequestToneCache : IDisposable {
     /// starts before the time it gave.
     DateTime _heldUntil = DateTime.MinValue;
     bool _disposed;
+    bool _statusPreview;
 
     public PullRequestToneCache(
             IAgentDirectory directory, IPullRequestSource source, TimeProvider time,
             IObservable<Func<AgentRow, bool>>? shown = null,
-            TimeSpan? refreshEvery = null, TimeSpan? endedRefreshEvery = null) {
+            TimeSpan? refreshEvery = null, TimeSpan? endedRefreshEvery = null,
+            IObservable<bool>? statusPreview = null) {
         _source = source;
         _time = time;
         _refreshEvery = refreshEvery ?? DefaultRefreshEvery;
@@ -92,19 +96,31 @@ public sealed class PullRequestToneCache : IDisposable {
         _timer = time.CreateTimer(_ => Tick(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         directory.Rows.Connect().ToCollection()
             .CombineLatest(directory.LocalDaemonOnAppServer, shown ?? Observable.Return<Func<AgentRow, bool>>(_ => true),
-                (rows, localOnAppServer, isShown) => (
+                statusPreview ?? Observable.Return(false),
+                (rows, localOnAppServer, isShown, preview) => (
                 Listed: rows.Where(r => r is { SessionId.Length: > 0, ListedPullRequests: not null })
                     .GroupBy(r => r.SessionId!, StringComparer.Ordinal)
                     .ToFrozenDictionary(g => g.Key, g => g.First().ListedPullRequests!, StringComparer.Ordinal),
                 Polled: rows.Where(r => r.SessionId is { Length: > 0 } && Polled(r, localOnAppServer)).ToList(),
-                IsShown: isShown))
+                IsShown: isShown, Preview: preview))
             .Subscribe(next => {
-                var kept = next.Polled.Where(r => !next.Listed.ContainsKey(r.SessionId!)).ToList();
+                var kept = next.Polled.Where(r => !next.Listed.TryGetValue(r.SessionId!, out var listed)
+                    || (next.Preview && !r.IsEndedSession && listed.Items?.Any(pr => pr.State is "open" or "draft") == true)).ToList();
                 var rows = kept.Where(next.IsShown).ToList();
                 lock (_lock) {
+                    if (_statusPreview != next.Preview) {
+                        _statusPreview = next.Preview;
+                        foreach (var entry in _entries.Values) {
+                            entry.ReadAt = null;
+                            if (entry.IsListed || next.Preview || entry.Summary is not { } summary) continue;
+                            if (summary.IncompleteCoverage) entry.DropSummary();
+                            else entry.Summary = new(summary.MenuItems.Select(item => item with { Evidence = null }).ToArray());
+                        }
+                        PublishSummaries();
+                    }
                     _listed = next.Listed;
-                    MarkListed();
                     _kept = kept.Select(r => r.SessionId!).ToFrozenSet(StringComparer.Ordinal);
+                    MarkListed();
                     _sessions = rows.Select(r => r.SessionId!).ToFrozenSet(StringComparer.Ordinal);
                     _slowSessions = rows.Where(r => r.Origin == AgentOrigin.Server).Select(r => r.SessionId!)
                         .Except(rows.Where(r => r.Origin != AgentOrigin.Server).Select(r => r.SessionId!))
@@ -215,11 +231,11 @@ public sealed class PullRequestToneCache : IDisposable {
                 _entries.Remove(session);
             }
             foreach (var session in _sessions) EntryFor(session);
-            foreach (var entry in _entries.Values.Where(e => e.Access is { } access
-                         && _time.GetElapsedTime(access.Started, stamp).TotalSeconds >= access.Seconds - 5)) {
+            foreach (var entry in _entries.Values.Where(e => e.Access is not null && !HasCurrentAccess(e, stamp))) {
                 entry.Access = null;
-                entry.Summary = entry.Summary is { } summary
-                    ? new(summary.MenuItems.Select(item => item with { Title = null }).ToArray()) : null;
+                entry.Summary = entry.Listed ?? (entry.Summary is { } summary
+                    ? summary with { MenuItems = summary.MenuItems.Select(item => item with { Title = null, Evidence = null }).ToArray() }
+                    : null);
                 summariesChanged = true;
             }
             if (tonesChanged) Publish();
@@ -267,9 +283,18 @@ public sealed class PullRequestToneCache : IDisposable {
     /// changes; a read still in flight for a session that became listed publishes nothing.
     void MarkListed() {
         var changed = false;
+        foreach (var (session, entry) in _entries) {
+            if (!entry.IsListed || _listed.ContainsKey(session)) continue;
+            entry.IsListed = false;
+            entry.Listed = null;
+            entry.DropSummary();
+            entry.Tone = null;
+            entry.ReadAt = null;
+            entry.Version = ++_nextVersion;
+            changed = true;
+        }
         foreach (var (session, listed) in _listed) {
             var entry = EntryFor(session);
-            if (_inFlight.Contains(session)) entry.Version = ++_nextVersion;
             var items = (listed.Items ?? [])
                 .Select(pr => (Subject: ListedPullRequest.Subject(pr), PullRequest: pr))
                 .Where(pr => PullRequestWire.ValidSubject(pr.Subject))
@@ -278,14 +303,17 @@ public sealed class PullRequestToneCache : IDisposable {
             RailPullRequestSummary? summary = items.Count == 0 ? null : new(items.Select(pr => new RailPullRequestMenuItem(
                 pr.Subject, pr.PullRequest.Title, LifecycleLabel(pr.PullRequest.State))).ToArray());
             var nextTone = tone == PullRequestTone.None ? null : (PullRequestTone?)tone;
-            if (entry.Access is not null || entry.Tone != nextTone
-                || (entry.Summary is null ? summary is not null : summary is null || !SameSummary(entry.Summary, summary))) {
-                entry.Version = ++_nextVersion;
-                entry.Tone = nextTone;
-                entry.DropSummary();
-                entry.Summary = summary;
-                changed = true;
-            }
+            var listedChanged = !entry.IsListed || entry.Tone != nextTone || !SameSummary(entry.Listed, summary);
+            var dropExtra = !_kept.Contains(session) && (entry.Access is not null || _inFlight.Contains(session));
+            if (!listedChanged && !dropExtra) continue;
+            entry.Version = ++_nextVersion;
+            entry.ReadAt = null;
+            entry.Tone = nextTone;
+            entry.IsListed = true;
+            entry.Listed = summary;
+            entry.DropSummary();
+            entry.Summary = summary;
+            changed = true;
         }
         if (!changed) return;
         Publish();
@@ -318,7 +346,10 @@ public sealed class PullRequestToneCache : IDisposable {
             var floor = _time.GetUtcNow().UtcDateTime + MinimumHold;
             if (until < floor) until = floor;
             if (until > _heldUntil) _heldUntil = until;
-            if (LiveEntry(session, version) is { } entry) entry.ReadAt = null;
+            if (LiveEntry(session, version) is { } entry) {
+                entry.ReadAt = null;
+                MarkStale(entry);
+            }
         }
     }
 
@@ -343,6 +374,7 @@ public sealed class PullRequestToneCache : IDisposable {
             if (capability.Kind != PullRequestCapabilityKind.Supported) {
                 // Signed out, or a server without overviews, is a verdict; an unreachable one is not.
                 if (capability.Kind != PullRequestCapabilityKind.Unavailable) Clear(session, version);
+                else MarkStale(session, version);
                 return;
             }
             if (Held(session, version)) return;
@@ -350,6 +382,7 @@ public sealed class PullRequestToneCache : IDisposable {
             if (links.Kind != PullRequestReadKind.Ready || links.Data is null) {
                 if (Refused(links) is { } until) Hold(session, version, until);
                 else if (Revokes(links)) Clear(session, version);
+                else MarkStale(session, version);
                 return;
             }
             var revealed = new List<(PullRequestLinkDto Link, PullRequestRead<PullRequestOverviewDto> Read)>();
@@ -372,11 +405,8 @@ public sealed class PullRequestToneCache : IDisposable {
                 else if (Revokes(read)) denied = true;
                 else missed = true;
             }
-            // A denial clears the tone, as the card does, whatever the session's other PRs read. A
-            // miss on any PR keeps the last tone whole: the readable remainder alone could only
-            // understate it.
             if (denied) Clear(session, version);
-            else if (!missed) Settle(session, version, revealed);
+            else Settle(session, version, revealed, complete: !missed);
         } catch (OperationCanceledException) {
         } finally {
             lock (_lock) _inFlight.Remove(session);
@@ -386,26 +416,62 @@ public sealed class PullRequestToneCache : IDisposable {
         }
     }
 
-    /// Every PR of the session read: its tone, and a summary held for as long as all of them stay revealable.
-    void Settle(string session, long version, List<(PullRequestLinkDto Link, PullRequestRead<PullRequestOverviewDto> Read)> revealed) {
+    void Settle(string session, long version,
+            List<(PullRequestLinkDto Link, PullRequestRead<PullRequestOverviewDto> Read)> revealed, bool complete) {
         lock (_lock) {
             if (LiveEntry(session, version) is not { } entry) return;
-            var tone = PullRequestTones.Strongest(revealed.Select(r => PullRequestTones.From(r.Read.Data!)));
-            entry.Tone = tone == PullRequestTone.None ? null : tone;
-            entry.Settled = revealed.Count > 0 && revealed.All(r => r.Read.Data!.Lifecycle is "merged" or "closed");
-            Publish();
+            // A partial refresh cannot replace evidence that is still revealable.
+            if (!complete && (!_statusPreview || revealed.Count == 0 || HasCurrentAccess(entry, _time.GetTimestamp()))) {
+                MarkStale(entry);
+                return;
+            }
+            if (complete && !entry.IsListed) {
+                var tone = PullRequestTones.Strongest(revealed.Select(r => PullRequestTones.From(r.Read.Data!)));
+                entry.Tone = tone == PullRequestTone.None ? null : tone;
+                Publish();
+            }
+            entry.Settled = complete && revealed.Count > 0 && revealed.All(r => r.Read.Data!.Lifecycle is "merged" or "closed");
             if (revealed.Count == 0) {
-                entry.Summary = null;
-                entry.Access  = null;
+                entry.Summary = entry.Listed;
+                entry.Access = null;
             } else if (revealed.All(r => r.Read.CanReveal(_time))) {
-                var summary = new RailPullRequestSummary(revealed.Select(r => new RailPullRequestMenuItem(
-                    PullRequestWire.Subject(r.Link), r.Read.Data!.Title ?? r.Link.Title, LifecycleLabel(r.Read.Data!.Lifecycle, r.Read.Data!.IsDraft))).ToArray());
-                if (entry.Summary is not { } previous || !SameSummary(previous, summary)) entry.Summary = summary;
+                RailPullRequestSummary summary;
+                if (entry.Listed is { } listed) {
+                    var covered = revealed.ToDictionary(r => PullRequestWire.Subject(r.Link), r => r.Read);
+                    summary = new(listed.MenuItems.Select(item => covered.TryGetValue(item.Subject, out var read)
+                        ? item with { Lifecycle = LifecycleLabel(read.Data!.Lifecycle, read.Data.IsDraft), Evidence = EvidenceOf(read) }
+                        : item).ToArray());
+                } else summary = new(revealed.Select(r => new RailPullRequestMenuItem(
+                    PullRequestWire.Subject(r.Link), r.Read.Data!.Title ?? r.Link.Title, LifecycleLabel(r.Read.Data.Lifecycle, r.Read.Data.IsDraft)) {
+                        Evidence = EvidenceOf(r.Read),
+                    }).ToArray());
+                summary = summary with { IncompleteCoverage = !complete };
+                if (!SameSummary(entry.Summary, summary)) entry.Summary = summary;
                 entry.Access = (_time.GetTimestamp(), revealed.Min(r => r.Read.RemainingSeconds(_time)));
             }
             PublishSummaries();
         }
     }
+
+    PullRequestEvidence? EvidenceOf(PullRequestRead<PullRequestOverviewDto> read) => _statusPreview
+        ? PullRequestEvidence.From(read.Data!, read.Kind == PullRequestReadKind.Stale) : null;
+
+    void MarkStale(string session, long version) {
+        lock (_lock) {
+            if (LiveEntry(session, version) is { } entry) MarkStale(entry);
+        }
+    }
+
+    void MarkStale(Entry entry) {
+        if (!HasCurrentAccess(entry, _time.GetTimestamp()) || entry.Summary is not { } summary
+            || !summary.MenuItems.Any(item => item.Evidence is { Stale: false })) return;
+        entry.Summary = summary with { MenuItems = summary.MenuItems.Select(item => item.Evidence is { } evidence
+            ? item with { Evidence = evidence with { Stale = true } } : item).ToArray() };
+        PublishSummaries();
+    }
+
+    bool HasCurrentAccess(Entry entry, long stamp) => entry.Access is { } access
+        && _time.GetElapsedTime(access.Started, stamp).TotalSeconds < access.Seconds - 5;
 
     static string LifecycleLabel(string? lifecycle, bool? isDraft = null) => lifecycle switch {
         "merged" => "Merged",
@@ -419,9 +485,10 @@ public sealed class PullRequestToneCache : IDisposable {
     void Clear(string session, long version) {
         lock (_lock) {
             if (LiveEntry(session, version) is not { } entry) return;
-            entry.Tone = null;
+            if (!_listed.ContainsKey(session)) entry.Tone = null;
             entry.Settled = false;
             entry.DropSummary();
+            entry.Summary = entry.Listed;
             Publish();
             PublishSummaries();
         }
@@ -435,8 +502,9 @@ public sealed class PullRequestToneCache : IDisposable {
             : summaries.ToFrozenDictionary(StringComparer.Ordinal));
     }
 
-    static bool SameSummary(RailPullRequestSummary left, RailPullRequestSummary right) =>
-        left.MenuItems.SequenceEqual(right.MenuItems);
+    static bool SameSummary(RailPullRequestSummary? left, RailPullRequestSummary? right) =>
+        left is null ? right is null : right is not null && left.IncompleteCoverage == right.IncompleteCoverage
+            && left.MenuItems.SequenceEqual(right.MenuItems);
 
     void Publish() {
         var tones = _entries.Where(e => e.Value.Tone is not null).ToArray();

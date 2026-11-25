@@ -86,6 +86,8 @@ public sealed partial class WorkContextViewModel {
         ? SeparateIssues.Count().ToString(CultureInfo.InvariantCulture)
         : SeparateIssue?.Key ?? "";
 
+    public StatusGlyphKind WorkItemGlyph { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = StatusGlyphKind.Unknown;
+
     public KcapTip? WorkItemTip {
         get {
             var title = FirstNonBlank(DisplayTitle, Key);
@@ -93,7 +95,7 @@ public sealed partial class WorkContextViewModel {
             var state = StateLabel?.ToLowerInvariant();
             var status = string.IsNullOrEmpty(state) ? null : char.ToUpperInvariant(state[0]) + state[1..];
             return new(title, status, IsClosed ? "danger" : state == "in flight" ? "active" : null,
-                KcapTipDetail.Present(string.Equals(title, Key, StringComparison.OrdinalIgnoreCase) ? null : KcapTipDetail.Note(Key)));
+                KcapTipDetail.Present(string.Equals(title, Key, StringComparison.OrdinalIgnoreCase) ? null : KcapTipDetail.Note(Key))) { Glyph = WorkItemGlyph };
         }
     }
 
@@ -530,12 +532,18 @@ public sealed partial class WorkContextViewModel {
         : attached.Contains(part.WorkItemId) ? WorkContextPartMark.ThisSession
         : WorkContextPartMark.Unknown;
 
-    /// The server may add kinds; an unknown one is shown as sent, in the in-flight look.
     void ApplyState(string? kind) {
         var text = kind?.Replace('_', ' ').Trim().ToUpperInvariant();
         StateLabel = string.IsNullOrEmpty(text) ? null : text;
         IsShipped = kind == "shipped";
         IsClosed  = kind == "closed";
+        WorkItemGlyph = kind switch {
+            "in_flight" => StatusGlyphKind.Activity,
+            "shipped" => StatusGlyphKind.Success,
+            "closed" or "canceled" or "cancelled" => StatusGlyphKind.Stopped,
+            "blocked" => StatusGlyphKind.Attention,
+            _ => StatusGlyphKind.Unknown,
+        };
         this.RaisePropertyChanged(nameof(WorkItemTip));
     }
 

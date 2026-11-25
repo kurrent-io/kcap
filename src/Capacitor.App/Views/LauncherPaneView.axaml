@@ -93,7 +93,7 @@
                 <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
                     <!-- Matches the update window's running steps. -->
                     <views:AppIcon x:Name="UpdateBusyIcon" Classes="noticeIcon" views:BusyIndicator.IsBusy="True" Size="16" Kind="LoaderCircle"
-                                   Foreground="{StaticResource KcapPurpleBrush}" VerticalAlignment="Top" />
+                                   Foreground="{StaticResource KcapActivityBrush}" VerticalAlignment="Top" />
                     <StackPanel Grid.Column="1" Spacing="4">
                         <TextBlock x:Name="UpdateTitle" Classes="noticeTitle" Text="Finishing the update…" />
                         <TextBlock x:Name="UpdateDetailText" Classes="noticeBody" Text="{Binding UpdateDetail}"
@@ -104,7 +104,7 @@
             <Border x:Name="LocalUpgradeBanner" Classes="notice" IsVisible="{Binding Notices.ShowStack}">
                 <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
                     <Panel x:Name="LocalUpgradeIcon" VerticalAlignment="Top">
-                        <views:AppIcon Classes="noticeIcon" views:BusyIndicator.IsBusy="True" Size="16" Kind="LoaderCircle" Foreground="{StaticResource KcapMutedBrush}"
+                        <views:AppIcon Classes="noticeIcon" views:BusyIndicator.IsBusy="True" Size="16" Kind="LoaderCircle" Foreground="{StaticResource KcapRetryBrush}"
                                        AutomationProperties.Name="In progress">
                             <views:AppIcon.IsVisible>
                                 <MultiBinding Converter="{x:Static BoolConverters.Or}" FallbackValue="False">
@@ -164,7 +164,7 @@
                     AutomationProperties.ControlTypeOverride="Group" AutomationProperties.LandmarkType="Region">
                 <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
                     <Panel VerticalAlignment="Top">
-                        <views:AppIcon Classes="noticeIcon" views:BusyIndicator.IsBusy="{Binding LocalServer.IsStarting, FallbackValue=False}" Size="16" Kind="LoaderCircle" Foreground="{StaticResource KcapMutedBrush}"
+                        <views:AppIcon Classes="noticeIcon" views:BusyIndicator.IsBusy="{Binding LocalServer.IsStarting, FallbackValue=False}" Size="16" Kind="LoaderCircle" Foreground="{StaticResource KcapRetryBrush}"
                                        IsVisible="{Binding LocalServer.IsStarting, FallbackValue=False}" />
                         <!-- Red only when something broke; a server that is merely stopped needs the user. -->
                         <views:AppIcon x:Name="LocalServerIcon" Classes="noticeIcon" Size="16" Kind="ServerOff" Foreground="{StaticResource KcapWarningBrush}">
@@ -211,7 +211,7 @@
             <Border x:Name="ConnectionBanner" Classes="notice" IsVisible="{Binding Notices.ShowConnection}">
                 <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
                     <Panel VerticalAlignment="Top">
-                        <views:AppIcon x:Name="BannerBusyIcon" Classes="noticeIcon" views:BusyIndicator.IsBusy="{Binding BannerBusy}" Size="16" Kind="LoaderCircle" Foreground="{StaticResource KcapMutedBrush}"
+                        <views:AppIcon x:Name="BannerBusyIcon" Classes="noticeIcon" views:BusyIndicator.IsBusy="{Binding BannerBusy}" Size="16" Kind="LoaderCircle" Foreground="{StaticResource KcapRetryBrush}"
                                        IsVisible="{Binding BannerBusy}" />
                         <views:AppIcon x:Name="BannerIcon" Classes="noticeIcon" Size="16" Kind="CircleAlert" Foreground="{StaticResource KcapWarningBrush}">
                             <views:AppIcon.IsVisible>

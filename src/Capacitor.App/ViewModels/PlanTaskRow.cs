@@ -19,6 +19,7 @@ public sealed class PlanTaskRow(string taskId) : ReactiveObject {
             this.RaisePropertyChanged(nameof(IsInProgress));
             this.RaisePropertyChanged(nameof(IsCompleted));
             this.RaisePropertyChanged(nameof(IsSettled));
+            NotifyStatus();
         }
     }
 
@@ -28,7 +29,28 @@ public sealed class PlanTaskRow(string taskId) : ReactiveObject {
     public bool IsSettled    => State is PlanTaskState.Completed or PlanTaskState.Skipped;
 
     /// In progress in a session that is still running: the only state that pulses.
-    public bool IsActive { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool IsActive {
+        get;
+        private set {
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
+            NotifyStatus();
+        }
+    }
+
+    public StatusGlyphKind StatusGlyph => State.Glyph(IsActive);
+    public string StatusLabel => StatusGlyph switch {
+        StatusGlyphKind.Activity => "In progress",
+        StatusGlyphKind.Stopped => "Started",
+        StatusGlyphKind.Success => "Completed",
+        StatusGlyphKind.Skipped => "Skipped",
+        _ => "Pending",
+    };
+
+    void NotifyStatus() {
+        this.RaisePropertyChanged(nameof(StatusGlyph));
+        this.RaisePropertyChanged(nameof(StatusLabel));
+    }
 
     public void Present(PlanLedgerTaskDto task, bool sessionOver) {
         Title = task.Title;

@@ -216,12 +216,20 @@ public sealed partial class PullRequestContextViewModel {
             null, null, PullRequestWire.CheckLink(item.Url), "available", IsCheck: true, Outcome: item.Outcome ?? "unknown",
             Status: new(Outcome(item.Outcome), item.Outcome switch {
                 "success" => "success", "failure" or "timed_out" or "action_required" => "failure", "pending" => "pending", _ => "neutral"
-            }))
+            }) {
+                PreviewOverride = item.Outcome switch {
+                    "pending" => item.Status == "in_progress" ? StatusGlyphKind.Activity : StatusGlyphKind.Pending,
+                    "skipped" or "neutral" => StatusGlyphKind.Skipped,
+                    "cancelled" => StatusGlyphKind.Stopped,
+                    "action_required" or "stale" => StatusGlyphKind.Attention,
+                    _ => null,
+                },
+            })
         : Unavailable(item.Id, "Check", PullRequestWire.CheckLink(item.Url), item.Availability) with { IsCheck = true, Outcome = "unknown" };
     static PullRequestStatus ReviewRowStatus(string? state, bool requested) => state switch {
-        "approved" => new("Approved", "success"), "changes_requested" => new("Changes requested", "failure"),
+        "approved" => new("Approved", "success"), "changes_requested" => new("Changes requested", "failure") { PreviewOverride = StatusGlyphKind.Attention },
         "commented" => new("Commented", "commented"), "dismissed" => new("Dismissed"),
-        null when requested => new("Awaiting review", Detail: "Review requested; this reviewer has not submitted one yet."),
+        null when requested => new("Awaiting review", Detail: "Review requested; this reviewer has not submitted one yet.") { PreviewOverride = StatusGlyphKind.Pending },
         _ => new("Unknown", Detail: "GitHub did not report this reviewer's state."),
     };
     PullRequestRow ToRow(PullRequestThreadDto item, PullRequestSubjectDto subject) => item.Availability == "available"

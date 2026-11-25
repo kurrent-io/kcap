@@ -41,7 +41,15 @@ public static class ExperimentalFeatures {
         OnByDefault: true,
         AppWide: true);
 
-    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance];
+    public static ExperimentalFeature DesktopStatusRedesign { get; } = new(
+        "desktop-status-redesign",
+        "Desktop status redesign",
+        "Use distinct indicators for pull request lifecycle, active work, and attention across the desktop redesign.",
+        AppliesLive: true,
+        DesktopAppOnly: true,
+        AppWide: true);
+
+    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance, DesktopStatusRedesign];
 
     /// <summary>Ids are matched exactly, case included.</summary>
     public static ExperimentalFeature? Find(string id) =>

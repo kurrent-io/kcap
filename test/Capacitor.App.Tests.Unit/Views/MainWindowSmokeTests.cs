@@ -1008,7 +1008,9 @@ public class MainWindowSmokeTests {
         const string title = "Investigate the mismatch between linked session titles and repository labels";
         const string checkout = "/synthetic/source/wt/branch-with-a-long-path-for-testing-wrapped-checkout-metadata";
         var link = FakePullRequestSource.Link(142) with { Title = "Preserve the full pull request title across a narrow session sidebar" };
-        var single = new RailPullRequestMenuItem(PullRequestWire.Subject(link), link.Title, "Merged");
+        var single = new RailPullRequestMenuItem(PullRequestWire.Subject(link), link.Title, "Merged") {
+            Evidence = new(new("Checks passing", "success"), new(""), new(""), new(""), Incomplete: false),
+        };
         using var summaries = new BehaviorSubject<IReadOnlyDictionary<string, RailPullRequestSummary>>(
             new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([single]) });
         var (vm, window) = RailWindow(firstStatus: "Completed", pullRequestSummaries: summaries,
@@ -1068,7 +1070,7 @@ public class MainWindowSmokeTests {
             preview.Enable(ClassicAppearance.Light);
             TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
             await Assert.That(TooltipPreviewScope.Text(pr)).IsEquivalentTo(
-                new[] { "2 pull requests", "Linked session", title }, CollectionOrdering.Matching);
+                new[] { "2 pull requests", "Status incomplete", "Linked session", title }, CollectionOrdering.Matching);
             TooltipPreviewScope.Press(window, PhysicalKey.Escape);
             TooltipPreviewScope.Press(window, PhysicalKey.Enter);
             await Assert.That(window.FocusManager.GetFocusedElement()).IsTypeOf<Button>();

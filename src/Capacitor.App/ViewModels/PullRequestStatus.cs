@@ -29,6 +29,31 @@ public sealed record PullRequestStatus(string Text, string Kind = "neutral", str
     public string? LabelTip => string.IsNullOrEmpty(Detail) && Kind is ("open" or "draft" or "merged") || Tip == Text
         ? null : Tip;
 
+    public string? PreviewDetail { get; init; }
+    public string PreviewTip => PreviewDetail ?? Tip;
+    public string? PreviewLabelTip => (PreviewDetail ?? LabelTip) is { } detail && detail != PreviewText ? detail : null;
+    public StatusGlyphKind? PreviewOverride { get; init; }
+    public StatusGlyphKind? PreviewGlyph => PreviewOverride ?? Kind switch {
+        "open" => StatusGlyphKind.OpenPullRequest,
+        "draft" => StatusGlyphKind.DraftPullRequest,
+        "merged" => StatusGlyphKind.MergedPullRequest,
+        "closed" => StatusGlyphKind.ClosedPullRequest,
+        "success" => StatusGlyphKind.Success,
+        "failure" => StatusGlyphKind.Failure,
+        "warning" => StatusGlyphKind.Attention,
+        "conflict" => StatusGlyphKind.Conflict,
+        "pending" => StatusGlyphKind.Pending,
+        "commented" => StatusGlyphKind.Commented,
+        _ => Text.Length > 0 ? StatusGlyphKind.Unknown : null,
+    };
+    public string PreviewText => (Kind, Text) switch {
+        ("pending", "Pending") when PreviewGlyph == StatusGlyphKind.Activity => "Running",
+        ("pending", _) when PreviewGlyph == StatusGlyphKind.Activity => Text.Replace("Checks pending", "Checks running", StringComparison.Ordinal),
+        ("failure", "Checks failing") => "Checks failed",
+        _ => Text,
+    };
+    public bool RequiresAttention => PreviewGlyph is StatusGlyphKind.Failure or StatusGlyphKind.Attention or StatusGlyphKind.Conflict;
+
     public LucideIconKind? IconKind => Kind switch {
         "open" => LucideIconKind.GitPullRequest,
         "draft" => LucideIconKind.GitPullRequestDraft,

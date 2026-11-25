@@ -128,7 +128,7 @@ public static class SessionStatusDots {
         Add(facts, borrowedFrom, "Borrowed from");
         return new AgentStatusPresentation(kind, label, FormatTip(facts),
             kind is AgentStatusKind.Working or AgentStatusKind.Starting or AgentStatusKind.Resuming, facts) {
-            Ended = ended, InForegroundTurn = kind == AgentStatusKind.Working && turnAttested,
+            Ended = ended, WaitsForInput = waitsOnUser, InForegroundTurn = kind == AgentStatusKind.Working && turnAttested,
         };
     }
 
@@ -153,19 +153,23 @@ public static class SessionStatusDots {
     /// only carrying the daemon's own word. The accessible name counts the dominant kind.
     public static AgentStatusPresentation? Rollup(
             IEnumerable<AgentRow> rows, IReadOnlySet<string> pending, IReadOnlySet<string>? answering = null,
-            IReadOnlyDictionary<string, RunningWork>? work = null) {
+            IReadOnlyDictionary<string, RunningWork>? work = null, bool preview = false) {
         var presented = rows
             .Select(row => (Row: row, Status: ForRow(row, pending.Contains(row.Id), answering?.Contains(row.Id) ?? false,
                 work?.GetValueOrDefault(row.Key) ?? default)))
             .Where(item => item.Status.HasLabel)
-            .OrderBy(item => (int)item.Status.Kind)
+            .OrderBy(item => preview ? PreviewPriority(item.Status) : (int)item.Status.Kind)
             .ThenBy(item => item.Row.Id, StringComparer.Ordinal)
             .ToList();
-        var surfaced = presented.Where(item => item.Status.Kind is not AgentStatusKind.Stale and not AgentStatusKind.Done and not AgentStatusKind.Other).ToList();
+        var surfaced = preview ? presented : presented
+            .Where(item => item.Status.Kind is not (AgentStatusKind.Stale or AgentStatusKind.Done or AgentStatusKind.Other)).ToList();
         if (surfaced.Count == 0) return null;
         var dominant = surfaced[0].Status.Kind;
         var count = surfaced.Count(item => item.Status.Kind == dominant);
-        var name = RollupName(dominant, count);
+        var leading = surfaced[0].Status;
+        var name = preview
+            ? $"{surfaced.Count(item => item.Status.PreviewLabel == leading.PreviewLabel)} {(leading.PreviewLabel.Length > 0 ? leading.PreviewLabel.ToLowerInvariant() : "unknown")}"
+            : RollupName(dominant, count);
         var facts = new List<AgentStatusFact> { new(name, null) };
         foreach (var item in presented) {
             var who = string.IsNullOrEmpty(item.Row.Title) ? item.Row.Id : item.Row.Title;
@@ -176,8 +180,17 @@ public static class SessionStatusDots {
                     fact.HasCaption ? $"{fact.Caption}\n{fact.Text}" : fact.Text));
             facts.Add(new($"{who} — {sentence}", null, detail));
         }
-        return surfaced[0].Status with { Tip = FormatTip(facts), Facts = facts };
+        return leading with { Tip = FormatTip(facts), Facts = facts, RollupLabel = preview ? name : null };
     }
+
+    static int PreviewPriority(AgentStatusPresentation status) => status switch {
+        { IsDirectRequest: true } => 0,
+        { IsDanger: true } => 1,
+        { Kind: AgentStatusKind.Interrupted or AgentStatusKind.DaemonDown or AgentStatusKind.Stale } => 2,
+        { IsInFlight: true, Ended: false } => 3,
+        { Ended: false } => 4,
+        _ => 5,
+    };
 
     static string RollupName(AgentStatusKind kind, int count) {
         var sessions = count == 1 ? "session" : "sessions";

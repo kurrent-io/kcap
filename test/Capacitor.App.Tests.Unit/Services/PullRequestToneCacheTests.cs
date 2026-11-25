@@ -1,3 +1,4 @@
+using System.Reactive.Subjects;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.Cli.Core.PullRequests;
@@ -10,6 +11,114 @@ namespace Capacitor.App.Tests.Unit.Services;
 /// The rail's PR colours come from one cache that reads every listed session's links and
 /// overviews on a slow cadence, independent of which workspace is open.
 public class PullRequestToneCacheTests {
+    [Test]
+    public async Task An_initial_partial_preview_read_shows_the_verified_failure_with_incomplete_coverage() {
+        using var directory = new FakeAgentDirectory();
+        using var preview = new BehaviorSubject<bool>(true);
+        var time = new FakeTimeProvider();
+        var source = new FakePullRequestSource(time) { RollupFor = _ => "failure" };
+        source.OverviewResponses.Enqueue((subject, _) => Task.FromResult(source.Overview(subject)));
+        source.OverviewResponses.Enqueue((subject, _) => Task.FromResult(new PullRequestRead<PullRequestOverviewDto>(
+            PullRequestReadKind.Unavailable, Subject: subject, AccessFailure: "transient", Reason: "timeout")));
+        using var cache = new PullRequestToneCache(directory, source, time, statusPreview: preview);
+        directory.Rows.AddOrUpdate(Row("a1", "preview"));
+
+        await WaitUntilAsync(() => cache.CurrentSummaries.ContainsKey("preview"), "partial PR evidence");
+        var summary = cache.CurrentSummaries["preview"];
+        await Assert.That(summary.PreviewSignals.Select(status => status.PreviewText))
+            .IsEquivalentTo(new[] { "Open", "Checks failed", "Review decision unknown", "Status incomplete" });
+        await Assert.That(summary.MenuItems.Select(item => item.Subject.Number)).IsEquivalentTo(new[] { 1 });
+        await Assert.That(cache.Current.ContainsKey("preview")).IsFalse();
+        // Keep the next stock read from masking the rollback assertion.
+        source.Failure = "transient";
+        preview.OnNext(false);
+        await Assert.That(cache.CurrentSummaries.ContainsKey("preview")).IsFalse();
+    }
+
+    [Test]
+    public async Task A_partial_preview_refresh_preserves_accessible_evidence_then_replaces_it_after_expiry() {
+        using var directory = new FakeAgentDirectory();
+        using var preview = new BehaviorSubject<bool>(true);
+        var time = new FakeTimeProvider();
+        var source = new FakePullRequestSource(time) { AccessSeconds = 30, RollupFor = _ => "failure" };
+        void EnqueuePartial(int available) {
+            foreach (var _ in source.Links)
+                source.OverviewResponses.Enqueue((subject, _) => Task.FromResult(subject.Number == available ? source.Overview(subject)
+                    : new PullRequestRead<PullRequestOverviewDto>(PullRequestReadKind.Unavailable, Subject: subject, AccessFailure: "transient")));
+        }
+        EnqueuePartial(1);
+        using var cache = new PullRequestToneCache(directory, source, time, statusPreview: preview);
+        directory.Rows.AddOrUpdate(Row("a1", "preview"));
+        RailPullRequestSummary? Current() => cache.CurrentSummaries.GetValueOrDefault("preview");
+        await WaitUntilAsync(() => Current()?.Subject?.Number == 1, "first partial read");
+
+        EnqueuePartial(2);
+        cache.Refresh("preview");
+        await WaitUntilAsync(() => Current()?.MenuItems[0].Evidence?.Stale == true, "accessible snapshot marked stale");
+        await Assert.That(Current()?.Subject?.Number).IsEqualTo(1);
+        await Assert.That(Current()!.MenuItems[0].RequiresAttention).IsTrue();
+
+        time.Advance(TimeSpan.FromSeconds(26));
+        await WaitUntilAsync(() => Current()?.MenuItems[0].Evidence is null, "expired evidence removed");
+        await Assert.That(Current()!.MenuItems[0].RequiresAttention).IsFalse();
+
+        EnqueuePartial(2);
+        cache.Refresh("preview");
+        await WaitUntilAsync(() => Current()?.Subject?.Number == 2, "newly authorized partial evidence");
+        await Assert.That(Current()!.MenuItems[0].Evidence?.Stale).IsFalse();
+        await Assert.That(Current()!.MenuItems[0].RequiresAttention).IsTrue();
+        await Assert.That(Current()!.IncompleteCoverage).IsTrue();
+        await Assert.That(cache.Current.ContainsKey("preview")).IsFalse();
+    }
+
+    [Test]
+    public async Task Preview_rail_keeps_authorized_checks_separate_and_expires_them_without_polling_teammates() {
+        using var directory = new FakeAgentDirectory();
+        using var preview = new BehaviorSubject<bool>(false);
+        var time = new FakeTimeProvider();
+        var source = new FakePullRequestSource(time) {
+            AccessSeconds = 30, Links = [FakePullRequestSource.Link(7) with { Owner = "kurrent-io", RepoName = "kcap-cli",
+                RepoHash = "h", Url = "https://github.com/kurrent-io/kcap-cli/pull/7" }], RollupFor = _ => "failure",
+        };
+        using var cache = new PullRequestToneCache(directory, source, time, statusPreview: preview);
+        var mine = ServerRow("mine", "active") with { ListedPullRequests = new([ListedPr(7, "open"), ListedPr(8, "open")]) };
+        directory.Rows.AddOrUpdate(mine);
+        directory.Rows.AddOrUpdate(ServerRow("teammate", "active") with { OwnerIsViewer = false, ListedPullRequests = new([ListedPr(7, "open")]) });
+        RailPullRequestSummary Mine() => cache.CurrentSummaries["mine"];
+
+        await Assert.That(source.Overviews).IsEqualTo(0);
+        preview.OnNext(true);
+        await WaitUntilAsync(() => Mine().MenuItems[0].Evidence is not null, "authorized overview published");
+        await Assert.That(Mine().MenuItems[0].Status.Text).IsEqualTo("Open");
+        await Assert.That(Mine().PreviewSignals.Select(status => status.PreviewText))
+            .IsEquivalentTo(new[] { "1+ need attention", "Status incomplete" });
+        await Assert.That(cache.Current["mine"]).IsEqualTo(PullRequestTone.Ready);
+        await Assert.That(cache.CurrentSummaries["teammate"].MenuItems[0].Evidence).IsNull();
+        await Assert.That(source.Overviews).IsEqualTo(1);
+
+        source.Failure = "transient";
+        cache.Refresh("mine");
+        await WaitUntilAsync(() => Mine().MenuItems[0].Evidence?.Stale == true, "earlier evidence marked stale");
+        await Assert.That(Mine().MenuItems[0].RequiresAttention).IsTrue();
+        await Assert.That(Mine().PreviewSignals.Single(s => s.PreviewText == "Earlier snapshot").PreviewGlyph)
+            .IsEqualTo(StatusGlyphKind.Stale);
+        time.Advance(TimeSpan.FromSeconds(26));
+        await WaitUntilAsync(() => Mine().MenuItems[0].Evidence is null, "expired evidence removed");
+        await Assert.That(Mine().MenuItems[0].Title).IsEqualTo("PR 7");
+
+        source.Failure = null;
+        cache.Refresh("mine");
+        await WaitUntilAsync(() => Mine().MenuItems[0].Evidence is not null, "evidence returned");
+        source.Failure = "denied";
+        cache.Refresh("mine");
+        await WaitUntilAsync(() => Mine().MenuItems[0].Evidence is null, "denied evidence removed");
+        preview.OnNext(false);
+        source.Failure = null;
+        var reads = source.Overviews;
+        cache.Refresh("mine");
+        await Assert.That(source.Overviews).IsEqualTo(reads);
+    }
+
     [Test]
     public async Task A_workspace_refresh_discovers_attached_PRs_without_refreshing_other_sessions() {
         var (directory, source, _, cache) = Build();
