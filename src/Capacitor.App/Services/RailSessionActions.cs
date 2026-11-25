@@ -108,7 +108,7 @@ public sealed class RailSessionActions(
             Console.Error.WriteLine($"kcap: session deletion warnings: {result.Stdout}\n{result.Stderr}");
             var unconfirmed = !otherServer || lines.Skip(1).Any(line => !IsOtherServerCaveat(line)
                 && !line.StartsWith("This agent is still running", StringComparison.Ordinal));
-            const string RecordingGuidance = " Recording may still be active. Stop the session if it's still running.";
+            const string RecordingGuidance = " Recording may still send new data to the server. Stop the session if it's still running.";
             return confirmation + (unconfirmed ? RecordingGuidance : "") + (otherServer ? OtherServerGuidance : "")
                 + (running ? RunningGuidance : "");
         }

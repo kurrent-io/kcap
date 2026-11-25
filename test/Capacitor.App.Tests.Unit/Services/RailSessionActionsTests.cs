@@ -131,9 +131,9 @@ public class RailSessionActionsTests {
         yield return () => (new ProcessResult(1, "Session x disabled. Server data deleted.\nA daemon that recorded this session or hosts its agent sends to https://another.example, and nothing was deleted there. Run kcap disable under the profile for that server.\n", "", false),
             "Deleted Fix it from the server. Data may remain on another server. Switch to that server’s profile to delete it there");
         yield return () => (new ProcessResult(1, "Session x disabled. Server data deleted.\nA watcher recording this session could not be stopped, so it may still be sending.\nA daemon that recorded this session or hosts its agent sends to https://another.example, and nothing was deleted there. Run kcap disable under the profile for that server.\n", "", false),
-            "Deleted Fix it from the server. Recording may still be active. Stop the session if it's still running. Data may remain on another server. Switch to that server’s profile to delete it there");
+            "Deleted Fix it from the server. Recording may still send new data to the server. Stop the session if it's still running. Data may remain on another server. Switch to that server’s profile to delete it there");
         yield return () => (new ProcessResult(1, "Session x disabled. Server data deleted.\nA send may still land.\n", "", false),
-            "Deleted Fix it from the server. Recording may still be active. Stop the session if it's still running");
+            "Deleted Fix it from the server. Recording may still send new data to the server. Stop the session if it's still running");
         yield return () => (new ProcessResult(1, "Session disabled locally (hooks silenced). Server data not deleted.\n", "Server returned 403\n", false),
             "Recording was disabled on this machine. Couldn't delete Fix it from the server. Check that you can open the session on the server, then try again");
         yield return () => (new ProcessResult(2, "Session disabled locally (hooks silenced). Server data not deleted.\n", "Bad server address\n", false),

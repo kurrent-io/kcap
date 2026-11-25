@@ -3,6 +3,7 @@ using System.Reactive;
 using Capacitor.App.Services.LocalSetup;
 using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.LocalEdition;
+using Capacitor.Cli.Recording;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels.Onboarding;
@@ -398,6 +399,8 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
         } finally {
             Repairing = false;
         }
+        if (repair is ClientRepairOutcome.Failed failed)
+            Console.Error.WriteLine($"kcap app: could not update the older copy at {failed.Path}: {SecretRedactor.RedactLine(failed.Reason)}");
         if (!repair.Ready) ClientProblem = ProblemText(repair, OperatingSystem.IsWindows());
 
         return repair.Ready;

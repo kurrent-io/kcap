@@ -118,6 +118,22 @@ public class ServerAttachmentUploaderTests {
         await Assert.That(result.FailureText).DoesNotContain("internal details");
     }
 
+    [Test]
+    [NotInParallel]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_bad_request_logs_a_bounded_redacted_diagnostic(bool oversized) {
+        using var stderr = ConsoleOutput.StartErrorCapture();
+        const string body = """{"message":"upload-size-mismatch","access_token":"fake-credential-marker"}""";
+        var result = await UploadWithStatusAsync(400, oversized ? body + new string(' ', 4096) : body);
+
+        await Assert.That(result.Reason).IsEqualTo("bad_request");
+        await Assert.That(result.FailureText).DoesNotContain("upload-size-mismatch");
+        await Assert.That(stderr.GetCapturedError()).Contains("HTTP 400");
+        await Assert.That(stderr.GetCapturedError()).Contains(oversized ? "diagnostic size limit" : "upload-size-mismatch");
+        await Assert.That(stderr.GetCapturedError()).DoesNotContain("fake-credential-marker");
+    }
+
     async Task<UploadOutcome> UploadWithStatusAsync(int statusCode, string? body) {
         using var server = WireMockServer.Start();
         var response = Response.Create().WithStatusCode(statusCode);
