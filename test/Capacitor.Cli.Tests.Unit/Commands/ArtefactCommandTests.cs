@@ -66,6 +66,18 @@ public class ArtefactCommandTests {
     }
 
     [Test]
+    public async Task An_update_naming_a_title_is_refused_and_says_what_it_may_change() {
+        var api = new RecordingArtefactsApi();
+
+        using var console = ConsoleOutput.StartFullCapture();
+        var exit = await new ArtefactCommand(api).HandleAsync(["page", "publish", Page(), "--update", "a1", "--title", "New"]);
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(api.Calls).IsEmpty();
+        await Assert.That(console.GetCapturedError()).Contains("may change --kind and --session");
+    }
+
+    [Test]
     [Arguments("--visibility", "org")]
     [Arguments("--to", "team:platform")]
     public async Task A_publish_naming_an_audience_is_refused_and_says_where_sharing_went(string flag, string value) {

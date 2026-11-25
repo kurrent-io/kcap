@@ -73,7 +73,7 @@ class ArtefactCommand(IArtefactsApi artefacts) {
         // to have applied it.
         if (flags.Value("--update") is { Length: > 0 } updateId) {
             if (flags.Has("--title") || flags.Has("--description"))
-                return Fail("--update publishes content only; a title cannot be changed after publishing.");
+                return Fail("--update cannot change a title or description; it publishes new content, and may change --kind and --session.");
 
             if (flags.Has("--work-item"))
                 return Fail("--update cannot link work items; link them from the page's side panel.");
