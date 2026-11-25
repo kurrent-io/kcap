@@ -2948,7 +2948,9 @@ public class ChatTabViewSmokeTests {
                 var assistant = rows[1];
                 await Assert.That(assistant.IsKeyboardFocusWithin).IsTrue();
                 await Assert.That(MessageTime(assistant).Opacity).IsEqualTo(1);
-                await Assert.That(ToolTip.GetTip(MessageTime(assistant))).IsEqualTo(assistant.Timestamp!.Tip);
+                await Assert.That(ToolTip.GetTip(MessageTime(assistant))).IsEqualTo(assistant.AccessibleMetadata);
+                await Assert.That(ControlAutomationPeer.CreatePeerForElement(Copy(assistant)!.FindControl<Button>("CopyButton")!).GetHelpText())
+                    .IsEqualTo(assistant.AccessibleMetadata);
                 await Assert.That(Copy(assistant)!.Flavor).IsEqualTo(MarkdownFlavor.Chat);
                 var prose = assistant.GetVisualDescendants().OfType<MarkdownView>().Single();
                 prose.SelectAll();
@@ -2988,6 +2990,16 @@ public class ChatTabViewSmokeTests {
                 await Assert.That(Copy(assistant)!.Opacity).IsEqualTo(0);
                 host.Press(PhysicalKey.Space);
                 await Assert.That(Copy(assistant)!.Opacity).IsEqualTo(1);
+                // Shift+F10 on the reply's Copy opens the menu of the reply's message.
+                var messageMenu = (Flyout)assistant.ContextFlyout!;
+                host.Window.KeyPressQwerty(PhysicalKey.F10, RawInputModifiers.Shift);
+                host.Window.KeyReleaseQwerty(PhysicalKey.F10, RawInputModifiers.Shift);
+                host.Settle();
+                await Assert.That(messageMenu.IsOpen).IsTrue();
+                await Assert.That(((StackPanel)messageMenu.Content!).Children.OfType<TextBlock>().Single().Text).IsEqualTo(assistant.AccessibleMetadata);
+                host.Press(PhysicalKey.Escape);
+                host.Settle();
+                await Assert.That(messageMenu.IsOpen).IsFalse();
 
                 host.Composer.Focus();
                 copyButton.Focus(NavigationMethod.Tab);

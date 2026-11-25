@@ -81,6 +81,27 @@ public sealed class ChatRowContainer : Panel {
         UpdateActive();
     }
 
+    // The footer sits beside the message rows, so Shift+F10 on it opens the menu of the reply's last message.
+    protected override void OnKeyDown(KeyEventArgs e) {
+        base.OnKeyDown(e);
+        if (e.Handled || e.Key != Key.F10 || e.KeyModifiers != KeyModifiers.Shift
+            || e.Source is not Visual source || !_footer.IsVisualAncestorOf(source)
+            || ReplyMessageRow() is not { ContextFlyout: { } menu } row) return;
+        menu.ShowAt(row);
+        e.Handled = true;
+    }
+
+    ChatMessageRow? ReplyMessageRow() {
+        if (_item?.Reply is not { } reply || this.FindAncestorOfType<ItemsControl>() is not { } list) return null;
+        var items = list.Items;
+        for (var i = items.IndexOf(_item); i >= 0; i--) {
+            if (items[i] is not AssistantTextItem message || !ReferenceEquals(message.Reply, reply)) continue;
+            if (list.ContainerFromIndex(i) is null) list.ScrollIntoView(i);
+            return list.ContainerFromIndex(i)?.GetVisualDescendants().OfType<ChatMessageRow>().FirstOrDefault();
+        }
+        return null;
+    }
+
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change) {
         base.OnPropertyChanged(change);
         if (change.Property == IsKeyboardFocusWithinProperty && !IsKeyboardFocusWithin) _keyboard.FocusLeft();

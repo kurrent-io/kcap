@@ -5,10 +5,17 @@
              x:Class="Capacitor.App.Views.ReplyFooter"
              x:DataType="vm:ChatItemViewModel"
              Classes.revealed="{Binding Reply.IsActive, FallbackValue=False}">
+    <views:ReplyFooter.Metadata>
+        <MultiBinding StringFormat="{}{0} · {1}">
+            <Binding Path="$parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle" />
+            <Binding Path="Reply.Time.Tip" />
+        </MultiBinding>
+    </views:ReplyFooter.Metadata>
     <StackPanel Orientation="Horizontal" Spacing="4">
         <TextBlock Classes="chatTime messageTime" Text="{Binding Reply.Time.Label}"
-                   ToolTip.Tip="{Binding Reply.Time.Tip}" AutomationProperties.HelpText="{Binding Reply.Time.Tip}"
+                   ToolTip.Tip="{Binding $parent[views:ReplyFooter].Metadata}"
+                   AutomationProperties.HelpText="{Binding $parent[views:ReplyFooter].Metadata}"
                    IsVisible="{Binding Reply.Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
-        <views:MessageCopyButton Text="{Binding Reply.Text}" AutomationProperties.HelpText="{Binding Reply.Time.Tip}" />
+        <views:MessageCopyButton Text="{Binding Reply.Text}" AutomationProperties.HelpText="{Binding $parent[views:ReplyFooter].Metadata}" />
     </StackPanel>
 </UserControl>
