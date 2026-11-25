@@ -9,6 +9,9 @@ public sealed record KcapTip(string Title, string? State = null, string? Tone = 
     public bool HasDetails => Details is { Count: > 0 };
     public bool IsDanger => Tone == "danger";
     public bool IsActive => Tone == "active";
+    public bool IsPrOpen => Tone == "prOpen";
+    public bool IsPrMerged => Tone == "prMerged";
+    public bool IsPrClosed => Tone == "prClosed";
 
     public string Description => string.Join("\n", new[] { Title, State, StateDetail }
         .Concat((Details ?? []).Select(row => row.Description)).Where(line => !string.IsNullOrWhiteSpace(line)));
@@ -37,7 +40,12 @@ public sealed record KcapTip(string Title, string? State = null, string? Tone = 
             : Field("Pull request", string.IsNullOrWhiteSpace(repository) ? numberLabel : $"{repository} {numberLabel}");
         return new(title ?? $"Pull request {numberLabel}",
             lifecycle?.Text,
-            lifecycle is { IsDanger: true } ? "danger" : null,
+            lifecycle?.Kind switch {
+                "open" => "prOpen",
+                "merged" => "prMerged",
+                "closed" => "prClosed",
+                _ => lifecycle is { IsDanger: true } ? "danger" : null,
+            },
             Present(reference, context));
     }
 

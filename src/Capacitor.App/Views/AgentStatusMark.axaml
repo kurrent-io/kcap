@@ -38,8 +38,8 @@
                VerticalAlignment="Center" ClipToBounds="False"
                Classes.pulsing="{Binding Pulses}" views:PulseClock.IsActive="{Binding Pulses}">
             <views:AppIcon Kind="Circle" Size="12" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsVisible="{Binding ShowsRing}"
-                           Foreground="{StaticResource KcapPurpleBrush}" />
-            <Ellipse Width="5" Height="5" Fill="{StaticResource KcapPurpleBrush}"
+                           Foreground="{StaticResource KcapActivityBrush}" />
+            <Ellipse Width="5" Height="5" Fill="{StaticResource KcapActivityBrush}"
                      HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False" IsVisible="{Binding ShowsRing}" />
             <views:AppIcon Kind="Clock" Size="12" IsVisible="{Binding ShowsClock}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                            Foreground="{StaticResource KcapWarningBrush}" />

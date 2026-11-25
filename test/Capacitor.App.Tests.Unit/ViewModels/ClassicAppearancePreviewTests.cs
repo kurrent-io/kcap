@@ -141,6 +141,36 @@ public class ClassicAppearancePreviewTests {
         }
     });
 
+    /// <summary>
+    /// The status roles that only diverge under the preview repeat another role's colour rather than
+    /// reference it, so each palette must keep them equal to their source: a stock app identical to
+    /// one without the roles, and a preview where merged reads as the purple role and open as success.
+    /// </summary>
+    [Test]
+    [Arguments(null, "KcapActivityBrush", "KcapPurpleBrush")]
+    [Arguments(null, "KcapActivityDimBrush", "KcapPurpleDimBrush")]
+    [Arguments(null, "KcapPrOpenBrush", "KcapMutedBrush")]
+    [Arguments(null, "KcapPrMergedBrush", "KcapSuccessBrush")]
+    [Arguments(null, "KcapPrClosedBrush", "KcapDangerBrush")]
+    [Arguments(null, "KcapPrMergedTipBrush", "KcapMutedBrush")]
+    [Arguments("KcapClassicLight", "KcapPrOpenBrush", "KcapSuccessBrush")]
+    [Arguments("KcapClassicLight", "KcapPrMergedBrush", "KcapPurpleBrush")]
+    [Arguments("KcapClassicLight", "KcapPrMergedTipBrush", "KcapPurpleBrush")]
+    [Arguments("KcapClassicLight", "KcapPrClosedBrush", "KcapDangerBrush")]
+    [Arguments("KcapClassicDark", "KcapPrOpenBrush", "KcapSuccessBrush")]
+    [Arguments("KcapClassicDark", "KcapPrMergedBrush", "KcapPurpleBrush")]
+    [Arguments("KcapClassicDark", "KcapPrMergedTipBrush", "KcapPurpleBrush")]
+    [Arguments("KcapClassicDark", "KcapPrClosedBrush", "KcapDangerBrush")]
+    public Task A_status_role_keeps_the_colour_of_the_role_it_follows(string? palette, string role, string source) =>
+        AvaloniaSession.RunOnUiAsync(async () => {
+            var app = Application.Current!;
+            new ClassicPreviewPalette(app).TryApply(ClassicAppearance.Original);
+            Color ColourOf(string key) => palette is null
+                ? ((SolidColorBrush)app.FindResource(key)!).Color
+                : (Color)((ResourceDictionary)app.FindResource(palette)!)[key]!;
+            await Assert.That(ColourOf(role)).IsEqualTo(ColourOf(source));
+        });
+
     [Test]
     public Task An_incomplete_palette_keeps_the_open_window_in_its_previous_theme() => AvaloniaSession.RunOnUiAsync(async () => {
         var app = Application.Current!;
