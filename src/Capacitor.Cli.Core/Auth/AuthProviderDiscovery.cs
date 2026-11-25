@@ -88,9 +88,13 @@ public sealed class AuthProviderDiscovery(IHttpClientFactory factory, TimeProvid
             if (response.IsSuccessStatusCode) {
                 var discovered = await response.Content.ReadFromJsonAsync(CapacitorJsonContext.Default.AuthDiscoveryResponse, ct);
                 var provider   = discovered?.Provider ?? "None";
+                // The anonymous lane follows redirects, so the host that answered must pass the same rule.
+                var tokenUrl   = response.RequestMessage?.RequestUri is { } answered && MayNameTokenUrl(answered.AbsoluteUri)
+                    ? discovered?.MachineTokenUrl
+                    : null;
                 _memo[baseUrl]             = provider;
-                _machineTokenUrls[baseUrl] = discovered?.MachineTokenUrl;
-                AuthProviderCache.Set(baseUrl, provider, config, time, discovered?.MachineTokenUrl); // only cache successful discovery
+                _machineTokenUrls[baseUrl] = tokenUrl;
+                AuthProviderCache.Set(baseUrl, provider, config, time, tokenUrl); // only cache successful discovery
 
                 return provider;
             }

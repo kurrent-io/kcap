@@ -376,6 +376,30 @@ public class MachineAuthTests : IDisposable {
         await Assert.That(named).IsEqualTo(believed ? "https://idp.example/oauth2/token" : null);
     }
 
+    /// <summary>Discovery follows redirects, so a loopback server whose <c>/auth/config</c> answer came
+    /// from a remote plaintext host does not get to name the token URL either.</summary>
+    [Test]
+    [Arguments("http://discovery.example/auth/config", null)]
+    [Arguments("https://discovery.example/auth/config", "https://idp.example/oauth2/token")]
+    public async Task The_host_that_answered_discovery_must_be_reached_safely_too(string answeredBy, string? expected) {
+        using var handler = new AnsweredBy(answeredBy);
+
+        var named = await new AuthProviderDiscovery(new PlainHttpClientFactory(handler), TimeProvider.System)
+            .MachineTokenUrlAsync("http://localhost:9473", Config.Root);
+
+        await Assert.That(named).IsEqualTo(expected);
+    }
+
+    sealed class AnsweredBy(string url) : HttpMessageHandler {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
+                RequestMessage = new HttpRequestMessage(HttpMethod.Get, url),
+                Content        = new StringContent(
+                    """{"provider":"workos","machine_token_url":"https://idp.example/oauth2/token"}""",
+                    Encoding.UTF8, "application/json"),
+            });
+    }
+
     [Test]
     [Arguments(null, null, MachineAuth.DefaultTokenUrl)]
     [Arguments(null, " ", MachineAuth.DefaultTokenUrl)]
