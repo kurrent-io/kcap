@@ -86,7 +86,31 @@ public class McpArtefactsServerTests {
             await Assert.That(body.ContainsKey("visibility")).IsFalse();
             await Assert.That(body.ContainsKey("grants")).IsFalse();
             await Assert.That(body.ContainsKey("sources")).IsFalse();
+            await Assert.That(body.ContainsKey("kind")).IsFalse();
+            await Assert.That(body.ContainsKey("work_items")).IsFalse();
         });
+    }
+
+    [Test]
+    public async Task A_new_page_carries_its_kind_and_work_items() {
+        var (_, body) = McpArtefactsServer.BuildPublishRequest(
+            "https://kcap.test", Args("""{"title":"Plan","kind":"prd","work_items":["PROJ-1","wi-2"]}"""), "<p>x</p>");
+
+        await Assert.That(body["kind"]!.GetValue<string>()).IsEqualTo("prd");
+        await Assert.That(body["work_items"]!.AsArray().Select(n => n!.GetValue<string>())).IsEquivalentTo(["PROJ-1", "wi-2"]);
+    }
+
+    /// <summary>A revision may change the kind, but the server links work items only on a new page, so a list passed with
+    /// update_id is refused rather than dropped.</summary>
+    [Test]
+    public async Task A_revision_carries_a_kind_and_refuses_work_items() {
+        var (_, body) = McpArtefactsServer.BuildPublishRequest(
+            "https://kcap.test", Args("""{"title":"Plan","update_id":"a1","kind":"adr"}"""), "<p>x</p>");
+
+        await Assert.That(body["kind"]!.GetValue<string>()).IsEqualTo("adr");
+        await Assert.That(() => McpArtefactsServer.BuildPublishRequest(
+                              "https://kcap.test", Args("""{"title":"Plan","update_id":"a1","work_items":["PROJ-1"]}"""), "<p>x</p>"))
+                    .Throws<ArgumentException>().WithMessage(McpArtefactsServer.UpdateLinksNothingMessage);
     }
 
     [Test]

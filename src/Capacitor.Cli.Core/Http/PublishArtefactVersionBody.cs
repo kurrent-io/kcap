@@ -4,4 +4,5 @@ namespace Capacitor.Cli.Core.Http;
 
 public record PublishArtefactVersionBody(
     [property: JsonPropertyName("html")]    string        Html,
-    [property: JsonPropertyName("sources")] List<string>? Sources);
+    [property: JsonPropertyName("sources")] List<string>? Sources,
+    [property: JsonPropertyName("kind")]    string?       Kind = null);
