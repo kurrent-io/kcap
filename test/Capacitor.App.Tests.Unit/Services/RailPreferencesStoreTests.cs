@@ -85,4 +85,21 @@ public class RailPreferencesStoreTests {
         await Assert.That(reloaded.RailPreferencesByUser!["https://kurrent.kcap.ai|u1"]).IsEqualTo(Teams);
         await Assert.That(reloaded.LastUserByProfile!["https://kurrent.kcap.ai|kurrent"]).IsEqualTo("u1");
     }
+
+    /// Sort is stored as its number, so every saved choice must keep reading back as itself.
+    [Test]
+    [Arguments(0, RailSort.LastUpdated)]
+    [Arguments(1, RailSort.Created)]
+    [Arguments(2, RailSort.Title)]
+    [Arguments(3, RailSort.NeedsYou)]
+    public async Task A_stored_sort_number_reads_back_as_the_same_sort(int stored, RailSort expected) {
+        using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+        File.WriteAllText(path,
+            """{"rail_preferences_by_user":{"s|u":{"scope":0,"state":0,"grouping":1,"sort":""" + stored
+            + ""","descending":true,"collapsed":[]}}}""");
+
+        var loaded = (await new AppStateStore(path).LoadAsync()).RailPreferencesByUser!;
+
+        await Assert.That(loaded["s|u"].Sort).IsEqualTo(expected);
+    }
 }

@@ -119,11 +119,18 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         }).DisposeWith(_disposables);
 
         Sessions = new ReadOnlyObservableCollection<RailSessionViewModel>(_sessionsSource);
+        var needsYou = sort.Select(key => key == RailSort.NeedsYou).DistinctUntilChanged().Replay(1).RefCount();
         group.Cache.Connect()
             .TransformWithInlineUpdate(row => new RailSessionViewModel(row, selectedSessionKey, agentsWithPending, remoteStale,
                 openLocal, openRemote, time, agentsAwaitingAnswer, agentsRunningWork,
                 pullRequests, localOnAppServer, openPullRequest, ageTicks, openServer, grouping, sessionActions, sort), (vm, row) => vm.Update(row))
             .DisposeMany()
+            // A status change arrives from the pending and answer feeds, not as a row update, so the
+            // Needs you order would otherwise hold a row where it was until its row next changed.
+            // Only that sort reads status; choosing it re-sorts every row through the new comparer.
+            .AutoRefreshOnObservable(vm => Observable.Switch(needsYou.Select(on => on
+                    ? vm.WhenAnyValue(x => x.Status).Select(_ => SessionRailViewModel.AttentionRank(vm)).DistinctUntilChanged().Skip(1)
+                    : Observable.Never<int>())))
             .SortAndBind(_sessionsSource, rowComparer)
             .Subscribe()
             .DisposeWith(_disposables);

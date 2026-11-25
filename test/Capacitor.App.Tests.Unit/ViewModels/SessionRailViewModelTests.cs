@@ -925,6 +925,91 @@ public class SessionRailViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public async Task Needs_you_sort_ranks_attention_first_then_last_updated_within_a_rank() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var pending = new BehaviorSubject<IReadOnlySet<string>>(new HashSet<string>(StringComparer.Ordinal) { "asks" });
+            using var directory = new FakeAgentDirectory();
+            var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(Noon));
+            using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, time, agentsWithPending: pending,
+                preferences: RailPreferences.Default with { Sort = RailSort.NeedsYou });
+            directory.Rows.AddOrUpdate([
+                Server("old-done", lastActivity: Noon.AddHours(-3)),
+                Server("new-done", lastActivity: Noon.AddMinutes(-1)),
+                Local("working", awaiting: false, created: Noon.AddMinutes(-2)),
+                Local("idle", status: "Idle", created: Noon.AddMinutes(-3)),
+                Local("failed", status: "Failed", created: Noon.AddHours(-5)),
+                Local("asks", created: Noon.AddHours(-6)),
+                Local("prompted", awaiting: true, created: Noon.AddHours(-7)),
+                Local("resuming", status: "Resuming", awaiting: true, created: Noon.AddHours(-8)),
+            ]);
+
+            await Assert.That(Ids(rail.Groups.Single()))
+                .IsEquivalentTo(["asks", "prompted", "failed", "new-done", "working", "idle", "old-done", "resuming"], CollectionOrdering.Matching)
+                .Because("a live prompt waiting on the user ranks with a question, a resuming row's remembered one does not");
+
+            rail.Descending = false;
+            await Assert.That(Ids(rail.Groups.Single()))
+                .IsEquivalentTo(["prompted", "asks", "failed", "resuming", "old-done", "idle", "working", "new-done"], CollectionOrdering.Matching)
+                .Because("the direction orders rows within a rank, never the ranks");
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Needs_you_sort_moves_a_row_when_its_status_changes_without_a_row_update() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var pending = new BehaviorSubject<IReadOnlySet<string>>(FrozenSet<string>.Empty);
+            using var answers = new BehaviorSubject<IReadOnlySet<string>>(FrozenSet<string>.Empty);
+            using var directory = new FakeAgentDirectory();
+            var time = new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(Noon));
+            using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, time,
+                agentsWithPending: pending, agentsAwaitingAnswer: answers,
+                preferences: RailPreferences.Default with { Sort = RailSort.NeedsYou });
+            directory.Rows.AddOrUpdate([
+                Local("a", awaiting: false, created: Noon),
+                Local("b", awaiting: false, created: Noon.AddHours(-1)),
+                Local("c", awaiting: false, created: Noon.AddHours(-2)),
+            ]);
+            await Assert.That(Ids(rail.Groups.Single())).IsEquivalentTo(["a", "b", "c"], CollectionOrdering.Matching);
+
+            pending.OnNext(new HashSet<string>(StringComparer.Ordinal) { "c" });
+            await Assert.That(Ids(rail.Groups.Single())).IsEquivalentTo(["c", "a", "b"], CollectionOrdering.Matching);
+
+            answers.OnNext(new HashSet<string>(StringComparer.Ordinal) { "b" });
+            await Assert.That(Ids(rail.Groups.Single())).IsEquivalentTo(["b", "c", "a"], CollectionOrdering.Matching)
+                .Because("an answer to read ranks with a question, then the newer row leads");
+
+            pending.OnNext(FrozenSet<string>.Empty);
+            answers.OnNext(FrozenSet<string>.Empty);
+            await Assert.That(Ids(rail.Groups.Single())).IsEquivalentTo(["a", "b", "c"], CollectionOrdering.Matching);
+
+            rail.Sort = RailSort.LastUpdated;
+            pending.OnNext(new HashSet<string>(StringComparer.Ordinal) { "c" });
+            rail.Sort = RailSort.NeedsYou;
+            await Assert.That(Ids(rail.Groups.Single())).IsEquivalentTo(["c", "a", "b"], CollectionOrdering.Matching)
+                .Because("a status that changed under another sort counts once Needs you is chosen again");
+            pending.OnNext(FrozenSet<string>.Empty);
+            await Assert.That(Ids(rail.Groups.Single())).IsEquivalentTo(["a", "b", "c"], CollectionOrdering.Matching);
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Choosing_needs_you_sort_names_it_and_persists_it() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var (directory, sessions, _, persisted, rail) = BuildWithControls();
+            using (directory) using (sessions) using (rail) {
+                await rail.SetSortCommand.Execute(RailSort.NeedsYou);
+
+                await Assert.That(rail.SortLabel).IsEqualTo("Needs you");
+                await Assert.That(persisted[^1].Sort).IsEqualTo(RailSort.NeedsYou);
+                await Assert.That(rail.FiltersDiffer).IsTrue();
+            }
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public async Task Live_filter_hides_ended_rows_except_the_selected_one() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var (directory, sessions, _, _, rail) = BuildWithControls();
