@@ -43,15 +43,14 @@ internal partial class AgentOrchestrator {
             : null;
     }
 
-    /// <summary>Checks a gone agent worktree out again for a consented resume, and reconnects it to the session's
-    /// vendor state. True when the directory is there afterwards.</summary>
-    async Task<bool> RestoreForResumeAsync(LaunchAgentCommand cmd, ResumeInPlaceLaunch inPlace) {
+    /// <summary>Checks a gone agent worktree out again for a consented resume. True when the directory is there
+    /// afterwards.</summary>
+    async Task<bool> RestoreForResumeAsync(ResumeInPlaceLaunch inPlace) {
         if (Directory.Exists(inPlace.Directory)) return true;
         if (WorktreeManager.RestorableSource(inPlace.Directory) is not { } source) return false;
 
         try {
             await _worktreeManager.RestoreAsync(source, inPlace.Directory, inPlace.Branch, _shutdownCts.Token);
-            if (_launchers.TryGetValue(cmd.Vendor, out var launcher)) launcher.LinkRestoredWorktree(source, inPlace.Directory, inPlace.ConfigDir);
 
             return true;
         } catch (Exception ex) when (ex is not OperationCanceledException) {
@@ -133,12 +132,13 @@ internal partial class AgentOrchestrator {
     /// Resumes the source natively in its own directory through the restart-resume protocol: the runtime is bound to
     /// the original session from the start and judged by the readiness window, transcript included. A failure after
     /// the agent published retires it before <c>LaunchFailed</c> goes out, so the app's fallback cannot race it. Nothing
-    /// is kept for a later resume: the app falls back to a hand-off, and the directory, restored here or not, stays.
+    /// is kept for a later resume: the app falls back to a hand-off. An agent worktree resumes as the daemon's own, prepared
+    /// and torn down like any hosted agent's; any other directory is the user's and is left as it is.
     /// </summary>
     async Task<CommandOutcome> LaunchInPlaceAsync(
             LaunchAgentCommand cmd, ResumeInPlaceLaunch inPlace, SourceLeaseKeeper lease, string consented, LaunchConsentOutcome consent, LaunchHold hold,
             CancellationToken cancel, Action<AgentInstance>? onPublished) {
-        if (!await RestoreForResumeAsync(cmd, inPlace)) {
+        if (!await RestoreForResumeAsync(inPlace)) {
             await _server.LaunchFailedAsync(cmd.AgentId, ResumeInPlaceRefusals.RestoreFailed);
 
             return new CommandOutcome(CommandOutcomeKind.LaunchRejected, cmd.AgentId, RejectReason: CommandRejectedReason.Semantic);
@@ -170,13 +170,13 @@ internal partial class AgentOrchestrator {
 
         var factory = _runtimeFactories[cmd.Vendor];
         var native  = NativeResumeId.For(cmd.Vendor, inPlace.SourceSessionId)!;
-        var entry   = InPlaceEntry(cmd, inPlace, directory, native, consent);
-        var resume  = new ResumeLaunch(entry, WorktreeInfo.Borrowed(directory)) {
+        var entry   = InPlaceEntry(cmd, inPlace, directory, WorktreeManager.RestorableSource(directory), native, consent);
+        var resume  = new ResumeLaunch(entry, ResumedWorktree(entry)) {
             Token         = cancel,
             StartsWaiting = string.IsNullOrWhiteSpace(cmd.Prompt) && factory.ResumesIdleWithoutPrompt(entry.Transport),
             KeepsNothing  = true,
         };
-        var command = cmd with { RepoPath = directory, ResumeSessionId = native, ResumeInPlace = null, Prompt = cmd.Prompt ?? "" };
+        var command = cmd with { RepoPath = entry.Launch.RepoPath, ResumeSessionId = native, ResumeInPlace = null, Prompt = cmd.Prompt ?? "" };
 
         var outcome = await LaunchAdmittedAsync(command, consent, hold, resume, cancel, onPublished);
 
@@ -275,15 +275,18 @@ internal partial class AgentOrchestrator {
             ? new ProcessEvidence(pid, identity)
             : null;
 
-    ResumeLedgerEntry InPlaceEntry(LaunchAgentCommand cmd, ResumeInPlaceLaunch inPlace, string directory, string native, LaunchConsentOutcome consent) {
+    /// <summary>The resume's ledger entry: in <paramref name="source"/>'s agent worktree when it has one, otherwise in
+    /// the user's own directory.</summary>
+    ResumeLedgerEntry InPlaceEntry(
+            LaunchAgentCommand cmd, ResumeInPlaceLaunch inPlace, string directory, string? source, string native, LaunchConsentOutcome consent) {
         var now    = _time.GetUtcNow();
         var launch = new ResumeLaunchDescriptor(
             Prompt:           cmd.Prompt,
             Model:            cmd.Model,
             Effort:           cmd.Effort,
-            RepoPath:         directory,
+            RepoPath:         source ?? directory,
             WorktreePath:     directory,
-            Work:             WorkLocation.InPlace,
+            Work:             source is null ? WorkLocation.InPlace : WorkLocation.OwnedWorktree,
             GitRelativeCwd:   null,
             SandboxPolicy:    cmd.CodexPosture?.Sandbox,
             ApprovalPolicy:   cmd.CodexPosture?.Approval,
@@ -299,6 +302,9 @@ internal partial class AgentOrchestrator {
             ConsentAt:        now.ToString("O"),
             FlowRunId:        null,
             FlowRole:         null,
+            WorktreeBranch:     source is null ? null : GitRepository.ShowCurrentBranch(directory) ?? "",
+            WorktreeIsStandalone: source is null ? null : false,
+            WorktreeSourceRepo: source,
             WorktreeOwnsBranch: false,
             PermissionMode:     cmd.PermissionMode,
             AccountDirectory:   inPlace.ConfigDir,

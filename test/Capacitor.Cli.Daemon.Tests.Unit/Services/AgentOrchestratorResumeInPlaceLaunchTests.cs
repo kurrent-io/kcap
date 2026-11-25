@@ -123,8 +123,8 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         await Assert.That(agent.Checkout.BorrowedFrom).IsEqualTo(f.Checkout);
     }
 
-    /// <summary>A gone agent worktree is checked out again at its path before the resume runs in it: on the session's
-    /// branch while that branch is there, detached at the repository's HEAD once it is not.</summary>
+    /// <summary>A gone agent worktree is checked out again at its path before the resume runs in it, as the daemon's own
+    /// worktree: on the session's branch while that branch is there, detached at the repository's HEAD once it is not.</summary>
     [Test]
     [Arguments(true)]
     [Arguments(false)]
@@ -140,7 +140,8 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         await f.Orch.HandleLaunchAgentForTest(f.Launch(directory: worktree, branch: "agent-work"));
 
         await Assert.That(f.Failures()).IsEmpty();
-        await Assert.That(f.Factory.Context!.Worktree.Path).IsEqualTo(worktree);
+        await Assert.That((f.Factory.Context!.Worktree.Path, f.Factory.Context.Work)).IsEqualTo((worktree, WorkLocation.OwnedWorktree));
+        await Assert.That(f.Orch.GetAgentForTest(AgentId)!.Checkout.BorrowedFrom).IsNull();
         var restored = GitRepo.At(worktree);
         await Assert.That((restored.CurrentBranch, restored.Head)).IsEqualTo(branchKept ? ("agent-work", tip) : ("", repo.Head));
     }

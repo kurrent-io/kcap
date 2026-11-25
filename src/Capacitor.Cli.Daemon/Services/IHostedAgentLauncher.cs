@@ -56,10 +56,6 @@ internal interface IHostedAgentLauncher {
     /// <summary>Whether <see cref="BuildArgs"/> resumes the vendor session a restart resume names.</summary>
     bool SupportsResume => false;
 
-    /// <summary>Reconnects a worktree checked out again at an ended agent's path to the vendor state that agent kept
-    /// under <paramref name="configDir"/>, so a resume there finds its session.</summary>
-    void LinkRestoredWorktree(string sourceRepoPath, string worktreePath, string configDir) { }
-
     /// <summary>See <see cref="IHostedAgentRuntimeFactory.ReportsLostWork"/>.</summary>
     bool ReportsLostWork(string? transcriptPath) => false;
 
