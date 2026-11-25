@@ -158,6 +158,8 @@ export KCAP_TELEMETRY=0         # this shell only
 export DO_NOT_TRACK=1           # cross-tool convention
 ```
 
+Precedence (highest first): `KCAP_TELEMETRY` > `DO_NOT_TRACK` > `kcap config set telemetry` > edition default — if `KCAP_TELEMETRY` is set, unset it or set `KCAP_TELEMETRY=0` to disable telemetry.
+
 ---
 
 ## License
