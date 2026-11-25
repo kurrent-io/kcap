@@ -280,7 +280,13 @@ public partial class ChatTabView : UserControl {
     void OnChatWheelChanged(object? sender, PointerWheelEventArgs e) {
         if (e.Handled || e.KeyModifiers != KeyModifiers.None || OriginatesFromTextBox(e)) return;
         EnsureChatScroll();
-        if (_scroll is null || DefersToInnerScroll(e)) return;
+        if (_scroll is null) return;
+        if (InnerScrollUnder(e) is { } inner) {
+            // An inner viewer keeps the wheel even at its end, so a flick's momentum does not carry on into the chat.
+            CancelSmoothScroll();
+            if (!CanScrollToward(inner, e.Delta.Y)) e.Handled = true;
+            return;
+        }
         var delta = -e.Delta.Y * WheelStep;
         if (Math.Abs(delta) < 0.01) return;
         e.Handled = true;
@@ -351,20 +357,21 @@ public partial class ChatTabView : UserControl {
         _lastSmoothFrame = default;
     }
 
-    // A markdown row hosts a ScrollViewer whose scrolling is disabled. Only an inner viewer
-    // that can still move in this direction owns the notch.
-    bool DefersToInnerScroll(PointerWheelEventArgs e) {
-        if (e.Source is not Visual visual) return false;
+    // A markdown row hosts a ScrollViewer whose scrolling is disabled; only one with somewhere to
+    // scroll owns the wheel.
+    ScrollViewer? InnerScrollUnder(PointerWheelEventArgs e) {
+        if (e.Source is not Visual visual) return null;
         foreach (var inner in visual.GetSelfAndVisualAncestors().OfType<ScrollViewer>()) {
-            if (ReferenceEquals(inner, _scroll)) return false;
+            if (ReferenceEquals(inner, _scroll)) return null;
             if (inner.VerticalScrollBarVisibility == ScrollBarVisibility.Disabled) continue;
-            var range = inner.Extent.Height - inner.Viewport.Height;
-            if (range <= 1) continue;
-            var towardStart = e.Delta.Y > 0;
-            if (towardStart ? inner.Offset.Y <= 0.5 : inner.Offset.Y >= range - 0.5) continue;
-            return true;
+            if (inner.Extent.Height - inner.Viewport.Height > 1) return inner;
         }
-        return false;
+        return null;
+    }
+
+    static bool CanScrollToward(ScrollViewer inner, double wheelDeltaY) {
+        var range = inner.Extent.Height - inner.Viewport.Height;
+        return wheelDeltaY > 0 ? inner.Offset.Y > 0.5 : inner.Offset.Y < range - 0.5;
     }
 
     void OnChatThumbDrag(object? sender, RoutedEventArgs e) {

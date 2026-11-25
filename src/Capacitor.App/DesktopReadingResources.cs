@@ -25,6 +25,7 @@ internal sealed class DesktopReadingResources(Application application) {
         _layout = layout;
         var resources = application.Resources;
         Set(resources, "KcapChatCardPadding", compact ? new Thickness(11, 8) : null);
+        Set(resources, "KcapSystemCardPadding", compact ? new Thickness(10, 5) : null);
         Set(resources, "KcapActionPadding", compact ? new Thickness(13, 6) : null);
         Set(resources, "KcapChoicePadding", compact ? new Thickness(11, 6) : null);
         Set(resources, "KcapTranscriptGap", compact ? new Thickness(0, 6, 0, 9) : null);

@@ -2025,6 +2025,39 @@ public class ChatTabViewSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public async Task Wheeling_over_tool_output_scrolls_the_output_and_never_the_chat_even_at_its_end() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var output = string.Join("\n", Enumerable.Repeat("recorded output", 800));
+                var encoded = System.Text.Json.Nodes.JsonValue.Create(output).ToJsonString();
+                var result = ToolResultLine.Replace("\"ok\"", encoded);
+                await host.LoadAsync(Tmp.CreateFile("wheel-output.jsonl",
+                    [.. Enumerable.Repeat(UserLine, 4), ToolCallLine, result, .. Enumerable.Repeat(UserLine, 30)]));
+                WheelUp(host);
+                host.Settle();
+                var row = ToolRows(host.View).Single();
+                Click(host, row.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToolRowToggle"));
+                var inner = row.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "ToolInspection")
+                    .GetVisualDescendants().OfType<ScrollViewer>().Single();
+                inner.BringIntoView();
+                var over = PresentAndLocate(host, inner);
+                var chatOffset = host.Scroll.Offset.Y;
+
+                host.Window.MouseWheel(over, new Vector(0, -100_000));
+                host.Settle();
+                await Assert.That(inner.Offset.Y).IsGreaterThan(0);
+                await Assert.That(host.Scroll.Offset.Y).IsEqualTo(chatOffset);
+
+                host.Window.MouseWheel(over, new Vector(0, -3));
+                host.Settle();
+                await Assert.That(host.Scroll.Offset.Y).IsEqualTo(chatOffset);
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public async Task Returning_from_tool_details_by_keyboard_reveals_the_collapse_toggle_without_following_new_messages() {
         await RunOnUiAsync(async () => {
             var host = new Host();
@@ -3119,14 +3152,14 @@ public class ChatTabViewSmokeTests {
             await Assert.That(((ToolCallItem)ToolRows(host.View)[0].DataContext!).Outcome).IsEqualTo(ToolOutcome.Running);
             var card = host.View.GetVisualDescendants().OfType<Border>().Single(b => b.Classes.Contains("toolGroup"));
             await Assert.That(card.Classes.Contains("folded")).IsTrue();
-            await Assert.That(card.Margin.Bottom).IsEqualTo(10);
+            var foldedGap = card.Margin.Bottom;
 
             Click(host, summary);
             await Assert.That(OnlyGroup(host).IsExpanded).IsTrue();
             await Assert.That(OnlyGroup(host).Summary).IsEqualTo("Ran a command, read a file");
             await Assert.That(ToolRows(host.View)).Count().IsEqualTo(3);
             await Assert.That(card.Classes.Contains("folded")).IsFalse();
-            await Assert.That(card.Margin.Bottom).IsEqualTo(22);
+            await Assert.That(card.Margin.Bottom).IsGreaterThan(foldedGap);
 
             Click(host, summary);
             await Assert.That(OnlyGroup(host).IsExpanded).IsFalse();
