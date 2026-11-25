@@ -11,10 +11,10 @@ namespace Capacitor.Cli.Daemon.Harness.Antigravity;
 /// run, and the reviewer's result channel IS an MCP tool: without a rule the one call a round waits for
 /// is refused and the round hangs to the flow timeout.</para>
 ///
-/// <para><b>agy's own denial text says allow-rules do not help</b> (<c>"…auto-denied. Add an
-/// allow-rule…"</c> and older builds' <c>"Settings allow-rules do not apply; re-run with
-/// --dangerously-skip-permissions"</c>). For MCP they do: under an isolated home in Default mode, the
-/// exact rule below lets the call through and its absence reproduces the denial.</para>
+/// <para>Exact MCP allow-rules work in Default mode, whatever agy's denial text suggests: under an
+/// isolated home the rule below lets the call through and its absence reproduces the denial. The
+/// binary also ships <c>"Settings allow-rules do not apply; re-run with
+/// --dangerously-skip-permissions"</c>, which does not describe the MCP path.</para>
 ///
 /// <para>The flag is not the alternative: it lifts the reviewer's out-of-workspace read and write
 /// refusals along with the MCP one, trading containment for delivery. Rules are exact pairs, never
