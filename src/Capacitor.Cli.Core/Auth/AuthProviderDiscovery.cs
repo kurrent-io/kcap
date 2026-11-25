@@ -54,8 +54,14 @@ public sealed class AuthProviderDiscovery(IHttpClientFactory factory, TimeProvid
     /// The server's <c>machine_token_url</c>, or null when it names none or cannot be asked — the
     /// caller then falls back to the default endpoint. A cached entry written without the field
     /// is not an answer, so it is asked again.
+    ///
+    /// <para>Only a server reached over https, or http on loopback, is believed: the mint sends the
+    /// client secret to this URL, so a plaintext <c>/auth/config</c> anyone on the path could rewrite
+    /// would hand them the credential.</para>
     /// </summary>
     public async Task<string?> MachineTokenUrlAsync(string baseUrl, ConfigRoot config, CancellationToken ct = default) {
+        if (!MayNameTokenUrl(baseUrl)) return null;
+
         if (_machineTokenUrls.TryGetValue(baseUrl, out var memo)) return memo;
 
         if (AuthProviderCache.TryGetMachineTokenUrl(baseUrl, config, time, out var cached)) {
@@ -68,6 +74,10 @@ public sealed class AuthProviderDiscovery(IHttpClientFactory factory, TimeProvid
 
         return _machineTokenUrls.GetValueOrDefault(baseUrl);
     }
+
+    static bool MayNameTokenUrl(string baseUrl) =>
+        Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
+     && (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback));
 
     async Task<string?> FetchAsync(string baseUrl, ConfigRoot config, CancellationToken ct) {
         using var http = factory.CreateClient(CapacitorClients.Anonymous);

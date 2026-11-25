@@ -358,6 +358,24 @@ public class MachineAuthTests : IDisposable {
         await Assert.That(_server.LogEntries.Count(e => e.RequestMessage.Path == "/tenant-idp/token")).IsEqualTo(1);
     }
 
+    /// <summary>The mint sends the secret to the server's <c>machine_token_url</c>, so only a server
+    /// reached over https, or http on loopback, may name it; a plaintext one falls back to the default.
+    /// The URL is already on disk, so the answer cannot be a failed fetch.</summary>
+    [Test]
+    [Arguments("https://kcap.example", true)]
+    [Arguments("http://127.0.0.1:9473", true)]
+    [Arguments("http://localhost:9473", true)]
+    [Arguments("http://kcap.example", false)]
+    [Arguments("http://10.0.0.5:8080", false)]
+    public async Task Only_a_server_reached_safely_may_name_the_token_url(string baseUrl, bool believed) {
+        AuthProviderCache.Set(baseUrl, "workos", Config.Root, TimeProvider.System, "https://idp.example/oauth2/token");
+
+        var named = await new AuthProviderDiscovery(new PlainHttpClientFactory(), TimeProvider.System)
+            .MachineTokenUrlAsync(baseUrl, Config.Root);
+
+        await Assert.That(named).IsEqualTo(believed ? "https://idp.example/oauth2/token" : null);
+    }
+
     [Test]
     [Arguments(null, null, MachineAuth.DefaultTokenUrl)]
     [Arguments(null, " ", MachineAuth.DefaultTokenUrl)]
