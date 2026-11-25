@@ -11,11 +11,32 @@ using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
 
-/// The work-context pane. DataContext is the workspace's WorkContextViewModel, supplied by
-/// WorkspaceView; this view builds nothing of its own.
 public partial class WorkContextView : UserControl {
+    internal const string BranchWidgetResource = "KcapWorkContextBranch";
+    static readonly StyledProperty<bool> BranchWidgetEnabledProperty =
+        AvaloniaProperty.Register<WorkContextView, bool>("BranchWidgetEnabled");
+
     public WorkContextView() {
         InitializeComponent();
+        Bind(BranchWidgetEnabledProperty, this.GetResourceObservable(BranchWidgetResource));
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change) {
+        base.OnPropertyChanged(change);
+        if (change.Property != BranchWidgetEnabledProperty) return;
+        var enabled = GetValue(BranchWidgetEnabledProperty);
+        if (enabled) BranchWidgetHost.Classes.Remove("dismissed");
+        else RestoreBranchWidgetFocus();
+        BranchWidgetHost.Classes.Set("branchWidgetEnabled", enabled);
+    }
+
+    void OnDismissBranchWidgetClick(object? sender, RoutedEventArgs e) {
+        RestoreBranchWidgetFocus();
+        BranchWidgetHost.Classes.Add("dismissed");
+    }
+
+    void RestoreBranchWidgetFocus() {
+        if (BranchWidgetHost.IsKeyboardFocusWithin && !RefreshButton.Focus()) HideButton.Focus();
     }
 
     ChatBookmark? _colouring;

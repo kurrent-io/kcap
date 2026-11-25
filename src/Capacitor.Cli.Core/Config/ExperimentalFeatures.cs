@@ -41,7 +41,15 @@ public static class ExperimentalFeatures {
         OnByDefault: true,
         AppWide: true);
 
-    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance];
+    public static ExperimentalFeature WorkContextBranch { get; } = new(
+        "work-context-branch",
+        "Branch in work context",
+        "Show the session's branch at the top of work context. Dismiss the row from the workspace.",
+        AppliesLive: true,
+        DesktopAppOnly: true,
+        OnByDefault: false);
+
+    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance, WorkContextBranch];
 
     /// <summary>Ids are matched exactly, case included.</summary>
     public static ExperimentalFeature? Find(string id) =>

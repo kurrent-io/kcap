@@ -64,3 +64,7 @@ Inline and fenced code keep their own typography when switching reading faces.
 Pilot questions remain around recognition of lightly filled selections, separation of raised surfaces in Light, and distinguishing a filled destructive action from a primary action. Test those with readers on Windows, macOS and Linux before widening the preview.
 
 Compare the stock app, preview-off and default appearance under Light and Dark with the same native synthetic transcript. Compare startup, typing, scrolling and jumps independently.
+
+## Work-context widget
+
+The optional branch row uses the current session’s branch already held by work context. It is hidden for sessions without a known branch. The dismiss action hides it in the current workspace and returns keyboard focus to a workspace control.

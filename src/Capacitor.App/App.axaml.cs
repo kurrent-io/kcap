@@ -1492,6 +1492,7 @@ public partial class App : Application {
         var inAppPages = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.InAppPages);
         var launcherNextWork = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.LauncherNextWork);
         var drafts = new ComposerDrafts();
+        WatchDesktopExperiment(ExperimentalFeatures.WorkContextBranch, profiles?.Resolution.ProfileName, WorkContextView.BranchWidgetResource);
         var chatMarksOn = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.ChatMarks);
         _chatMarksFiles = new ChatMarksFiles(_config.Path("chat-marks"));
         var chatMarks = new ChatMarks(_chatMarksFiles);
@@ -3532,6 +3533,7 @@ public partial class App : Application {
     void LatchNavigation() {
         _notificationAccessPrompt?.Dispose();
         _desktopNotifications?.Dispose();
+        _desktopExperimentSubscriptions.Dispose();
         _classicPreviewSubscription?.Dispose();
         _classicPreview?.Dispose();
         _desktopAppearance?.Dispose();
