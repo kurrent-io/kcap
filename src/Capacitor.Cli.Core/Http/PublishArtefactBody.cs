@@ -7,4 +7,6 @@ public record PublishArtefactBody(
     [property: JsonPropertyName("title")]       string        Title,
     [property: JsonPropertyName("html")]        string        Html,
     [property: JsonPropertyName("description")] string?       Description,
-    [property: JsonPropertyName("sources")]     List<string>? Sources);
+    [property: JsonPropertyName("sources")]     List<string>? Sources,
+    [property: JsonPropertyName("kind")]        string?       Kind      = null,
+    [property: JsonPropertyName("work_items")]  List<string>? WorkItems = null);
