@@ -59,4 +59,36 @@ public class AntigravityAdcTrioTests {
         await Assert.That(disabled.AnyPresent).IsTrue();
         await Assert.That(disabled.Missing).IsEquivalentTo(new[] { "AGY_ADC_AUTH=1" });
     }
+
+    /// <summary>agy bills the ADC file's quota project rather than <c>GOOGLE_CLOUD_PROJECT</c>, so only a
+    /// quota project that names a different one is reported; anything unreadable reports nothing.</summary>
+    [Test]
+    [Arguments("{\"quota_project_id\":\"unbilled\"}", "unbilled")]
+    [Arguments("{\"quota_project_id\":\"p\"}", null)]
+    [Arguments("{\"quota_project_id\":\"\"}", null)]
+    [Arguments("{\"type\":\"authorized_user\"}", null)]
+    [Arguments("not json", null)]
+    public async Task A_quota_project_other_than_the_project_is_reported(string adc, string? expected) {
+        using var tmp = new TempDir();
+        var file = tmp.CreateFile(["adc.json"], adc);
+
+        var mismatch = AntigravityAdcTrio.MismatchedQuotaProject(new Dictionary<string, string> {
+            ["GOOGLE_CLOUD_PROJECT"] = "p", ["GOOGLE_APPLICATION_CREDENTIALS"] = file,
+        });
+
+        await Assert.That(mismatch).IsEqualTo(expected);
+    }
+
+    [Test]
+    public async Task A_missing_credentials_file_or_project_reports_no_quota_mismatch() {
+        using var tmp = new TempDir();
+        var file = tmp.CreateFile(["adc.json"], "{\"quota_project_id\":\"unbilled\"}");
+
+        await Assert.That(AntigravityAdcTrio.MismatchedQuotaProject(new Dictionary<string, string> {
+            ["GOOGLE_CLOUD_PROJECT"] = "p", ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp.PathTo("absent.json"),
+        })).IsNull();
+        await Assert.That(AntigravityAdcTrio.MismatchedQuotaProject(new Dictionary<string, string> {
+            ["GOOGLE_APPLICATION_CREDENTIALS"] = file,
+        })).IsNull();
+    }
 }

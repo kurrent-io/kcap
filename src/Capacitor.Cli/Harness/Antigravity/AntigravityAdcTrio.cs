@@ -61,6 +61,29 @@ static class AntigravityAdcTrio {
             env[ProjectKey] = gcloudProject;
     }
 
+    /// <summary>The ADC file's <c>quota_project_id</c> when it names a project other than the
+    /// environment's <c>GOOGLE_CLOUD_PROJECT</c>, else null. agy bills that quota project and ignores
+    /// <c>GOOGLE_CLOUD_PROJECT</c> and <c>GOOGLE_CLOUD_QUOTA_PROJECT</c> for it, so a complete trio
+    /// still fails every prompt with a 403 when the quota project has no billing. Only that one field
+    /// is read; never throws.</summary>
+    public static string? MismatchedQuotaProject(IReadOnlyDictionary<string, string> env) {
+        if (!env.TryGetValue(CredentialsKey, out var path) || !env.TryGetValue(ProjectKey, out var project))
+            return null;
+
+        try {
+            using var doc = System.Text.Json.JsonDocument.Parse(File.ReadAllText(path));
+
+            return doc.RootElement.TryGetProperty("quota_project_id", out var quota)
+                && quota.ValueKind == System.Text.Json.JsonValueKind.String
+                && quota.GetString() is { Length: > 0 } quotaProject
+                && quotaProject != project.Trim()
+                    ? quotaProject
+                    : null;
+        } catch {
+            return null;
+        }
+    }
+
     /// <summary>The trio's state in a built environment, for the install path to report:
     /// <c>AnyPresent</c> false means agy is simply not configured (nothing to say); <c>Missing</c>
     /// non-empty with <c>AnyPresent</c> true is a partial trio — never a working agy configuration,
