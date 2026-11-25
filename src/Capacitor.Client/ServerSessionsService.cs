@@ -47,6 +47,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
     readonly BehaviorSubject<IReadOnlySet<string>> _viewerIds = new(FrozenSet<string>.Empty);
     readonly BehaviorSubject<string?> _viewerUserId = new(null);
     readonly BehaviorSubject<bool> _current = new(false);
+    readonly BehaviorSubject<bool> _answered = new(false);
     readonly BehaviorSubject<RailScope> _scope = new(RailScope.Mine);
     readonly Func<ServerSessionsQuery, CancellationToken, Task<ServerSessionsFetch>> _fetch;
     readonly Func<CancellationToken, Task<SessionOwnerOptionDto[]?>> _fetchOwners;
@@ -132,6 +133,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
                     _connected = false;
                     _generation++;
                     _current.OnNext(false);
+                    _answered.OnNext(false);
                     _identity.OnNext(new(_account, _generation, false));
                 }
                 return;
@@ -203,6 +205,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
     public IObservable<IReadOnlySet<string>> ViewerIds => _viewerIds.AsObservable();
     public IObservable<string?> ViewerUserId => _viewerUserId.AsObservable();
     public IObservable<bool> Current => _current.AsObservable();
+    public IObservable<bool> Answered => _answered.AsObservable();
     public IObservable<RailScope> ScopeChanges => _scope.AsObservable();
     public IObservable<SessionIdentity> Identity => _identity.AsObservable();
     public string? PinnedSessionId { get { lock (_lock) return _pinId; } }
@@ -541,6 +544,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
                     } else {
                         if (snapshot is not null) Publish(snapshot, pages, readSeq, titleSeq);
                         _current.OnNext(snapshot is { EndedPartial: false });
+                        _answered.OnNext(true);
                     }
                     if (unauthorized) notifyUnauthorized = true;
                 }
@@ -813,6 +817,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
         _viewerIds.Dispose();
         _viewerUserId.Dispose();
         _current.Dispose();
+        _answered.Dispose();
         _scope.Dispose();
         _snapshots.Dispose();
         _identity.Dispose();

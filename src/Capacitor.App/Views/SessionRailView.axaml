@@ -398,9 +398,6 @@
                         </Button>
                     </Grid>
                 </StackPanel>
-
-                <TextBlock Text="Loading sessions…" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapFaintBrush}"
-                           Margin="16,0,16,8" IsVisible="{Binding LoadingSessions}" />
             </StackPanel>
 
             <!-- The footer always states the connection: Connected while healthy, the alert otherwise.
@@ -556,6 +553,12 @@
 
             <ScrollViewer x:Name="RailScroll" VerticalScrollBarVisibility="Auto" Margin="10,0,10,4">
                 <StackPanel>
+                    <StackPanel x:Name="RailLoading" Orientation="Horizontal" Spacing="8" Margin="8,16"
+                                IsVisible="{Binding LoadingSessions}">
+                        <views:AppIcon Kind="LoaderCircle" Size="14" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center"
+                                       views:BusyIndicator.IsBusy="{Binding LoadingSessions}" />
+                        <TextBlock Text="Loading sessions…" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                    </StackPanel>
                     <TextBlock Text="No sessions" Foreground="{StaticResource KcapFaintBrush}" Margin="8,16"
                                IsVisible="{Binding ShowsNoSessions}" />
                     <Button x:Name="RailShowAllHarnessesButton" Classes="kcapLink" Content="Show all harnesses"
@@ -700,18 +703,21 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <StackPanel x:Name="RailPaging" DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
-                                Margin="8,8,8,6" Spacing="4" IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}">
-                        <Button x:Name="RailShowMoreButton" Classes="kcapGhost" Content="Load more ended sessions" Command="{Binding ShowMoreCommand}"
-                                IsVisible="{Binding ShowsShowMore}" HorizontalAlignment="Stretch" Padding="10,5" FontSize="{StaticResource KcapFontSizeSmall}" />
-                        <TextBlock x:Name="RailLoadedText" Text="{Binding LoadedText}" Classes="railMeta" Foreground="{StaticResource KcapFaintBrush}"
-                                   TextWrapping="Wrap" Margin="8,0" IsVisible="{Binding LoadedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                        <TextBlock x:Name="RailCapNote" Text="{x:Static vm:SessionRailViewModel.CapNote}" Classes="railMeta"
-                                   Foreground="{StaticResource KcapFaintBrush}" Margin="8,0" TextWrapping="Wrap" IsVisible="{Binding AtCap}" />
-                        <TextBlock x:Name="RailLiveNotShownText" Text="{Binding LiveNotShownText}" Classes="railMeta"
-                                   Foreground="{StaticResource KcapFaintBrush}" Margin="8,0" TextWrapping="Wrap"
-                                   IsVisible="{Binding LiveNotShownText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                    </StackPanel>
+                    <!-- Paging counts can land before the rows they count; the loading state stands alone. -->
+                    <Panel IsVisible="{Binding !LoadingSessions}">
+                        <StackPanel x:Name="RailPaging" DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
+                                    Margin="8,8,8,6" Spacing="4" IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}">
+                            <Button x:Name="RailShowMoreButton" Classes="kcapGhost" Content="Load more ended sessions" Command="{Binding ShowMoreCommand}"
+                                    IsVisible="{Binding ShowsShowMore}" HorizontalAlignment="Stretch" Padding="10,5" FontSize="{StaticResource KcapFontSizeSmall}" />
+                            <TextBlock x:Name="RailLoadedText" Text="{Binding LoadedText}" Classes="railMeta" Foreground="{StaticResource KcapFaintBrush}"
+                                       TextWrapping="Wrap" Margin="8,0" IsVisible="{Binding LoadedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                            <TextBlock x:Name="RailCapNote" Text="{x:Static vm:SessionRailViewModel.CapNote}" Classes="railMeta"
+                                       Foreground="{StaticResource KcapFaintBrush}" Margin="8,0" TextWrapping="Wrap" IsVisible="{Binding AtCap}" />
+                            <TextBlock x:Name="RailLiveNotShownText" Text="{Binding LiveNotShownText}" Classes="railMeta"
+                                       Foreground="{StaticResource KcapFaintBrush}" Margin="8,0" TextWrapping="Wrap"
+                                       IsVisible="{Binding LiveNotShownText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
+                    </Panel>
                 </StackPanel>
             </ScrollViewer>
         </DockPanel>
