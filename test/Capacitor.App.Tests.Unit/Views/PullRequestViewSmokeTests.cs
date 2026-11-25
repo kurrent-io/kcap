@@ -1,11 +1,15 @@
 using System.Reactive.Linq;
+using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.Views;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
+using TUnit.Assertions.Enums;
 using static Capacitor.App.Tests.Unit.AvaloniaSession;
 using static Capacitor.App.Tests.Unit.WorkspaceFixtures;
 
@@ -13,6 +17,100 @@ namespace Capacitor.App.Tests.Unit.Views;
 
 [NotInParallel("AvaloniaSession")]
 public class PullRequestViewSmokeTests {
+    [Test]
+    [Arguments("merged", "success", "Merged", "Checks passing")]
+    [Arguments("open", "failure", "Open", "Checks failing")]
+    public Task Structured_PR_card_tip_leaves_check_results_in_the_card(
+            string lifecycle, string rollup, string stateText, string checksText) => RunOnUiAsync(async () => {
+        using var preview = new TooltipPreviewScope();
+        preview.Enable(ClassicAppearance.Dark);
+        await using var host = new PullRequestViewTestHost();
+        foreach (var link in host.Source.Links) host.Source.Lifecycles[link.Number] = lifecycle;
+        host.Source.RollupFor = _ => rollup;
+        await host.ShowAsync();
+        var checks = host.Card.FindControl<Button>("SidebarChecksButton")!;
+        await Assert.That(checks.GetVisualDescendants().OfType<TextBlock>()
+            .Any(text => text.IsEffectivelyVisible && text.Text == checksText)).IsTrue();
+        var number = host.Card.FindControl<TextBlock>("LifecycleNumber")!;
+        var repository = host.Card.GetVisualDescendants().OfType<TextBlock>().Single(text =>
+            text.IsEffectivelyVisible && text.Text == host.Model.RepositoryLabel);
+        foreach (var label in new[] { number, repository }) {
+            ToolTip.SetIsOpen(label, true);
+            await Assert.That(ToolTip.GetIsOpen(label)).IsFalse();
+        }
+        var title = host.Card.FindControl<Button>("PullRequestTitleButton")!;
+        title.Focus(NavigationMethod.Directional);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(TooltipPreviewScope.Text(title)).IsEquivalentTo(
+            new[] { "Private PR", stateText, "Pull request", $"{host.Model.RepositoryLabel} {host.Model.NumberLabel}" },
+            CollectionOrdering.Matching);
+        await Assert.That(AutomationProperties.GetHelpText(title)!.Contains(checksText, StringComparison.Ordinal)).IsFalse();
+        await Assert.That(AutomationProperties.GetName(title)).IsEqualTo("Open pull request overview");
+        var select = host.Card.FindControl<ComboBox>("PullRequestSelector")!;
+        await Assert.That(select.IsEffectivelyVisible).IsTrue();
+        select.Focus(NavigationMethod.Directional);
+        await Assert.That(ToolTip.GetIsOpen(title)).IsFalse();
+        await Assert.That(select.ItemCount).IsEqualTo(2);
+    });
+
+    [Test]
+    public Task Structured_PR_picker_tips_follow_keyboard_focus_and_selection() => RunOnUiAsync(async () => {
+        using var preview = new TooltipPreviewScope();
+        preview.Enable(ClassicAppearance.Light);
+        await using var host = new PullRequestViewTestHost();
+        host.Source.Links = [
+            FakePullRequestSource.Link(1) with { Title = "First linked PR", Lifecycle = "open" },
+            FakePullRequestSource.Link(2) with { Title = "Second linked PR", Lifecycle = "merged" },
+        ];
+        await host.ShowAsync();
+        var select = host.Card.FindControl<ComboBox>("PullRequestSelector")!;
+        select.Focus(NavigationMethod.Tab);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(TooltipPreviewScope.Text(select)).IsEquivalentTo(
+            new[] { "First linked PR", "Open", "Pull request", "example/repo #1" },
+            CollectionOrdering.Matching);
+        await Assert.That(AutomationProperties.GetHelpText(select)).Contains("First linked PR").And.Contains("Pull request · example/repo #1");
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
+        await Assert.That(ToolTip.GetIsOpen(select)).IsFalse();
+        await Assert.That(select.IsFocused).IsTrue();
+
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
+        await Assert.That(select.IsDropDownOpen).IsTrue();
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.ArrowDown);
+        var second = (ComboBoxItem)select.ContainerFromIndex(1)!;
+        await Assert.That(second.IsFocused).IsTrue();
+        await Assert.That(AutomationProperties.GetHelpText(second)).Contains("Second linked PR");
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(TooltipPreviewScope.Text(second)).IsEquivalentTo(
+            new[] { "Second linked PR", "Merged", "Pull request", "example/repo #2" },
+            CollectionOrdering.Matching);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
+        await Assert.That(ToolTip.GetIsOpen(second)).IsFalse();
+        await Assert.That(select.IsDropDownOpen).IsTrue();
+        await Assert.That(second.IsFocused).IsTrue();
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
+        await Assert.That(select.IsDropDownOpen).IsFalse();
+        await host.SettleAsync();
+        await Assert.That(select.IsFocused).IsTrue();
+        await Assert.That(select.SelectedIndex).IsEqualTo(1);
+
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(TooltipPreviewScope.Text(select)).Contains("Second linked PR");
+        preview.Disable();
+        TooltipPreviewScope.Pump(host.Window);
+        await Assert.That(select.IsFocused).IsTrue();
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(TooltipPreviewScope.Text(select)).Contains("Second linked PR");
+        await Assert.That(AutomationProperties.GetHelpText(select)).Contains("Second linked PR");
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
+        await Assert.That(select.IsDropDownOpen).IsTrue();
+        var choice = (ComboBoxItem)select.ContainerFromIndex(1)!;
+        await Assert.That(choice.IsFocused).IsTrue();
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(TooltipPreviewScope.Text(choice)).Contains("Merged");
+    });
+
     [Test]
     [Arguments(true, false)]
     [Arguments(false, false)]

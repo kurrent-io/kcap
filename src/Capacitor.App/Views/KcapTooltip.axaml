@@ -1,0 +1,45 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
+             x:Class="Capacitor.App.Views.KcapTooltip" x:DataType="vm:KcapTip" MaxWidth="320">
+    <UserControl.Styles>
+        <Style Selector="TextBlock.tipState"><Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" /></Style>
+        <Style Selector="TextBlock.tipState.danger"><Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" /></Style>
+        <Style Selector="TextBlock.tipState.active"><Setter Property="Foreground" Value="{StaticResource KcapPurpleBrush}" /></Style>
+    </UserControl.Styles>
+    <StackPanel Spacing="5">
+        <StackPanel Spacing="1">
+            <TextBlock Text="{Binding Title}" TextWrapping="Wrap" FontWeight="SemiBold"
+                       FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapTextBrush}" />
+            <TextBlock Text="{Binding State}" TextWrapping="Wrap" Classes="tipState" FontWeight="SemiBold"
+                       Classes.danger="{Binding IsDanger}" Classes.active="{Binding IsActive}"
+                       IsVisible="{Binding State, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            <TextBlock Text="{Binding StateDetail}" TextWrapping="Wrap"
+                       IsVisible="{Binding StateDetail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                       FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" />
+        </StackPanel>
+        <ItemsControl ItemsSource="{Binding Details}" IsVisible="{Binding HasDetails}">
+            <ItemsControl.Styles>
+                <Style Selector="TextBlock.tipValue">
+                    <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+                </Style>
+                <Style Selector="StackPanel.labelledTipRow > TextBlock.tipValue">
+                    <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+                </Style>
+            </ItemsControl.Styles>
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate><StackPanel Spacing="5" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate x:DataType="vm:KcapTipDetail">
+                    <StackPanel Spacing="1" Classes.labelledTipRow="{Binding HasLabel}">
+                        <TextBlock Text="{Binding Label}" IsVisible="{Binding HasLabel}" FontWeight="SemiBold"
+                                   FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" />
+                        <TextBlock Text="{Binding Value}" TextWrapping="Wrap" Classes="tipValue"
+                                   FontSize="{StaticResource KcapFontSizeSmall}" />
+                    </StackPanel>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </StackPanel>
+</UserControl>

@@ -39,14 +39,14 @@
                         <Grid ColumnDefinitions="Auto,*">
                             <Ellipse Classes="nwbNew" Margin="0,0,8,0" IsVisible="{Binding IsNew}" ToolTip.Tip="New since your last visit"
                                      AutomationProperties.Name="New since your last visit" />
-                            <TextBlock Grid.Column="1" Classes="nwbTitle" Text="{Binding Label}" ToolTip.Tip="{Binding Label}" />
+                            <TextBlock Grid.Column="1" Classes="nwbTitle" Text="{Binding Label}" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Label}" />
                         </Grid>
                         <!-- Spaced like the text's own " · ", so every dot on the line sits the same way. The pills
                              take the end column so they line up across rows and leave the dotted text unbroken. -->
                         <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="4">
                             <TextBlock x:Name="CardKind" Classes="nwbMeta" Text="{Binding KindLabel}" />
                             <TextBlock Grid.Column="1" Classes="nwbMeta" Text="·" IsVisible="{Binding HasMeta}" />
-                            <TextBlock x:Name="CardMeta" Grid.Column="2" Classes="nwbMeta" Text="{Binding Meta}" ToolTip.Tip="{Binding Meta}" IsVisible="{Binding HasMeta}" />
+                            <TextBlock x:Name="CardMeta" Grid.Column="2" Classes="nwbMeta" Text="{Binding Meta}" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Meta}" IsVisible="{Binding HasMeta}" />
                             <StackPanel x:Name="CardPills" Grid.Column="3" Orientation="Horizontal" Spacing="4" Margin="8,0,0,0">
                                 <Border Classes="nwbChip" Classes.warning="{Binding ArmChipWarns}" IsVisible="{Binding HasArmChip}">
                                     <TextBlock Text="{Binding ArmChip}" />
@@ -69,7 +69,7 @@
                         <Grid x:Name="CardContext" ColumnDefinitions="Auto,*" ColumnSpacing="4" IsVisible="{Binding HasContext}"
                               ToolTip.Tip="Loose end noted against this item">
                             <views:AppIcon Kind="CornerDownRight" Size="12" Foreground="{StaticResource KcapFaintBrush}" />
-                            <TextBlock Grid.Column="1" Classes="nwbContext" Text="{Binding Context}" ToolTip.Tip="{Binding Context}" />
+                            <TextBlock Grid.Column="1" Classes="nwbContext" Text="{Binding Context}" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Context}" />
                         </Grid>
                     </StackPanel>
                 </Grid>

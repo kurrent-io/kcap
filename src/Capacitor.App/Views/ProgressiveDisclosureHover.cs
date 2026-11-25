@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Documents;
@@ -6,15 +7,20 @@ using Avalonia.VisualTree;
 
 namespace Capacitor.App.Views;
 
-/// Lights the faded span under the pointer. Inlines take no pointer events, so the span is found by
-/// hit-testing the block's text layout, which counts a line break as the platform's newline and an
-/// embedded control as one character.
+/// Lights the faded span under the pointer, with every other piece of its span when it reaches across
+/// blocks. Inlines take no pointer events, so the span is found by hit-testing the block's text layout,
+/// which counts a line break as the platform's newline and an embedded control as one character.
 sealed class ProgressiveDisclosureHover {
     public const string FadedClass = "progressive-disclosure-faded";
     public const string LitClass = "progressive-disclosure-lit";
 
-    Span? _lit;
-    TextBlock? _litBlock;
+    static readonly ConditionalWeakTable<Span, object> Groups = new();
+
+    Span? _hit;
+    readonly List<(Span Span, TextBlock Block)> _lit = [];
+
+    /// Marks the rendered span as a piece of the graded span the group stands for.
+    public static void SetGroup(Span span, object group) => Groups.AddOrUpdate(span, group);
 
     /// The block comes from the view's own visuals at the point rather than the event's source, which
     /// can be an overlay above the text.
@@ -28,7 +34,7 @@ sealed class ProgressiveDisclosureHover {
             if (OnText(block.TextLayout, point))
                 span = FadedAt(inlines, block.TextLayout.HitTestPoint(point).CharacterHit.FirstCharacterIndex);
         }
-        Light(span, span is null ? null : block);
+        Light(view, span);
     }
 
     public void Clear() => Light(null, null);
@@ -44,14 +50,38 @@ sealed class ProgressiveDisclosureHover {
         return false;
     }
 
-    void Light(Span? span, TextBlock? block) {
-        if (ReferenceEquals(span, _lit)) return;
-        _lit?.Classes.Remove(LitClass);
-        _litBlock?.InvalidateVisual();
-        _lit = span;
-        _litBlock = block;
-        _lit?.Classes.Add(LitClass);
-        _litBlock?.InvalidateVisual();
+    void Light(Visual? view, Span? span) {
+        if (ReferenceEquals(span, _hit)) return;
+        foreach (var (lit, block) in _lit) {
+            lit.Classes.Remove(LitClass);
+            block.InvalidateVisual();
+        }
+        _lit.Clear();
+        _hit = span;
+        if (view is null || span is null) return;
+        foreach (var piece in Pieces(view, span)) {
+            piece.Span.Classes.Add(LitClass);
+            piece.Block.InvalidateVisual();
+            _lit.Add(piece);
+        }
+    }
+
+    /// The span's pieces in every block of the view, the hit one among them.
+    static IEnumerable<(Span Span, TextBlock Block)> Pieces(Visual view, Span span) {
+        if (!Groups.TryGetValue(span, out var group)) group = span;
+        foreach (var block in view.GetVisualDescendants().OfType<TextBlock>()) {
+            if (block.Inlines is not { Count: > 0 } inlines) continue;
+            foreach (var faded in FadedIn(inlines))
+                if (ReferenceEquals(faded, span) || Groups.TryGetValue(faded, out var other) && ReferenceEquals(other, group))
+                    yield return (faded, block);
+        }
+    }
+
+    static IEnumerable<Span> FadedIn(InlineCollection inlines) {
+        foreach (var span in inlines.OfType<Span>()) {
+            if (span.Classes.Contains(FadedClass)) yield return span;
+            foreach (var inner in FadedIn(span.Inlines)) yield return inner;
+        }
     }
 
     static Span? FadedAt(InlineCollection inlines, int index) {

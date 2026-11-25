@@ -64,3 +64,7 @@ Inline and fenced code keep their own typography when switching reading faces.
 Pilot questions remain around recognition of lightly filled selections, separation of raised surfaces in Light, and distinguishing a filled destructive action from a primary action. Test those with readers on Windows, macOS and Linux before widening the preview.
 
 Compare the stock app, preview-off and default appearance under Light and Dark with the same native synthetic transcript. Compare startup, typing, scrolling and jumps independently.
+
+## Session and linked-work tooltips
+
+Show the full title first and place the state directly below it across desktop appearances. Keep the inactivity explanation with the Stale status. Set each semibold metadata label immediately above its value. Align labels, values and wrapped text to the same left edge. Omit missing values. Add a plain browser note when an external work-context link only shows the item title or key. The PR card shows check results in their own row. A tooltip whose only content is the label text opens only when the label is truncated. Focus a structured tooltip target and press Shift+F1 to show its details, or Escape to dismiss them. In an open PR chooser, Escape dismisses the tooltip and keeps the highlighted choice available. Switching applications dismisses the tooltip.

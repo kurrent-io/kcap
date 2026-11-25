@@ -91,6 +91,11 @@ public class SessionStatusDotsTests {
         await Assert.That(status.Kind).IsEqualTo(AgentStatusKind.Stale);
         await Assert.That(status.Label).IsEqualTo("Stale");
         await Assert.That(status.AccessibleName).IsEqualTo("No activity for over an hour");
+
+        var tip = KcapTip.Session(status, "Inspect transcript", machine: null, checkout: null);
+        await Assert.That(tip.StateDetail).IsEqualTo("No activity for over an hour");
+        await Assert.That(tip.Description).Contains("Stale\nNo activity for over an hour");
+        await Assert.That(tip.Details!.Any(detail => detail.Value == tip.StateDetail)).IsFalse();
         await Assert.That(status.IsInFlight).IsFalse();
         await Assert.That(status.IsWarning).IsTrue();
         await Assert.That(status.ShowsClock).IsTrue();

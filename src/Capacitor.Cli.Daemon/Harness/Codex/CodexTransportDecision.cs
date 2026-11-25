@@ -10,8 +10,7 @@ internal static class CodexTransportDecision {
     public const string VersionFloor = "0.146.0";
 
     /// <summary>Whether app-server stands in for a <c>codex-app-server</c> switch the profile never set.
-    /// Under ConPTY Codex sees no bracketed paste, so the Enter after a pasted follow-up round inserts a
-    /// newline instead of submitting it; app-server takes the round as a <c>turn/start</c>.</summary>
+    /// An explicit disable still keeps that profile on PTY.</summary>
     public static bool AppServerByDefault => Core.Config.ExperimentalFeatures.CodexAppServer.OnByDefault;
 
     /// <summary>Why a launch's expected transport cannot be honoured, or null when it can. Only a

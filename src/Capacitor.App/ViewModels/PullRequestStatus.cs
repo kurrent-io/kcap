@@ -26,6 +26,9 @@ public sealed record PullRequestStatus(string Text, string Kind = "neutral", str
         "commented" => "Reviewers left comments without approving or requesting changes.",
         _ => Text.Length > 0 ? Text : "Status unknown.",
     };
+    public string? LabelTip => string.IsNullOrEmpty(Detail) && Kind is ("open" or "draft" or "merged") || Tip == Text
+        ? null : Tip;
+
     public LucideIconKind? IconKind => Kind switch {
         "open" => LucideIconKind.GitPullRequest,
         "draft" => LucideIconKind.GitPullRequestDraft,

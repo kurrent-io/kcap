@@ -11,6 +11,20 @@ public sealed partial class PullRequestContextViewModel {
     public string SectionMeta => _choices.Count > 0 ? _choices.Count.ToString(CultureInfo.InvariantCulture) : "";
     public string RepositoryLabel => _selected is { } choice ? $"{choice.Link.Owner}/{choice.Link.RepoName}" : "";
     public string NumberLabel => _selected is { } choice ? "#" + choice.Link.Number.ToString(CultureInfo.InvariantCulture) : "";
+
+    (int Number, string? Title, PullRequestStatus? Lifecycle, string Repository, string? Context)? LinkTipContent =>
+        _selected is { } choice
+        ? (choice.Link.Number,
+            CanDisplay ? _overview?.Title ?? choice.Link.Title : choice.IsAvailable ? choice.Link.Title : null,
+            CanDisplay ? LifecycleStatus : choice.IsAvailable ? choice.LinkedLifecycle : null,
+            RepositoryLabel, choice.IsAvailable ? null : "Pull request unavailable")
+        : null;
+
+    public KcapTip? PullRequestTip => LinkTipContent is { } content
+        ? KcapTip.PullRequest(content.Number, content.Title, content.Lifecycle, content.Repository,
+            KcapTipDetail.Note(content.Context))
+        : null;
+
     public bool HasNumberLabel => NumberLabel.Length > 0;
     /// The repository GitHub references in a body are read against; none off github.com, where the
     /// reader cannot tell a reference from text.
@@ -192,6 +206,7 @@ public sealed partial class PullRequestContextViewModel {
         NotifyValue(SelectedTabIndex);
         NotifyValue(SelectedReviewTabIndex);
         NotifyValue(LifecycleStatus);
+        NotifyValue(LinkTipContent, nameof(PullRequestTip));
         NotifyValue(MergedPullRequests);
         NotifyValue(ReviewStatus);
         NotifyValue(ChecksStatus);

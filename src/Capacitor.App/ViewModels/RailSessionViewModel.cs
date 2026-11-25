@@ -67,7 +67,15 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public PullRequestStatus? PullRequestStatus => PullRequest?.Status;
     public bool HasPullRequestLifecycle => PullRequest?.HasLifecycle == true;
     public bool HasMultiplePullRequests => PullRequest?.Count > 1;
-    public string PullRequestTooltip => $"{PullRequest?.Description}\n\nLinked to this session: {SessionAccessibleName}\n{(HasMultiplePullRequests ? "Choose a pull request" : "Open pull request details")}";
+    public KcapTip? LinkedPullRequestTip => PullRequest switch {
+        { Count: 1 } summary => SinglePullRequestTip(summary.MenuItems[0]),
+        { Count: > 1 } summary => new(summary.Description,
+            Details: KcapTipDetail.Present(KcapTipDetail.Field("Linked session", Primary))),
+        _ => null,
+    };
+    KcapTip SinglePullRequestTip(RailPullRequestMenuItem item) => KcapTip.PullRequest(
+        item.Subject.Number, item.Title, item.Status, item.Repository, KcapTipDetail.Field("Linked session", Primary));
+
     public bool HasPullRequest => PullRequest is not null;
     public string PullRequestAccessibleName => $"{(HasMultiplePullRequests ? "Choose from" : "Open")} {PullRequestLabel}{(HasPullRequestLifecycle ? $", {PullRequest?.Lifecycle}" : "")} for {Primary ?? Vendor}";
     /// The right-click menu's items; each disables itself on a row it cannot act on.
@@ -128,7 +136,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
                 this.RaisePropertyChanged(nameof(PullRequestStatus));
                 this.RaisePropertyChanged(nameof(HasPullRequestLifecycle));
                 this.RaisePropertyChanged(nameof(HasMultiplePullRequests));
-                this.RaisePropertyChanged(nameof(PullRequestTooltip));
+                this.RaisePropertyChanged(nameof(LinkedPullRequestTip));
                 this.RaisePropertyChanged(nameof(HasPullRequest));
                 this.RaisePropertyChanged(nameof(PullRequestAccessibleName));
             }).DisposeWith(_disposables);
@@ -232,7 +240,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
 
         if (oldPrimary != Primary || oldVendor != Vendor) {
             this.RaisePropertyChanged(nameof(SessionAccessibleName));
-            this.RaisePropertyChanged(nameof(PullRequestTooltip));
+            this.RaisePropertyChanged(nameof(LinkedPullRequestTip));
             this.RaisePropertyChanged(nameof(PullRequestAccessibleName));
         }
         if (oldMachine != MachineBadge) {
