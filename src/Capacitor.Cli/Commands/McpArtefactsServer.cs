@@ -524,9 +524,9 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
           + "data URI. Pass the page as 'html' or name a local file with 'path'. It is private to you "
           + "until you share it with the kcap-sharing tools. Use update_id to publish a revision of a page you already "
           + "published — the URL stays the same. Before publishing a page with a response_schema, call get_page_guide. "
-          + "Give the page a kind: when the user has not named one, ask them, suggesting the kind that fits. Pass the "
-          + "work items it belongs to in work_items, including the one you are working on; any the server could not "
-          + "link come back in work_items_not_linked.",
+          + "Give the page a kind: when the user has not named one, ask them, suggesting the kind that fits. When you "
+          + "create a page, pass the work items it belongs to in work_items, including the one you are working on; any "
+          + "the server could not link come back in work_items_not_linked. Leave work_items out of a revision.",
             new("object", new() {
                 ["title"]       = new("string", "What this page is called, shown in listings and in the browser tab."),
                 ["html"]        = new("string", "The complete page. Use this or 'path', not both."),

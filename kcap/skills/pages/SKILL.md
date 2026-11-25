@@ -27,9 +27,10 @@ artifact" — which you honor as asked.
 - `title` is required; `description` is one line saying what the page is for.
 - Give the page a `kind` (`prd`, `adr`, `design`, `report` or `other`). When
   the user has not named one, ask them, and suggest the kind that fits
-- Pass the work items the page belongs to in `work_items`, as issue keys or
-  work item ids, including the one you are working on. Any the server could
-  not link come back in `work_items_not_linked`
+- When you create a page, pass the work items it belongs to in `work_items`,
+  as issue keys or work item ids, including the one you are working on. Any
+  the server could not link come back in `work_items_not_linked`. Leave
+  `work_items` out of a revision with `update_id`: it is refused there
 - A page is private to its owner, and publishing never shares it. When they
   asked for something to share but named nobody, ask who should open it. A
   request that mentions no one else stays private.
