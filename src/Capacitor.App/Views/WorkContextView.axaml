@@ -8,6 +8,20 @@
              AutomationProperties.Name="Work context" AutomationProperties.ControlTypeOverride="Group"
              AutomationProperties.LandmarkType="Complementary">
     <UserControl.Styles>
+        <Style Selector="Button.workItemTip" x:DataType="vm:WorkContextViewModel">
+            <Setter Property="views:StructuredTooltip.Model" Value="{Binding WorkItemTip}" />
+        </Style>
+        <Style Selector="Button.issueHeaderTip" x:DataType="vm:WorkContextViewModel">
+            <Setter Property="views:StructuredTooltip.Model" Value="{Binding IssueHeaderTip}" />
+        </Style>
+        <Style Selector="Button.singleIssueTip" x:DataType="vm:WorkContextViewModel">
+            <Setter Property="views:StructuredTooltip.Model" Value="{Binding SeparateIssue.LinkTip}" />
+            <Setter Property="ToolTip.ShowOnDisabled" Value="True" />
+        </Style>
+        <Style Selector="Button.workLinkTip" x:DataType="vm:WorkContextLinkViewModel">
+            <Setter Property="views:StructuredTooltip.Model" Value="{Binding LinkTip}" />
+            <Setter Property="ToolTip.ShowOnDisabled" Value="True" />
+        </Style>
         <!-- Section titles are headings, so a screen reader can step through the pane by them. -->
         <Style Selector="TextBlock.eyebrow">
             <Setter Property="AutomationProperties.HeadingLevel" Value="2" />
@@ -174,7 +188,7 @@
     </UserControl.Styles>
     <UserControl.Resources>
         <DataTemplate x:Key="LinkCard" x:DataType="vm:WorkContextLinkViewModel">
-            <Button Command="{Binding OpenCommand}" Classes="toggle" ToolTip.Tip="{Binding Url}"
+            <Button Command="{Binding OpenCommand}" Classes="toggle workLinkTip" ToolTip.Tip="{Binding Url}"
                     AutomationProperties.Name="{Binding AccessibleName}">
                 <Border Classes="card" Padding="13,11">
                     <StackPanel Spacing="6">
@@ -238,9 +252,9 @@
                 </Panel>
                 <StackPanel Grid.Column="1" Spacing="2">
                     <TextBlock Text="{Binding Title}" Classes="planTask" Classes.settled="{Binding IsSettled}"
-                               TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Title}" />
+                               TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Title}" />
                     <TextBlock Text="{Binding Note}" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="16" Foreground="{StaticResource KcapFaintBrush}"
-                               TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Note}"
+                               TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Note}"
                                IsVisible="{Binding Note, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 </StackPanel>
             </Grid>
@@ -292,9 +306,9 @@
                     </Panel>
                     <StackPanel Grid.Column="1" Spacing="2">
                         <TextBlock Text="{Binding Name}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="16" FontWeight="SemiBold" Foreground="{StaticResource KcapTextBrush}"
-                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Name}" ToolTip.ShowOnDisabled="True" />
+                                   TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Name}" ToolTip.ShowOnDisabled="True" />
                         <TextBlock Text="{Binding Description}" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="16" Foreground="{StaticResource KcapMutedBrush}"
-                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Description}" ToolTip.ShowOnDisabled="True"
+                                   TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Description}" ToolTip.ShowOnDisabled="True"
                                    IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         <TextBlock Text="{Binding StateText}" Classes="kcapStatusWord" Classes.inflight="{Binding IsRunning}" Classes.danger="{Binding IsFailed}" TextWrapping="Wrap"
                                    ToolTip.Tip="{Binding UnopenableReason}" ToolTip.ShowOnDisabled="True" />
@@ -388,7 +402,7 @@
                         <Ellipse x:Name="StaleDot" Width="6" Height="6" Fill="{StaticResource KcapWarningBrush}"
                                  IsVisible="{Binding IsStale}" ToolTip.Tip="Last refresh failed; showing the previous result"
                                  VerticalAlignment="Center" Margin="0,0,2,0" />
-                        <Button x:Name="OpenWorkItemButton" Classes="iconButton" Command="{Binding OpenWorkItemCommand}"
+                        <Button x:Name="OpenWorkItemButton" Classes="iconButton workItemTip" Command="{Binding OpenWorkItemCommand}"
                                 VerticalAlignment="Center" ToolTip.Tip="Open in web" ToolTip.ShowOnDisabled="True"
                                 AutomationProperties.Name="Open work item in web">
                             <views:AppIcon Kind="ExternalLink" Size="14" Classes="prExternal" />
@@ -586,7 +600,7 @@
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate x:DataType="vm:WorkContextPersonViewModel">
                                             <Button Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding Name}"
-                                                    HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Name}" AutomationProperties.Name="{Binding Name, StringFormat='Copy {0}'}">
+                                                    HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Name, StringFormat='Copy {0}'}" AutomationProperties.Name="{Binding Name, StringFormat='Copy {0}'}">
                                                 <StackPanel>
                                                     <TextBlock x:Name="ContributorNameText" Text="{Binding Name}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
                                                                Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
@@ -607,7 +621,7 @@
                                     </Panel>
                                 </Border>
                                 <Button x:Name="RequesterName" Grid.Row="1" Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding Requester}"
-                                        HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Requester}" IsVisible="{Binding PeopleExpanded}"
+                                        HorizontalAlignment="Stretch" ToolTip.Tip="{Binding Requester, StringFormat='Copy {0}'}" IsVisible="{Binding PeopleExpanded}"
                                         AutomationProperties.Name="{Binding Requester, StringFormat='Copy {0}'}">
                                     <StackPanel>
                                         <TextBlock Text="{Binding Requester}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
@@ -660,7 +674,7 @@
                 </StackPanel>
 
                 <StackPanel x:Name="IssueSection" Margin="0,18,0,0" IsVisible="{Binding HasSeparateIssue}">
-                    <Button x:Name="IssueHeader" Classes="sectionHeader"
+                    <Button x:Name="IssueHeader" Classes="sectionHeader issueHeaderTip"
                             Classes.expandable="{Binding IssuesOverflows}"
                             Command="{Binding ToggleIssuesCommand}"
                             ToolTip.Tip="{Binding SeparateIssue.Url}" AutomationProperties.Name="Issues">
@@ -678,7 +692,7 @@
                     </Button>
                     <Border Classes="sectionBody">
                         <Panel>
-                            <Button x:Name="IssueTitleButton" Classes="copyValue"
+                            <Button x:Name="IssueTitleButton" Classes="copyValue singleIssueTip"
                                     Command="{Binding SeparateIssue.OpenCommand}"
                                     IsVisible="{Binding !HasMultipleIssues}"
                                     ToolTip.Tip="{Binding SeparateIssue.Url}"
@@ -701,7 +715,7 @@
                                 </ItemsControl.ItemsPanel>
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate x:DataType="vm:WorkContextLinkViewModel">
-                                        <Button Classes="copyValue"
+                                        <Button Classes="copyValue workLinkTip"
                                                 Command="{Binding OpenCommand}"
                                                 ToolTip.Tip="{Binding Url}" AutomationProperties.Name="{Binding AccessibleName}"
                                                 HorizontalAlignment="Stretch">
@@ -1030,7 +1044,7 @@
                                     <Button x:Name="BranchButton" Classes="copyValue" Click="OnCopyTextClick" Tag="{Binding Branch}"
                                             IsVisible="{Binding CanCopyBranch}"
                                             AutomationProperties.Name="Copy branch name"
-                                            ToolTip.Tip="{Binding Branch}">
+                                            ToolTip.Tip="{Binding Branch, StringFormat='Copy branch {0}'}">
                                         <TextBlock Text="{Binding Branch}" Classes="factValue" TextWrapping="Wrap" />
                                     </Button>
                                     <SelectableTextBlock Text="{Binding Branch}" Classes="factValue"

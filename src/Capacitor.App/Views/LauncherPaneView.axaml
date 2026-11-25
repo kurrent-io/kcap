@@ -66,7 +66,7 @@
                             <TextBlock Classes="noticeTitle" Text="{Binding Headline}" />
                         </Panel>
                         <TextBlock Classes="noticeBody" Text="{Binding Detail}" TextWrapping="NoWrap"
-                                   TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Detail}" />
+                                   TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Detail}" />
                         <WrapPanel Classes="noticeActions">
                             <!-- Measure the primary action so switching to tertiary does not reflow the row. -->
                             <Panel>

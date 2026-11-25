@@ -30,6 +30,7 @@ public sealed partial class WorkContextViewModel {
         set {
             _primaryId = value;
             _canOpenWorkItem.OnNext(WorkContextIds.ValidWorkItemId(value) is not null && _openWorkItem is not null);
+            this.RaisePropertyChanged(nameof(WorkItemTip));
         }
     }
 
@@ -85,8 +86,24 @@ public sealed partial class WorkContextViewModel {
         ? SeparateIssues.Count().ToString(CultureInfo.InvariantCulture)
         : SeparateIssue?.Key ?? "";
 
+    public KcapTip? WorkItemTip {
+        get {
+            var title = FirstNonBlank(DisplayTitle, Key);
+            if (title is null) return null;
+            var state = StateLabel?.ToLowerInvariant();
+            var status = string.IsNullOrEmpty(state) ? null : char.ToUpperInvariant(state[0]) + state[1..];
+            return new(title, status, IsClosed ? "danger" : state == "in flight" ? "active" : null,
+                KcapTipDetail.Present(string.Equals(title, Key, StringComparison.OrdinalIgnoreCase) ? null : KcapTipDetail.Note(Key)));
+        }
+    }
+
+    public KcapTip? IssueHeaderTip => HasMultipleIssues
+        ? new($"{IssueSectionMeta} linked issues")
+        : SeparateIssue?.LinkTip;
+
     void NotifyIdentity() {
         this.RaisePropertyChanged(nameof(DisplayTitle));
+        this.RaisePropertyChanged(nameof(WorkItemTip));
         this.RaisePropertyChanged(nameof(HasInlineIssue));
         this.RaisePropertyChanged(nameof(HasSeparateIssue));
         this.RaisePropertyChanged(nameof(SeparateIssue));
@@ -95,6 +112,7 @@ public sealed partial class WorkContextViewModel {
         this.RaisePropertyChanged(nameof(VisibleSeparateIssues));
         this.RaisePropertyChanged(nameof(IssueSectionEyebrow));
         this.RaisePropertyChanged(nameof(IssueSectionMeta));
+        this.RaisePropertyChanged(nameof(IssueHeaderTip));
         this.RaisePropertyChanged(nameof(SeparateIssues));
         RaiseRelated();
     }
@@ -192,6 +210,7 @@ public sealed partial class WorkContextViewModel {
         private set {
             this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(VisibleSeparateIssues));
+            this.RaisePropertyChanged(nameof(IssueHeaderTip));
         }
     }
     readonly WorkContextLayout _layout;
@@ -517,6 +536,7 @@ public sealed partial class WorkContextViewModel {
         StateLabel = string.IsNullOrEmpty(text) ? null : text;
         IsShipped = kind == "shipped";
         IsClosed  = kind == "closed";
+        this.RaisePropertyChanged(nameof(WorkItemTip));
     }
 
     void ApplyIssues(IEnumerable<WorkItemLinkDto> links) {
@@ -525,9 +545,10 @@ public sealed partial class WorkContextViewModel {
             if (IsDuplicateIssue(cards, link)) continue;
             var title = FirstNonBlank(link.Title) ?? "";
             cards.Add(new WorkContextLinkViewModel("ISSUE", link.ShortKey, title, link.Url, _opener,
-                identity: IssueIdentity(link)));
+                identity: IssueIdentity(link), state: link.State));
         }
         Replace(_issues, cards, i => (i.Key, i.Title, i.Url, i.Identity));
+        for (var i = 0; i < cards.Count; i++) _issues[i].State = cards[i].State;
         Issue = _issues.FirstOrDefault();
         NotifyIdentity();
     }

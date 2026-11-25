@@ -5,6 +5,9 @@ namespace Capacitor.App.ViewModels;
 
 public sealed record RailPullRequestMenuItem(PullRequestSubjectDto Subject, string? Title, string Lifecycle) {
     public string Label => string.IsNullOrWhiteSpace(Title) ? $"PR #{Subject.Number}" : Title;
+    public string Repository => $"{Subject.Owner}/{Subject.RepoName}";
+    public PullRequestStatus Status => new(Lifecycle, Lifecycle.ToLowerInvariant());
+    public KcapTip PickerTip => KcapTip.PullRequest(Subject.Number, Title, Status, Repository);
     public string Detail => $"{Subject.Owner}/{Subject.RepoName} #{Subject.Number} · {Lifecycle}";
 }
 
@@ -17,7 +20,7 @@ public sealed record RailPullRequestSummary(IReadOnlyList<RailPullRequestMenuIte
         ? $"PR #{item.Subject.Number.ToString(CultureInfo.InvariantCulture)}"
         : $"{Count.ToString(CultureInfo.InvariantCulture)} PRs";
 
-    public PullRequestStatus Status => new(Lifecycle, Lifecycle.ToLowerInvariant());
+    public PullRequestStatus Status => SingleItem?.Status ?? new("Unknown", "unknown");
     public bool HasLifecycle => SingleItem is not null;
     public string Description => SingleItem is { } item
         ? $"Pull request #{item.Subject.Number.ToString(CultureInfo.InvariantCulture)} · {item.Lifecycle}\n{item.Subject.Owner}/{item.Subject.RepoName}"
