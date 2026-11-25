@@ -12,20 +12,39 @@ public class AssistantRepliesTests {
         return items;
     }
 
+    static ToolGroupItem Group() => new();
+
+    static ChatItemViewModel[] Ends(IEnumerable<ChatItemViewModel> items) => items.Where(static item => item.EndsReply).ToArray();
+
     [Test]
-    public async Task A_reply_runs_to_the_next_prompt_and_copies_only_its_messages() {
+    public async Task A_reply_runs_to_the_next_prompt_ends_at_its_last_row_and_copies_only_its_messages() {
         var items = Feed();
-        var first = new AssistantTextItem("First.");
-        var second = new AssistantTextItem("Second.");
+        var first = new AssistantTextItem("First.", new ChatTimestamp("10:00", "first"));
+        var group = Group();
+        var second = new AssistantTextItem("Second.", new ChatTimestamp("10:01", "second"));
+        var tail = Group();
         var answer = new AssistantTextItem("Answer.");
         items.AddRange([
-            new UserTurnItem("go"), first, new SystemNoteItem("Agent finished"), new AssistantThinkingItem("hmm"), second,
+            new UserTurnItem("go"), first, new SystemNoteItem("Agent finished"), group, new AssistantThinkingItem("hmm"), second, tail,
             new UserTurnItem("and?"), answer,
         ]);
 
-        await Assert.That(new[] { first.EndsReply, second.EndsReply, answer.EndsReply }).IsEquivalentTo([false, true, true], CollectionOrdering.Matching);
-        await Assert.That(second.ReplyText).IsEqualTo("First.\n\nSecond.");
-        await Assert.That(answer.ReplyText).IsEqualTo("Answer.");
+        await Assert.That(Ends(items)).IsEquivalentTo(new ChatItemViewModel[] { tail, answer }, CollectionOrdering.Matching);
+        await Assert.That(tail.Reply!.Text).IsEqualTo("First.\n\nSecond.");
+        await Assert.That(tail.Reply.Time!.Tip).IsEqualTo("second");
+        await Assert.That(first.Reply).IsSameReferenceAs(tail.Reply);
+        await Assert.That(items[0].Reply).IsNull();
+        await Assert.That(answer.Reply!.Text).IsEqualTo("Answer.");
+    }
+
+    [Test]
+    public async Task A_turn_of_tool_calls_alone_has_nothing_to_copy() {
+        var items = Feed();
+        var group = Group();
+        items.AddRange([new UserTurnItem("go"), group]);
+
+        await Assert.That(group.Reply).IsNull();
+        await Assert.That(group.EndsReply).IsFalse();
     }
 
     [Test]
@@ -40,26 +59,28 @@ public class AssistantRepliesTests {
             new SystemNoteItem("summary", SystemNoteItem.CompactSummaryLabel), resumed,
         ]);
 
-        await Assert.That(first.EndsReply).IsTrue();
-        await Assert.That(first.ReplyText).IsEqualTo("First.");
-        await Assert.That(answer.EndsReply).IsFalse();
-        await Assert.That(resumed.ReplyText).IsEqualTo("The task finished.\n\nPicking up.");
+        await Assert.That(Ends(items)).IsEquivalentTo(new ChatItemViewModel[] { first, resumed }, CollectionOrdering.Matching);
+        await Assert.That(first.Reply!.Text).IsEqualTo("First.");
+        await Assert.That(resumed.Reply!.Text).IsEqualTo("The task finished.\n\nPicking up.");
     }
 
     [Test]
-    public async Task A_streamed_message_takes_over_the_end_of_its_reply_and_gives_it_back_when_removed() {
+    public async Task Streamed_rows_take_over_the_end_of_their_reply_and_give_it_back_when_removed() {
         var items = Feed();
         var first = new AssistantTextItem("First.");
         items.AddRange([new UserTurnItem("go"), first]);
+        var group = Group();
         var next = new AssistantTextItem("Next.");
 
+        items.Add(group);
+        await Assert.That(Ends(items)).IsEquivalentTo(new ChatItemViewModel[] { group });
         items.Add(next);
-        await Assert.That(first.EndsReply).IsFalse();
-        await Assert.That(next.ReplyText).IsEqualTo("First.\n\nNext.");
+        await Assert.That(Ends(items)).IsEquivalentTo(new ChatItemViewModel[] { next });
+        await Assert.That(next.Reply!.Text).IsEqualTo("First.\n\nNext.");
 
         items.Remove(next);
-        await Assert.That(first.EndsReply).IsTrue();
-        await Assert.That(first.ReplyText).IsEqualTo("First.");
+        await Assert.That(Ends(items)).IsEquivalentTo(new ChatItemViewModel[] { group });
+        await Assert.That(group.Reply!.Text).IsEqualTo("First.");
     }
 
     [Test]
@@ -71,15 +92,15 @@ public class AssistantRepliesTests {
 
         items.Insert(2, new UserTurnItem("wait"));
 
-        await Assert.That(first.EndsReply).IsTrue();
-        await Assert.That(first.ReplyText).IsEqualTo("First.");
-        await Assert.That(second.ReplyText).IsEqualTo("Second.");
+        await Assert.That(Ends(items)).IsEquivalentTo(new ChatItemViewModel[] { first, second }, CollectionOrdering.Matching);
+        await Assert.That(first.Reply).IsNotSameReferenceAs(second.Reply);
+        await Assert.That(first.Reply!.Text).IsEqualTo("First.");
     }
 
     /// Under the session constraint because topic commands are ReactiveCommands.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Folding_a_topic_inside_a_reply_keeps_what_the_reply_copies() {
+    public async Task Folding_a_topic_inside_a_reply_keeps_what_it_copies_and_ends_it_at_its_last_row_shown() {
         await RunOnUiAsync(async () => {
             var items = Feed();
             var first = new AssistantTextItem("First.");
@@ -90,14 +111,13 @@ public class AssistantRepliesTests {
             var topic = items.OfType<ChatTopicItem>().Single();
 
             topic.ToggleCommand.Execute().Subscribe();
-            await Assert.That(topic.IsExpanded).IsFalse();
             await Assert.That(items).DoesNotContain(second);
-            await Assert.That(first.EndsReply).IsFalse();
-            await Assert.That(second.ReplyText).IsEqualTo("First.\n\nSecond.");
+            await Assert.That(Ends(items)).IsEquivalentTo(new ChatItemViewModel[] { first });
+            await Assert.That(first.Reply!.Text).IsEqualTo("First.\n\nSecond.");
 
             topic.ToggleCommand.Execute().Subscribe();
-            await Assert.That(first.EndsReply).IsFalse();
-            await Assert.That(second.ReplyText).IsEqualTo("First.\n\nSecond.");
+            await Assert.That(Ends(items)).IsEquivalentTo(new ChatItemViewModel[] { second });
+            await Assert.That(second.Reply!.Text).IsEqualTo("First.\n\nSecond.");
         });
     }
 
@@ -107,6 +127,6 @@ public class AssistantRepliesTests {
         var last = new AssistantTextItem("Done.");
         items.AddRange([new AssistantTextItem("Start."), new AssistantTextItem("  "), last]);
 
-        await Assert.That(last.ReplyText).IsEqualTo("Start.\n\nDone.");
+        await Assert.That(last.Reply!.Text).IsEqualTo("Start.\n\nDone.");
     }
 }

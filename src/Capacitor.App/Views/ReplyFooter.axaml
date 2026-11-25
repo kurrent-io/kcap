@@ -1,0 +1,14 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
+             x:Class="Capacitor.App.Views.ReplyFooter"
+             x:DataType="vm:ChatItemViewModel"
+             Classes.revealed="{Binding Reply.IsActive, FallbackValue=False}">
+    <StackPanel Orientation="Horizontal" Spacing="4">
+        <TextBlock Classes="chatTime messageTime" Text="{Binding Reply.Time.Label}"
+                   ToolTip.Tip="{Binding Reply.Time.Tip}" AutomationProperties.HelpText="{Binding Reply.Time.Tip}"
+                   IsVisible="{Binding Reply.Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
+        <views:MessageCopyButton Text="{Binding Reply.Text}" AutomationProperties.HelpText="{Binding Reply.Time.Tip}" />
+    </StackPanel>
+</UserControl>

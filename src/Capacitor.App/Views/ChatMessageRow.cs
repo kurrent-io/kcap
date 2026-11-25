@@ -25,14 +25,11 @@ public sealed class ChatMessageRow : Panel {
     ChatMessageHeader? _header;
     StackPanel? _footer;
     bool _pointerOnMessage;
-    // Focus a click leaves behind does not hold the actions; only keyboard navigation does.
-    bool _keyboardFocusWithin;
+    readonly KeyboardReveal _keyboard;
 
     public ChatMessageRow() {
+        _keyboard = new KeyboardReveal(this, UpdateReveal);
         AddHandler(PointerMovedEvent, OnMessagePointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
-        AddHandler(GotFocusEvent, OnMessageGotFocus, RoutingStrategies.Bubble, handledEventsToo: true);
-        AddHandler(PointerPressedEvent, OnMessagePointerPressed, RoutingStrategies.Tunnel, handledEventsToo: true);
-        AddHandler(KeyDownEvent, OnMessageKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
     }
 
     public string? Author {
@@ -53,7 +50,7 @@ public sealed class ChatMessageRow : Panel {
     internal MessageCopyButton? CopyAction => this.GetVisualDescendants().OfType<MessageCopyButton>()
         .FirstOrDefault(copy => copy is { IsEffectivelyVisible: true, Text.Length: > 0 });
 
-    /// This message alone, even where the visible Copy takes the whole reply.
+    /// This message alone, where the reply's Copy takes every message in it.
     internal (string Text, MarkdownFlavor Flavor)? MessageText => DataContext switch {
         UserTurnItem { HasText: true } prompt => (prompt.Text, MarkdownFlavor.Prompt),
         AssistantTextItem { Text.Length: > 0 } reply => (reply.Text, MarkdownFlavor.Chat),
@@ -74,7 +71,7 @@ public sealed class ChatMessageRow : Panel {
     // Focus spends the menu's lifetime inside it; on closing it returns here or goes on elsewhere.
     internal void SetOpenMenu(FlyoutBase? menu) {
         _openMenu = menu;
-        if (menu is null && !IsKeyboardFocusWithin) _keyboardFocusWithin = false;
+        if (menu is null && !IsKeyboardFocusWithin) _keyboard.FocusLeft();
         UpdateReveal();
     }
 
@@ -106,7 +103,7 @@ public sealed class ChatMessageRow : Panel {
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change) {
         base.OnPropertyChanged(change);
         if (change.Property == IsKeyboardFocusWithinProperty) {
-            if (!IsKeyboardFocusWithin && _openMenu is null) _keyboardFocusWithin = false;
+            if (!IsKeyboardFocusWithin && _openMenu is null) _keyboard.FocusLeft();
             UpdateReveal();
         }
         if (change.Property == AuthorProperty || change.Property == TimestampProperty)
@@ -139,27 +136,7 @@ public sealed class ChatMessageRow : Panel {
         UpdateReveal();
     }
 
-    // Focus a menu hands back on closing arrives unspecified and keeps the state it found.
-    void OnMessageGotFocus(object? sender, FocusChangedEventArgs e) {
-        if (e.NavigationMethod is NavigationMethod.Tab or NavigationMethod.Directional) _keyboardFocusWithin = true;
-        else if (e.NavigationMethod == NavigationMethod.Pointer) _keyboardFocusWithin = false;
-        UpdateReveal();
-    }
-
-    // Keys on a control a click left focused bring its actions back without any focus change.
-    void OnMessageKeyDown(object? sender, KeyEventArgs e) {
-        if (!IsKeyboardFocusWithin) return;
-        _keyboardFocusWithin = true;
-        UpdateReveal();
-    }
-
-    // A press on a control that already has focus raises no focus change, so it is caught here.
-    void OnMessagePointerPressed(object? sender, PointerPressedEventArgs e) {
-        _keyboardFocusWithin = false;
-        UpdateReveal();
-    }
-
-    bool ShowsDetails => _pointerOnMessage || _keyboardFocusWithin || _openMenu is not null;
+    bool ShowsDetails => _pointerOnMessage || _keyboard.IsOn || _openMenu is not null;
 
     void UpdateReveal() =>
         PseudoClasses.Set(":show-details", ShowsDetails);
