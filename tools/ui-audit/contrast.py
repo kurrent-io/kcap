@@ -14,9 +14,10 @@ AXAML = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "src/Capacitor.App/De
 
 SURFACES = ["KcapCanvasBrush", "KcapSurfaceBrush", "KcapSurfaceRaisedBrush"]
 TEXT = ["KcapTextBrush", "KcapMutedBrush", "KcapFaintBrush", "KcapPlaceholderBrush"]
-STATUS_ROLES = ["Success", "Warning", "Danger", "Info", "Purple"]
+STATUS_ROLES = ["Success", "Warning", "Danger", "Info", "Purple", "Activity"]
 STATUS_INKS = [f"Kcap{role}Brush" for role in STATUS_ROLES]
 STATUS_FILLS = [f"Kcap{role}DimBrush" for role in STATUS_ROLES]
+PR_INKS = ["KcapPrOpenBrush", "KcapPrMergedBrush", "KcapPrClosedBrush"]
 STATUS_TEXT = ["KcapMutedBrush", "KcapFaintBrush", "KcapDangerBrush", "KcapSuccessBrush", "KcapWarningBrush"]
 EDGES = ["KcapFieldBorderBrush"]
 
@@ -55,7 +56,7 @@ def ratio(a, b):
 
 
 def audit(palette, opacities, edges=EDGES):
-    missing = sorted(set(SURFACES + TEXT + STATUS_INKS + STATUS_FILLS + STATUS_TEXT + edges) - palette.keys())
+    missing = sorted(set(SURFACES + TEXT + STATUS_INKS + STATUS_FILLS + STATUS_TEXT + PR_INKS + edges) - palette.keys())
     if missing:
         print("Missing palette entries: " + ", ".join(missing))
         return 1
@@ -75,7 +76,7 @@ def audit(palette, opacities, edges=EDGES):
 
     print("Text on surfaces (need 4.5:1)")
     for bg in SURFACES:
-        for fg in [*TEXT, *STATUS_INKS]:
+        for fg in [*TEXT, *STATUS_INKS, *PR_INKS]:
             check(fg, bg, 4.5)
     print("Text on status fills (need 4.5:1)")
     for bg in STATUS_FILLS:
@@ -93,7 +94,7 @@ def audit(palette, opacities, edges=EDGES):
     for fill in ["KcapControlHoverBrush", "KcapControlPressedBrush"]:
         if fill in palette:
             check("KcapTextBrush", fill, 4.5)
-    for role in [*TEXT, *STATUS_INKS]:
+    for role in [*TEXT, *STATUS_INKS, *PR_INKS]:
         check(role, "KcapSelectionBrush", 4.5)
     if failures:
         print(f"\n{len(failures)} pair(s) below the threshold")

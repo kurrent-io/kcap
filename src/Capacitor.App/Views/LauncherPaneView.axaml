@@ -93,7 +93,7 @@
                 <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
                     <!-- Matches the update window's running steps. -->
                     <views:AppIcon x:Name="UpdateBusyIcon" Classes="noticeIcon" views:BusyIndicator.IsBusy="True" Size="16" Kind="LoaderCircle"
-                                   Foreground="{StaticResource KcapPurpleBrush}" VerticalAlignment="Top" />
+                                   Foreground="{StaticResource KcapActivityBrush}" VerticalAlignment="Top" />
                     <StackPanel Grid.Column="1" Spacing="4">
                         <TextBlock x:Name="UpdateTitle" Classes="noticeTitle" Text="Finishing the update…" />
                         <TextBlock x:Name="UpdateDetailText" Classes="noticeBody" Text="{Binding UpdateDetail}"

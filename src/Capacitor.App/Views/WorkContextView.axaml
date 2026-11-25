@@ -206,9 +206,9 @@
         <DataTemplate x:Key="SubagentMark" x:DataType="vm:RunState">
             <Panel Width="12" Height="12">
                 <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:RunState.Running}}">
-                    <views:AppIcon Kind="Circle" Size="12" Foreground="{StaticResource KcapPurpleBrush}" />
+                    <views:AppIcon Kind="Circle" Size="12" Foreground="{StaticResource KcapActivityBrush}" />
                     <!-- 5px in a 12px disc starts at 3.5px; rounding that snaps the dot off centre. -->
-                    <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapPurpleBrush}"
+                    <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapActivityBrush}"
                             HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False"
                             views:PulseClock.IsActive="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:RunState.Running}}" />
                 </Panel>
@@ -231,7 +231,7 @@
                                Foreground="{StaticResource KcapFaintBrush}" />
                 <views:AppIcon Kind="Circle" Size="12"
                                IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:PlanTaskState.InProgress}}"
-                               Foreground="{StaticResource KcapPurpleBrush}" />
+                               Foreground="{StaticResource KcapActivityBrush}" />
                 <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:PlanTaskState.Completed}}">
                     <views:AppIcon Kind="CircleCheck" Size="12" Foreground="{StaticResource KcapSuccessBrush}" />
                 </Panel>
@@ -246,7 +246,7 @@
                      ring stays so the task still reads as started. -->
                 <Panel Width="12" Height="16" VerticalAlignment="Top">
                     <ContentControl Content="{Binding State}" ContentTemplate="{StaticResource PlanMark}" VerticalAlignment="Center" />
-                    <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapPurpleBrush}"
+                    <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapActivityBrush}"
                             HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False"
                             IsVisible="{Binding IsActive}" views:PulseClock.IsActive="{Binding IsActive}" />
                 </Panel>
@@ -259,7 +259,7 @@
                 </StackPanel>
             </Grid>
         </DataTemplate>
-        <!-- Settled is green (outcome). This session is purple like IN FLIGHT — location, not done.
+        <!-- Settled is green (outcome). This session is purple — location, not done.
              One template for the rows and the folded counts alike. -->
         <DataTemplate x:Key="PartMark" x:DataType="vm:WorkContextPartMark">
             <Panel Width="12" Height="12">
@@ -544,7 +544,7 @@
                         <!-- Every other phase: the note and, where it applies, one action. -->
                         <StackPanel IsVisible="{Binding !IsReady}" Spacing="10" Margin="0,10,0,0">
                             <ProgressBar views:BusyIndicator.IsBusy="True" Height="2" IsVisible="{Binding ShowsReadProgress}"
-                                         Foreground="{StaticResource KcapPurpleBrush}" AutomationProperties.Name="Loading work context" />
+                                         Foreground="{StaticResource KcapActivityBrush}" AutomationProperties.Name="Loading work context" />
                             <TextBlock x:Name="PhaseNoteText" Text="{Binding PhaseNote}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="19"
                                        Foreground="{StaticResource KcapMutedBrush}" TextWrapping="Wrap" />
                             <Button x:Name="SignInButton" Classes="kcapPrimary" Content="Sign in" Command="{Binding SignInCommand}" IsVisible="{Binding ShowsSignIn}"
@@ -813,7 +813,7 @@
                                             <StackPanel Orientation="Horizontal" Spacing="5" Background="Transparent" ToolTip.Tip="{Binding Label}">
                                                 <Panel Width="12" Height="12" VerticalAlignment="Center">
                                                     <ContentControl Content="{Binding State}" ContentTemplate="{StaticResource PlanMark}" VerticalAlignment="Center" />
-                                                    <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapPurpleBrush}"
+                                                    <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapActivityBrush}"
                                                             HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False"
                                                             IsVisible="{Binding IsActive}" views:PulseClock.IsActive="{Binding IsActive}" />
                                                 </Panel>

@@ -618,7 +618,7 @@
                                         <Border Classes="toolRunning toolStatus" Width="8" Height="8"
                                                 CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
                                                 IsVisible="{Binding IsRunning}" views:PulseClock.IsActive="{Binding IsRunning}"
-                                                Background="{StaticResource KcapPurpleBrush}" />
+                                                Background="{StaticResource KcapActivityBrush}" />
                                         <Border x:Name="ToolUnknownStatusPill" Classes="toolStatus" Width="8" Height="8"
                                                 CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
                                                 IsVisible="{Binding IsOutcomeUnknown}" Background="{StaticResource KcapMutedBrush}"
@@ -852,10 +852,10 @@
                                            Foreground="{StaticResource KcapTextBrush}" VerticalAlignment="Center" />
                                 <!-- Only the fill pulses, so the count stays legible. -->
                                 <Panel x:Name="BackgroundTasksCount" Grid.Column="1" VerticalAlignment="Center" ToolTip.Tip="{Binding CountTip}">
-                                    <Border Classes="toolRunning" Background="{StaticResource KcapPurpleDimBrush}" CornerRadius="999"
+                                    <Border Classes="toolRunning" Background="{StaticResource KcapActivityDimBrush}" CornerRadius="999"
                                             views:PulseClock.IsActive="{Binding HasRows}" />
                                     <TextBlock Text="{Binding Count}" Margin="7,1" FontSize="{StaticResource KcapFontSizeSmall}" FontWeight="SemiBold"
-                                               Foreground="{StaticResource KcapPurpleBrush}" VerticalAlignment="Center" />
+                                               Foreground="{StaticResource KcapActivityBrush}" VerticalAlignment="Center" />
                                 </Panel>
                                 <Panel Grid.Column="3" Width="12" Height="12" VerticalAlignment="Center">
                                     <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"

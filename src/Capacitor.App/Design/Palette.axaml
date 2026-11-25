@@ -25,6 +25,11 @@
     <SolidColorBrush x:Key="KcapWarningDimBrush" Color="#3E301B" />
     <SolidColorBrush x:Key="KcapPurpleBrush" Color="#A994FF" />
     <SolidColorBrush x:Key="KcapPurpleDimBrush" Color="#29233E" />
+    <SolidColorBrush x:Key="KcapActivityBrush" Color="#A994FF" />
+    <SolidColorBrush x:Key="KcapActivityDimBrush" Color="#29233E" />
+    <SolidColorBrush x:Key="KcapPrOpenBrush" Color="#B0B7C6" />
+    <SolidColorBrush x:Key="KcapPrMergedBrush" Color="#5BE0B3" />
+    <SolidColorBrush x:Key="KcapPrClosedBrush" Color="#FF7272" />
     <SolidColorBrush x:Key="KcapDangerBrush" Color="#FF7272" />
     <SolidColorBrush x:Key="KcapDangerDimBrush" Color="#321F29" />
     <SolidColorBrush x:Key="KcapInfoBrush" Color="#7BA7F7" />
