@@ -78,9 +78,10 @@ public static class AntigravityToolNames {
 
         var edits = new JsonArray();
         if (native["ReplacementChunks"] is JsonArray chunks) {
-            foreach (var chunk in chunks.OfType<JsonObject>())
+            foreach (var chunk in chunks.OfType<JsonObject>()) {
                 if (Text(chunk, "TargetContent") is { } before && Text(chunk, "ReplacementContent") is { } after)
                     edits.Add(Edit(before, after));
+            }
         } else if (Text(native, "TargetContent") is { } before && Text(native, "ReplacementContent") is { } after) {
             edits.Add(Edit(before, after));
         }
@@ -95,9 +96,10 @@ public static class AntigravityToolNames {
             mapped["edits"] = edits;
         }
 
-        foreach (var (key, value) in native)
+        foreach (var (key, value) in native) {
             if (key is not ("TargetFile" or "TargetContent" or "ReplacementContent" or "ReplacementChunks"))
                 mapped[key] = value?.DeepClone();
+        }
 
         return (edits.Count == 1 ? "Edit" : "MultiEdit", mapped);
     }

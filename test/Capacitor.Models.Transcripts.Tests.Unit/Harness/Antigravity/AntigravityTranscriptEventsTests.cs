@@ -210,7 +210,7 @@ public class AntigravityTranscriptEventsTests {
         var events  = lines.SelectMany((l, i) => Project(l, ctx, i)).Select(e => e.Payload).ToList();
         var results = events.OfType<ToolResultReceived>().ToList();
         var paired  = events.OfType<AssistantToolCallsGenerated>().Select(c => c.ToolCalls[0]).Select(call =>
-            results.SingleOrDefault(r => r.CallId == call.CallId) is { } r
+            results.SingleOrDefault(candidate => candidate.CallId == call.CallId) is { } r
                 ? $"{call.ToolName} | {r.Result.Split('\n')[0].Trim()} | {(r.Extensions.ContainsKey(AntigravityExtension.Slug) ? "failed" : "ok")}"
                 : $"{call.ToolName} | no result");
 
