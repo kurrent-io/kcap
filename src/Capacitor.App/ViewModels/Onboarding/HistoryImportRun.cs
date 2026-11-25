@@ -9,7 +9,7 @@ namespace Capacitor.App.ViewModels.Onboarding;
 /// <summary>
 /// The History page's import, which outlives the page: one <c>kcap import</c> pass per level
 /// (<c>--private</c> is per invocation), counted live from its per-session lines and settled by each
-/// pass's own closing line. Cancelled only by the app shutting down.
+/// pass's own closing line. Cancelled from the launcher's banner or by the app shutting down.
 /// </summary>
 public sealed partial class HistoryImportRun : ReactiveObject {
     internal const int LogLimit = 500;
@@ -49,6 +49,12 @@ public sealed partial class HistoryImportRun : ReactiveObject {
     }
 
     public void DismissBanner() => BannerDismissed = true;
+
+    /// Set once a cancel is asked for, so a second press cannot land while the killed pass settles.
+    public bool CancelRequested {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    }
 
     public bool Running => State == ImportRunState.Running;
 
@@ -104,6 +110,7 @@ public sealed partial class HistoryImportRun : ReactiveObject {
     internal void Start(IKcapCli cli, IReadOnlyList<ImportRequest> passes) => Completion = RunAsync(cli, passes);
 
     public async Task CancelAsync() {
+        CancelRequested = true;
         await _cts.CancelAsync().ConfigureAwait(false);
         try { await Completion.ConfigureAwait(false); }
         catch (Exception ex) { Console.Error.WriteLine($"kcap: history import failed unexpectedly: {ex.Message}"); }

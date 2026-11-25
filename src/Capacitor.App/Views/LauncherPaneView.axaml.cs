@@ -50,6 +50,26 @@ public partial class LauncherPaneView : UserControl {
 
     void OnHistoryImportDismissClick(object? sender, RoutedEventArgs e) => FocusComposer();
 
+    IDisposable? _cancelHandoff;
+
+    /// Cancel import disables while a cancel settles and disappears once the run stops, pressed or not, and
+    /// either drops keyboard focus; keep focus in the banner, on the action that takes its place.
+    void OnHistoryImportCancelLostFocus(object? sender, FocusChangedEventArgs e) => Dispatcher.UIThread.Post(HandOffCancelFocus);
+
+    void HandOffCancelFocus() {
+        _cancelHandoff?.Dispose();
+        _cancelHandoff = null;
+        if (!HistoryImportBanner.IsEffectivelyVisible || TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is not null) return;
+        if (HistoryImportCancelButton.IsEffectivelyVisible) {
+            if (!HistoryImportCancelButton.IsEffectivelyEnabled)
+                _cancelHandoff = HistoryImportCancelButton.GetObservable(IsVisibleProperty).Where(visible => !visible).Take(1)
+                    .Subscribe(_ => Dispatcher.UIThread.Post(HandOffCancelFocus));
+            return;
+        }
+        if (HistoryImportSetupButton.IsEffectivelyVisible) HistoryImportSetupButton.Focus(NavigationMethod.Tab);
+        else HistoryImportDismissButton.Focus(NavigationMethod.Tab);
+    }
+
     /// New session pressed while this pane is already showing: focus the goal and ring the card
     /// briefly, so the press does not read as a dead button.
     public void Nudge() {
@@ -109,6 +129,8 @@ public partial class LauncherPaneView : UserControl {
         _historyAttached = false;
         _historyLease?.Dispose();
         _historyLease = null;
+        _cancelHandoff?.Dispose();
+        _cancelHandoff = null;
         base.OnDetachedFromVisualTree(e);
     }
 
