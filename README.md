@@ -2295,17 +2295,17 @@ KCAP_CODEX_PATH=/opt/codex/bin/codex  kcap daemon
 
 ##### Codex app-server transport
 
-Hosted Codex agents (review-flow reviewers and interactive agents) can run over the `codex app-server` JSON-RPC protocol instead of the interactive terminal. It is an experimental feature, off by default except on Windows, and is switched per profile — the one `KCAP_PROFILE` names, or else the active profile:
+Hosted Codex agents (review-flow reviewers and interactive agents) can run over the `codex app-server` JSON-RPC protocol instead of the interactive terminal. It is an experimental feature, on by default, and is switched per profile — the one `KCAP_PROFILE` names, or else the active profile:
 
 ```bash
 kcap experimental                          # name the profile, then list features, whether each is on, and whether the daemon applied it
-kcap experimental enable codex-app-server  # opt in
-kcap experimental disable codex-app-server # roll back
+kcap experimental enable codex-app-server  # turn back on
+kcap experimental disable codex-app-server # roll back to the terminal
 ```
 
 - The running daemon applies the change to its next launch without a restart, and `kcap experimental enable` waits a few seconds for it to confirm. Agents already running keep the transport they started with.
 - It takes effect only when the installed Codex meets the minimum version (**0.146.0**); otherwise the feature is saved but reported as not active, with the reason, and new launches take the terminal. A launch the server already pinned to app-server is refused instead, since it is never moved to another transport
-- On Windows a profile that never set the switch runs app-server: through the Windows console, Codex submits a pasted follow-up review round as newlines, so the round never starts on the terminal. `kcap experimental` and the desktop app's Settings show the switch as on by default; `kcap experimental disable codex-app-server` keeps that profile on the terminal.
+- A profile that never set the switch runs app-server. `kcap experimental` and the desktop app's Settings show the switch as on by default; `kcap experimental disable codex-app-server` keeps that profile on the terminal.
 - PR reviews (`kcap review`) and `kcap agent start` local spawns always use the terminal.
 - On the terminal, a review-flow reviewer whose round starts no turn within 30 seconds gets one more Enter; if 30 more seconds pass without one, the daemon ends the reviewer so the round fails at once (`participant_died`, detail `codex_reviewer_turn_not_started`) instead of waiting out the flow's inactivity bound.
 - The former `KCAP_CODEX_TRANSPORT` environment variable is removed; a daemon that still sees it logs a warning naming the command above.
