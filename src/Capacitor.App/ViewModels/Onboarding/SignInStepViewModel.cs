@@ -318,8 +318,9 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
         return Task.CompletedTask;
     }
 
-    /// The re-auth dialog: a Sign in click opened it, so it starts the attempt rather than asking
-    /// for a second click. The wizard step stays on <see cref="OnEnterAsync"/> and waits.
+    /// The re-auth dialog: a Sign in click opened or refocused it, so it starts the attempt rather
+    /// than asking for a second click. A live or committed attempt is left as it is. The wizard
+    /// step stays on <see cref="OnEnterAsync"/> and waits.
     public async Task EnterAndSignInAsync(CancellationToken ct) {
         await OnEnterAsync(ct).ConfigureAwait(true);
         if (!Satisfied) await SignInAsync().ConfigureAwait(true);
