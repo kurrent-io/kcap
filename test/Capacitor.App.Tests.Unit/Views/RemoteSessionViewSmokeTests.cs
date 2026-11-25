@@ -857,7 +857,7 @@ public class RemoteSessionViewSmokeTests {
     }
 
     [Test]
-    public async Task The_artefacts_tab_hosts_the_list_and_reader_and_open_in_web_is_an_icon() {
+    public async Task The_artefacts_tab_hosts_the_list_and_reader() {
         await AvaloniaSession.DispatchAsync(async () => {
             var source = new FakePlanArtifactSource();
             source.Default = Ready(Doc("docs/x-design.md"));
@@ -872,9 +872,6 @@ public class RemoteSessionViewSmokeTests {
             await host.Vm.ShowArtefactsCommand.Execute();
             host.Settle();
             await Assert.That(host.View.FindControl<ContentControl>("ArtefactsPane")!.Content).IsTypeOf<ArtefactsView>();
-            var open = host.View.FindControl<Button>("OpenInWebButton")!;
-            await Assert.That(ToolTip.GetTip(open)).IsEqualTo("Open in web");
-            await Assert.That(open.Content).IsNotTypeOf<string>();
 
             await host.Vm.TeardownAsync();
             return true;

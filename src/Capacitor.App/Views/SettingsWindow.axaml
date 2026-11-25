@@ -613,17 +613,11 @@
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button Classes="kcapChip settingsCompact" Command="{Binding About.OpenDocsCommand, FallbackValue={x:Null}}"
                                         AutomationProperties.Name="Documentation">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <TextBlock Text="Documentation" VerticalAlignment="Center" />
-                                        <views:AppIcon Kind="ExternalLink" Size="14" />
-                                    </StackPanel>
+                                    <TextBlock Text="Documentation" VerticalAlignment="Center" />
                                 </Button>
                                 <Button Classes="kcapChip settingsCompact" Command="{Binding About.OpenReleaseNotesCommand, FallbackValue={x:Null}}"
                                         AutomationProperties.Name="Release notes">
-                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                        <TextBlock Text="Release notes" VerticalAlignment="Center" />
-                                        <views:AppIcon Kind="ExternalLink" Size="14" />
-                                    </StackPanel>
+                                    <TextBlock Text="Release notes" VerticalAlignment="Center" />
                                 </Button>
                             </StackPanel>
                         </StackPanel>

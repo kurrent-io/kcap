@@ -103,7 +103,6 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     /// The Page shown in the main column in place of the slices; null shows the slices.
     public PageViewerViewModel? PageViewer { get => _pageViewer; private set => this.RaiseAndSetIfChanged(ref _pageViewer, value); }
 
-    public ReactiveCommand<Unit, Unit> OpenInWebCommand { get; }
     /// The launch composer under the slices, aimed at this work item once it loads; null when sessions can't start from here.
     public HomeViewModel? Launcher { get; }
     public ReactiveCommand<WorkItemPagePart, Unit> StartSliceSessionCommand { get; }
@@ -185,7 +184,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     /// <param name="viewPage">A viewer for a Page by id and URL, or null when Pages open in the browser right now.</param>
     public WorkItemPageViewModel(string workItemId, IWorkItemPageApi api, IAgentDirectory directory, TimeProvider time,
             ISet<string> flipped, IObservable<IReadOnlySet<string>>? needsYou = null, IObservable<Unit>? changed = null,
-            Action<string>? openSession = null, Action<string>? openUrl = null, Action? openInWeb = null,
+            Action<string>? openSession = null, Action<string>? openUrl = null,
             Func<string, string, PageViewerViewModel?>? viewPage = null, HomeViewModel? launcher = null) {
         WorkItemId = workItemId;
         _api = api;
@@ -195,7 +194,6 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         _disposables.Add(_reread);
         _layout = flipped.Contains(GraphKey) ? WorkItemPageLayout.Graph : flipped.Contains(BoardKey) ? WorkItemPageLayout.Board : WorkItemPageLayout.List;
 
-        OpenInWebCommand = ReactiveCommand.Create(() => openInWeb?.Invoke(), Observable.Return(openInWeb is not null)).DisposeWith(_disposables);
         CanStartSession = launcher?.NextWork?.ServesLaunches == true;
         Launcher = CanStartSession ? launcher : null;
         StartSliceSessionCommand = ReactiveCommand.CreateFromTask<WorkItemPagePart>(part => PickAsync(part.Id, part.Title),

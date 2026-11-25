@@ -21,10 +21,7 @@
                         AutomationProperties.Name="Ask the agent to fix this pull request" />
                 <Button Grid.Column="3" Command="{Binding OpenGitHubCommand}" Classes="kcapGhost kcapQuiet prFlushRight" IsEnabled="{Binding CanOpenSource}"
                         AutomationProperties.Name="Open pull request in browser" VerticalAlignment="Center">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Text="{Binding ProviderLabel}" VerticalAlignment="Center" />
-                        <views:AppIcon Kind="ExternalLink" Size="14" Classes="prExternal" />
-                    </StackPanel>
+                    <TextBlock Text="{Binding ProviderLabel}" VerticalAlignment="Center" />
                 </Button>
             </Grid>
             <TextBlock Text="{Binding Title}" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap"
@@ -118,7 +115,7 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:PullRequestRow">
                             <Border Classes="prRow">
-                                <Grid ColumnDefinitions="30,*,Auto,Auto" ColumnSpacing="10" RowDefinitions="Auto,Auto">
+                                <Grid ColumnDefinitions="30,*,Auto" ColumnSpacing="10" RowDefinitions="Auto,Auto">
                                     <Border Width="30" Height="30" CornerRadius="7" Background="{StaticResource KcapSurfaceRaisedBrush}" VerticalAlignment="Center" ClipToBounds="True">
                                         <Panel>
                                             <TextBlock Text="{Binding Initial}" IsVisible="{Binding !IsBot}" HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -133,11 +130,6 @@
                                         <TextBlock Text="Review re-requested" Classes="prNote" IsVisible="{Binding ReRequested}" />
                                     </StackPanel>
                                     <views:PullRequestStatusLabel Grid.Column="2" DataContext="{Binding Status}" VerticalAlignment="Center" />
-                                    <Button Grid.Column="3" Classes="kcapGhost kcapIcon" IsVisible="{Binding HasLink}" VerticalAlignment="Center"
-                                            Command="{Binding $parent[views:PullRequestReader].((vm:PullRequestContextViewModel)DataContext).OpenRowCommand}"
-                                            CommandParameter="{Binding}" AutomationProperties.Name="Open review in browser" ToolTip.Tip="Open review in browser">
-                                        <views:AppIcon Kind="ExternalLink" Size="14" Classes="prExternal" />
-                                    </Button>
                                     <TextBlock Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Text="{Binding ItemNote}" IsVisible="{Binding HasItemNote}" Classes="prNote" />
                                 </Grid>
                             </Border>
@@ -148,18 +140,13 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:PullRequestRow">
                             <Border Classes="prRow">
-                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
                                     <StackPanel VerticalAlignment="Center" Spacing="3">
                                         <TextBlock Text="{Binding Title}" Foreground="{StaticResource KcapTextBrush}" FontSize="13" TextWrapping="Wrap" />
                                         <TextBlock Text="{Binding Detail}" Classes="prNote" IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                         <TextBlock Text="{Binding ItemNote}" IsVisible="{Binding HasItemNote}" Classes="prNote" />
                                     </StackPanel>
                                     <views:PullRequestStatusLabel Grid.Column="1" DataContext="{Binding Status}" VerticalAlignment="Center" />
-                                    <Button Grid.Column="2" Classes="kcapGhost kcapIcon" IsVisible="{Binding HasLink}" VerticalAlignment="Center"
-                                            Command="{Binding $parent[views:PullRequestReader].((vm:PullRequestContextViewModel)DataContext).OpenRowCommand}"
-                                            CommandParameter="{Binding}" AutomationProperties.Name="Open check in browser" ToolTip.Tip="Open check in browser">
-                                        <views:AppIcon Kind="ExternalLink" Size="14" Classes="prExternal" />
-                                    </Button>
                                 </Grid>
                             </Border>
                         </DataTemplate>
@@ -170,17 +157,10 @@
                         <DataTemplate x:DataType="vm:PullRequestRow">
                             <Border Classes="prDiscussion" Classes.thread="{Binding IsThread}">
                                 <StackPanel Spacing="8">
-                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-                                        <StackPanel Spacing="3">
-                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource KcapTextBrush}" TextWrapping="Wrap" />
-                                            <TextBlock Text="{Binding Detail}" Classes="prNote" IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-                                        </StackPanel>
-                                        <Button Grid.Column="1" Classes="kcapGhost kcapIcon" IsVisible="{Binding HasLink}" VerticalAlignment="Top"
-                                                Command="{Binding $parent[views:PullRequestReader].((vm:PullRequestContextViewModel)DataContext).OpenRowCommand}"
-                                                CommandParameter="{Binding}" AutomationProperties.Name="Open comment in browser" ToolTip.Tip="Open in browser">
-                                            <views:AppIcon Kind="ExternalLink" Size="14" Classes="prExternal" />
-                                        </Button>
-                                    </Grid>
+                                    <StackPanel Spacing="3">
+                                        <TextBlock Text="{Binding Title}" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource KcapTextBrush}" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding Detail}" Classes="prNote" IsVisible="{Binding Detail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    </StackPanel>
                                     <Border IsVisible="{Binding HasHunk}" Background="{StaticResource KcapSurfaceRaisedBrush}" Padding="10" CornerRadius="5">
                                         <SelectableTextBlock Text="{Binding Hunk}" FontFamily="Menlo,Monaco,Consolas,monospace"
                                                              FontSize="11.5" TextWrapping="Wrap" Foreground="{StaticResource KcapMutedBrush}" />

@@ -152,11 +152,6 @@
         <Setter Property="Padding" Value="12" />
         <Setter Property="Margin" Value="0,0,0,12" />
     </Style>
-    <Style Selector="views|AppIcon.prExternal">
-        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-        <Setter Property="VerticalAlignment" Value="Center" />
-        <Setter Property="Kind" Value="ExternalLink" />
-    </Style>
     <Style Selector="views|AppIcon.prChevron">
         <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         <Setter Property="VerticalAlignment" Value="Center" />

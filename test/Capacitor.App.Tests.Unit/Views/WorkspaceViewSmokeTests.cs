@@ -431,7 +431,6 @@ public class WorkspaceViewSmokeTests {
             await Assert.That(Visible(window, "StartingPanel")).IsTrue();
             await Assert.That(chatHost.IsVisible).IsFalse();
             await Assert.That(IsOffscreen(chatHost)).IsTrue();
-            await Assert.That(Visible(window, "OpenInWebButton")).IsFalse();
             await Assert.That(Visible(window, "StopButton")).IsTrue().Because("a starting launch can be cancelled");
             foreach (var name in new[] { "ChatActivityNote", "BackgroundTasksBanner", "QueuedMessagesBanner", "ComposerCard", "ReadOnlyBanner", "SendButton" })
                 await Assert.That(Visible(window, name)).IsFalse().Because($"{name} has nothing to show yet");
@@ -442,7 +441,6 @@ public class WorkspaceViewSmokeTests {
             window.UpdateLayout();
 
             await Assert.That(Visible(window, "StartingPanel")).IsFalse();
-            await Assert.That(Visible(window, "OpenInWebButton")).IsTrue();
             await Assert.That(Visible(window, "StopButton")).IsTrue();
             await Assert.That(chatHost.IsEffectivelyVisible).IsTrue();
             await Assert.That(Visible(window, "ComposerInput")).IsTrue();
@@ -604,21 +602,6 @@ public class WorkspaceViewSmokeTests {
             await Assert.That(Find<ScrollViewer>(window, "DocumentScroll")!.IsEffectivelyVisible).IsTrue();
             await Assert.That(Find<Border>(window, "DocumentNotice")!.IsEffectivelyVisible).IsFalse();
 
-            window.Close();
-            await vm.TeardownAsync();
-        });
-    }
-
-    /// The header's right side is icons: the segment is what grows.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task Open_in_web_is_an_icon_button_with_a_tooltip() {
-        await RunOnUiAsync(async () => {
-            var (window, vm, _, _) = await ShowPtyAsync();
-            var button = Find<Button>(window, "OpenInWebButton")!;
-            await Assert.That(button.Content).IsNotTypeOf<string>();
-            await Assert.That(ToolTip.GetTip(button)).IsEqualTo("Open in web");
-            await Assert.That(button.Classes.Contains("kcapIcon")).IsTrue();
             window.Close();
             await vm.TeardownAsync();
         });

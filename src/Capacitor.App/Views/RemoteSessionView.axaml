@@ -39,10 +39,6 @@
                                     IsVisible="{Binding ShowsArtefactsTab}" />
                         </StackPanel>
                     </Border>
-                    <Button x:Name="OpenInWebButton" Command="{Binding OpenInWebCommand}"
-                            Classes="kcapGhost kcapIcon" ToolTip.Tip="Open in web" AutomationProperties.Name="Open in web">
-                        <views:AppIcon Kind="ExternalLink" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
-                    </Button>
                     <Button x:Name="StopButton" Content="{Binding StopLabel}" Command="{Binding StopCommand}" Classes="kcapDanger"
                             Padding="10,5" FontSize="13.5" IsVisible="{Binding ShowsStop}"
                             ToolTip.Tip="{Binding StopRefusal}" ToolTip.ShowOnDisabled="True" />

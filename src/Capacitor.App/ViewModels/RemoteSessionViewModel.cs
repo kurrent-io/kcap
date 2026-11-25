@@ -61,7 +61,6 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     public string AgentId { get; }
     public ChatTabViewModel Chat { get; }
     public WorkContextViewModel WorkContext { get; }
-    public ReactiveCommand<Unit, Unit> OpenInWebCommand { get; }
     public ReactiveCommand<Unit, Unit> StopCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowChatCommand { get; }
     public ReactiveCommand<Unit, Unit> ShowTerminalCommand { get; }
@@ -521,10 +520,6 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
             })
             .DisposeWith(_disposables);
 
-        OpenInWebCommand = ReactiveCommand.Create(() => {
-            if (IsSessionOnly) actions.OpenSessionInWeb(row.Id);
-            else actions.OpenInWebRemote(row.Id);
-        });
         var stopKey = AgentActionService.StopKey(AgentOrigin.Remote, row.Id);
         var canStop = _sessionEndedChanges
             .CombineLatest(_originChangedChanges, actions.StopsInFlight, viewer, _rows.Select(r => r.Status == AgentRow.DaemonDownStatus),
@@ -541,7 +536,6 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         _disposables.Add(ShowPullRequestCommand);
         ShowChatCommand = ReactiveCommand.Create(() => { ActiveTab = RemoteTab.Chat; });
         ShowTerminalCommand = ReactiveCommand.Create(() => { if (ShowsTerminalTab) ActiveTab = RemoteTab.Terminal; });
-        _disposables.Add(OpenInWebCommand);
         _disposables.Add(StopCommand);
         _disposables.Add(ShowChatCommand);
         _disposables.Add(ShowTerminalCommand);

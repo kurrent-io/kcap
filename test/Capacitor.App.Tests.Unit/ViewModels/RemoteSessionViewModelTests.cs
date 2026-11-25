@@ -745,20 +745,6 @@ public class RemoteSessionViewModelTests {
         });
     }
 
-    [Test]
-    public async Task Open_in_web_on_a_session_only_workspace_opens_the_session_page() {
-        await RunOnUiAsync(async () => {
-            using var h = new Harness();
-            var vm = h.Build(Harness.ServerRow("s1"));
-
-            vm.OpenInWebCommand.Execute().Subscribe();
-
-            await Assert.That(h.Opener.Opened).Count().IsEqualTo(1);
-            await Assert.That(h.Opener.Opened[0]).IsEqualTo("https://a.kcap.ai/sessions/s1");
-            await vm.TeardownAsync();
-        });
-    }
-
     /// A terminal or ended session has no agent here to answer for it: its server-lane requests
     /// render no card in the read-only chat.
     [Test]

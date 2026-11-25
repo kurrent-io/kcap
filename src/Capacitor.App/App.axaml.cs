@@ -2508,8 +2508,6 @@ public partial class App : Application {
                 changed: sessions.Snapshots.Select(_ => Unit.Default).Merge(workItemPages.Changed),
                 openSession: sessionId => _ = vm?.OpenPageSessionAsync(sessionId),
                 openUrl: openUrl,
-                openInWeb: openUrl is null || string.IsNullOrEmpty(appServerUrl) ? null
-                    : () => openUrl($"{appServerUrl.TrimEnd('/')}/work-items/{Uri.EscapeDataString(id)}"),
                 viewPage: pageContent is null || inAppPages is null ? null : (pageId, url) => inAppPages()
                     ? new PageViewerViewModel(pageContent, pageId, url, new ShellUrlOpener(), time, webViewAvailable: true) : null,
                 launcher: home),

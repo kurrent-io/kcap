@@ -198,10 +198,6 @@ public sealed class AgentActionService {
     public void OpenInWebRemote(string agentId) =>
         OpenUrl(_remoteServerUrl, AgentPath(agentId), "Not signed in to a server");
 
-    /// A session's own page, for a row no agent stands behind. Never throws.
-    public void OpenSessionInWeb(string sessionId) =>
-        OpenUrl(_remoteServerUrl, $"/sessions/{Uri.EscapeDataString(sessionId)}", "Not signed in to a server");
-
     static string AgentPath(string agentId) => $"/agents/{Uri.EscapeDataString(agentId)}";
 
     void OpenUrl(string? serverUrl, string path, string missingServerMessage) {

@@ -207,7 +207,6 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         if (card.Url is { } url) Artefacts.OpenLink(url);
     }
 
-    public ReactiveCommand<Unit, Unit> OpenInWebCommand { get; }
     public ReactiveCommand<Unit, Unit> StopCommand { get; }
 
     readonly ObservableAsPropertyHelper<string> _stopLabel;
@@ -505,9 +504,6 @@ public sealed class WorkspaceViewModel : ReactiveObject, ISessionWorkspace {
         _disposables.Add(ShowPullRequestCommand);
         ShowArtefactsCommand = ReactiveCommand.Create(ShowArtefacts);
         _disposables.Add(ShowArtefactsCommand);
-
-        OpenInWebCommand = ReactiveCommand.Create(() => actions.OpenInWeb(agentId));
-        _disposables.Add(OpenInWebCommand);
 
         var stopKey = AgentActionService.StopKey(AgentOrigin.Local, agentId);
         var canStop = presence.StartWith(new AgentPresence(null, false)).Select(p => !p.SessionEnded)

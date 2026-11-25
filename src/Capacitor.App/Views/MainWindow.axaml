@@ -71,10 +71,7 @@
                                         IsVisible="{Binding Web.IsVisible, FallbackValue=False}"
                                         ToolTip.Tip="{Binding Web.Tooltip}"
                                         AutomationProperties.Name="{Binding Web.Label}">
-                                    <StackPanel Orientation="Horizontal" Spacing="7">
-                                        <TextBlock Text="{Binding Web.Label}" VerticalAlignment="Center" />
-                                        <views:AppIcon Kind="ExternalLink" Size="14" />
-                                    </StackPanel>
+                                    <TextBlock Text="{Binding Web.Label}" VerticalAlignment="Center" />
                                 </Button>
                             </Grid>
 

@@ -678,10 +678,6 @@
                                 ToolTip.Tip="Expand" AutomationProperties.Name="Expand the work item">
                             <views:AppIcon Kind="Maximize2" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
                         </Button>
-                        <Button x:Name="WorkItemOpenInWeb" Classes="kcapGhost kcapIcon" Command="{Binding OpenInWebCommand}"
-                                ToolTip.Tip="Open in the web app" AutomationProperties.Name="Open in the web app">
-                            <views:AppIcon Kind="ExternalLink" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
-                        </Button>
                         <Button x:Name="ContextShowButton" Classes="kcapGhost kcapIcon" IsVisible="False"
                                 ToolTip.Tip="Show details" AutomationProperties.Name="Show details">
                             <views:AppIcon Kind="PanelRightOpen" Size="14" Foreground="{StaticResource KcapMutedBrush}" />

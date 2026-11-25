@@ -467,10 +467,7 @@
                                                 IsVisible="{Binding Web.IsVisible, FallbackValue=False}"
                                                 ToolTip.Tip="{Binding Web.Tooltip}" AutomationProperties.Name="{Binding Web.Label}"
                                                 HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8" FontSize="13.5">
-                                            <StackPanel Orientation="Horizontal" Spacing="7">
-                                                <TextBlock Text="{Binding Web.Label}" VerticalAlignment="Center" />
-                                                <views:AppIcon Kind="ExternalLink" Size="14" />
-                                            </StackPanel>
+                                            <TextBlock Text="{Binding Web.Label}" VerticalAlignment="Center" />
                                         </Button>
                                         <Border Height="1" Margin="8,4" Background="{StaticResource KcapBorderBrush}"
                                                 IsVisible="{Binding Web.IsVisible, FallbackValue=False}" />

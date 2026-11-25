@@ -30,10 +30,7 @@
                 <Button x:Name="OpenGitHubButton" Grid.Column="1" Command="{Binding OpenGitHubCommand}" IsEnabled="{Binding CanOpenSource}"
                         IsVisible="{Binding ShowsOpenSource}" Classes="kcapGhost kcapQuiet" VerticalAlignment="Center"
                         AutomationProperties.Name="Open pull request in browser">
-                    <StackPanel Orientation="Horizontal" Spacing="6">
-                        <TextBlock Text="{Binding ProviderLabel}" VerticalAlignment="Center" />
-                        <views:AppIcon Kind="ExternalLink" Size="14" Classes="prExternal" />
-                    </StackPanel>
+                    <TextBlock Text="{Binding ProviderLabel}" VerticalAlignment="Center" />
                 </Button>
             </Grid>
             <Button x:Name="PullRequestTitleButton" Classes="copyValue" Command="{Binding OpenReaderCommand}"
