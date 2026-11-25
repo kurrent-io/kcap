@@ -477,6 +477,26 @@ public class ServerSessionsServiceTests {
         await Assert.That(answered[^1]).IsFalse();
     }
 
+    /// Another account's empty caches are not its answer: Answered waits for that account's own read.
+    [Test]
+    public async Task Answered_resets_when_the_account_changes() {
+        var (lane, listing, _, service) = Build();
+        using var _ = service;
+        ScriptDefault(listing);
+        var answered = new List<bool>();
+        using var sub = service.Answered.Subscribe(answered.Add);
+        Connect(lane, "u1");
+        await Eventually(() => answered[^1], "the first account's read");
+
+        var release = new TaskCompletionSource();
+        listing.Gate = _ => release.Task;
+        Connect(lane, "u2", epoch: 2);
+
+        await Assert.That(answered[^1]).IsFalse();
+        release.SetResult();
+        await Eventually(() => answered[^1], "the new account's read");
+    }
+
     [Test]
     public async Task Owners_resolve_the_viewer_ids() {
         var (lane, listing, _, service) = Build(_ => Task.FromResult<SessionOwnerOptionDto[]?>(Owners("a", "b")));

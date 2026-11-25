@@ -728,6 +728,7 @@ public sealed class ServerSessionsService : IServerSessionsService, IDisposable 
     /// Nothing listed under the previous account survives into the next one.
     void ClearForNewAccount() {
         _account++;
+        _answered.OnNext(false);
         _overlay.Clear();
         _heldUntil = DateTimeOffset.MinValue;
         _holdWake.Cancel();
