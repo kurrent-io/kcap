@@ -10,8 +10,14 @@
              Background="{StaticResource KcapCanvasBrush}">
     <!-- Two columns: the workspace proper, and the work-context pane sized by ContextPaneSizing. The
          terminal keeps its own column, so the size it reports to the PTY is the real center width. -->
-    <Grid x:Name="SplitGrid" ColumnDefinitions="*,320">
-    <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*">
+    <!-- The shared scope lines a docked work item page's header divider up with the session header's. -->
+    <Grid x:Name="SplitGrid" ColumnDefinitions="*,320" Grid.IsSharedSizeScope="True">
+    <Grid Grid.Column="0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" SharedSizeGroup="PaneHeader" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
         <!-- Header: title over checkout · Chat/Terminal switch · actions.
              Harness/transport live in the work-context pane; leaving is the rail's job. -->
         <Border x:Name="SessionHeader" Grid.Row="0" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1"

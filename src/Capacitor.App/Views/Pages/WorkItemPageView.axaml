@@ -636,51 +636,56 @@
     </Border>
     <Grid x:Name="SplitGrid" Grid.Column="1" Background="{StaticResource KcapCanvasBrush}">
         <DockPanel>
-            <Border x:Name="WorkItemHeader" DockPanel.Dock="Top" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1"
-                    Padding="20,16,16,16">
-                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
-                    <StackPanel Spacing="2" VerticalAlignment="Center" Margin="-6,0,8,0">
-                        <Panel IsVisible="{Binding !IsDocked}">
-                            <Button x:Name="WorkItemTitle" Classes="inlineEdit" Command="{Binding TitleEditor.BeginEditCommand}"
-                                    IsVisible="{Binding !TitleEditor.IsEditing}" ToolTip.Tip="{Binding Title}"
-                                    AutomationProperties.Name="{Binding Title, StringFormat='Rename {0}'}">
-                                <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold"
-                                           Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+            <Grid DockPanel.Dock="Top">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" SharedSizeGroup="PaneHeader" />
+                </Grid.RowDefinitions>
+                <Border x:Name="WorkItemHeader" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1"
+                        Padding="20,16,16,16">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
+                        <StackPanel Spacing="2" VerticalAlignment="Center" Margin="-6,0,8,0">
+                            <Panel IsVisible="{Binding !IsDocked}">
+                                <Button x:Name="WorkItemTitle" Classes="inlineEdit" Command="{Binding TitleEditor.BeginEditCommand}"
+                                        IsVisible="{Binding !TitleEditor.IsEditing}" ToolTip.Tip="{Binding Title}"
+                                        AutomationProperties.Name="{Binding Title, StringFormat='Rename {0}'}">
+                                    <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold"
+                                               Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+                                </Button>
+                                <views:InlineRenameBox x:Name="WorkItemTitleInput" Classes="inlineEdit" DataContext="{Binding TitleEditor}"
+                                                       Text="{Binding Draft}" IsReadOnly="{Binding IsSaving}" IsVisible="{Binding IsEditing}"
+                                                       MaxLength="120" FontSize="16" FontWeight="SemiBold" AutomationProperties.Name="Work item title" />
+                            </Panel>
+                            <Panel>
+                                <Button x:Name="WorkItemGoal" Classes="inlineEdit" Command="{Binding GoalEditor.BeginEditCommand}"
+                                        IsVisible="{Binding !GoalEditor.IsEditing}" ToolTip.Tip="{Binding Goal}" AutomationProperties.Name="Edit goal">
+                                    <Panel>
+                                        <TextBlock Text="{Binding Goal}" FontSize="13" TextTrimming="CharacterEllipsis"
+                                                   TextWrapping="Wrap" MaxLines="3" Foreground="{StaticResource KcapMutedBrush}" />
+                                        <TextBlock Text="Add a goal" FontSize="13" Foreground="{StaticResource KcapFaintBrush}"
+                                                   IsVisible="{Binding Goal, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
+                                    </Panel>
+                                </Button>
+                                <views:InlineRenameBox x:Name="WorkItemGoalInput" Classes="inlineEdit" DataContext="{Binding GoalEditor}"
+                                                       Text="{Binding Draft}" IsReadOnly="{Binding IsSaving}" IsVisible="{Binding IsEditing}"
+                                                       MaxLength="500" TextWrapping="Wrap" FontSize="13" PlaceholderText="Add a goal"
+                                                       AutomationProperties.Name="Work item goal" />
+                            </Panel>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <Button x:Name="OpenMainChatButton" Classes="kcapGhost kcapIcon" Command="{Binding OpenMainChatCommand}"
+                                    IsVisible="{Binding CanOpenMainChat}"
+                                    ToolTip.Tip="Open main chat" AutomationProperties.Name="Open main chat">
+                                <views:AppIcon Kind="MessagesSquare" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
                             </Button>
-                            <views:InlineRenameBox x:Name="WorkItemTitleInput" Classes="inlineEdit" DataContext="{Binding TitleEditor}"
-                                                   Text="{Binding Draft}" IsReadOnly="{Binding IsSaving}" IsVisible="{Binding IsEditing}"
-                                                   MaxLength="120" FontSize="16" FontWeight="SemiBold" AutomationProperties.Name="Work item title" />
-                        </Panel>
-                        <Panel>
-                            <Button x:Name="WorkItemGoal" Classes="inlineEdit" Command="{Binding GoalEditor.BeginEditCommand}"
-                                    IsVisible="{Binding !GoalEditor.IsEditing}" ToolTip.Tip="{Binding Goal}" AutomationProperties.Name="Edit goal">
-                                <Panel>
-                                    <TextBlock Text="{Binding Goal}" FontSize="13" TextTrimming="CharacterEllipsis"
-                                               TextWrapping="Wrap" MaxLines="3" Foreground="{StaticResource KcapMutedBrush}" />
-                                    <TextBlock Text="Add a goal" FontSize="13" Foreground="{StaticResource KcapFaintBrush}"
-                                               IsVisible="{Binding Goal, Converter={x:Static StringConverters.IsNullOrEmpty}}" />
-                                </Panel>
+                            <Button x:Name="ExpandButton" Classes="kcapGhost kcapIcon" Command="{Binding ExpandCommand}"
+                                    IsVisible="{Binding IsCompact}"
+                                    ToolTip.Tip="Expand" AutomationProperties.Name="Expand the work item">
+                                <views:AppIcon Kind="Maximize2" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
                             </Button>
-                            <views:InlineRenameBox x:Name="WorkItemGoalInput" Classes="inlineEdit" DataContext="{Binding GoalEditor}"
-                                                   Text="{Binding Draft}" IsReadOnly="{Binding IsSaving}" IsVisible="{Binding IsEditing}"
-                                                   MaxLength="500" TextWrapping="Wrap" FontSize="13" PlaceholderText="Add a goal"
-                                                   AutomationProperties.Name="Work item goal" />
-                        </Panel>
-                    </StackPanel>
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <Button x:Name="OpenMainChatButton" Classes="kcapGhost kcapIcon" Command="{Binding OpenMainChatCommand}"
-                                IsVisible="{Binding CanOpenMainChat}"
-                                ToolTip.Tip="Open main chat" AutomationProperties.Name="Open main chat">
-                            <views:AppIcon Kind="MessagesSquare" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
-                        </Button>
-                        <Button x:Name="ExpandButton" Classes="kcapGhost kcapIcon" Command="{Binding ExpandCommand}"
-                                IsVisible="{Binding IsCompact}"
-                                ToolTip.Tip="Expand" AutomationProperties.Name="Expand the work item">
-                            <views:AppIcon Kind="Maximize2" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
-                        </Button>
-                    </StackPanel>
-                </Grid>
-            </Border>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
 
             <views:LaunchComposerView x:Name="WorkItemComposer" DockPanel.Dock="Bottom" DataContext="{Binding Launcher}" Compact="True"
                                       ImpliedSourceKey="{Binding $parent[local:WorkItemPageView].((pages:WorkItemPageViewModel)DataContext).OwnSourceKey}"

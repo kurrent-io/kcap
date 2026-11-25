@@ -10,8 +10,14 @@
              Background="{StaticResource KcapCanvasBrush}">
     <!-- The session's process lives on another machine: the header, the switch over the server's
          streams, and the two actions that reach across. -->
-    <Grid x:Name="SplitGrid" ColumnDefinitions="*,320">
-    <Grid Grid.Column="0" RowDefinitions="Auto,Auto,*">
+    <!-- The shared scope lines a docked work item page's header divider up with the session header's. -->
+    <Grid x:Name="SplitGrid" ColumnDefinitions="*,320" Grid.IsSharedSizeScope="True">
+    <Grid Grid.Column="0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" SharedSizeGroup="PaneHeader" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
         <Border x:Name="SessionHeader" Grid.Row="0" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1"
                 Padding="20,16,16,16" Background="Transparent" PointerPressed="OnHeaderPointerPressed">
             <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
