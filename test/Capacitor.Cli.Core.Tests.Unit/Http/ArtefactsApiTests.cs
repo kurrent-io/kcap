@@ -66,6 +66,24 @@ public class ArtefactsApiTests : IDisposable {
         }
         """;
 
+    /// <summary>A publish sends its kind and work items in the server's snake_case, and binds the references it did not link.</summary>
+    [Test]
+    public async Task A_publish_sends_its_kind_and_work_items_and_reads_back_those_not_linked() {
+        _server.Given(Request.Create().WithPath("/api/artefacts").UsingPost())
+               .RespondWith(Response.Create().WithStatusCode(HttpStatusCode.Created)
+                                    .WithHeader("Content-Type", "application/json")
+                                    .WithBody(DetailJson.Replace("\"notice\": null", "\"notice\": null, \"work_items_not_linked\": [\"AI-9\"]")));
+
+        var result = await Api().PublishAsync(new PublishArtefactBody("Plan", "<p>x</p>", null, null, "adr", ["AI-1", "AI-9"]));
+
+        var sent = System.Text.Json.Nodes.JsonNode.Parse(_server.LogEntries[^1].RequestMessage.Body!)!;
+        await Assert.That(sent["kind"]!.GetValue<string>()).IsEqualTo("adr");
+        await Assert.That(sent["work_items"]!.AsArray().Select(n => n!.GetValue<string>())).IsEquivalentTo(["AI-1", "AI-9"]);
+
+        var written = await Assert.That(result).IsTypeOf<ArtefactWriteResult.Written>();
+        await Assert.That(written!.Detail.WorkItemsNotLinked).IsEquivalentTo(["AI-9"]);
+    }
+
     [Test]
     public async Task A_created_artefact_comes_back_whole() {
         _server.Given(Request.Create().WithPath("/api/artefacts").UsingPost())

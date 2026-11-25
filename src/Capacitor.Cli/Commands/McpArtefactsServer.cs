@@ -306,15 +306,23 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
         "publish_page does not share a page: publish it without 'visibility' or 'grants', then share it with the "
       + "kcap-sharing tools (search_sharing_candidates, set_sharing_grant) by the object_key the result carries.";
 
+    internal const string UpdateLinksNothingMessage =
+        "publish_page with update_id cannot link work items: pass 'work_items' only when you create a page, "
+      + "or ask the user to link them from the page's side panel.";
+
     internal static (string Url, JsonObject Body) BuildPublishRequest(string baseUrl, JsonObject? args, string html,
                                                                        Func<string, string?> getEnv) {
         if (args?["visibility"] is not null || args?["grants"] is not null) throw new ArgumentException(PublishSharesNothingMessage);
 
         if (args?["update_id"] is null) return ($"{baseUrl}/api/artefacts", BuildPublishBody(args, html, getEnv));
 
+        if (args?["work_items"] is not null) throw new ArgumentException(UpdateLinksNothingMessage);
+
         var url = ArtefactUrl(baseUrl, args, "versions", idKey: "update_id");
 
         var body = new JsonObject { ["html"] = html };
+
+        if (McpToolArguments.OptionalString(args, "kind") is { Length: > 0 } kind) body["kind"] = kind;
 
         if (CitedSessions(args, getEnv) is { } sources) body["sources"] = sources;
         if (ReadResponseSchema(args) is { } schema) body["response_schema"] = schema;
@@ -366,6 +374,10 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
         };
 
         if (McpToolArguments.OptionalString(args, "description") is { Length: > 0 } description) body["description"] = description;
+
+        if (McpToolArguments.OptionalString(args, "kind") is { Length: > 0 } kind) body["kind"] = kind;
+
+        if (args?["work_items"] is { } workItems) body["work_items"] = McpWorkItemsServer.ReadStringArray(workItems, "work_items");
 
         if (ReadResponseSchema(args) is { } schema) body["response_schema"] = schema;
 
@@ -511,12 +523,18 @@ sealed class McpArtefactsServer(ConfigRoot config, ProfileContext profiles, Toke
           + "The page runs sandboxed with no network access, so inline every style, script and image as a "
           + "data URI. Pass the page as 'html' or name a local file with 'path'. It is private to you "
           + "until you share it with the kcap-sharing tools. Use update_id to publish a revision of a page you already "
-          + "published — the URL stays the same. Before publishing a page with a response_schema, call get_page_guide.",
+          + "published — the URL stays the same. Before publishing a page with a response_schema, call get_page_guide. "
+          + "Give the page a kind: when the user has not named one, ask them, suggesting the kind that fits. Pass the "
+          + "work items it belongs to in work_items, including the one you are working on; any the server could not "
+          + "link come back in work_items_not_linked.",
             new("object", new() {
                 ["title"]       = new("string", "What this page is called, shown in listings and in the browser tab."),
                 ["html"]        = new("string", "The complete page. Use this or 'path', not both."),
                 ["path"]        = new("string", "A local HTML file to publish instead of inline 'html'."),
                 ["description"] = new("string", "One line saying what the page is for."),
+                ["kind"]        = new("string", "What kind of page this is: prd, adr, design, report or other. With update_id, changes it."),
+                ["work_items"]  = new("array", "Work items to link a new page to, each a tracker issue key (such as AI-123) or a kcap work item id. Not with update_id.",
+                                      new("string", "An issue key or work item id.")),
                 ["session_ids"] = new("array", "Sessions this page came out of; with update_id, added to those it already cites. Defaults to the current kcap-hooked session when omitted.",
                                       new("string", "A session id.")),
                 ["update_id"]   = new("string", "Publish a new version of this existing page instead of creating one. The URL does not change."),

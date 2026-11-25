@@ -1111,7 +1111,7 @@ Stdio MCP server that lets a coding agent publish a **self-contained HTML page**
 
 It provides eight tools, kept deliberately narrow — an agent's context pays for every schema it carries whether or not it ever publishes, and version history and takedown live in the web UI:
 
-- **`publish_page`** — publish a page, private to you. `title` plus either `html` or a local `path`; optional `description`, `session_ids`, `response_schema`, and `update_id` to revise an existing page. Returns the page's `url` and `object_key`; an audience passed here is refused.
+- **`publish_page`** — publish a page, private to you. `title` plus either `html` or a local `path`; optional `description`, `kind` (`prd`, `adr`, `design`, `report` or `other`), `work_items` to link a new page to (issue keys or work item ids; any not linked come back in `work_items_not_linked`), `session_ids`, `response_schema`, and `update_id` to revise an existing page. Returns the page's `url` and `object_key`; an audience passed here is refused.
 - **`get_page_guide`** — how a page people answer sends its answers: the `postMessage` protocol between the sandboxed page and the viewer, the rules every answer is checked against, and a worked example. Served by the kcap server, so it matches what that server enforces. Read it before publishing a page with a `response_schema`.
 - **`await_page_responses`** — block until people have answered. Returns on a respondent count, on a close, or on a timeout — a timeout is a result, not an error.
 - **`get_page_results`** — tallies and each person's current answer, without waiting.
@@ -1161,6 +1161,7 @@ Publish a self-contained HTML page to the kcap server and get back a link — th
 ```bash
 kcap page publish plan.html --title "Migration plan"
 kcap page publish plan.html --update art_01J9...      # new version, same URL
+kcap page publish adr.html --kind adr --work-item AI-123   # a kind, linked to a work item
 kcap page list --mine                                 # who can open each, and its object key
 kcap page get art_01J9... --html                      # a page you can see, yours or shared
 kcap page delete art_01J9...

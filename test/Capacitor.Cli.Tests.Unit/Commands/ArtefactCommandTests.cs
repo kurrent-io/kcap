@@ -36,6 +36,36 @@ public class ArtefactCommandTests {
     }
 
     [Test]
+    public async Task A_publish_carries_its_kind_and_every_work_item_and_names_those_not_linked() {
+        var api = new RecordingArtefactsApi { NotLinked = ["AI-9"] };
+
+        using var console = ConsoleOutput.StartFullCapture();
+        var exit = await new ArtefactCommand(api).HandleAsync(["page", "publish", Page(), "--kind", "adr", "--work-item", "AI-1", "--work-item", "AI-9"]);
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(api.Published!.Kind).IsEqualTo("adr");
+        await Assert.That(api.Published.WorkItems).IsEquivalentTo(["AI-1", "AI-9"]);
+        await Assert.That(console.GetCapturedError()).Contains("Not linked (no such work item you can see, or more than one): AI-9");
+    }
+
+    [Test]
+    public async Task An_update_changes_the_kind_but_links_no_work_items() {
+        var api = new RecordingArtefactsApi();
+
+        using (ConsoleOutput.StartFullCapture()) {
+            await Assert.That(await new ArtefactCommand(api).HandleAsync(["page", "publish", Page(), "--update", "a1", "--kind", "report"])).IsEqualTo(0);
+            await Assert.That(api.VersionKind).IsEqualTo("report");
+        }
+
+        using var console = ConsoleOutput.StartFullCapture();
+        var exit = await new ArtefactCommand(api).HandleAsync(["page", "publish", Page(), "--update", "a1", "--work-item", "AI-1"]);
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(api.Calls).IsEquivalentTo(["version:a1"]);
+        await Assert.That(console.GetCapturedError()).Contains("--update cannot link work items");
+    }
+
+    [Test]
     [Arguments("--visibility", "org")]
     [Arguments("--to", "team:platform")]
     public async Task A_publish_naming_an_audience_is_refused_and_says_where_sharing_went(string flag, string value) {
@@ -250,20 +280,28 @@ public class ArtefactCommandTests {
 
         public List<string> Calls { get; } = [];
 
-        static ArtefactWriteResult Written(string id) =>
+        public List<string>? NotLinked { get; init; }
+
+        ArtefactWriteResult Written(string id) =>
             new ArtefactWriteResult.Written(new(
-                new(id, "Plan", "u1", "none", 1, DateTimeOffset.UnixEpoch, true, "page:" + id, null, $"https://kcap.test/artefacts/{id}")));
+                new(id, "Plan", "u1", "none", 1, DateTimeOffset.UnixEpoch, true, "page:" + id, null, $"https://kcap.test/artefacts/{id}"), NotLinked));
+
+        public PublishArtefactBody? Published { get; private set; }
 
         public Task<ArtefactWriteResult> PublishAsync(PublishArtefactBody body, CancellationToken ct = default) {
             Calls.Add("publish");
+            Published = body;
             return Task.FromResult(Written("new"));
         }
 
         public List<string>? VersionSources { get; private set; }
+        public string?       VersionKind    { get; private set; }
 
-        public Task<ArtefactWriteResult> PublishVersionAsync(string artefactId, string html, List<string>? sources, CancellationToken ct = default) {
+        public Task<ArtefactWriteResult> PublishVersionAsync(string artefactId, string html, List<string>? sources, string? kind = null,
+                                                             CancellationToken ct = default) {
             Calls.Add($"version:{artefactId}");
             VersionSources = sources;
+            VersionKind    = kind;
             return Task.FromResult(Written(artefactId));
         }
 
