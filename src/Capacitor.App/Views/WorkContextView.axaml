@@ -244,8 +244,12 @@
             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="9">
                 <!-- The pulse is the row's own: it stops when the session ends, and the
                      ring stays so the task still reads as started. -->
-                <Panel Width="12" Height="16" VerticalAlignment="Top">
+                <Panel Width="12" Height="16" VerticalAlignment="Top" Background="Transparent"
+                       ToolTip.Tip="{Binding StateLabel}" AutomationProperties.Name="{Binding StateLabel}"
+                       AutomationProperties.AccessibilityView="Content">
                     <ContentControl Content="{Binding State}" ContentTemplate="{StaticResource PlanMark}" VerticalAlignment="Center" />
+                    <Ellipse Width="5" Height="5" Fill="{StaticResource KcapActivityBrush}" Opacity="{DynamicResource KcapStartedTaskDotOpacity}"
+                             HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False" IsVisible="{Binding IsStarted}" />
                     <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapActivityBrush}"
                             HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False"
                             IsVisible="{Binding IsActive}" views:PulseClock.IsActive="{Binding IsActive}" />
@@ -813,6 +817,8 @@
                                             <StackPanel Orientation="Horizontal" Spacing="5" Background="Transparent" ToolTip.Tip="{Binding Label}">
                                                 <Panel Width="12" Height="12" VerticalAlignment="Center">
                                                     <ContentControl Content="{Binding State}" ContentTemplate="{StaticResource PlanMark}" VerticalAlignment="Center" />
+                                                    <Ellipse Width="5" Height="5" Fill="{StaticResource KcapActivityBrush}" Opacity="{DynamicResource KcapStartedTaskDotOpacity}"
+                                                             HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False" IsVisible="{Binding IsStarted}" />
                                                     <Border Classes="toolRunning" Width="5" Height="5" CornerRadius="2.5" Background="{StaticResource KcapActivityBrush}"
                                                             HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False"
                                                             IsVisible="{Binding IsActive}" views:PulseClock.IsActive="{Binding IsActive}" />

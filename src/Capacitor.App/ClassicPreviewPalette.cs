@@ -8,6 +8,9 @@ namespace Capacitor.App;
 internal sealed class ClassicPreviewPalette(Application application) {
     const string ContextDividerThickness = "KcapContextDividerThickness";
     const string WorkspaceSelectionWeight = "KcapWorkspaceSelectionWeight";
+    // With work in progress in neutral ink, these indicators differ from their neighbours by shape.
+    const string UnknownOutcomeFillOpacity = "KcapUnknownOutcomeFillOpacity";
+    const string StartedTaskDotOpacity = "KcapStartedTaskDotOpacity";
 
     readonly Dictionary<SolidColorBrush, Color> _original = new();
     ThemeVariant? _originalVariant;
@@ -29,6 +32,8 @@ internal sealed class ClassicPreviewPalette(Application application) {
             application.RequestedThemeVariant = _originalVariant;
             application.Resources.Remove(ContextDividerThickness);
             application.Resources.Remove(WorkspaceSelectionWeight);
+            application.Resources.Remove(UnknownOutcomeFillOpacity);
+            application.Resources.Remove(StartedTaskDotOpacity);
             _original.Clear();
             return true;
         }
@@ -47,6 +52,8 @@ internal sealed class ClassicPreviewPalette(Application application) {
             _originalVariant = application.RequestedThemeVariant;
             application.Resources[ContextDividerThickness] = new Thickness(0);
             application.Resources[WorkspaceSelectionWeight] = FontWeight.SemiBold;
+            application.Resources[UnknownOutcomeFillOpacity] = 0d;
+            application.Resources[StartedTaskDotOpacity] = 1d;
         }
         foreach (var (brush, color) in colors) {
             _original.TryAdd(brush, brush.Color);

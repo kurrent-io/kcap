@@ -1142,6 +1142,28 @@ public class WorkContextViewSmokeTests {
         });
     }
 
+    /// A task's mark announces its state, so a started task stays distinct from a pending one once
+    /// the session ends and its pulse, the only other cue, stops.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_plan_task_mark_announces_its_state_and_reads_started_after_the_session_ends() {
+        await RunOnUiAsync(async () => {
+            await using var host = new Host();
+            host.Plans.Enqueue(PlanRead([], ("in_progress", "Draw the rows", null)));
+            await host.ShowAsync(KeyOnlyRead());
+
+            Control Mark() => host.Find<ItemsControl>("PlanInProgressList").GetVisualDescendants().OfType<Panel>()
+                .Single(panel => AutomationProperties.GetName(panel) is { Length: > 0 });
+            await Assert.That(IsAnnounced(Mark())).IsTrue();
+            await Assert.That(Peer(Mark()).GetName()).IsEqualTo("In progress");
+
+            host.PlanActivity.SessionOver = true;
+            Dispatcher.UIThread.RunJobs();
+
+            await Assert.That(Peer(Mark()).GetName()).IsEqualTo("Started");
+        });
+    }
+
     /// The section sits between the pull request and SUBAGENTS. Expanded, its header says how far
     /// along the plan is and the rows carry the marks. Only a task in progress pulses, and only
     /// while the session runs.

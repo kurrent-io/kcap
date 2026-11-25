@@ -618,11 +618,16 @@
                                         <Border Classes="toolRunning toolStatus" Width="8" Height="8"
                                                 CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
                                                 IsVisible="{Binding IsRunning}" views:PulseClock.IsActive="{Binding IsRunning}"
-                                                Background="{StaticResource KcapActivityBrush}" />
+                                                Background="{StaticResource KcapActivityBrush}"
+                                                ToolTip.Tip="Running" AutomationProperties.Name="Running" AutomationProperties.AccessibilityView="Content" />
+                                        <!-- A ring under a fill: solid by default, hollow under the redesign preview. -->
                                         <Border x:Name="ToolUnknownStatusPill" Classes="toolStatus" Width="8" Height="8"
                                                 CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
-                                                IsVisible="{Binding IsOutcomeUnknown}" Background="{StaticResource KcapMutedBrush}"
-                                                ToolTip.Tip="Outcome unknown" AutomationProperties.Name="Outcome unknown" />
+                                                IsVisible="{Binding IsOutcomeUnknown}" BorderBrush="{StaticResource KcapMutedBrush}" BorderThickness="1.5"
+                                                ToolTip.Tip="Outcome unknown" AutomationProperties.Name="Outcome unknown" AutomationProperties.AccessibilityView="Content">
+                                            <Border Margin="-1.5" CornerRadius="4" Background="{StaticResource KcapMutedBrush}"
+                                                    Opacity="{DynamicResource KcapUnknownOutcomeFillOpacity}" />
+                                        </Border>
                                         <views:AppIcon Kind="CircleQuestionMark" Size="14" Margin="16,0,0,0" VerticalAlignment="Center"
                                                        IsVisible="{Binding IsAwaitingPermission}"
                                                        Foreground="{Binding IsError, Converter={x:Static views:ToolOutcomeBrushConverter.Instance}}" />
