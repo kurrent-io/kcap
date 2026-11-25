@@ -258,38 +258,59 @@ public class CodexApprovalBridgeTests {
 
     /// An edit that only drops a final newline or turns CRLF into LF would read as no change in an Edit card, so the
     /// raw diff goes instead.
+    static Task<(AcpInteractionRequest Shown, string? Decision)> ShowEdit(string diff) {
+        var changes = new JsonArray(new JsonObject { ["path"] = "/wt/a.txt", ["kind"] = new JsonObject { ["type"] = "update" }, ["diff"] = diff });
+        return Show(FileMethod, """{"threadId":"thread-1","itemId":"fc-1"}""",
+            bridge => bridge.FileChanges.Observe("fc-1", Changes(changes.ToJsonString())));
+    }
+
     [Test]
     [Arguments("@@ -1 +1 @@\n-hello\n\\ No newline at end of file\n+hello\n")]
     [Arguments("@@ -1,2 +1,2 @@\n-a\r\n+a\n b\n")]
+    [Arguments("@@ -1 +1 @@\n-a\r\n+a\n")]
     public async Task An_edit_its_lines_cannot_show_carries_the_raw_diff(string diff) {
-        var changes = new JsonArray(new JsonObject { ["path"] = "/wt/a.txt", ["kind"] = new JsonObject { ["type"] = "update" }, ["diff"] = diff });
-        var (shown, _) = await Show(FileMethod, """{"threadId":"thread-1","itemId":"fc-1"}""",
-            bridge => bridge.FileChanges.Observe("fc-1", Changes(changes.ToJsonString())));
+        var (shown, _) = await ShowEdit(diff);
 
         await Assert.That(shown.ToolName).IsEqualTo("apply_patch");
         await Assert.That(shown.ToolInput!.Value.GetProperty("changes")[0].Str("diff")).IsEqualTo(diff);
     }
 
-    /// A grant root asks for writes under it for the rest of the session, so even a one-file edit names the root.
+    /// The control for the case above: a line ending changed along with the text still shows the text.
     [Test]
-    public async Task A_grant_beyond_the_edit_names_its_root_and_how_long_it_lasts() {
-        var (shown, _) = await Show(FileMethod, """{"threadId":"thread-1","itemId":"fc-1","reason":"Fix the build","grantRoot":"/wt"}""",
-            bridge => bridge.FileChanges.Observe("fc-1", Changes("""[{"path":"/wt/a.txt","kind":{"type":"update"},"diff":"@@ -1 +1 @@\n-a\n+b\n"}]""")));
+    public async Task An_edit_that_also_changes_a_line_ending_still_shows_its_lines() {
+        var (shown, _) = await ShowEdit("@@ -1 +1 @@\n-a\r\n+b\n");
 
-        await Assert.That(shown.ToolName).IsEqualTo("apply_patch");
-        await Assert.That(Input(shown, "grant_root")).IsEqualTo("/wt");
-        await Assert.That(Input(shown, "description")).IsEqualTo("Write under /wt for the rest of the session: Fix the build");
-        await Assert.That(ShownPaths(shown)).IsEqualTo("/wt/a.txt");
+        await Assert.That(shown.ToolName).IsEqualTo("Edit");
+        await Assert.That(Input(shown, "new_string")).IsEqualTo("b");
     }
 
-    /// Until an edit's changes are known the card cannot say what it is; an empty patch would read as no change.
+    /// A grant root asks for writes under it for the rest of the session, so even a one-file edit names the root, with
+    /// its scope at both ends of the description however long the root is.
     [Test]
-    public async Task A_change_whose_files_are_not_yet_known_is_shown_as_it_came() {
-        var (shown, _) = await Show(FileMethod, """{"threadId":"thread-1","itemId":"fc-1","grantRoot":"/wt"}""");
+    [Arguments("/wt")]
+    [Arguments("/Users/someone/dev/a-rather-long-organisation/a-rather-long-repository/.capacitor/worktrees/happy-book")]
+    public async Task A_grant_beyond_the_edit_names_its_root_and_how_long_it_lasts(string root) {
+        var (shown, _) = await Show(FileMethod, $$"""{"threadId":"thread-1","itemId":"fc-1","reason":"Fix the build","grantRoot":"{{root}}"}""",
+            bridge => bridge.FileChanges.Observe("fc-1", Changes($$"""[{"path":"{{root}}/a.txt","kind":{"type":"update"},"diff":"@@ -1 +1 @@\n-a\n+b\n"}]""")));
+
+        await Assert.That(shown.ToolName).IsEqualTo("apply_patch");
+        await Assert.That(Input(shown, "grant_root")).IsEqualTo(root);
+        await Assert.That(Input(shown, "description")).IsEqualTo($"Write under {root} for the rest of the session");
+        await Assert.That(Input(shown, "reason")).IsEqualTo("Fix the build");
+        await Assert.That(ShownPaths(shown)).IsEqualTo($"{root}/a.txt");
+    }
+
+    /// Until an edit's changes are known the card cannot say what it is — an empty patch would read as no change — but
+    /// a grant it asks for is still named.
+    [Test]
+    public async Task A_change_whose_files_are_not_yet_known_is_shown_as_it_came_naming_its_grant() {
+        var (shown, _) = await Show(FileMethod, """{"threadId":"thread-1","itemId":"fc-1","reason":"Fix the build","grantRoot":"/wt"}""");
 
         await Assert.That(shown.ToolName).IsEqualTo("fileChange");
         await Assert.That(Input(shown, "itemId")).IsEqualTo("fc-1");
-        await Assert.That(Input(shown, "grantRoot")).IsEqualTo("/wt");
+        await Assert.That(Input(shown, "grant_root")).IsEqualTo("/wt");
+        await Assert.That(Input(shown, "description")).IsEqualTo("Write under /wt for the rest of the session");
+        await Assert.That(Input(shown, "reason")).IsEqualTo("Fix the build");
     }
 
     // ── Non-approval requests keep the always-decline shapes ─────────────────────────────────────

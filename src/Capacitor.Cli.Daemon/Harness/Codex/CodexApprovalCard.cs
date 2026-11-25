@@ -8,8 +8,8 @@ namespace Capacitor.Cli.Daemon.Harness.Codex;
 /// vocabulary, which Codex's hooks use for the same calls, so a plain command shows as <c>Bash</c> with the script it
 /// runs, and a one-file edit as <c>Edit</c>, <c>MultiEdit</c> or <c>Write</c> with the file and its lines. A change that
 /// one file's lines cannot show goes as <c>apply_patch</c> with every path, its raw diff and any grant beyond them; one
-/// whose changes are not yet known, and any other request, as it came. Only what is shown changes: the answer goes back
-/// on the request itself.
+/// whose changes are not yet known as it came, naming any grant; and any other request as it came. Only what is shown
+/// changes: the answer goes back on the request itself.
 /// </summary>
 internal static class CodexApprovalCard {
     public static (string ToolName, JsonElement? ToolInput) For(string itemType, JsonElement? request, CodexFileChanges fileChanges) {
@@ -32,7 +32,11 @@ internal static class CodexApprovalCard {
     static (string, JsonElement) FileChange(string itemType, JsonElement request, CodexFileChanges fileChanges) {
         // Until its changes are known the card cannot say what the edit is: an empty patch would read as no change.
         if (request.Str("itemId") is not { } itemId || fileChanges.Of(itemId) is not { } observed || !observed.IsArray)
-            return (itemType, request);
+            return (itemType, Json(w => {
+                foreach (var property in request.EnumerateObject())
+                    if (property.Name is not ("grantRoot" or "reason" or "grant_root" or "description")) property.WriteTo(w);
+                Describe(w, request);
+            }));
 
         JsonElement[] changes = [.. observed.EnumerateArray()];
 
@@ -61,21 +65,30 @@ internal static class CodexApprovalCard {
                 w.WriteEndObject();
             }
             w.WriteEndArray();
-
-            if (request.Str("grantRoot") is { } root) {
-                var grant = $"Write under {root} for the rest of the session";
-                w.WriteString("grant_root", root);
-                w.WriteString("description", request.Str("reason") is { Length: > 0 } reason ? $"{grant}: {reason}" : grant);
-            } else {
-                Reason(w, request);
-            }
+            Describe(w, request);
         }));
     }
 
-    // A card folds CRLF into LF and drops a missing final newline, so a hunk whose sides read the same there changes
-    // only what its lines cannot show.
+    /// <summary>A grant root asks for writes under it for the rest of the session, so it takes the description over
+    /// Codex's reason, which keeps its own key. Its scope sits at both ends, where a desktop card's middle cut leaves
+    /// it.</summary>
+    static void Describe(Utf8JsonWriter w, JsonElement request) {
+        if (request.Str("grantRoot") is not { } root) {
+            Reason(w, request);
+            return;
+        }
+
+        w.WriteString("grant_root", root);
+        w.WriteString("description", $"Write under {root} for the rest of the session");
+        if (request.Str("reason") is { Length: > 0 } reason) w.WriteString("reason", reason);
+    }
+
+    // A card shows neither a line's carriage return nor a missing final newline, so a hunk whose sides differ only
+    // in those changes nothing its lines would show.
     static bool Shows((string Old, string New) hunk) =>
-        !string.Equals(hunk.Old.Replace("\r\n", "\n"), hunk.New.Replace("\r\n", "\n"), StringComparison.Ordinal);
+        !string.Equals(WithoutCarriageReturns(hunk.Old), WithoutCarriageReturns(hunk.New), StringComparison.Ordinal);
+
+    static string WithoutCarriageReturns(string side) => string.Join('\n', side.Split('\n').Select(line => line.TrimEnd('\r')));
 
     static (string, JsonElement) Edit(string path, List<(string Old, string New)> hunks, JsonElement request) =>
         hunks is [var (old, @new)]
