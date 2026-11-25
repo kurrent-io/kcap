@@ -386,6 +386,8 @@
                                                 Command="{Binding SetSortCommand}" CommandParameter="{x:Static vm:RailSort.Created}" />
                                         <Button Classes="kcapGhost railPickerRow" Content="Title" Click="OnSortPickerItemClick"
                                                 Command="{Binding SetSortCommand}" CommandParameter="{x:Static vm:RailSort.Title}" />
+                                        <Button Classes="kcapGhost railPickerRow" Content="Needs you" Click="OnSortPickerItemClick"
+                                                Command="{Binding SetSortCommand}" CommandParameter="{x:Static vm:RailSort.NeedsYou}" />
                                     </StackPanel>
                                 </Flyout>
                             </Button.Flyout>
