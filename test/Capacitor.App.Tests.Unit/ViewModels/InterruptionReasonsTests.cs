@@ -20,8 +20,8 @@ public class InterruptionReasonsTests {
     }
 
     [Test]
-    public async Task An_unknown_reason_is_shown_as_it_came() {
-        await Assert.That(InterruptionReasons.Describe("IOException")).IsEqualTo("IOException");
+    public async Task An_unknown_reason_does_not_show_the_diagnostic() {
+        await Assert.That(InterruptionReasons.Describe("IOException")).IsNull();
         await Assert.That(InterruptionReasons.Describe("")).IsNull();
     }
 }

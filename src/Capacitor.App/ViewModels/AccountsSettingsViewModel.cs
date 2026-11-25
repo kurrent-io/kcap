@@ -173,9 +173,8 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
         var failed = $"Could not {infinitive} {label}";
         return outcome switch {
             MutationOutcome.Succeeded                   => null,
-            MutationOutcome.Failed { Reason: { } why }  => new(failed, why),
-            MutationOutcome.Failed exit                 => new(failed, $"kcap's command line stopped with an error (code {exit.ExitCode})."),
-            MutationOutcome.Refused { Reason: var why } => new(failed, RefusalRemedy(why) is { } remedy ? $"{remedy}." : why),
+            MutationOutcome.Failed                      => new(failed, "Check the account settings and try again."),
+            MutationOutcome.Refused { Reason: var why } => new(failed, RefusalRemedy(why) is { } remedy ? $"{remedy}." : "Check the account settings and try again."),
             // Unconfirmed, and every case the lane never produces for an account verb: none reads as done.
             _                                           => new($"{doing} {label} could not be confirmed", "The list shows the current state.", IsWarning: true),
         };
@@ -228,7 +227,8 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
             } catch (OperationCanceledException) when (_token.IsCancellationRequested) {
                 return;
             } catch (Exception ex) {
-                Report(vendor, new("Could not open the folder picker", ex.Message));
+                Console.Error.WriteLine($"kcap: could not open the account folder picker: {ex.Message}");
+                Report(vendor, new("Could not open the folder picker", "Try again."));
                 return;
             }
             if (directory is not { Length: > 0 }) return;
@@ -267,7 +267,8 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
             Report(vendor, OutcomeNotice(verb, label, await _runMutation(request, _token)));
         } catch (OperationCanceledException) when (_token.IsCancellationRequested) {
         } catch (Exception ex) {
-            Report(vendor, new($"Could not {Words(verb).Infinitive} {label}", ex.Message));
+            Console.Error.WriteLine($"kcap: account change failed: {ex.Message}");
+            Report(vendor, new($"Could not {Words(verb).Infinitive} {label}", "Try again."));
         }
     }
 

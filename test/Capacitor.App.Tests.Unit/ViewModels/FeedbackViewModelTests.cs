@@ -163,7 +163,7 @@ public class FeedbackViewModelTests {
         api.ThenThrow(new HttpRequestException("socket closed")).Then(new FeedbackResult.Sent("a@b.c"));
         vm.Message = "It broke.";
         await vm.SendCommand.Execute().ToTask();
-        await Assert.That(vm.Outcome).IsEqualTo("Couldn't send the report: socket closed");
+        await Assert.That(vm.Outcome).IsEqualTo("Couldn’t send the report. Check your connection and try again.");
         await Assert.That(vm.CanSend).IsTrue();
 
         vm.Message = "It broke, really.";
@@ -388,6 +388,21 @@ public class FeedbackViewModelTests {
         await Assert.That(vm.IsSent).IsFalse();
         await Assert.That(vm.Outcome).Contains("team@kcap.ai");
         await Assert.That(vm.CanSend).IsTrue();
+    }
+
+    [Test]
+    public async Task A_mail_error_keeps_the_report_available_to_copy() {
+        using var vm = new FeedbackViewModel(new ScriptedFeedbackApi(), FeedbackCategory.Bug,
+            new BehaviorSubject<string>(TrailerA), "macOS 15.6", null,
+            mail: _ => throw new InvalidOperationException("mail-diagnostic"));
+        vm.Message = "It broke.";
+
+        await vm.SendCommand.Execute().ToTask();
+
+        await Assert.That(vm.IsSent).IsFalse();
+        await Assert.That(vm.FullReport).Contains("It broke.");
+        await Assert.That(vm.Outcome).Contains("Copy the report below");
+        await Assert.That(vm.Outcome).DoesNotContain("mail-diagnostic");
     }
 
     sealed class BlockingFeedbackApi : IFeedbackApi {

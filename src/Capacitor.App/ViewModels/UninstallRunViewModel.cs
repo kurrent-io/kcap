@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Reactive;
 using System.Reactive.Linq;
-using Avalonia.Threading;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using ReactiveUI.Reactive;
@@ -15,21 +14,22 @@ public sealed class UninstallRunViewModel : ReactiveObject {
     readonly IAppRemoval   _removal;
     readonly bool          _purgeLocal;
     readonly bool          _keepConfig;
-    readonly Action<Action> _post;
     readonly Func<Task>?    _prepare;
     readonly Func<bool>     _hasSettings;
     bool                   _prepared;
     bool?                  _hadSettings;
     bool?                  _hadCommand;
+    bool                   _purgedLocal;
+    const string PurgeConfirmation = "Deleted the local server and every session it recorded";
     UninstallRunState      _state = UninstallRunState.Running;
+    string?                _failureMessage;
 
-    public UninstallRunViewModel(IKcapCli cli, IAppRemoval removal, bool purgeLocal, Action quit, Action<Action>? post = null,
+    public UninstallRunViewModel(IKcapCli cli, IAppRemoval removal, bool purgeLocal, Action quit,
             Func<Task>? prepare = null, bool keepConfig = false, Func<bool>? hasSettings = null) {
         _cli        = cli;
         _removal    = removal;
         _purgeLocal = purgeLocal;
         _keepConfig = keepConfig;
-        _post       = post ?? (action => Dispatcher.UIThread.Post(action));
         _prepare    = prepare;
         _hasSettings = hasSettings ?? (static () => true);
         _prepared   = prepare is null;
@@ -81,7 +81,7 @@ public sealed class UninstallRunViewModel : ReactiveObject {
     public string Description => State switch {
         UninstallRunState.Preparing => "Closing kcap before removing its background services and app.",
         UninstallRunState.Finished => $"kcap is out of your coding agents, and none of its background services is left. {_removal.RemovedSummary}",
-        UninstallRunState.Failed => "Uninstall could not finish. See the details below.",
+        UninstallRunState.Failed => _failureMessage ?? "Uninstall could not finish.",
         UninstallRunState.TrashFailed => $"{_removal.NotRemoved}. See the details below to finish.",
         _ => "Removing background services, coding-agent integrations, and the app.",
     };
@@ -95,8 +95,6 @@ public sealed class UninstallRunViewModel : ReactiveObject {
 
     public ObservableCollection<string> Lines { get; } = [];
 
-    /// What a finished run removed, in the user's terms; the raw <see cref="Lines"/> are for a run that
-    /// is still going or has failed.
     public ObservableCollection<UninstallReceiptItem> Receipt { get; } = [];
 
     public ReactiveCommand<Unit, Unit> RetryCommand { get; }
@@ -105,7 +103,9 @@ public sealed class UninstallRunViewModel : ReactiveObject {
 
     /// Call on the UI thread; only streamed lines arrive through the injected post.
     public async Task RunAsync() {
+        _failureMessage = null;
         Lines.Clear();
+        if (_purgedLocal) Lines.Add(PurgeConfirmation + ".");
         Receipt.Clear();
 
         // Running disables Close, so no exception may leave the run there.
@@ -119,14 +119,15 @@ public sealed class UninstallRunViewModel : ReactiveObject {
             State = UninstallRunState.Running;
             await RunStepsAsync();
         } catch (Exception ex) {
-            Fail($"The uninstall stopped: {ex.Message}");
+            Console.Error.WriteLine($"kcap: uninstall stopped: {ex.Message}");
+            Fail("Uninstall could not finish. Close and try again.");
         }
     }
 
     async Task RunStepsAsync() {
         StreamingResult result;
-        var streamed = 0;
         var purged = 0;
+        Lines.Add("Removing kcap’s background services and coding-agent integrations…");
         // What was there, read before anything goes and kept across a retry, whose first attempt may have removed it.
         // The readings touch the disk, so they stay off the thread that draws the progress window.
         if (_hadSettings is null || _hadCommand is null) {
@@ -136,21 +137,26 @@ public sealed class UninstallRunViewModel : ReactiveObject {
         }
         try {
             result = await _cli.UninstallAsync(_purgeLocal, _keepConfig, line => {
-                Interlocked.Increment(ref streamed);
                 // The CLI's own outcome line: a purge that was asked for may have found no server to purge.
                 if (line.Text.StartsWith("Purged the local server", StringComparison.Ordinal)) Interlocked.Exchange(ref purged, 1);
-                _post(() => Lines.Add(line.Text));
+                Console.Error.WriteLine($"kcap uninstall: {line.Text}");
             }, CancellationToken.None);
         } catch (Exception ex) {
-            Fail($"kcap uninstall could not run: {ex.Message}");
+            Console.Error.WriteLine($"kcap: could not run uninstall: {ex.Message}");
+            ConfirmPurge(Volatile.Read(ref purged) == 1);
+            Fail("Could not finish running uninstall. Try again.");
             return;
         }
 
-        if (result.ExitCode != 0) {
-            // A run that never spawned streams nothing; its reason is only in the tail.
-            if (Volatile.Read(ref streamed) == 0)
-                foreach (var line in result.Tail) Lines.Add(line.Text);
-            Fail($"kcap uninstall exited with code {result.ExitCode}. The app was left in place.");
+        ConfirmPurge(Volatile.Read(ref purged) == 1);
+        if (result is not { ExitCode: 0, TimedOut: false }) {
+            foreach (var line in result.Tail) Console.Error.WriteLine($"kcap uninstall: {line.Text}");
+            Fail(result switch {
+                { TimedOut: true } => "Uninstall took too long. The app is still installed. Try again.",
+                { ExitCode: -1 } when result.Tail.Any(line => line.Text == "kcap CLI not found") =>
+                    "kcap’s command-line tool is missing. Reinstall kcap, then try uninstalling again.",
+                _ => "Could not finish removing kcap’s background services or integrations. The app is still installed. Try again.",
+            });
             return;
         }
 
@@ -158,7 +164,8 @@ public sealed class UninstallRunViewModel : ReactiveObject {
         try {
             left = await _removal.RemoveLinksAsync(CancellationToken.None);
         } catch (Exception ex) {
-            Fail($"The kcap command links could not be removed: {ex.Message}");
+            Console.Error.WriteLine($"kcap: could not remove the command links: {ex.Message}");
+            Fail("Could not remove the kcap command from your terminal. Try again.");
             return;
         }
 
@@ -175,7 +182,7 @@ public sealed class UninstallRunViewModel : ReactiveObject {
             supportFilesLeft = !_removal.DeleteSupportFiles();
         } catch (Exception ex) {
             supportFilesLeft = true;
-            Lines.Add($"Some app support files could not be removed: {ex.Message}");
+            Lines.Add("Some app support files could not be removed.");
             Console.Error.WriteLine($"kcap: could not remove the app's support files: {ex.Message}");
         }
 
@@ -183,7 +190,7 @@ public sealed class UninstallRunViewModel : ReactiveObject {
         try {
             trashed = await _removal.TrashBundleAsync(CancellationToken.None);
         } catch (Exception ex) {
-            Lines.Add($"{_removal.NotRemoved}: {ex.Message}");
+            Console.Error.WriteLine($"kcap: could not remove the app: {ex.Message}");
             trashed = false;
         }
 
@@ -195,16 +202,22 @@ public sealed class UninstallRunViewModel : ReactiveObject {
         }
 
         Lines.Add(_removal.RemovedLine);
-        FillReceipt(Volatile.Read(ref purged) == 1, supportFilesLeft);
+        FillReceipt(supportFilesLeft);
         State = UninstallRunState.Finished;
+    }
+
+    void ConfirmPurge(bool confirmed) {
+        if (!confirmed || _purgedLocal) return;
+        _purgedLocal = true;
+        Lines.Add(PurgeConfirmation + ".");
     }
 
     /// Claims only what a zero exit from `kcap uninstall` and the steps after it guarantee. That exit says nothing is
     /// left, not that something was there, so a line says "removed" or "kept" only for what was seen beforehand.
-    void FillReceipt(bool purgedLocal, bool supportFilesLeft) {
+    void FillReceipt(bool supportFilesLeft) {
         Receipt.Add(new("kcap is out of your coding agents’ user settings"));
         Receipt.Add(new("No kcap background service is left"));
-        if (purgedLocal) Receipt.Add(new("Deleted the local server and every session it recorded"));
+        if (_purgedLocal) Receipt.Add(new(PurgeConfirmation));
         if (_hadSettings == true)
             Receipt.Add(new(_keepConfig ? "Kept your kcap settings and sign-in for a reinstall" : "Removed your kcap settings and sign-in"));
         if (_hadCommand == true) Receipt.Add(new("Removed the kcap command the app installed"));
@@ -224,7 +237,7 @@ public sealed class UninstallRunViewModel : ReactiveObject {
     }
 
     void Fail(string message) {
-        Lines.Add(message);
+        _failureMessage = message;
         State = UninstallRunState.Failed;
     }
 }

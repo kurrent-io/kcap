@@ -322,8 +322,8 @@ public class SettingsViewModelTests {
     [Arguments("offline", "will apply when the daemon starts")]
     [Arguments("old", "Update the daemon")]
     [Arguments("transport", "could not reach")]
-    [Arguments("refusal", "invalid_max_agents")]
-    [Arguments("bad-ack", "unexpected reply")]
+    [Arguments("refusal", "Choose another value and save again.")]
+    [Arguments("bad-ack", "Restart the daemon to apply it.")]
     public Task Save_reports_degraded_results_honestly(string mode, string message) => AvaloniaSession.RunOnUiAsync(async () => {
         var store = Seed();
         var service = Connected(supportsSettings: mode != "old");

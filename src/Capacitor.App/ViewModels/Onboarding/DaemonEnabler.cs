@@ -156,7 +156,7 @@ public sealed class DaemonEnabler : ReactiveObject {
         } catch (OperationCanceledException) {
             Status = DetachedMessage;
         } catch (Exception ex) {
-            Status = $"The daemon service operation failed unexpectedly: {ex.Message}";
+            Status = "Could not set up the daemon service. Try again.";
             Console.Error.WriteLine($"kcap: wizard daemon enable failed unexpectedly: {ex.Message}");
         } finally {
             Busy = false;
@@ -477,12 +477,13 @@ public sealed class DaemonEnabler : ReactiveObject {
     internal static string OutcomeStatus(MutationVerb verb, MutationOutcome outcome) => outcome switch {
         MutationOutcome.Succeeded or MutationOutcome.SucceededAfterTimeout => "The daemon service is enabled.",
         MutationOutcome.UnconfirmedNoAttach   => UnconfirmedStatus(verb),
-        MutationOutcome.AttentionSkew(var d)  => $"The daemon {VerbDisplay(verb)} needs attention ({d}) — kcap will follow up.",
-        MutationOutcome.AttentionRepair(var d) => $"The daemon {VerbDisplay(verb)} needs attention ({d}) — kcap will follow up.",
-        MutationOutcome.Refused(var reason, _) => $"kcap did not change the daemon service ({reason}).",
-        MutationOutcome.Failed(var exitCode, var reason, _) =>
-            $"The daemon {VerbDisplay(verb)} failed ({reason ?? VerifyExitCodes.Token(exitCode)}).",
-        _ => $"The daemon {VerbDisplay(verb)} did not complete.",
+        MutationOutcome.AttentionSkew or MutationOutcome.AttentionRepair => $"The daemon {VerbDisplay(verb)} needs attention. kcap will check again.",
+        MutationOutcome.Refused { Reason: "cli_below_floor" or "cli_version_unknown" } => "Update kcap before changing the daemon service.",
+        MutationOutcome.Refused => "kcap did not change the daemon service. Check its status before trying again.",
+        MutationOutcome.Failed { Reason: "verify_readiness_timeout" }
+            or MutationOutcome.Failed { Reason: null, ExitCode: VerifyExitCodes.ReadinessTimeout } =>
+                "The daemon took too long to start. Check its status before trying again.",
+        _ => $"The daemon {VerbDisplay(verb)} did not complete. Check its status and try again.",
     };
 
     /// <summary>The one line for a daemon change kcap could not confirm. The Done page shows it beside the main window's

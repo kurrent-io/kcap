@@ -29,7 +29,7 @@ public class HandoffComposerViewModelTests {
         FakeHandoffProbeOps.Reply(start, completeness, missing);
 
     const string StartChanged = "The branch changed after it was checked, so nothing was started. Check the new starting point and start again.";
-    const string SourceUnavailable = "You can no longer hand off this session. It may have been deleted, or your access to it changed.";
+    const string SourceUnavailable = HandoffFailureText.SourceUnavailable;
 
     sealed class Rig : IDisposable {
         public FakeDaemonClientService Daemon { get; } = new();
@@ -720,7 +720,7 @@ public class HandoffComposerViewModelTests {
 
         rig.Failures.OnNext(new LaunchFailure(LaunchedId, "handoff_source_unavailable"));
 
-        await Assert.That(rig.Notifier.Notified.Single()).StartsWith("The hand-off of 01234567 didn't start: You can no longer hand off this session.");
+        await Assert.That(rig.Notifier.Notified.Single()).StartsWith("The hand-off of 01234567 didn't start: The original session is no longer available for handoff.");
     });
 
     [Test]
@@ -851,8 +851,8 @@ public class HandoffComposerViewModelTests {
             ("handoff_source_unavailable: The session to continue cannot be read.", SourceUnavailable),
             ("invalid_handoff: the block is incomplete",
                 "Your local kcap daemon couldn't start this hand-off, so nothing was started. Update kcap and try again."),
-            ("repo_mismatch", "The checkout on this machine isn't a clone of this session's repository, so nothing was started."),
-            ("repo_not_allowed", "Your local kcap daemon isn't allowed to work in that checkout, so nothing was started."),
+            ("repo_mismatch", HandoffFailureText.RepoMismatch),
+            ("repo_not_allowed", HandoffFailureText.RepoNotAllowed),
             ("some_new_code: the thing broke", null),
             ("some_new_code", null),
         ];
@@ -1206,7 +1206,7 @@ public class HandoffComposerViewModelTests {
         await starting;
 
         await Assert.That(next.Text).IsEqualTo("carry on");
-        await Assert.That(next.Error).IsEqualTo("the upload failed");
+        await Assert.That(next.Error).IsEqualTo("Couldn’t upload the files. Check your connection and try again.");
     });
 
     [Test]
@@ -1327,7 +1327,7 @@ public class HandoffComposerViewModelTests {
 
         await vm.StartCommand.Execute();
 
-        await Assert.That(vm.Error).IsEqualTo($"the upload failed. 1 more files come back once this message is sent ({AttachmentTray.CapReason})");
+        await Assert.That(vm.Error).IsEqualTo($"Couldn’t upload the files. Check your connection and try again. 1 more files come back once this message is sent ({AttachmentTray.CapReason})");
     });
 
     // ---- source choices ----

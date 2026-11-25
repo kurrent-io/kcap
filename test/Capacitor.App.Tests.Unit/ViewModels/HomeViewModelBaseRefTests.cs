@@ -210,7 +210,7 @@ public class HomeViewModelBaseRefTests {
             failures.OnNext(new LaunchFailure(AgentId,
                 "git fetch origin gone:refs/kcap/fetched/agent-1 failed: fatal: couldn't find remote ref gone"));
 
-            await Assert.That(vm.StartError).IsEqualTo("There's no branch, tag or commit “gone” on that machine or its origin.");
+            await Assert.That(vm.StartError).IsEqualTo("There's no branch, tag or commit “gone” on that machine or its origin. Choose another starting point or push the ref to origin.");
             await Assert.That(await vm.ListRecentBaseRefsAsync()).IsEmpty();
         });
     }
@@ -234,13 +234,13 @@ public class HomeViewModelBaseRefTests {
     }
 
     [Test]
-    [Arguments("invalid_base_ref: a..b", "“a..b” isn't a branch, tag or commit name git accepts.")]
+    [Arguments("invalid_base_ref: a..b", "“a..b” isn't a branch, tag or commit name Git accepts. Choose another starting point.")]
     [Arguments("base_ref_unsupported: daemon 'box' cannot start a session from a chosen branch.",
-        "Daemon 'box' cannot start a session from a chosen branch.")]
+        "box can’t start a session from a chosen branch yet. Use the checked-out branch to start the session.")]
     [Arguments("git fetch origin 0123abcd:refs/kcap/fetched/x failed: fatal: remote error: upload-pack: not our ref 0123abcd",
-        "There's no branch, tag or commit “0123abcd” on that machine or its origin.")]
+        "There's no branch, tag or commit “0123abcd” on that machine or its origin. Choose another starting point or push the ref to origin.")]
     public async Task Base_ref_failures_read_as_sentences(string reason, string expected) {
-        await Assert.That(HomeViewModel.FriendlyLaunchFailure(reason)).IsEqualTo(expected);
+        await Assert.That(HomeViewModel.FriendlyLaunchFailure(reason, machine: "box")).IsEqualTo(expected);
     }
 
     [Test]

@@ -2252,7 +2252,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
                 return;
             }
             if (upload.Kind != UploadKind.Uploaded) {
-                StartError = upload.Reason ?? "the upload failed";
+                StartError = upload.FailureText;
                 return;
             }
             attachmentIds = upload.Ids;
@@ -2294,8 +2294,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             _signInRequired.OnNext(outcome.Unauthorized);
             if (outcome.Unauthorized)
                 StartError = null;
-            else if (SameLaunchTarget(draft.RepoPath, draft.Machine, draft.Remote) && outcome.Error is { } error)
-                ShowLaunchRefusal(FriendlyLaunchFailure(error), !draft.Remote);
+            else if (SameLaunchTarget(draft.RepoPath, draft.Machine, draft.Remote))
+                ShowLaunchRefusal(FriendlyLaunchFailure(outcome.Error, machine: draft.Machine), !draft.Remote);
             return;
         }
 
@@ -2478,17 +2478,17 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     void ApplyLaunchFailure(
             string agentId, bool hadAttachments, string reason, string repoPath, string machine,
             AgentOrigin lane) {
-        var friendly = FriendlyLaunchFailure(reason);
+        var sameTarget = SameLaunchTarget(repoPath, machine, lane == AgentOrigin.Remote);
+        var local = sameTarget && lane != AgentOrigin.Remote;
+        var friendly = FriendlyLaunchFailure(reason, machine: machine);
         // A text-only refusal names the folder+machine that was launched. Files that were not
         // handed back still need the re-attach line on whatever target is selected now — the
         // bytes left with the failed launch and the user must re-stage them for the next send.
         if (!hadAttachments) {
-            if (SameLaunchTarget(repoPath, machine, lane == AgentOrigin.Remote))
-                ShowLaunchRefusal(friendly, lane != AgentOrigin.Remote);
+            if (sameTarget) ShowLaunchRefusal(friendly, local);
             return;
         }
 
-        var local = lane != AgentOrigin.Remote && SameLaunchTarget(repoPath, machine, false);
         RetainedDraft? retained;
         lock (_launchTrackingLock) {
             retained = _retainedDraft is { } r && r.AgentId == agentId
@@ -2501,10 +2501,10 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             Goal = retained.Draft.ComposerGoal ?? retained.Draft.Goal;
             if (retained.Draft.Picked is { } picked) NextWorkSource = picked;
             Tray.Restore(retained.Draft.Files);
-            ShowLaunchRefusal(friendly + " — your draft is back", local);
+            ShowLaunchRefusal(friendly.TrimEnd('.') + " — your draft is back", local);
             return;
         }
-        ShowLaunchRefusal(friendly + " — re-attach the files to send them again", local);
+        ShowLaunchRefusal(friendly.TrimEnd('.') + " — re-attach the files to send them again", local);
     }
 
     /// Local and remote can share a daemon name and path; RemoteMachineSelected separates them.
@@ -2562,40 +2562,78 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     /// commit an empty tree instead so a greenfield folder can launch. Wording stays neutral about
     /// whether the folder is a git repo — an initialized commitless repo takes the same path.
     internal const string EmptyFolderStartMessage =
-        "There's nothing in this folder to start from.";
+        "There's nothing in this folder to start from. Add a file or choose another folder, then start again.";
 
     /// Shown when preparing the workspace failed for some other git reason.
-    internal const string WorkspacePrepFailed = "Couldn't prepare a workspace for this folder.";
+    internal const string WorkspacePrepFailed = "Git couldn't prepare a workspace for this folder. Check that you can write to the checkout or choose another folder.";
 
-    /// <see cref="WireTokens.LaunchDeniedByOwnerPrefix"/> is a consent-gate denial on the target
-    /// machine, and an attachment_unavailable reason is the files failing to reach it. An empty
-    /// standalone snapshot and a raw <c>git … failed:</c> line are rewritten; every other reason
-    /// passes through (the server already truncates to 400 characters).
-    internal static string FriendlyLaunchFailure(string reason) {
+    internal const string GenericLaunchFailure = "Couldn't start the session. Try again.";
+    internal const string TerminalComponentUnavailable =
+        "Couldn't start the session because kcap's terminal component couldn't load. Update or reinstall kcap on the machine running the agent, then try again.";
+    internal static string FriendlyLaunchFailure(string? reason, string fallback = GenericLaunchFailure, string? machine = null) {
+        if (string.IsNullOrWhiteSpace(reason)) return fallback;
         reason = WithoutHubLead(reason);
         if (DaemonFull().Match(reason) is { Success: true } full)
             return $"{full.Groups["name"].Value} is already running {full.Groups["used"].Value} of {full.Groups["max"].Value} agents. {AtCapacityAdvice}";
+        if (DaemonAtCapacity().Match(reason) is { Success: true } capacity)
+            return $"Daemon '{capacity.Groups["name"].Value}' is at capacity. {AtCapacityAdvice}";
+        if (reason.StartsWith("At max capacity (", StringComparison.Ordinal))
+            return $"The machine is at capacity. {AtCapacityAdvice}";
+        if (reason == "Machine is offline.") return "The machine is offline. Reconnect it or choose another machine.";
         if (reason == WireTokens.LaunchCancelled)
-            return "The launch was cancelled.";
-        if (MissingRemoteRef(reason) is { } missing)
-            return $"There's no branch, tag or commit “{missing}” on that machine or its origin.";
-        if (reason.StartsWith("invalid_base_ref:", StringComparison.Ordinal))
-            return $"“{reason["invalid_base_ref:".Length..].Trim()}” isn't a branch, tag or commit name git accepts.";
-        if (ServerBaseRefRefusal(reason) is { } refused)
-            return refused;
+            return "The launch was cancelled. Start again when you’re ready.";
+        if (reason.Contains("Unable to load shared library 'libpty_shim'", StringComparison.Ordinal)
+         || reason.Contains("in shared library 'libpty_shim'", StringComparison.Ordinal))
+            return TerminalComponentUnavailable;
+        if (FolderDenied().Match(reason) is { Success: true } denied)
+            return $"{FolderDeniedLead}{denied.Groups["path"].Value}. Give kcap-daemon access to it, then start again.";
+        if (reason.StartsWith("Repo path not allowed:", StringComparison.Ordinal))
+            return "kcap isn't allowed to work in that folder. Choose a different folder or update the machine's allowed repositories.";
+        if (reason.StartsWith("Repo path does not exist:", StringComparison.Ordinal))
+            return "The selected folder doesn't exist on that machine. Choose another folder.";
+        if (reason.StartsWith("No origin remote at ", StringComparison.Ordinal))
+            return "The checkout has no origin remote. Choose a checkout linked to the repository and try again.";
+        if (reason.StartsWith("Unknown vendor:", StringComparison.Ordinal))
+            return "The selected coding tool isn’t available on that machine. Choose another tool or install it there, then try again.";
+        if (reason.StartsWith(AccountResolution.Unavailable + ":", StringComparison.Ordinal))
+            return "The selected coding account isn’t available on that machine. Choose the default account or pick another.";
+        if (MissingRemoteRef(reason) is { } missing && IsSingleLineRef(missing))
+            return $"There's no branch, tag or commit “{missing}” on that machine or its origin. Choose another starting point or push the ref to origin.";
+        if (reason.StartsWith("invalid_base_ref:", StringComparison.Ordinal)
+         || reason.StartsWith("base_ref_invalid:", StringComparison.Ordinal)) {
+            var name = reason[(reason.IndexOf(':') + 1)..].Trim();
+            return IsSingleLineRef(name)
+                ? $"“{name}” isn't a branch, tag or commit name Git accepts. Choose another starting point."
+                : "Choose a valid branch, tag or commit.";
+        }
+        if (reason.StartsWith("base_ref_unsupported:", StringComparison.Ordinal)) {
+            var target = string.IsNullOrWhiteSpace(machine) ? "The selected machine" : machine;
+            return $"{target} can’t start a session from a chosen branch yet. Use the checked-out branch to start the session.";
+        }
+        if (reason.StartsWith("base_ref_not_allowed:", StringComparison.Ordinal)) return "Choose a different branch, tag or commit.";
         if (reason.StartsWith(WireTokens.LaunchDeniedByOwnerPrefix, StringComparison.Ordinal))
-            return "That machine's consent policy denied the launch. Approve it there, or pre-set a rule with kcap consent.";
+            return ConsentFailureText(reason[WireTokens.LaunchDeniedByOwnerPrefix.Length..].TrimStart(':', ' '));
         if (reason.StartsWith("attachment_unavailable:", StringComparison.Ordinal))
-            return "the attached files could not be delivered to the machine";
+            return "The attached files couldn’t reach the machine. Check that it’s connected, then try again.";
         if (reason.StartsWith("standalone_snapshot_empty", StringComparison.Ordinal))
             return EmptyFolderStartMessage;
         if (IsEmptySnapshotCommit(reason))
             return EmptyFolderStartMessage;
-        if (GitFailureSentence(reason) is { } git)
-            return git;
-        if (FolderDenied().Match(reason) is { Success: true } denied)
-            return $"{FolderDeniedLead}{denied.Groups["path"].Value}. Give kcap-daemon access to it, then start again.";
-        return reason;
+        if (reason.StartsWith("git ", StringComparison.Ordinal) && reason.Contains(" failed:", StringComparison.Ordinal))
+            return WorkspacePrepFailed;
+        return fallback;
+    }
+
+    static bool IsSingleLineRef(string value) => value.Length is > 0 and <= 200 && !value.Any(c => char.IsControl(c) || char.IsWhiteSpace(c));
+
+    static string ConsentFailureText(string reason) {
+        if (reason == "prompt_no_ui" || reason.StartsWith("owner approval required and no approval UI", StringComparison.Ordinal))
+            return "That machine's consent policy denied the launch because no approval window was available. Ask its owner to open kcap there, then try again.";
+        if (reason == "prompt_timeout" || reason.StartsWith("owner did not respond within ", StringComparison.Ordinal))
+            return "The launch approval timed out. Ask the owner to be ready to approve it, then try again.";
+        if (reason.StartsWith("declined by daemon owner", StringComparison.Ordinal))
+            return "The machine’s owner declined the launch. Ask the owner before requesting it again.";
+        return "That machine's consent policy denied the launch. Ask its owner to review the launch rules with kcap consent.";
     }
 
     /// The launch feature a server lists once it forwards a base ref to the daemon.
@@ -2625,17 +2663,6 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         return refspec?.Split(':')[0];
     }
 
-    /// The server's base-ref refusals carry a code before their sentence; the sentence is the message.
-    static string? ServerBaseRefRefusal(string reason) {
-        foreach (var code in (ReadOnlySpan<string>) ["base_ref_invalid:", "base_ref_unsupported:", "base_ref_not_allowed:"]) {
-            if (reason.StartsWith(code, StringComparison.Ordinal)) {
-                var sentence = reason[code.Length..].Trim();
-                return sentence.Length == 0 ? reason : char.ToUpperInvariant(sentence[0]) + sentence[1..];
-            }
-        }
-        return null;
-    }
-
     internal const string AtCapacityAdvice = "Stop one, or wait for one to finish, to start another.";
 
     /// A full daemon is a state to wait out, not a fault, so it reads as a notice.
@@ -2653,11 +2680,14 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
 
     internal const string FolderDeniedLead = "The kcap daemon isn't allowed to read ";
 
-    [GeneratedRegex(@"^Access to the path '(?<path>.+)' is denied\.?$")]
+    [GeneratedRegex(@"^Access to the path '(?<path>[^\p{C}]+)' is denied\.?\z")]
     private static partial Regex FolderDenied();
 
-    [GeneratedRegex(@"^Daemon '(?<name>[^']+)' is full \((?<used>\d+) of (?<max>\d+) in use\)")]
+    [GeneratedRegex(@"^Daemon '(?<name>[^'\p{C}]+)' is full \((?<used>\d+) of (?<max>\d+) in use\)")]
     private static partial Regex DaemonFull();
+
+    [GeneratedRegex(@"^Daemon '(?<name>[^'\p{C}\r\n]+)' is at capacity\.\z")]
+    private static partial Regex DaemonAtCapacity();
 
     /// The snapshot commit reports "nothing to commit" on stdout. A daemon that only forwarded
     /// stderr leaves this as a bare command, sometimes with that stdout appended.
@@ -2668,24 +2698,6 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         return string.IsNullOrWhiteSpace(detail)
             || detail.Contains("nothing to commit", StringComparison.Ordinal)
             || detail.Contains("nothing added to commit", StringComparison.Ordinal);
-    }
-
-    /// A launch reason that is still a git argv line. The command is not something to show.
-    static string? GitFailureSentence(string reason) {
-        const string marker = " failed: ";
-        if (!reason.StartsWith("git ", StringComparison.Ordinal)) return null;
-        var at = reason.IndexOf(marker, StringComparison.Ordinal);
-        if (at < 0) return null;
-
-        var detail = reason[(at + marker.Length)..].Trim().ReplaceLineEndings(" ");
-        if (detail.StartsWith("fatal: ", StringComparison.OrdinalIgnoreCase))
-            detail = detail["fatal: ".Length..];
-        else if (detail.StartsWith("error: ", StringComparison.OrdinalIgnoreCase))
-            detail = detail["error: ".Length..];
-        detail = detail.Trim();
-        if (detail.Length == 0) return WorkspacePrepFailed;
-        if (char.IsLower(detail[0])) detail = char.ToUpperInvariant(detail[0]) + detail[1..];
-        return WorkspacePrepFailed + " " + detail;
     }
 
     /// Null for any vendor that takes no mode. Manual is sent like any other mode: an absent flag

@@ -143,7 +143,8 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
             return;
         } catch (Exception ex) {
-            _saveProblem = $"Could not save the setting: {ex.Message}";
+            Console.Error.WriteLine($"kcap: could not save the experimental setting: {ex.Message}");
+            _saveProblem = "Could not save the setting. Try again.";
             row.Revert(!enabled);
         } finally {
             _saving.Remove(row.Id);

@@ -287,7 +287,8 @@ public sealed class DesktopNotificationCoordinator : IDisposable {
         } catch (Exception ex) {
             if (_disposed) return;
             Close(id);
-            _notifier.Notify($"Could not answer the permission request: {ex.Message}");
+            Console.Error.WriteLine($"kcap: could not answer the permission request: {ex.Message}");
+            _notifier.Notify("Could not answer the permission request. Try again.");
             _openAgent(row);
         }
     }

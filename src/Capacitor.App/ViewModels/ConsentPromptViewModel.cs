@@ -409,10 +409,7 @@ public sealed class ConsentPromptViewModel : ReactiveObject, IActivatableViewMod
     static string? RuleWarning(ConsentResolveOutcome outcome) =>
         outcome.Kind is not (ConsentResolveKind.AppliedRuleRejected or ConsentResolveKind.RuleSkippedNoRequester) ? null
         : outcome.RuleOutcome == ConsentRuleOutcome.Unknown ? UnknownRuleCopy
-        : $"Decision applied — rule not saved: {RuleFailureReason(outcome)}";
-
-    static string RuleFailureReason(ConsentResolveOutcome outcome) =>
-        !string.IsNullOrEmpty(outcome.Error)                                ? outcome.Error
-        : outcome.RuleOutcome == ConsentRuleOutcome.SkippedNoRequester      ? "the request had no requester identity"
-        : "the daemon didn't say why";
+        : outcome.RuleOutcome == ConsentRuleOutcome.SkippedNoRequester
+            ? "Decision applied. The rule couldn’t be saved because the request didn’t identify who made it."
+            : "Decision applied, but the rule couldn’t be saved. Open Launch Approvals to check your rules.";
 }

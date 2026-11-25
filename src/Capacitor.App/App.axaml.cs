@@ -548,6 +548,7 @@ public partial class App : Application {
             if (_wizardWindow is { IsVisible: true } wizard) wizard.Close();
             if (TakeAdoptableWindow() is { } adoptable) adoptable.Window.Close();
             Console.Error.WriteLine($"kcap app failed to start: {ex}");
+            Program.RecordStartupFailure(ex);
             await QuiesceAppAsync(_wizardAuth, _historyImport, _localInstall,
                 lifecycle: null, lane: null, QuiesceShutdownCap, _time);
             await _workspaceTeardown.DrainAsync();
@@ -2047,7 +2048,8 @@ public partial class App : Application {
                     followsBetas: () => _updater.AllowsPrerelease, setBetaUpdates: SetBetaUpdatesAsync, appLifetime: _shutdown.Token),
             };
         } catch (Exception ex) {
-            notifier.Notify($"Could not open settings: {ex.Message}");
+            Console.Error.WriteLine($"kcap: could not open settings: {ex.Message}");
+            notifier.Notify("Could not open settings. Try again.");
             return false;
         }
 
@@ -2484,9 +2486,6 @@ public partial class App : Application {
             try {
                 await service.DisposeAsync();
             } catch (Exception disposeEx) {
-                // The ORIGINAL startup exception (ex, already captured and about to be shown
-                // below) must never be masked by a secondary dispose failure — append it to the
-                // same Console.Error channel instead of letting it propagate.
                 Console.Error.WriteLine($"kcap app failed to dispose the daemon client service during startup-failure cleanup: {disposeEx}");
             }
         }
@@ -2528,7 +2527,7 @@ public partial class App : Application {
         // Showing a window is legal before Avalonia's main loop starts (StartWithClassicDesktopLifetime
         // does the same); calling desktop.Shutdown(1) directly throws when startup faulted
         // synchronously, before the main loop began.
-        var errorWindow = BuildStartupErrorWindow(ex);
+        var errorWindow = BuildStartupErrorWindow(ex, Program.StartupCrashLogPath);
         if (desktop.MainWindow is null) desktop.MainWindow = errorWindow;
         errorWindow.Closed += (_, _) => desktop.Shutdown(1);
         errorWindow.Show();
@@ -2538,11 +2537,7 @@ public partial class App : Application {
     static IBrush? KcapBrush(string key) =>
         Current?.TryGetResource(key, null, out var brush) == true ? brush as IBrush : null;
 
-    // Last-resort UI for a startup failure: Console.Error above is invisible on a normal GUI
-    // launch (OutputType=WinExe has no console), so this window is the only channel that
-    // actually reaches the user. SelectableTextBlock (not TextBlock) keeps the stack trace
-    // copyable for a bug report.
-    internal static Window BuildStartupErrorWindow(Exception ex) =>
+    internal static Window BuildStartupErrorWindow(Exception ex, string? crashLogPath = null) =>
         new() {
             Title = "kcap — startup failed",
             Icon = ProductIcon.WindowIcon,
@@ -2552,7 +2547,15 @@ public partial class App : Application {
             Foreground = KcapBrush("KcapTextBrush"),
             Content = new ScrollViewer {
                 Content = new SelectableTextBlock {
-                    Text = $"The app failed to start. Details:\n{ex}",
+                    Text = ex switch {
+                        DllNotFoundException or EntryPointNotFoundException or BadImageFormatException =>
+                            "kcap couldn’t load a required component. Update or reinstall kcap, then open it again.",
+                        UnauthorizedAccessException =>
+                            "kcap couldn’t access files it needs to start. Check your permissions, then open kcap again.",
+                        _ when crashLogPath is not null =>
+                            $"kcap couldn’t start. Close this window and open kcap again. If it keeps happening, look for the crash log at {crashLogPath} and contact support.",
+                        _ => "kcap couldn’t start. Close this window and open kcap again. Contact support if it keeps happening.",
+                    },
                     TextWrapping = TextWrapping.Wrap,
                 },
             },

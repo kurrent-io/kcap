@@ -122,8 +122,8 @@ public class HomeAttachmentsTests {
     /// upload is still in flight — the window a draft has to be edited out from under.
     static async Task<StagedAttachment> LaunchWithDraftAsync(
             Rig rig, string statePath, Func<HomeViewModel, Task>? duringUpload = null,
-            Func<HomeViewModel, Task>? beforeStart = null) {
-        var vm = rig.Start(statePath);
+            Func<HomeViewModel, Task>? beforeStart = null, Action? openFolderPrivacySettings = null) {
+        var vm = rig.Start(statePath, openFolderPrivacySettings: openFolderPrivacySettings);
         await vm.SelectRepositoryAsync("/repo/a");
         if (beforeStart is not null) await beforeStart(vm);
         var chip = Chip("a.png");
@@ -345,7 +345,7 @@ public class HomeAttachmentsTests {
 
             await vm.StartCommand.Execute();
 
-            await Assert.That(vm.StartError).IsEqualTo("that file type isn't allowed");
+            await Assert.That(vm.StartError).IsEqualTo("The server couldn’t accept the files. Check them and try again.");
             await Assert.That(rig.Launch.Last).IsNull();
             await Assert.That(vm.Tray.Count).IsEqualTo(1);
             await Assert.That(vm.Goal).IsEqualTo("g");
@@ -427,7 +427,7 @@ public class HomeAttachmentsTests {
 
             rig.Failures.OnNext(new LaunchFailure(LaunchedId, "boom"));
 
-            await Assert.That(vm.StartError).IsEqualTo("boom — your draft is back");
+            await Assert.That(vm.StartError).IsEqualTo(HomeViewModel.GenericLaunchFailure.TrimEnd('.') + " — your draft is back");
             await Assert.That(vm.Goal).IsEqualTo("g");
             await Assert.That(vm.Tray.Items.Single().Id).IsEqualTo(chip.Id);
         });
@@ -531,7 +531,7 @@ public class HomeAttachmentsTests {
     public async Task Delayed_failure_does_not_restore_over_user_edits_or_a_changed_target() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = new TempDir();
-            const string ReAttach = "boom — re-attach the files to send them again";
+            const string ReAttach = "Couldn't start the session. Try again — re-attach the files to send them again";
 
             using (var rig = new Rig()) {
                 await LaunchWithDraftAsync(rig, tmp.PathTo("a.json"));
@@ -578,11 +578,13 @@ public class HomeAttachmentsTests {
             }
 
             using (var rig = new Rig()) {
-                await LaunchWithDraftAsync(rig, tmp.PathTo("e.json"));
+                await LaunchWithDraftAsync(rig, tmp.PathTo("e.json"), openFolderPrivacySettings: () => { });
                 await rig.Vm.SelectRepositoryAsync("/repo/elsewhere");
-                rig.Failures.OnNext(new LaunchFailure(LaunchedId, "boom"));
+                rig.Failures.OnNext(new LaunchFailure(LaunchedId, "Access to the path '/repo/a' is denied."));
 
-                await Assert.That(rig.Vm.StartError).IsEqualTo(ReAttach);
+                await Assert.That(rig.Vm.StartError).StartsWith(HomeViewModel.FolderDeniedLead);
+                await Assert.That(rig.Vm.StartError).EndsWith("re-attach the files to send them again");
+                await Assert.That(rig.Vm.CanRequestRepositoryAccess).IsFalse();
                 await Assert.That(rig.Vm.Goal).IsEqualTo("");
                 await Assert.That(rig.Vm.Tray.Count).IsEqualTo(0);
             }
@@ -608,13 +610,13 @@ public class HomeAttachmentsTests {
             await vm.StartCommand.Execute();
 
             rig.Failures.OnNext(new LaunchFailure(LaunchedId, "boom"));
-            await Assert.That(vm.StartError).IsEqualTo("boom — re-attach the files to send them again");
+            await Assert.That(vm.StartError).IsEqualTo("Couldn't start the session. Try again — re-attach the files to send them again");
             await Assert.That(vm.Goal).IsEqualTo("");
             await Assert.That(vm.Tray.Count).IsEqualTo(0);
 
             // The second launch's own bytes are untouched by the first launch's failure.
             rig.Failures.OnNext(new LaunchFailure(SecondLaunchedId, "nope"));
-            await Assert.That(vm.StartError).IsEqualTo("nope — your draft is back");
+            await Assert.That(vm.StartError).IsEqualTo(HomeViewModel.GenericLaunchFailure.TrimEnd('.') + " — your draft is back");
             await Assert.That(vm.Goal).IsEqualTo("second");
             await Assert.That(vm.Tray.Items.Single().FileName).IsEqualTo("b.png");
         });
@@ -671,7 +673,7 @@ public class HomeAttachmentsTests {
                 vm.Goal = "g";
                 await vm.StartCommand.Execute();
 
-                await Assert.That(vm.StartError).IsEqualTo("boom — your draft is back");
+                await Assert.That(vm.StartError).IsEqualTo(HomeViewModel.GenericLaunchFailure.TrimEnd('.') + " — your draft is back");
                 await Assert.That(vm.Goal).IsEqualTo("g");
                 await Assert.That(vm.Tray.Items.Single().Id).IsEqualTo(chip.Id);
             }
@@ -698,7 +700,7 @@ public class HomeAttachmentsTests {
                 rig.Failures.OnNext(new LaunchFailure(LaunchedId, "attachment_unavailable: 3 of 3 gone"));
 
                 await Assert.That(rig.Vm.StartError)
-                    .IsEqualTo("the attached files could not be delivered to the machine — your draft is back");
+                    .IsEqualTo("The attached files couldn’t reach the machine. Check that it’s connected, then try again — your draft is back");
             }
         });
     }

@@ -270,9 +270,9 @@ public class SignInStepViewModelTests {
             using var h = new Harness();
             h.Connect.Choice = ConnectChoice.Discover;
             h.Operation = (_, _) => {
-                h.Progress.Error("Error: the auth service is unreachable.");
+                h.Progress.Error("System.Net.Http.HttpRequestException: the auth service is unreachable.\n   at Kcap.SignIn()");
 
-                return Task.FromResult<AuthResult>(new AuthResult.Failed("the auth service is unreachable"));
+                return Task.FromResult<AuthResult>(new AuthResult.Failed("the auth service is unreachable", AuthFailureReason.Unreachable));
             };
 
             await h.SignIn();
@@ -283,7 +283,7 @@ public class SignInStepViewModelTests {
         await Assert.That(status).IsEqualTo("Sign-in failed.");
         await Assert.That(isError).IsTrue();
         await Assert.That(satisfied).IsFalse();
-        await Assert.That(detail).IsEqualTo("The auth service is unreachable.");
+        await Assert.That(detail).IsEqualTo("Check your connection to the server and try again.");
         await Assert.That(log).IsEmpty();
     }
 

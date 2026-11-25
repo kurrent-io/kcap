@@ -340,7 +340,7 @@ public class HarnessesStepViewModelTests {
         await Assert.That(first).IsFalse();
         await Assert.That(second).IsTrue();
         await Assert.That(cursor.Failed).IsTrue();
-        await Assert.That(cursor.Message).IsEqualTo("boom");
+        await Assert.That(cursor.Message).IsEqualTo("Could not finish setting up this tool. Try again.");
         await Assert.That(pi.Succeeded).IsTrue();
         await Assert.That(label).IsEqualTo("Continue");
         await Assert.That(calls).IsEqualTo(3); // the second Next installs nothing again
@@ -582,7 +582,8 @@ public class HarnessesStepViewModelTests {
         });
 
         await Assert.That(left).IsFalse();
-        await Assert.That(message).StartsWith("Could not finish installing the terminal command.");
+        await Assert.That(message).StartsWith("A command already exists at ");
+        await Assert.That(message).Contains("Move that command");
         await Assert.That(calls).IsEqualTo(0);
     }
 

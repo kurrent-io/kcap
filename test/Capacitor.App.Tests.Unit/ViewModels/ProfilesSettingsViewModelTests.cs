@@ -490,7 +490,7 @@ public class ProfilesSettingsViewModelTests {
     [Arguments(ActivationEvidence.Activated, "kcap made target the active profile")]
     [Arguments(ActivationEvidence.Unknown, "")]
     [Arguments(ActivationEvidence.NotActivated, "kcap was not run, so nothing changed.")]
-    public Task A_switch_that_does_not_succeed_reports_its_token_its_evidence_and_the_active_profile(
+    public Task An_unsuccessful_switch_reports_the_evidence_and_active_profile(
             ActivationEvidence evidence, string claim) => AvaloniaSession.RunOnUiAsync(async () => {
         var fake = new SwitchFake {
             Outcome = _ => new MutationOutcome.Failed(VerifyExitCodes.ReadinessTimeout, null, RecoverySurface.Attention) { Activation = evidence },
@@ -500,7 +500,7 @@ public class ProfilesSettingsViewModelTests {
 
         await vm.SwitchCommand.Execute(await Row(vm, "target")).ToTask();
 
-        await Assert.That(vm.Message!).StartsWith("The switch to target did not finish (verify_readiness_timeout).");
+        await Assert.That(vm.Message!).StartsWith("The switch to target did not finish.");
         if (claim.Length > 0) await Assert.That(vm.Message!).Contains(claim);
         else await Assert.That(vm.Message!).DoesNotContain("kcap made").And.DoesNotContain("nothing changed");
         await Assert.That(vm.Message!).Contains($"The kcap command line now uses profile {ActiveProfile()}.");

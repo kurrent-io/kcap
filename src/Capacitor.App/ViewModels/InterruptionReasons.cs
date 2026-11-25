@@ -3,8 +3,6 @@ using System.Text.RegularExpressions;
 
 namespace Capacitor.App.ViewModels;
 
-/// The daemon records why it did not resume an agent as a code ("too_old", "worktree_missing (exit code 1)").
-/// The status card shows a sentence instead; a code it does not know is shown as it came.
 public static partial class InterruptionReasons {
     static readonly FrozenDictionary<string, string> Sentences = new Dictionary<string, string>(StringComparer.Ordinal) {
         ["auto_resume_off"] = "Automatic resume is turned off",
@@ -37,7 +35,7 @@ public static partial class InterruptionReasons {
         var trimmed = reason.StartsWith("tombstone:", StringComparison.Ordinal) ? reason["tombstone:".Length..] : reason;
         var match = ExitCode().Match(trimmed);
         var code = match.Success ? trimmed[..match.Index] : trimmed;
-        if (!Sentences.TryGetValue(code, out var sentence)) return reason;
+        if (!Sentences.TryGetValue(code, out var sentence)) return null;
         return match.Success ? $"{sentence} (exit code {match.Groups[1].Value})" : sentence;
     }
 
