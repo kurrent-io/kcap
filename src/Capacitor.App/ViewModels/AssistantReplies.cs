@@ -2,9 +2,10 @@ using System.Collections.Specialized;
 
 namespace Capacitor.App.ViewModels;
 
-/// Groups the assistant messages of one turn into a reply. A turn starts at a prompt or at a note the
-/// agent answers on its own; tool calls, thinking and other notes sit inside a reply and stay out of its
-/// copied text. A folded topic's rows still belong to their replies, so folding never changes what a reply copies.
+/// Groups the rows of one agent turn into a reply. A turn starts at a prompt or at a note the agent
+/// answers on its own and runs to the next one; its tool calls, thinking and other notes belong to it,
+/// but only its messages are copied. A folded topic's rows still belong to their replies, so folding
+/// never changes what a reply copies, though the reply then ends at its last row still shown.
 static class AssistantReplies {
     public static void Refresh(IReadOnlyList<ChatItemViewModel> items, NotifyCollectionChangedEventArgs change) {
         if (items.Count == 0) return;
@@ -17,46 +18,65 @@ static class AssistantReplies {
         };
         start = Math.Clamp(start, 0, items.Count - 1);
         end = Math.Clamp(end, 0, items.Count - 1);
-        var rows = new List<ChatItemViewModel>(items.Count);
+        var rows = new List<(ChatItemViewModel Row, bool Shown)>(items.Count);
         int from = 0, to = 0;
         for (var i = 0; i < items.Count; i++) {
             if (i == start) from = rows.Count;
-            rows.Add(items[i]);
-            if (items[i] is ChatTopicItem { IsExpanded: false } folded) rows.AddRange(folded.Hidden);
+            rows.Add((items[i], true));
+            if (items[i] is ChatTopicItem { IsExpanded: false } folded)
+                foreach (var hidden in folded.Hidden) rows.Add((hidden, false));
             if (i == end) to = rows.Count - 1;
         }
         Refresh(rows, from, to);
     }
 
-    /// Regroups every reply, folded rows included, in chat order.
-    public static void RefreshAll(IEnumerable<ChatItemViewModel> rows) {
-        var all = rows as IReadOnlyList<ChatItemViewModel> ?? rows.ToList();
-        if (all.Count > 0) Refresh(all, 0, all.Count - 1);
-    }
+    /// Regroups every reply in a list of shown rows and the folded rows each folded topic holds.
+    public static void RefreshAll(IReadOnlyList<ChatItemViewModel> items) =>
+        Refresh(items, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
 
-    static void Refresh(IReadOnlyList<ChatItemViewModel> rows, int start, int end) {
-        while (start > 0 && !StartsReply(rows[start - 1])) start--;
-        while (end < rows.Count - 1 && !StartsReply(rows[end + 1])) end++;
-        var reply = new List<AssistantTextItem>();
+    static void Refresh(List<(ChatItemViewModel Row, bool Shown)> rows, int start, int end) {
+        while (start > 0 && !StartsReply(rows[start - 1].Row)) start--;
+        while (end < rows.Count - 1 && !StartsReply(rows[end + 1].Row)) end++;
+        var used = new HashSet<AssistantReply>(ReferenceEqualityComparer.Instance);
+        var reply = new List<(ChatItemViewModel Row, bool Shown)>();
         for (var i = start; i <= end + 1; i++) {
-            if (i <= end && !StartsReply(rows[i])) {
-                if (rows[i] is AssistantTextItem message) reply.Add(message);
+            if (i <= end && !StartsReply(rows[i].Row)) {
+                reply.Add(rows[i]);
                 continue;
             }
-            Settle(reply);
+            if (i <= end) Clear(rows[i].Row);
+            Settle(reply, used);
             reply.Clear();
         }
     }
 
     static bool StartsReply(ChatItemViewModel row) => row is UserTurnItem or SystemNoteItem { StartsTurn: true };
 
-    static void Settle(List<AssistantTextItem> reply) {
-        if (reply.Count == 0) return;
-        for (var i = 0; i < reply.Count - 1; i++) {
-            reply[i].EndsReply = false;
-            reply[i].ReplyText = reply[i].Text;
+    // Its time and Copy follow a row that reads as part of the turn, not a question waiting on the user
+    // or a topic's header or end.
+    static bool CanEnd(ChatItemViewModel row) => row is not (PendingCardItem or ChatTopicItem or ChatTopicEndItem);
+
+    static void Settle(List<(ChatItemViewModel Row, bool Shown)> rows, HashSet<AssistantReply> used) {
+        var messages = rows.Select(static entry => entry.Row).OfType<AssistantTextItem>()
+            .Where(static message => !string.IsNullOrWhiteSpace(message.Text)).ToList();
+        var last = rows.FindLastIndex(static entry => entry.Shown && CanEnd(entry.Row));
+        if (messages.Count == 0 || last < 0) {
+            foreach (var (row, _) in rows) Clear(row);
+            return;
         }
-        reply[^1].EndsReply = true;
-        reply[^1].ReplyText = string.Join("\n\n", reply.Where(static message => !string.IsNullOrWhiteSpace(message.Text)).Select(static message => message.Text));
+        var reply = rows.Select(static entry => entry.Row.Reply).FirstOrDefault(candidate => candidate is not null && !used.Contains(candidate))
+            ?? new AssistantReply();
+        used.Add(reply);
+        reply.Text = string.Join("\n\n", messages.Select(static message => message.Text));
+        reply.Time = messages[^1].Time;
+        for (var i = 0; i < rows.Count; i++) {
+            rows[i].Row.Reply = reply;
+            rows[i].Row.EndsReply = i == last;
+        }
+    }
+
+    static void Clear(ChatItemViewModel row) {
+        row.Reply = null;
+        row.EndsReply = false;
     }
 }

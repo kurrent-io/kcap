@@ -372,7 +372,7 @@
         </Border>
         <!-- The template owns the ScrollViewer: that is the shape Avalonia virtualizes. An
              ItemsControl inside an external ScrollViewer is measured at infinite height. -->
-        <ItemsControl x:Name="ChatItems" Grid.Row="2" ItemsSource="{Binding Items}"
+        <views:ChatItemsControl x:Name="ChatItems" Grid.Row="2" ItemsSource="{Binding Items}"
                       AutomationProperties.Name="Transcript" AutomationProperties.LandmarkType="Main">
             <ItemsControl.Template>
                 <ControlTemplate>
@@ -479,7 +479,7 @@
                     </views:ChatMessageRow>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantTextItem">
-                    <views:ChatMessageRow Classes="messageRow" Background="Transparent" Margin="{DynamicResource KcapTranscriptGap}"
+                    <views:ChatMessageRow Background="Transparent" Margin="{DynamicResource KcapTranscriptGap}"
                                           Author="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" Timestamp="{Binding Time}">
                         <DockPanel Classes="messageLayout">
                             <views:ChatMessageHeader Orientation="Horizontal" Spacing="8">
@@ -498,11 +498,6 @@
                                     </Panel>
                                 </Button>
                             </views:ChatMessageHeader>
-                            <StackPanel Classes="messageFooter" Orientation="Horizontal" Spacing="4">
-                                <TextBlock Classes="chatTime messageTime" Text="{Binding Time.Label}" AutomationProperties.HelpText="{Binding Time.Tip}"
-                                           IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
-                                <views:MessageCopyButton Text="{Binding ReplyText}" />
-                            </StackPanel>
                             <views:MarkdownView Text="{Binding Text}"
                                                 FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
                                                 OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
@@ -798,7 +793,7 @@
                     </views:ChatCardRow>
                 </DataTemplate>
             </ItemsControl.DataTemplates>
-        </ItemsControl>
+        </views:ChatItemsControl>
         <!-- Over the list rather than in it, so a handle drag is not read as the scrollbar's. -->
         <Border x:Name="ChatColumnLeftHandle" Grid.Row="2" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the chat. Double-click to reset" />
         <Border x:Name="ChatColumnRightHandle" Grid.Row="2" Classes="chatColumnHandle" ToolTip.Tip="Drag to resize the chat. Double-click to reset" />

@@ -21,6 +21,12 @@ public abstract class ChatItemViewModel : ReactiveObject {
 
     /// The bookmark marking this whole message, if the user took one.
     public ChatBookmark? Bookmark { get; internal set => this.RaiseAndSetIfChanged(ref field, value); }
+
+    /// The agent's reply this row is part of; null outside one, and for a reply with no text to copy.
+    public AssistantReply? Reply { get; internal set => this.RaiseAndSetIfChanged(ref field, value); }
+
+    /// Whether this is the reply's last row, after which its time and Copy sit.
+    public bool EndsReply { get; internal set => this.RaiseAndSetIfChanged(ref field, value); }
 }
 
 public sealed class UserTurnItem(string text, IReadOnlyList<UserAttachment>? attachments = null, SenderLabel? sender = null,
@@ -40,12 +46,6 @@ public sealed class UserTurnItem(string text, IReadOnlyList<UserAttachment>? att
 public sealed class AssistantTextItem(string text, ChatTimestamp? time = null) : ChatItemViewModel {
     public string Text { get; } = text;
     public ChatTimestamp? Time { get; } = time;
-
-    /// Whether this is the last assistant message before the next prompt, where the reply's time and Copy sit.
-    public bool EndsReply { get; internal set => this.RaiseAndSetIfChanged(ref field, value); } = true;
-
-    /// Every assistant message of the reply this one ends, in order; only meaningful when it ends one.
-    public string ReplyText { get; internal set => this.RaiseAndSetIfChanged(ref field, value); } = text;
 }
 
 /// The model's reasoning, rendered as collapsible muted Markdown in the assistant column.

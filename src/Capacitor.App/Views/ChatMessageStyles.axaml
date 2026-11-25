@@ -41,38 +41,43 @@
         <Setter Property="ToolTip.Tip" Value="{Binding $parent[views:ChatMessageRow].AccessibleMetadata}" />
     </Style>
 
-    <!-- A reply's time and Copy sit once, under its last assistant message; Copy takes the whole reply.
-         A prompt has its own, under its bubble. -->
+    <!-- A prompt's time and Copy sit under its bubble. A reply's sit once, after its last row. -->
     <Style Selector="views|ChatMessageRow StackPanel.messageFooter">
         <Setter Property="DockPanel.Dock" Value="Bottom" />
-        <Setter Property="HorizontalAlignment" Value="Left" />
+        <Setter Property="HorizontalAlignment" Value="Right" />
         <Setter Property="Margin" Value="0,4,0,0" />
     </Style>
-    <Style Selector="views|ChatMessageRow.messageRow StackPanel.messageFooter" x:DataType="vm:AssistantTextItem">
-        <Setter Property="IsVisible" Value="{Binding EndsReply}" />
-    </Style>
-    <Style Selector="views|ChatMessageRow.userRow StackPanel.messageFooter">
-        <Setter Property="HorizontalAlignment" Value="Right" />
-    </Style>
     <Style Selector="views|ChatMessageRow TextBlock.messageAuthor,
-                     views|ChatMessageRow TextBlock.messageTime">
+                     views|ChatMessageRow TextBlock.messageTime,
+                     views|ReplyFooter TextBlock.messageTime">
         <Setter Property="MaxWidth" Value="124" />
         <Setter Property="TextTrimming" Value="CharacterEllipsis" />
         <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
     <Style Selector="views|ChatMessageRow TextBlock.messageTime" x:DataType="TextBlock">
-        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
         <Setter Property="ToolTip.Tip" Value="{Binding $parent[views:ChatMessageRow].AccessibleMetadata}" />
+    </Style>
+    <Style Selector="views|ChatMessageRow TextBlock.messageTime, views|ReplyFooter TextBlock.messageTime">
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
     </Style>
     <Style Selector="views|ChatMessageRow views|MessageCopyButton" x:DataType="views:MessageCopyButton">
         <Setter Property="AutomationProperties.HelpText" Value="{Binding $parent[views:ChatMessageRow].AccessibleMetadata}" />
+    </Style>
+    <Style Selector="views|ChatMessageRow views|MessageCopyButton, views|ReplyFooter views|MessageCopyButton">
         <Setter Property="MinimumActionHeight" Value="24" />
     </Style>
 
     <Style Selector="views|ChatMessageRow TextBlock.messageTime,
-                     views|ChatMessageRow views|MessageCopyButton">
+                     views|ChatMessageRow views|MessageCopyButton,
+                     views|ReplyFooter TextBlock.messageTime,
+                     views|ReplyFooter views|MessageCopyButton">
         <Setter Property="Opacity" Value="0" />
         <Setter Property="IsHitTestVisible" Value="False" />
+    </Style>
+    <Style Selector="views|ReplyFooter.revealed TextBlock.messageTime,
+                     views|ReplyFooter.revealed views|MessageCopyButton">
+        <Setter Property="Opacity" Value="1" />
+        <Setter Property="IsHitTestVisible" Value="True" />
     </Style>
     <Style Selector="views|ChatMessageRow:show-details TextBlock.messageTime,
                      views|ChatMessageRow:show-details views|MessageCopyButton,
