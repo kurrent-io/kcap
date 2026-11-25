@@ -278,6 +278,18 @@ public class AntigravityTranscriptEventsTests {
         await Assert.That(CallIdOfResult(result)).IsEqualTo(CallIdOf(calls.Single()));
     }
 
+    [Test]
+    public async Task A_planner_without_a_step_delivered_again_keeps_its_own_call() {
+        var ctx = Context();
+        const string planner = """{"type":"PLANNER_RESPONSE","tool_calls":[{"name":"read_file","args":{"Path":"/w/a"}}]}""";
+        var call = Project(planner, ctx).Single();
+        Project(planner, ctx);
+
+        var result = Project("""{"type":"GENERIC","content":"result-a"}""", ctx).Single();
+
+        await Assert.That(CallIdOfResult(result)).IsEqualTo(CallIdOf(call));
+    }
+
     /// <summary>A prompt with no step_index cannot be ordered, so it is no boundary: a result with no step_index after
     /// it still answers the call before it.</summary>
     [Test]

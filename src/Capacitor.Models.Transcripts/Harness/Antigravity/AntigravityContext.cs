@@ -22,6 +22,9 @@ public sealed class AntigravityContext(string idScope) : TranscriptContext {
     /// The <c>step_index</c> of the planner that made each queued call.
     internal Dictionary<string, long> CallSteps { get; } = new(StringComparer.Ordinal);
 
+    /// The planner step that made each queued call, by its event id.
+    internal Dictionary<string, Guid> CallPlanners { get; } = new(StringComparer.Ordinal);
+
     /// The <c>step_index</c> of every planner and prompt: a call is answerable only while none lies between it and
     /// the result.
     internal SortedSet<long> BoundarySteps { get; } = [];

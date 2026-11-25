@@ -117,9 +117,10 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
         }
 
         // A result answers only the latest planner's calls: one whose result never came must not take a later one.
-        // A planner with no step_index cannot be ordered, so it drops every waiting call.
+        // A planner with no step_index cannot be ordered, so it drops every waiting call but its own.
         RecordBoundary(step.Order, ctx);
-        ctx.PendingCallIds.RemoveAll(id => ctx.CallSteps[id] < step.Order || step.Order == long.MaxValue);
+        ctx.PendingCallIds.RemoveAll(id => ctx.CallSteps[id] < step.Order
+                                        || (step.Order == long.MaxValue && ctx.CallPlanners[id] != step.Id));
 
         if (root.Arr("tool_calls") is { } toolCalls) {
             var index = -1;
@@ -154,7 +155,8 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
 
                 if (ctx.QueuedCallIds.Add(callId)) {
                     ctx.PendingCallIds.Add(callId);
-                    ctx.CallSteps[callId] = step.Order;
+                    ctx.CallSteps[callId]    = step.Order;
+                    ctx.CallPlanners[callId] = step.Id;
                 }
             }
         }
