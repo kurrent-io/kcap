@@ -2675,7 +2675,10 @@ public partial class App : Application {
             retryListing: remoteAgents is null ? null : remoteAgents.RefreshDaemonsAsync, readings: readings,
             branches: new GitBranchReader(new ProcessRunner(time), time),
             pickers: pickers,
-            launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) { LocalStack = localStack, UsageNotice = usageNotice, NextWork = nextWorkBand };
+            launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) {
+                LocalStack = localStack, UsageNotice = usageNotice, NextWork = nextWorkBand,
+                OpenFolderPrivacySettings = OperatingSystem.IsMacOS() ? () => MacPrivacySettings.OpenFilesAndFolders(new ShellUrlOpener()) : null,
+            };
         homeRef = home;
         if (localServer is not null) home.AttachLocalServerRecovery(localServer);
         if (lane is ServerConnectionService serverLane) home.AttachServerRetry(() => serverLane.RestartAsync());

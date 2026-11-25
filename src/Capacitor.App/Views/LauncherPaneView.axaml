@@ -409,7 +409,7 @@
                                                FontSize="{StaticResource KcapFontSizeBody}" LineHeight="18" TextWrapping="Wrap" VerticalAlignment="Center"
                                                IsVisible="{Binding StartError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                     <Button Grid.Row="1" Grid.Column="1" x:Name="RequestRepositoryAccessButton" Classes="kcapChip"
-                                            Content="Allow folder access" Click="OnRequestRepositoryAccessClick"
+                                            Content="Open Privacy settings" Click="OnRequestRepositoryAccessClick"
                                             IsVisible="{Binding CanRequestRepositoryAccess}"
                                             HorizontalAlignment="Left" Margin="0,8,0,0" Padding="12,4" />
                                     <Button Grid.Column="2" x:Name="UseDefaultAccountButton" Classes="kcapChip" Content="Use default"

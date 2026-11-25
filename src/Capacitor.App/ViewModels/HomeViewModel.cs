@@ -342,32 +342,28 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
 
     public bool StartErrorIsNotice => IsAtCapacityNotice(_startError);
 
-    public bool CanRequestRepositoryAccess => !RemoteMachineSelected
-        && !string.IsNullOrEmpty(SelectedRepoPath)
-        && StartError is { } error
-        && error.Contains($"Access to the path '{SelectedRepoPath}' is denied", StringComparison.OrdinalIgnoreCase);
+    /// Opens the OS screen that can lift the daemon's denial; null where no such screen exists.
+    public Action? OpenFolderPrivacySettings { get; init; }
 
-    bool _requestingRepositoryAccess;
-    public async Task RequestRepositoryAccessAsync(Func<string, Task<bool>> requestAccess) {
-        if (!CanRequestRepositoryAccess || _requestingRepositoryAccess) return;
-        var path = SelectedRepoPath;
-        var error = StartError;
-        _requestingRepositoryAccess = true;
-        try {
-            if (!await requestAccess(path)) return;
-            await Task.Run(() => {
-                // Directory.Exists masks permission failures. Enumerating forces a real access check,
-                // including for an empty repository.
-                using var entries = Directory.EnumerateFileSystemEntries(path).GetEnumerator();
-                entries.MoveNext();
-            });
-            if (!RemoteMachineSelected && SelectedRepoPath == path && StartError == error)
-                StartError = null;
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) {
-            // Keep the original refusal and draft available for another attempt.
-        } finally {
-            _requestingRepositoryAccess = false;
-        }
+    /// The daemon, not the app, reads the folder: a grant to the app's own process changes nothing for
+    /// it, and only the next launch can show whether the daemon got access.
+    public bool CanRequestRepositoryAccess => OpenFolderPrivacySettings is not null
+        && !RemoteMachineSelected
+        && StartError is { } error
+        && error == _localFolderRefusal
+        && error.StartsWith(FolderDeniedLead, StringComparison.Ordinal);
+
+    /// A refusal from a local launch at the selected target. A remote daemon's denial reads the same
+    /// and can land after the picker moved to local; this settings screen cannot lift that one.
+    string? _localFolderRefusal;
+
+    void ShowLaunchRefusal(string text, bool localAtSelectedTarget) {
+        _localFolderRefusal = localAtSelectedTarget ? text : null;
+        StartError = text;
+    }
+
+    public void RequestRepositoryAccess() {
+        if (CanRequestRepositoryAccess) OpenFolderPrivacySettings!();
     }
 
     /// A 401 outcome is the only writer besides its own reset paths. A subject (not a reactive
@@ -2299,7 +2295,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             if (outcome.Unauthorized)
                 StartError = null;
             else if (SameLaunchTarget(draft.RepoPath, draft.Machine, draft.Remote) && outcome.Error is { } error)
-                StartError = FriendlyLaunchFailure(error);
+                ShowLaunchRefusal(FriendlyLaunchFailure(error), !draft.Remote);
             return;
         }
 
@@ -2487,10 +2483,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         // handed back still need the re-attach line on whatever target is selected now — the
         // bytes left with the failed launch and the user must re-stage them for the next send.
         if (!hadAttachments) {
-            if (SameLaunchTarget(repoPath, machine, lane == AgentOrigin.Remote)) StartError = friendly;
+            if (SameLaunchTarget(repoPath, machine, lane == AgentOrigin.Remote))
+                ShowLaunchRefusal(friendly, lane != AgentOrigin.Remote);
             return;
         }
 
+        var local = lane != AgentOrigin.Remote && SameLaunchTarget(repoPath, machine, false);
         RetainedDraft? retained;
         lock (_launchTrackingLock) {
             retained = _retainedDraft is { } r && r.AgentId == agentId
@@ -2503,10 +2501,10 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             Goal = retained.Draft.ComposerGoal ?? retained.Draft.Goal;
             if (retained.Draft.Picked is { } picked) NextWorkSource = picked;
             Tray.Restore(retained.Draft.Files);
-            StartError = friendly + " — your draft is back";
+            ShowLaunchRefusal(friendly + " — your draft is back", local);
             return;
         }
-        StartError = friendly + " — re-attach the files to send them again";
+        ShowLaunchRefusal(friendly + " — re-attach the files to send them again", local);
     }
 
     /// Local and remote can share a daemon name and path; RemoteMachineSelected separates them.
@@ -2595,6 +2593,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             return EmptyFolderStartMessage;
         if (GitFailureSentence(reason) is { } git)
             return git;
+        if (FolderDenied().Match(reason) is { Success: true } denied)
+            return $"{FolderDeniedLead}{denied.Groups["path"].Value}. Give kcap-daemon access to it, then start again.";
         return reason;
     }
 
@@ -2650,6 +2650,11 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             ? reason[(at + lead.Length)..]
             : reason;
     }
+
+    internal const string FolderDeniedLead = "The kcap daemon isn't allowed to read ";
+
+    [GeneratedRegex(@"^Access to the path '(?<path>.+)' is denied\.?$")]
+    private static partial Regex FolderDenied();
 
     [GeneratedRegex(@"^Daemon '(?<name>[^']+)' is full \((?<used>\d+) of (?<max>\d+) in use\)")]
     private static partial Regex DaemonFull();
