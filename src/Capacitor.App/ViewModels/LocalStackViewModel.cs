@@ -201,7 +201,7 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
             ? "kcap couldn’t confirm the version switch."
             : "The update reached the new version, but the server didn’t start.";
         if (ServiceMissing) return "The server’s background service is missing.";
-        if (RecoveryRestartFailed) return "An interrupted update was undone, but the installed version didn’t restart.";
+        if (RecoveryRestartFailed) return "The update stopped before switching versions. kcap couldn’t restart the installed version.";
         if (failure.Code == "recovery_failed")
             return "kcap couldn’t resume an interrupted update. Try again. If it keeps happening, contact support.";
         var detail = LocalFailureText.For(failure.Code, "The local server update stopped before it finished.");

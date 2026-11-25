@@ -328,6 +328,20 @@ public class LocalUpgradeTests {
     }
 
     [Test]
+    public async Task An_interrupted_upgrade_reports_when_the_installed_version_cannot_restart() {
+        Installed();
+        using (CrashAt("upgrade:stopping")) await Assert.ThrowsAsync<SimulatedCrash>(() => Upgrade());
+
+        Server.Ready = HttpStatusCode.ServiceUnavailable;
+        Service.ActivityOverride = new UnitActivity.Exited(1);
+        var failure = await Failure();
+
+        await Assert.That(failure.Code).IsEqualTo(LocalInstallFailureCode.RecoveryRestartFailed);
+        await Assert.That(failure.Switched).IsFalse();
+        await Assert.That(LocalBin.Current(Root)).IsEqualTo(Old);
+    }
+
+    [Test]
     public async Task A_switch_that_cannot_be_confirmed_is_finished_forward_by_the_next_upgrade() {
         Installed();
 

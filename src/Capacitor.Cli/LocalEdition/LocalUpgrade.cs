@@ -181,8 +181,8 @@ sealed class LocalUpgrade(LocalStack stack, IProgress<LocalInstallEvent> progres
                 return;
 
             case LocalUpgradeJournal.Stopping or LocalUpgradeJournal.Restarting:
-                var (started, restart) = await RestartOldAsync(lease, entry, details);
-                if (!started) throw Failed(LocalInstallFailureCode.RecoveryRestartFailed, $"An interrupted upgrade to {details.To} was undone. {restart}");
+                var (failure, restart) = await RestartOldAsync(lease, entry, details);
+                if (failure is { } code) throw Failed(code, $"An interrupted upgrade to {details.To} could not be recovered. {restart}");
                 return;
 
             case LocalUpgradeJournal.Switching:
@@ -297,24 +297,27 @@ sealed class LocalUpgrade(LocalStack stack, IProgress<LocalInstallEvent> progres
             $"kcap local {details.To} is selected, but {why}. Nothing is rolled back. Run kcap local upgrade to finish.",
             switched: true);
 
-    /// <summary>Whether the old version is back as it was, and a sentence saying so; never throws.</summary>
-    async Task<(bool Restored, string Outcome)> RestartOldAsync(LifecycleLease lease, LifecycleJournalEntry entry, UpgradeDetails details) {
+    async Task<(LocalInstallFailureCode? Failure, string Outcome)> RestartOldAsync(LifecycleLease lease, LifecycleJournalEntry entry, UpgradeDetails details) {
         lease.Advance(entry, LocalUpgradeJournal.Restarting, ServerStart.Allow);
 
-        (bool, string) outcome;
+        (LocalInstallFailureCode?, string) outcome;
+        var restarting = false;
 
         try {
             LocalBin.Discard(stack.Root, StagingName, details.To);
 
             if (details.WasRunning) {
                 progress.Report(new LocalInstallEvent.Restarting(details.From));
+                restarting = true;
                 await Control.StartAsync(Installed(), _ => { }, CancellationToken.None);
-                outcome = (true, $"kcap local {details.From} was started again.");
+                outcome = (null, $"kcap local {details.From} was started again.");
             } else {
-                outcome = (true, $"kcap local {details.From} stays selected and stopped, as it was.");
+                outcome = (null, $"kcap local {details.From} stays selected and stopped, as it was.");
             }
         } catch (Exception ex) {
-            outcome = (false, $"kcap local {details.From} stays selected but did not start again ({ex.Message}). Run kcap local start to retry.");
+            outcome = restarting
+                ? (LocalInstallFailureCode.RecoveryRestartFailed, $"kcap local {details.From} stays selected but did not start again ({ex.Message}). Run kcap local start to retry.")
+                : (LocalInstallFailureCode.RecoveryFailed, $"kcap local {details.From} stays selected, but the unfinished update could not be cleaned up ({ex.Message}).");
         }
 
         lease.Complete();
