@@ -37,6 +37,8 @@ sealed class FakeCodexAppServer : IAsyncDisposable {
     public string      TurnStatus = "completed";
     public bool        InjectApprovalDuringTurn;
     public string      ApprovalMethod = "item/commandExecution/requestApproval";
+    // Announced as item/started ahead of the injected approval, which then names its id.
+    public JsonObject? ApprovalItem;
     public int         Fail32001TimesOnTurnStart;
     public (long input, long output, long total)? EmitUsageOnTurn;
     public string?     RerouteToModelOnTurn;
@@ -192,8 +194,14 @@ sealed class FakeCodexAppServer : IAsyncDisposable {
 
                 // Optionally inject an out-of-policy approval request mid-turn.
                 if (InjectApprovalDuringTurn) {
-                    var resp = await ServerRequestAsync(ApprovalMethod,
-                        new JsonObject { ["threadId"] = ThreadId, ["turnId"] = turnId }, ct);
+                    var approval = new JsonObject { ["threadId"] = ThreadId, ["turnId"] = turnId };
+                    if (ApprovalItem is { } item) {
+                        await NotifyAsync("item/started", new JsonObject {
+                            ["threadId"] = ThreadId, ["turnId"] = turnId, ["item"] = item.DeepClone(),
+                        }, ct);
+                        approval["itemId"] = item["id"]?.DeepClone();
+                    }
+                    var resp = await ServerRequestAsync(ApprovalMethod, approval, ct);
                     ApprovalResponse = resp;
                 }
 

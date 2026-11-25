@@ -73,6 +73,18 @@ public class CodexNotificationMapperTests {
         await Assert.That(e.ToolInputJson!).Contains("/repo");
     }
 
+    /// The app-server reports the argv it spawns; the call reads as the script, as an imported rollout does.
+    [Test]
+    public async Task A_wrapped_command_opens_as_the_script_it_runs() {
+        var e = Single(Run(NewMapper(), "item/started",
+            """{"item":{"type":"commandExecution","id":"c1","command":"/bin/bash -lc 'cat a.rs'","cwd":"/repo","status":"inProgress"}}"""));
+
+        using var input = JsonDocument.Parse(e.ToolInputJson!);
+        await Assert.That(input.RootElement.Str("command")).IsEqualTo("cat a.rs");
+        await Assert.That(input.RootElement.Str("cwd")).IsEqualTo("/repo");
+        await Assert.That(e.ToolKind).IsEqualTo(AcpToolKind.Read);
+    }
+
     /// Pins the vendor-neutral kind on every tool call the hosted lane opens. A shell call has no
     /// name of its own for a read or a search, so its command decides.
     [Test]
