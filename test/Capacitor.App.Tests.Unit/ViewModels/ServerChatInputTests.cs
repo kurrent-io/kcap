@@ -127,7 +127,7 @@ public class ServerChatInputTests {
             h.Access.OnNext(SessionAccessState.Established);
             await Assert.That(h.Input.Availability).IsEqualTo(SendAvailability.Ready);
             await Assert.That(h.Input.CanAcceptText).IsTrue();
-            await Assert.That(h.Input.Hint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+            await Assert.That(h.Input.Hint).IsEqualTo("");
 
             h.Session.OnNext(Harness.Info("Starting"));
             await Assert.That(h.Input.Availability).IsEqualTo(SendAvailability.Connecting);
@@ -145,13 +145,13 @@ public class ServerChatInputTests {
             h.Ready();
             await Assert.That(await h.Input.SendAsync("fix it", [], CancellationToken.None)).IsEqualTo(ChatSendOutcome.Accepted);
             await Assert.That(h.Lane.UserInputs).Contains(("a1", "fix it"));
-            await Assert.That(h.Input.Hint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+            await Assert.That(h.Input.Hint).IsEqualTo("");
 
             h.Lane.UserInputHandler = _ => Task.FromResult(HubCallOutcome.NotConnected);
             await Assert.That(await h.Input.SendAsync("again", [], CancellationToken.None)).IsEqualTo(ChatSendOutcome.Unconfirmed);
             await Assert.That(h.Input.Hint).Contains("delivery unconfirmed");
             h.Input.ConfirmLastSend();
-            await Assert.That(h.Input.Hint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+            await Assert.That(h.Input.Hint).IsEqualTo("");
 
             h.Lane.UserInputHandler = _ => Task.FromResult(HubCallOutcome.Denied("Session not visible to caller"));
             await Assert.That(await h.Input.SendAsync("nope", [], CancellationToken.None)).IsEqualTo(ChatSendOutcome.Rejected);
@@ -195,7 +195,7 @@ public class ServerChatInputTests {
             await Assert.That(h.Input.Hint).Contains("delivery unconfirmed");
             await Assert.That(h.Input.Availability).IsEqualTo(SendAvailability.Ready);
             h.Input.ConfirmLastSend();
-            await Assert.That(h.Input.Hint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+            await Assert.That(h.Input.Hint).IsEqualTo("");
             h.Input.Dispose();
         });
     }
@@ -221,7 +221,7 @@ public class ServerChatInputTests {
     }
 
     [Test]
-    [Arguments(HubCallResult.Ok, "Enter sends · Shift+Enter for a new line")]
+    [Arguments(HubCallResult.Ok, "")]
     [Arguments(HubCallResult.Denied, "you cannot interrupt this session")]
     [Arguments(HubCallResult.NotConnected, "interrupt delivery unconfirmed — check the agent's terminal")]
     public async Task Interrupt_reports_a_refused_or_unknown_outcome_and_never_claims_the_agent_stopped(HubCallResult result, string hint) {
@@ -278,7 +278,7 @@ public class ServerChatInputTests {
             await Assert.That(h.Input.Hint).IsEqualTo("interrupt delivery unconfirmed — check the agent's terminal");
             h.Lane.SpecialKeyHandler = _ => Task.FromResult(HubCallOutcome.Ok);
             await h.Input.InterruptAsync(CancellationToken.None);
-            await Assert.That(h.Input.Hint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+            await Assert.That(h.Input.Hint).IsEqualTo("");
 
             h.Lane.UserInputHandler = _ => Task.FromResult(HubCallOutcome.NotConnected);
             await h.Input.SendAsync("continue", [], CancellationToken.None);
@@ -309,12 +309,12 @@ public class ServerChatInputTests {
 
     /// A held viewer still types (the server holds the text) but may not press Escape; one out of reach only watches.
     [Test]
-    [Arguments(Viewer.Owner, true, true, "Messages from others wait for your approval", "Enter sends · Shift+Enter for a new line")]
+    [Arguments(Viewer.Owner, true, true, "Messages from others wait for your approval", "")]
     [Arguments(Viewer.Held, true, false,
         "Your messages wait for the owner's approval. Only the owner can control the terminal while messages need approval",
-        "Enter sends · Shift+Enter for a new line")]
+        "")]
     [Arguments(Viewer.SendsDirect, true, true, "Message approval is on, and your messages go straight to the agent",
-        "Enter sends · Shift+Enter for a new line")]
+        "")]
     [Arguments(Viewer.OutOfReach, false, false, null, AgentViewerAccess.ViewOnlyReason)]
     public async Task The_viewers_rights_decide_what_the_composer_offers(
             Viewer viewer, bool acceptsText, bool interrupts, string? controlNote, string hint) {
@@ -363,7 +363,7 @@ public class ServerChatInputTests {
             await Assert.That(h.Input.Hint).IsEqualTo("The agent is waiting on a question you can't answer");
             h.Lane.SpecialKeyHandler = _ => Task.FromResult(HubCallOutcome.Ok);
             await h.Input.InterruptAsync(CancellationToken.None);
-            await Assert.That(h.Input.Hint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+            await Assert.That(h.Input.Hint).IsEqualTo("");
             h.Input.Dispose();
         });
     }

@@ -41,7 +41,7 @@ public class LocalFrameChatInputTests {
             rig.Connected("status/1", "input/1");
             await Assert.That(rig.Input.Availability).IsEqualTo(SendAvailability.Ready);
             await Assert.That(rig.Input.CanAcceptText).IsTrue();
-            await Assert.That(rig.Input.Hint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+            await Assert.That(rig.Input.Hint).IsEqualTo("");
 
             rig.Presence.OnNext(new AgentPresence(rig.Presence.Value.Dto, true));
             await Assert.That(rig.Input.Availability).IsEqualTo(SendAvailability.Ended);
@@ -190,7 +190,7 @@ public class LocalFrameChatInputTests {
             await Assert.That(await send).IsEqualTo(ChatSendOutcome.Unconfirmed);
             await Assert.That(rig.Input.Hint).IsEqualTo("delivery unconfirmed — check the chat before sending again");
             rig.Input.ConfirmLastSend();
-            await Assert.That(rig.Input.Hint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+            await Assert.That(rig.Input.Hint).IsEqualTo("");
             rig.Input.Dispose();
         });
     }

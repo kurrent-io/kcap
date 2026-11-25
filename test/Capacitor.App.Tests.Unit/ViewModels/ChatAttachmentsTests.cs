@@ -203,7 +203,7 @@ public class ChatAttachmentsTests {
                 await Assert.That(uploader.Calls[^1].Single()).IsSameReferenceAs(chip);
                 await Assert.That(chat.Tray.HasAttachments).IsFalse();
                 await Assert.That(chat.ComposerText).IsEqualTo("");
-                await Assert.That(chat.ComposerHint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+                await Assert.That(chat.ComposerHint).IsEqualTo("");
             } finally { await chat.TeardownAsync(); }
         });
     }

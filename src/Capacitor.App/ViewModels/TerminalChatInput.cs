@@ -123,7 +123,7 @@ internal sealed class TerminalChatInput : ChatInput {
         ". Retry with `kcap agent resume`, or stop it to discard it.";
 
     internal static string HintFor(SendAvailability availability, TerminalSessionState state) => availability switch {
-        SendAvailability.Ready         => "Enter sends · Shift+Enter for a new line",
+        SendAvailability.Ready         => "",
         SendAvailability.Sending       => "Sending…",
         SendAvailability.Transitioning => "Updating the terminal connection…",
         SendAvailability.ReadOnly      => $"Read-only: {state.Detail}",

@@ -1170,7 +1170,7 @@ public class RemoteSessionViewModelTests {
             await WaitUntilAsync(() => h.Lane.Tails.Count == 1, what: "the tail");
             // Reading alone is not the seed: a poll before the detail fetch lands reads empty and still sets it.
             await h.UntilAsync(vm, () => vm.Chat.HasSeed, "the empty seed");
-            await WaitUntilAsync(() => vm.Chat.ShowsComposer && vm.Chat.ComposerHint.StartsWith("Enter sends", StringComparison.Ordinal), what: "the composer");
+            await WaitUntilAsync(() => vm.Chat.ShowsComposer && vm.Chat.ComposerHint.Length == 0, what: "the composer");
 
             vm.Chat.ComposerText = "do it";
             await vm.Chat.SendCommand.Execute();

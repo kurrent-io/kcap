@@ -52,7 +52,7 @@ public class TerminalChatInputTests {
         await RunOnUiAsync(async () => {
             var rig = await BuildAttachedAsync();
             await Assert.That(rig.Input.Availability).IsEqualTo(SendAvailability.Ready);
-            await Assert.That(rig.Input.Hint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+            await Assert.That(rig.Input.Hint).IsEqualTo("");
             await Assert.That(rig.Input.CanAcceptText).IsTrue();
 
             var raised = new List<string>();
@@ -241,7 +241,7 @@ public class TerminalChatInputTests {
             await Assert.That(await rig.Input.SendAsync("hi", [Id], CancellationToken.None)).IsEqualTo(ChatSendOutcome.Unconfirmed);
             await Assert.That(rig.Input.Hint).IsEqualTo("delivery unconfirmed — check the chat before sending again");
             rig.Input.ConfirmLastSend();
-            await Assert.That(rig.Input.Hint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+            await Assert.That(rig.Input.Hint).IsEqualTo("");
 
             var gate = rig.Ops.ArmSendText();
             var send = rig.Input.SendAsync("hi", [Id], CancellationToken.None);

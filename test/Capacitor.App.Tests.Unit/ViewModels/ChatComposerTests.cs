@@ -125,7 +125,7 @@ public class ChatComposerTests {
         await RunOnUiAsync(async () => {
             var (daemon, _, terminal, chat, client, _) = await BuildAttachedAsync();
             await Assert.That(chat.VendorLabel).IsEqualTo("Claude Code");
-            await Assert.That(chat.ComposerHint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+            await Assert.That(chat.ComposerHint).IsEqualTo("");
 
             daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true) with { Status = "Running", AwaitingInput = false });
             await Assert.That(chat.ShowsInterrupt).IsTrue();
@@ -289,7 +289,7 @@ public class ChatComposerTests {
 
                 await Assert.That(chat.ShowsInterrupt).IsFalse();
                 await Assert.That(interruptButton.IsEffectivelyVisible).IsFalse();
-                await Assert.That(chat.ComposerHint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+                await Assert.That(chat.ComposerHint).IsEqualTo("");
 
                 daemon.Agents.AddOrUpdate(Agent("a1", "claude", hasTerminal: true, repoPath: "/repo") with { Status = "Running", AwaitingInput = false, TurnAttested = true });
                 Dispatcher.UIThread.RunJobs();
@@ -313,7 +313,7 @@ public class ChatComposerTests {
 
                 await Assert.That(chat.ShowsInterrupt).IsFalse();
                 await Assert.That(interruptButton.IsEffectivelyVisible).IsFalse();
-                await Assert.That(chat.ComposerHint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+                await Assert.That(chat.ComposerHint).IsEqualTo("");
 
             } finally {
                 window.Close();

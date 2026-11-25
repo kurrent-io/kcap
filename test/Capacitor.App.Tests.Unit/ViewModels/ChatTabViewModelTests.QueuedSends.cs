@@ -779,7 +779,7 @@ public partial class ChatTabViewModelTests {
                 }
                 await Assert.That(h.Chat.HasQueuedMessages).IsFalse();
                 await Assert.That(h.Chat.ComposerText).IsEqualTo("");
-                await Assert.That(h.Chat.ComposerHint).IsEqualTo("Enter sends · Shift+Enter for a new line");
+                await Assert.That(h.Chat.ComposerHint).IsEqualTo("");
             } finally { await h.TeardownAsync(); }
         });
     }
