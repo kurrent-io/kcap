@@ -91,10 +91,20 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     readonly ObservableAsPropertyHelper<AgentStatusPresentation> _status;
     public AgentStatusPresentation Status => _status.Value;
 
-    readonly ObservableAsPropertyHelper<bool> _isStale;
-    /// A remote or server row greys out while the lane is stale, a server row also on the server's
-    /// own idle flag; a local row is never stale.
-    public bool IsStale => _isStale.Value;
+    /// What a remote or server row says while the server lane is down: it cannot update, so it is
+    /// the last state the server reported. The window's connection notice says how to reconnect.
+    public const string LaneStaleNote = "Not connected to the server, so this is the last known state";
+
+    readonly ObservableAsPropertyHelper<bool> _isLaneStale;
+    /// A remote or server row while the server lane is not connected; a local row never is.
+    public bool IsLaneStale => _isLaneStale.Value;
+    readonly ObservableAsPropertyHelper<string?> _laneNote;
+    public string? LaneNote => _laneNote.Value;
+
+    readonly ObservableAsPropertyHelper<string> _rowAccessibleName;
+    /// The row's name, with any state that changes what the row's facts are worth: a stale status
+    /// and a lane that cannot update it.
+    public string RowAccessibleName => _rowAccessibleName.Value;
 
     readonly CompositeDisposable _disposables = new();
     readonly BehaviorSubject<AgentRow> _row;
@@ -161,9 +171,16 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             .ToProperty(this, x => x.Status, initialValue: SessionStatusDots.ForRow(row, pending: false))
             .DisposeWith(_disposables);
 
-        _isStale = _row.CombineLatest(remoteStale, (current, laneStale) =>
-                current.Origin is AgentOrigin.Remote or AgentOrigin.Server && (laneStale || current.IsStale))
-            .ToProperty(this, x => x.IsStale, initialValue: false)
+        _isLaneStale = _row.CombineLatest(remoteStale, (current, laneStale) =>
+                current.Origin is AgentOrigin.Remote or AgentOrigin.Server && laneStale)
+            .ToProperty(this, x => x.IsLaneStale, initialValue: false)
+            .DisposeWith(_disposables);
+        _laneNote = this.WhenAnyValue(x => x.IsLaneStale).Select(stale => stale ? LaneStaleNote : null)
+            .ToProperty(this, x => x.LaneNote, initialValue: null)
+            .DisposeWith(_disposables);
+
+        _rowAccessibleName = this.WhenAnyValue(x => x.SessionAccessibleName, x => x.Status, x => x.IsLaneStale, RowName)
+            .ToProperty(this, x => x.RowAccessibleName, initialValue: SessionAccessibleName)
             .DisposeWith(_disposables);
 
         _showsRepo = (grouping ?? Observable.Return(RailGrouping.Repository)).CombineLatest(_row, (mode, current) =>
@@ -200,6 +217,13 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
         DeleteCommand = ReactiveCommand.CreateFromTask(
             () => actions?.DeleteAsync(_row.Value, SessionAccessibleName) ?? Task.CompletedTask, deletable).DisposeWith(_disposables);
         TerminateCommand = ReactiveCommand.Create(() => actions?.Terminate(_row.Value, SessionAccessibleName), running).DisposeWith(_disposables);
+    }
+
+    static string RowName(string name, AgentStatusPresentation status, bool laneStale) {
+        var parts = new List<string> { name };
+        if (status.Kind == AgentStatusKind.Stale) parts.Add($"{status.Label}: {status.AccessibleName}");
+        if (laneStale) parts.Add(LaneStaleNote);
+        return string.Join(", ", parts);
     }
 
     AgentOrigin Origin() => IsServer ? AgentOrigin.Server : IsRemote ? AgentOrigin.Remote : AgentOrigin.Local;

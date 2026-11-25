@@ -83,7 +83,7 @@ public class SessionStatusDotsTests {
     }
 
     /// The server's idle flag replaces the live "Running" and its in-flight ring, the word the web and
-    /// `kcap sessions` already use.
+    /// `kcap sessions` already use, and the tip says the session has not ended.
     [Test]
     public async Task A_stale_row_reads_stale_rather_than_running() {
         var status = SessionStatusDots.ForRow(Local("a") with { IsStale = true }, pending: false);
@@ -96,6 +96,7 @@ public class SessionStatusDotsTests {
         await Assert.That(tip.StateDetail).IsEqualTo("No activity for over an hour");
         await Assert.That(tip.Description).Contains("Stale\nNo activity for over an hour");
         await Assert.That(tip.Details!.Any(detail => detail.Value == tip.StateDetail)).IsFalse();
+        await Assert.That(tip.Details!.Select(detail => detail.Value)).Contains(SessionStatusDots.StaleNextStep);
         await Assert.That(status.IsInFlight).IsFalse();
         await Assert.That(status.IsWarning).IsTrue();
         await Assert.That(status.ShowsClock).IsTrue();
