@@ -212,6 +212,21 @@ public class AgentOrchestratorHandoffLaunchTests {
         await Assert.That(title).EndsWith("…");
     }
 
+    /// <summary>A stopped agent's worktree goes, but the branch its hand-off created stays for a resume to check out
+    /// again.</summary>
+    [Test]
+    public async Task A_stopped_agent_keeps_the_branch_its_hand_off_created() {
+        await using var f = new Fixture();
+        var sha = f.Repo.Head;
+
+        await f.Orch.HandleLaunchAgentForTest(Launch(f.Repo.Path, Start(sha, "CreateBranch")));
+        await Assert.That(f.Factory.LastContext!.Worktree.OwnsBranch).IsTrue();
+        await f.Orch.HandleStopAgentForTest(AgentId);
+
+        await Assert.That(f.Worktrees()).IsEmpty();
+        await Assert.That(f.Repo.RevParse("refs/heads/feature")).IsEqualTo(sha);
+    }
+
     /// <summary>The worktree checks out the user's own branch, so the failed launch's cleanup must leave
     /// that branch where it was.</summary>
     [Test]

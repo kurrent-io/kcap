@@ -355,6 +355,10 @@ internal sealed partial class ClaudeLauncher(
         File.WriteAllText(settingsPath, rootObj.ToJsonString(IndentedJsonOpts));
     }
 
+    // The ended agent's transcript sits in the source repository's project directory, reached through the link Cleanup removed.
+    public void LinkRestoredWorktree(string sourceRepoPath, string worktreePath, string configDir) =>
+        SymlinkClaudeProjectDir(sourceRepoPath, worktreePath, AccountLayouts.Claude(config.Home, configDir));
+
     /// <summary>
     /// Links the layout's <c>projects/</c> entry for the worktree to the source repository's, so
     /// project-level permissions, settings and memory are shared with the hosted agent.

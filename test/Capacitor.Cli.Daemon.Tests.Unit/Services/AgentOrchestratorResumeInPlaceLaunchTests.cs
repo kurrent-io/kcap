@@ -69,7 +69,7 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
 
     sealed class Fixture : IAsyncDisposable {
         public Fixture(TempDir tmp, LoadableFactory factory, CaptureServerConnection? server = null, LaunchConsentGate? consent = null,
-                TimeSpan? readiness = null) {
+                TimeSpan? readiness = null, string? allowedRepoPath = null) {
             Directory.CreateDirectory(tmp.PathTo("checkout"));
             Checkout = tmp.GetResolvedPath("checkout");
             File.WriteAllText(Path.Combine(Checkout, "work.txt"), "uncommitted");
@@ -78,7 +78,7 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
             Server   = server ?? new CaptureServerConnection();
             Orch     = AgentOrchestratorHarness.BuildOrchestrator(
                 Server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(),
-                allowedRepoPath: Checkout, extraRuntimeFactories: [factory], consentGate: consent,
+                allowedRepoPath: allowedRepoPath ?? Checkout, extraRuntimeFactories: [factory], consentGate: consent,
                 configure: c => {
                     c.ResumeReadinessWindow = readiness ?? TimeSpan.FromMilliseconds(300);
                     c.Accounts              = new AccountStore(tmp.PathTo("accounts"));
@@ -93,10 +93,11 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         public CaptureServerConnection Server   { get; }
         public AgentOrchestrator       Orch     { get; }
 
-        public LaunchAgentCommand Launch(string? prompt = "carry on", string session = Session, string? store = null, string? directory = null) =>
+        public LaunchAgentCommand Launch(
+                string? prompt = "carry on", string session = Session, string? store = null, string? directory = null, string? branch = null) =>
             new(AgentId: AgentId, Prompt: prompt, Model: "", Effort: null, RepoPath: directory ?? Checkout, Tools: null, AttachmentIds: null,
                 Vendor: Factory.Vendor) {
-                ResumeInPlace = new ResumeInPlaceLaunch(session, directory ?? Checkout, Token, null, store ?? Store),
+                ResumeInPlace = new ResumeInPlaceLaunch(session, directory ?? Checkout, Token, null, store ?? Store, branch),
             };
 
         public string[] Failures() => [.. Server.LaunchFailedCalls.Where(c => c.AgentId == AgentId).Select(c => c.Reason)];
@@ -120,6 +121,39 @@ public class AgentOrchestratorResumeInPlaceLaunchTests {
         var ledgered = f.Orch.ResumeLedger!.TryRead(AgentId)!;
         await Assert.That((ledgered.Launch.Work, ledgered.State, ledgered.VendorSession)).IsEqualTo((WorkLocation.InPlace, ResumeState.Running, Dashed));
         await Assert.That(agent.Checkout.BorrowedFrom).IsEqualTo(f.Checkout);
+    }
+
+    /// <summary>A gone agent worktree is checked out again at its path before the resume runs in it: on the session's
+    /// branch while that branch is there, detached at the repository's HEAD once it is not.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_gone_agent_worktree_is_restored_and_the_resume_runs_in_it(bool branchKept) {
+        using var repo = GitRepo.CreateWithCommit();
+        repo.Do("branch", "agent-work");
+        var tip = repo.Head;
+        repo.Do("commit", "-q", "--allow-empty", "-m", "moved on");
+        if (!branchKept) repo.Do("branch", "-D", "agent-work");
+        var worktree = repo.PathTo(".capacitor", "worktrees", "wt-1");
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude"), allowedRepoPath: repo.Path + Path.DirectorySeparatorChar + "*");
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch(directory: worktree, branch: "agent-work"));
+
+        await Assert.That(f.Failures()).IsEmpty();
+        await Assert.That(f.Factory.Context!.Worktree.Path).IsEqualTo(worktree);
+        var restored = GitRepo.At(worktree);
+        await Assert.That((restored.CurrentBranch, restored.Head)).IsEqualTo(branchKept ? ("agent-work", tip) : ("", repo.Head));
+    }
+
+    [Test]
+    public async Task A_worktree_that_cannot_be_restored_is_refused_and_starts_nothing() {
+        var notARepo = Tmp.CreateDir("plain");
+        await using var f = new Fixture(Tmp, new LoadableFactory("claude"), allowedRepoPath: notARepo + Path.DirectorySeparatorChar + "*");
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch(directory: Path.Combine(notARepo, ".capacitor", "worktrees", "wt-1")));
+
+        await Assert.That(f.Failures()).IsEquivalentTo([ResumeInPlaceRefusals.RestoreFailed]);
+        await Assert.That(f.Factory.Starts).IsEqualTo(0);
     }
 
     /// <summary>An in-place resume reopens the session it resumes: its launch registration names that session as the

@@ -338,6 +338,25 @@ public class RemoteSessionViewSmokeTests {
         await Assert.That(fixture.Launch.Requests.Single().Resume).IsEqualTo(new ResumeLaunchPayload("s1", HandoffComposerFixture.Checkout));
     }, fixture => fixture.OfferResume(Machine), ResumableServerRow());
 
+    /// <summary>Enter sends the resume as it sends a message in a live session; Shift+Enter stays a newline.</summary>
+    [Test]
+    public Task Enter_resumes_as_a_live_composer_sends() => WithHandoffAsync(async (host, fixture, view) => {
+        await host.SettleUntilAsync(() => host.Vm.Chat.Handoff!.ResumeOffered, "resume offered");
+        var input = Named<TextBox>(view, "HandoffInput");
+        input.Focus();
+        input.Text = "carry on";
+        host.Settle();
+
+        host.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.Shift);
+        host.Settle();
+        await Assert.That(fixture.Launch.Requests).IsEmpty();
+
+        host.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+        await host.SettleUntilAsync(() => fixture.Launch.Requests.Count == 1, "the launch");
+
+        await Assert.That(fixture.Launch.Requests.Single().Resume).IsEqualTo(new ResumeLaunchPayload("s1", HandoffComposerFixture.Checkout));
+    }, fixture => fixture.OfferResume(Machine), ResumableServerRow());
+
     const string ManagedWorktree = HandoffComposerFixture.Checkout + "/.capacitor/worktrees/warm-drum";
 
     [Test]

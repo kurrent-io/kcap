@@ -9,4 +9,5 @@ public static class ResumeInPlaceRefusals {
     public const string DirectoryNotAllowed = "resume_directory_not_allowed";
     public const string StoreChanged        = "resume_store_changed";
     public const string Failed              = "resume_failed";
+    public const string RestoreFailed       = "resume_restore_failed";
 }

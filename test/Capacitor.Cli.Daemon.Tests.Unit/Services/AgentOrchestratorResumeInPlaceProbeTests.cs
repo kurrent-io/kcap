@@ -8,8 +8,8 @@ using Capacitor.Cli.Daemon.Tests.Unit.Pty;
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
 
 /// <summary>
-/// Resume is offered only where it can work: a vendor that reloads a session by its id, a directory that exists and
-/// the daemon may work in, and the store the session was recorded under, resolved the way restart recovery resolves
+/// Resume is offered only where it can work: a vendor that reloads a session by its id, a directory that exists, or a
+/// gone agent worktree the launch checks out again, and the daemon may work in, and the store the session was recorded under, resolved the way restart recovery resolves
 /// it. An unknown store, a removed account or a store that moved since is never resumed into.
 /// </summary>
 public class AgentOrchestratorResumeInPlaceProbeTests {
@@ -122,6 +122,20 @@ public class AgentOrchestratorResumeInPlaceProbeTests {
 
         await Assert.That(await orch.InPlaceResumeRefusalAsync("claude", Session, Path.Combine(Repo, "gone"), null, ClaudeDefault))
             .IsEqualTo(ResumeInPlaceRefusals.DirectoryMissing);
+    }
+
+    /// <summary>A gone directory counts as there only where the launch can check it out again: an agent worktree path
+    /// in its repository's worktree root that the allowlist covers.</summary>
+    [Test]
+    [Arguments("agent-worktree", null)]
+    [Arguments("not-an-agent-worktree", ResumeInPlaceRefusals.DirectoryMissing)]
+    [Arguments("outside-the-allowlist", ResumeInPlaceRefusals.DirectoryNotAllowed)]
+    public async Task A_gone_agent_worktree_is_resumable_where_it_can_be_checked_out_again(string state, string? refusal) {
+        using var repo = GitRepo.CreateWithCommit();
+        var directory = state == "not-an-agent-worktree" ? repo.PathTo("elsewhere", "wt-1") : repo.PathTo(".capacitor", "worktrees", "wt-1");
+        await using var orch = Build(allowedRepo: state == "outside-the-allowlist" ? repo.Path : repo.Path + Path.DirectorySeparatorChar + "*");
+
+        await Assert.That(await orch.InPlaceResumeRefusalAsync("claude", Session, directory, null, ClaudeDefault)).IsEqualTo(refusal);
     }
 
     [Test]

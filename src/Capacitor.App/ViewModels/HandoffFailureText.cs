@@ -57,6 +57,7 @@ public static partial class HandoffFailureText {
             "resume_source_reserved"       => "it's being resumed or handed off elsewhere",
             "resume_unsupported_daemon"    => "your local kcap daemon can't resume sessions yet",
             "resume_directory_missing"     => "its directory is gone",
+            "resume_restore_failed"        => "its worktree couldn't be checked out again",
             "resume_directory_not_allowed" => "your local kcap daemon isn't allowed to work in its directory",
             "resume_failed"                => "the agent couldn't pick it up",
             "resume_other_machine" or "resume_not_resumable" or "resume_store_changed" or "resume_unsupported_vendor"

@@ -2768,7 +2768,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // Consent judges where a resume will run, not the path recorded for it, which may be a symlink.
         var consentPath = cmd.RepoPath;
         if (inPlace is { } resolving) {
-            if ((await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(resolving.Launch.Directory)).CanonicalCwd is not { } canonical) {
+            if (await InPlaceConsentPathAsync(resolving.Launch.Directory) is not { } canonical) {
                 await _server.LaunchFailedAsync(cmd.AgentId, ResumeInPlaceRefusals.DirectoryNotAllowed);
 
                 return new CommandOutcome(CommandOutcomeKind.LaunchRejected, agentId, RejectReason: CommandRejectedReason.Semantic);
@@ -6837,8 +6837,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // user's own checkout (local in-place launch) — NEVER delete it or its branch:
         // RemoveAsync would Directory.Delete / `git worktree remove --force` + `branch -D`.
         // A pending resume keeps everything the successor daemon resumes from.
+        // The branch stays: resuming the ended session checks it out again at this path.
         if (agent.Work == WorkLocation.OwnedWorktree && !agent.ResumePending) {
-            try { await RemoveOwnedWorktreeAsync(agent.Worktree, agentId); } catch (Exception ex) { LogCleanupStepFailed(ex, "removing worktree", agentId); }
+            try { await RemoveOwnedWorktreeAsync(agent.Worktree, agentId, deleteBranch: false); } catch (Exception ex) { LogCleanupStepFailed(ex, "removing worktree", agentId); }
         }
 
         if (!agent.ResumePending) {
@@ -7408,8 +7409,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     [LoggerMessage(Level = LogLevel.Warning, Message = "Kept the worktree of agent {AgentId} at {Path} (branch {Branch}): it holds {Reason}. Remove it with `git worktree remove` once the work is saved")]
     partial void LogWorktreeKept(string agentId, string path, string branch, string reason);
 
-    async Task RemoveOwnedWorktreeAsync(WorktreeInfo worktree, string agentId) {
-        var removal = await WorktreeManager.RemoveAsync(worktree, _time);
+    async Task RemoveOwnedWorktreeAsync(WorktreeInfo worktree, string agentId, bool deleteBranch = true) {
+        var removal = await WorktreeManager.RemoveAsync(worktree, _time, deleteBranch);
         if (removal.KeptBecause is { } reason) LogWorktreeKept(agentId, worktree.Path, worktree.Branch, reason);
     }
 

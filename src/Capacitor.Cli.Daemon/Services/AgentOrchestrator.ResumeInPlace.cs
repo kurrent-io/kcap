@@ -32,8 +32,38 @@ internal partial class AgentOrchestrator {
         }
     }
 
+    /// <summary>Where consent judges a resume runs: the directory itself, or for a gone agent worktree the path it is
+    /// checked out again at, under its repository's own resolved path. Null when neither is authorized.</summary>
+    async Task<string?> InPlaceConsentPathAsync(string directory) {
+        if (Directory.Exists(directory)) return (await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(directory)).CanonicalCwd;
+
+        return WorktreeManager.RestorableSource(directory) is { } source
+            && (await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(source)).CanonicalCwd is { } repo
+            ? Path.Join(repo, Path.GetRelativePath(source, directory))
+            : null;
+    }
+
+    /// <summary>Checks a gone agent worktree out again for a consented resume, and reconnects it to the session's
+    /// vendor state. True when the directory is there afterwards.</summary>
+    async Task<bool> RestoreForResumeAsync(LaunchAgentCommand cmd, ResumeInPlaceLaunch inPlace) {
+        if (Directory.Exists(inPlace.Directory)) return true;
+        if (WorktreeManager.RestorableSource(inPlace.Directory) is not { } source) return false;
+
+        try {
+            await _worktreeManager.RestoreAsync(source, inPlace.Directory, inPlace.Branch, _shutdownCts.Token);
+            if (_launchers.TryGetValue(cmd.Vendor, out var launcher)) launcher.LinkRestoredWorktree(source, inPlace.Directory, inPlace.ConfigDir);
+
+            return true;
+        } catch (Exception ex) when (ex is not OperationCanceledException) {
+            LogWorktreeRestoreFailed(ex, inPlace.Directory);
+
+            return false;
+        }
+    }
+
     /// <summary>Why the session cannot be resumed natively in <paramref name="directory"/> under the store it was
-    /// recorded with, or null when it can. The probe and the launch run this same check.</summary>
+    /// recorded with, or null when it can. A gone agent worktree counts as there, since the launch checks it out again at
+    /// its path. The probe and the launch run this same check.</summary>
     internal async Task<string?> InPlaceResumeRefusalAsync(string vendor, string sessionId, string directory, string? accountId, string? configDir) {
         if (NativeResumeId.For(vendor, sessionId) is null
          || !_runtimeFactories.TryGetValue(vendor.ToLowerInvariant(), out var factory)
@@ -42,9 +72,17 @@ internal partial class AgentOrchestrator {
 
         if (SessionId.Parse(SessionIds.Canonical(sessionId)) is { } session && HostsSession(session)) return ResumeInPlaceRefusals.SourceActive;
 
-        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory)) return ResumeInPlaceRefusals.DirectoryMissing;
+        if (string.IsNullOrWhiteSpace(directory)) return ResumeInPlaceRefusals.DirectoryMissing;
 
-        if (!(await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(directory)).Allowed) return ResumeInPlaceRefusals.DirectoryNotAllowed;
+        var authorized = directory;
+        if (!Directory.Exists(directory)) {
+            if (WorktreeManager.RestorableSource(directory) is not { } source) return ResumeInPlaceRefusals.DirectoryMissing;
+            // The launch authorizes the restored worktree itself, so the allowlist must already cover its path.
+            if (!_config.IsRepoAllowed(directory)) return ResumeInPlaceRefusals.DirectoryNotAllowed;
+            authorized = source;
+        }
+
+        if (!(await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(authorized)).Allowed) return ResumeInPlaceRefusals.DirectoryNotAllowed;
 
         return StoreRefusal(vendor, accountId, configDir);
     }
@@ -95,11 +133,17 @@ internal partial class AgentOrchestrator {
     /// Resumes the source natively in its own directory through the restart-resume protocol: the runtime is bound to
     /// the original session from the start and judged by the readiness window, transcript included. A failure after
     /// the agent published retires it before <c>LaunchFailed</c> goes out, so the app's fallback cannot race it. Nothing
-    /// is kept for a later resume: the app falls back to a hand-off, and the directory was never the daemon's.
+    /// is kept for a later resume: the app falls back to a hand-off, and the directory, restored here or not, stays.
     /// </summary>
     async Task<CommandOutcome> LaunchInPlaceAsync(
             LaunchAgentCommand cmd, ResumeInPlaceLaunch inPlace, SourceLeaseKeeper lease, string consented, LaunchConsentOutcome consent, LaunchHold hold,
             CancellationToken cancel, Action<AgentInstance>? onPublished) {
+        if (!await RestoreForResumeAsync(cmd, inPlace)) {
+            await _server.LaunchFailedAsync(cmd.AgentId, ResumeInPlaceRefusals.RestoreFailed);
+
+            return new CommandOutcome(CommandOutcomeKind.LaunchRejected, cmd.AgentId, RejectReason: CommandRejectedReason.Semantic);
+        }
+
         // Re-resolved after consent, which can take minutes: a symlink retargeted meanwhile must not move the runtime
         // away from the directory consent judged.
         var authorized = await new BorrowAuthorizer(_config).AuthorizeBorrowAsync(inPlace.Directory);
@@ -375,4 +419,7 @@ internal partial class AgentOrchestrator {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "In-place resume: the lease on session {Session} was lost")]
     partial void LogSourceLeaseLost(string session);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "In-place resume: the worktree at {Path} could not be restored")]
+    partial void LogWorktreeRestoreFailed(Exception ex, string path);
 }

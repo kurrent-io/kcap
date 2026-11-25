@@ -107,6 +107,9 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
     readonly Action<int>? _onUnauthorized;
     readonly TimeProvider _time;
     readonly Func<string?>? _localMachineId;
+    IReadOnlyList<DaemonInfo> _daemonList = [];
+    /// The daemon Resume launches on: this machine's, or the owner's daemon on the machine that recorded the session.
+    string? _resumeDaemon;
     readonly CancellationToken _shutdown;
     readonly HandoffChoicesViewModel _choices;
     readonly CompositeDisposable _disposables = new();
@@ -141,6 +144,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
     /// launch reaches the daemon through that server.</param>
     /// <param name="onUnauthorized">IServerLane's ParkSignedOut, for a 401 on an upload or a launch.</param>
     /// <param name="localMachineId">This app's machine id, which a session recorded here carries; null offers no Resume.</param>
+    /// <param name="daemons">The server's daemon listing, where a session recorded on another machine finds its daemon.</param>
     /// <param name="accounts">The local daemon's accounts and usage clock; null offers no account.</param>
     /// <param name="accountMemory">Where the launcher remembers an account per repository.</param>
     public HandoffComposerViewModel(
@@ -152,7 +156,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
             string? appServerUrl,
             IObservable<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>>? modelCatalog = null,
             Action<int>? onUnauthorized = null, TimeProvider? time = null,
-            Func<string?>? localMachineId = null,
+            Func<string?>? localMachineId = null, IObservable<IReadOnlyList<DaemonInfo>>? daemons = null,
             AccountReadings? accounts = null, AppStateStore? accountMemory = null,
             ComposerPickers? pickers = null, CancellationToken shutdown = default) {
         _session = session;
@@ -192,6 +196,11 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
             .DisposeWith(_disposables);
 
         daemon.Status.Subscribe(s => _attach = s).DisposeWith(_disposables);
+        daemons?.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(listed => {
+            var before = RecordingDaemon();
+            _daemonList = listed;
+            if (RecordingDaemon() != before) Recheck();
+        }).DisposeWith(_disposables);
         daemon.Snapshots.Subscribe(s => _snapshot = s).DisposeWith(_disposables);
         var connected = laneStatus.Select(s => s.State == ServerLaneState.Connected);
         connected.Subscribe(c => _signedIn = _serverConnected = c).DisposeWith(_disposables);
@@ -342,9 +351,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
     public string? StripNotice => IsStripOpen ? DisabledReason : null;
     public bool StartVisible => IsStripOpen && DisabledReason is null;
 
-    public string Placeholder => ResumeVisible
-        ? "What should this session do next? Resume carries on here; Hand off starts a new session."
-        : "What should the new session do next?";
+    public string Placeholder => ResumeVisible ? "Write a message" : "What should the new session do next?";
 
     bool _isResuming;
     /// A resume was accepted and is being judged; the view turns live on success, the draft comes back on failure.
@@ -491,8 +498,9 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
         Evaluation result;
         bool? offered = false;
         try {
-            offered = await ResumeOfferedAsync(cts.Token);
+            (offered, var resumeDaemon) = await ResumeOfferedAsync(cts.Token);
             if (_disposed || cts.IsCancellationRequested || !ReferenceEquals(cts, _evaluation)) return;
+            _resumeDaemon = offered == true ? resumeDaemon : null;
             ResumeOffered = offered == true;
             result = await EvaluateAsync(cts.Token);
         } catch (OperationCanceledException) when (cts.IsCancellationRequested) {
@@ -645,29 +653,42 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
         return _features = read;
     }
 
-    /// The table's Resume row: the viewer's own session (the listing gives a recording to the owner only),
-    /// recorded on this machine under a known store, with both hops able to carry it and the daemon's probe
-    /// finding the vendor, the directory and that store still usable here. Null when the server or the daemon did not
-    /// answer, which nothing else re-checks while both stay connected.
-    async Task<bool?> ResumeOfferedAsync(CancellationToken ct) {
-        if (_drafts.ResumeFailed(_session.SessionId)) return false;
-        if (_session is not {
-                Status: "ended", Cwd: { Length: > 0 } cwd, Vendor: { Length: > 0 } vendor,
-                Recording: { MachineId: { Length: > 0 } machine, ConfigDir: { Length: > 0 } store } recording,
-            }) return false;
-        if (_localMachineId?.Invoke() != machine || !_serverConnected) return false;
-        if (await FeaturesAsync(ct) is not { } features) return null;
-        if (!features.Contains(ResumeInPlaceWire.Capability)) return false;
-        if (_attach is not { } attach || !HasResume(attach)) return false;
-        if (_snapshot is not { } snapshot || !ServerIdentity.SameServer(snapshot.Daemon.ServerUrl, _appServerUrl)) return false;
+    /// Whether Resume is offered, and on which daemon: the viewer's own session (the listing gives a recording to the
+    /// owner only) under a known store, with the server able to carry it. Recorded here, the local daemon must carry it
+    /// and its probe find the vendor, the directory and that store still usable; recorded elsewhere, the owner's daemon
+    /// on that machine must be connected, and the server and that daemon judge the rest when Resume is pressed. Null
+    /// when the server or the daemon did not answer, which nothing else re-checks while both stay connected.
+    async Task<(bool? Offered, string? Daemon)> ResumeOfferedAsync(CancellationToken ct) {
+        if (_drafts.ResumeFailed(_session.SessionId)) return (false, null);
+        if (_session is not { Status: "ended", Recording.MachineId: { Length: > 0 } machine } || ResumeRequest() is not { } request)
+            return (false, null);
+        if (!_serverConnected) return (false, null);
+        if (await FeaturesAsync(ct) is not { } features) return (null, null);
+        if (!features.Contains(ResumeInPlaceWire.Capability)) return (false, null);
+        if (_localMachineId?.Invoke() != machine) return RecordingDaemon() is { } remote ? (true, remote) : (false, null);
+        if (_attach is not { } attach || !HasResume(attach)) return (false, null);
+        if (_snapshot is not { } snapshot || !ServerIdentity.SameServer(snapshot.Daemon.ServerUrl, _appServerUrl)) return (false, null);
 
-        var request = new ResumeProbeRequestDto(_session.SessionId, vendor, cwd, recording.AccountId, store);
         try {
-            return await Task.Run(() => _ops.ProbeResumeAsync(request, ct), ct) is { } reply ? reply.Refusal is null : null;
+            return await Task.Run(() => _ops.ProbeResumeAsync(request, ct), ct) is { } reply
+                ? reply.Refusal is null ? (true, _daemon.DaemonName) : (false, null)
+                : (null, null);
         } catch (Exception ex) when (ex is not OperationCanceledException) {
-            return null;
+            return (null, null);
         }
     }
+
+    /// The owner's connected daemon on the machine that recorded the session, by the name it recorded under.
+    string? RecordingDaemon() =>
+        _session is { Owner.UserId: { } owner, Recording: { MachineId: { Length: > 0 } machine, DaemonName: { Length: > 0 } name } }
+     && _daemonList.Any(d => d.Connected && d.Name == name && d.MachineId == machine && d.OwnerUserId == owner)
+            ? name
+            : null;
+
+    ResumeProbeRequestDto? ResumeRequest() =>
+        _session is { Cwd: { Length: > 0 } cwd, Vendor: { Length: > 0 } vendor, Recording: { ConfigDir: { Length: > 0 } store } recording }
+            ? new(_session.SessionId, vendor, cwd, recording.AccountId, store)
+            : null;
 
     /// Relaunches the session's own vendor in its own directory with the launcher's defaults. No placeholder:
     /// the view stays on the session, which turns live when the daemon's row for it replaces the server's.
@@ -685,7 +706,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
         try {
             var draft = _choices.Capture(Text, []);
             var request = new LaunchRequest(
-                _daemon.DaemonName, directory, vendor, draft.Text,
+                _resumeDaemon ?? _daemon.DaemonName, directory, vendor, draft.Text,
                 PermissionMode: HomeViewModel.PermissionModeFor(vendor, HomeViewModel.DefaultPermissionMode),
                 CodexPosture: HomeViewModel.CodexPostureFor(vendor, HostedHarnessCatalog.DefaultCodexSandbox, HostedHarnessCatalog.DefaultCodexApproval),
                 Resume: new ResumeLaunchPayload(sourceId, directory));

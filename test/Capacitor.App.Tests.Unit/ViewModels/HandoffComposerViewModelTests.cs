@@ -59,6 +59,7 @@ public class HandoffComposerViewModelTests {
         public List<int> Parked { get; } = [];
         /// The local daemon's accounts; null until a test offers them.
         public BehaviorSubject<AccountsSnapshotDto?> Accounts { get; } = new(null);
+        public BehaviorSubject<IReadOnlyList<DaemonInfo>> Daemons { get; } = new([]);
         public bool OffersAccounts;
         public AppStateStore? Memory;
 
@@ -122,7 +123,7 @@ public class HandoffComposerViewModelTests {
                 _ => Task.FromResult<IReadOnlyList<string>>(Candidates),
                 Drafts, Lane, Uploader, Directory,
                 () => Generation, Open,
-                Close, Reopen, Notifier, AppServerUrl, onUnauthorized: Park, time: Time, localMachineId: () => MachineId,
+                Close, Reopen, Notifier, AppServerUrl, onUnauthorized: Park, time: Time, localMachineId: () => MachineId, daemons: Daemons,
                 accounts: OffersAccounts ? new AccountReadings(Accounts, Observable.Return<IReadOnlyList<DaemonAccountsDto>>([]), Observable.Return(DateTimeOffset.UnixEpoch)) : null,
                 accountMemory: Memory);
             _built.Add(vm);
@@ -1714,6 +1715,56 @@ public class HandoffComposerViewModelTests {
         await Assert.That(vm.Error).IsEqualTo(
             "Couldn't resume this session here (it's active again). Hand off starts a new session with its context.");
         await Assert.That(rig.Drafts.ResumeFailed(SessionId)).IsTrue();
+    });
+
+    const string Owner = "github:1";
+    const string OtherMachine = "machine-2";
+
+    /// A session of the viewer's recorded on another machine, under a daemon the listing then names.
+    static void RecordElsewhere(Rig rig, DaemonInfo? listed) {
+        OfferResume(rig);
+        rig.Session = rig.Session with {
+            Owner = new() { UserId = Owner },
+            Recording = rig.Session.Recording! with { MachineId = OtherMachine, DaemonName = "desk" },
+        };
+        rig.Daemons.OnNext(listed is null ? [] : [listed]);
+    }
+
+    static DaemonInfo Desk => new() { Name = "desk", MachineId = OtherMachine, OwnerUserId = Owner, Connected = true };
+
+    /// <summary>A session recorded on another machine resumes on the owner's daemon there, which the server and that
+    /// daemon judge: nothing is probed here.</summary>
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Resume_of_a_session_recorded_elsewhere_runs_on_its_daemon() => Run(async rig => {
+        RecordElsewhere(rig, Desk);
+        var vm = await rig.ReadyAsync();
+        await Assert.That(vm.ResumeVisible).IsTrue();
+        vm.Text = "carry on";
+
+        await vm.ResumeCommand.Execute().ToTask();
+
+        await Assert.That(rig.Ops.ResumeProbes).IsEmpty();
+        var request = rig.Launch.Requests.Single();
+        await Assert.That((request.DaemonName, request.Resume)).IsEqualTo(("desk", new ResumeLaunchPayload(SessionId, Checkout)));
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments("unlisted")]
+    [Arguments("offline")]
+    [Arguments("someone-elses")]
+    [Arguments("other-machine")]
+    public Task Resume_of_a_session_recorded_elsewhere_needs_its_daemon_connected(string gap) => Run(async rig => {
+        RecordElsewhere(rig, gap switch {
+            "unlisted"      => null,
+            "offline"       => Desk with { Connected = false },
+            "someone-elses" => Desk with { OwnerUserId = "github:2" },
+            _               => Desk with { MachineId = "machine-3" },
+        });
+        var vm = await rig.ReadyAsync();
+
+        await Assert.That((vm.ResumeOffered, vm.IsStripOpen)).IsEqualTo((false, true));
     });
 
     /// <summary>An earlier launch's failure that lands while a resume is being sent is taken back once it returns.</summary>
