@@ -17,7 +17,7 @@ TEXT = ["KcapTextBrush", "KcapMutedBrush", "KcapFaintBrush", "KcapPlaceholderBru
 STATUS_ROLES = ["Success", "Warning", "Danger", "Info", "Purple", "Activity"]
 STATUS_INKS = [f"Kcap{role}Brush" for role in STATUS_ROLES]
 STATUS_FILLS = [f"Kcap{role}DimBrush" for role in STATUS_ROLES]
-PR_INKS = ["KcapPrOpenBrush", "KcapPrMergedBrush", "KcapPrClosedBrush"]
+PR_INKS = ["KcapPrOpenBrush", "KcapPrMergedBrush", "KcapPrClosedBrush", "KcapPrMergedTipBrush"]
 STATUS_TEXT = ["KcapMutedBrush", "KcapFaintBrush", "KcapDangerBrush", "KcapSuccessBrush", "KcapWarningBrush"]
 EDGES = ["KcapFieldBorderBrush"]
 

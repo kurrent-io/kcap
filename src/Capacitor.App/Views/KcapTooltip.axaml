@@ -6,6 +6,10 @@
         <Style Selector="TextBlock.tipState"><Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" /></Style>
         <Style Selector="TextBlock.tipState.danger"><Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" /></Style>
         <Style Selector="TextBlock.tipState.active"><Setter Property="Foreground" Value="{StaticResource KcapActivityBrush}" /></Style>
+        <Style Selector="TextBlock.tipState.prOpen"><Setter Property="Foreground" Value="{StaticResource KcapPrOpenBrush}" /></Style>
+        <!-- Merged stays muted outside the preview, where the label alone shows it green. -->
+        <Style Selector="TextBlock.tipState.prMerged"><Setter Property="Foreground" Value="{StaticResource KcapPrMergedTipBrush}" /></Style>
+        <Style Selector="TextBlock.tipState.prClosed"><Setter Property="Foreground" Value="{StaticResource KcapPrClosedBrush}" /></Style>
     </UserControl.Styles>
     <StackPanel Spacing="5">
         <StackPanel Spacing="1">
@@ -13,6 +17,7 @@
                        FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapTextBrush}" />
             <TextBlock Text="{Binding State}" TextWrapping="Wrap" Classes="tipState" FontWeight="SemiBold"
                        Classes.danger="{Binding IsDanger}" Classes.active="{Binding IsActive}"
+                       Classes.prOpen="{Binding IsPrOpen}" Classes.prMerged="{Binding IsPrMerged}" Classes.prClosed="{Binding IsPrClosed}"
                        IsVisible="{Binding State, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             <TextBlock Text="{Binding StateDetail}" TextWrapping="Wrap"
                        IsVisible="{Binding StateDetail, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"

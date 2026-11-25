@@ -259,7 +259,7 @@
                 </StackPanel>
             </Grid>
         </DataTemplate>
-        <!-- Settled is green (outcome). This session is purple — location, not done.
+        <!-- Settled is green (outcome). This session's part takes the in-progress ring, not done.
              One template for the rows and the folded counts alike. -->
         <DataTemplate x:Key="PartMark" x:DataType="vm:WorkContextPartMark">
             <Panel Width="12" Height="12">
@@ -267,8 +267,8 @@
                                IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:WorkContextPartMark.Unknown}}"
                                Foreground="{StaticResource KcapBorderBrush}" />
                 <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:WorkContextPartMark.ThisSession}}">
-                    <views:AppIcon Kind="Circle" Size="12" Foreground="{StaticResource KcapPurpleBrush}" />
-                    <Ellipse Width="5" Height="5" Fill="{StaticResource KcapPurpleBrush}"
+                    <views:AppIcon Kind="Circle" Size="12" Foreground="{StaticResource KcapActivityBrush}" />
+                    <Ellipse Width="5" Height="5" Fill="{StaticResource KcapActivityBrush}"
                              HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False" />
                 </Panel>
                 <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static vm:WorkContextPartMark.Settled}}">

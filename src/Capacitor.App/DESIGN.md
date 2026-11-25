@@ -41,7 +41,7 @@ With the preview enabled, the work-context pane drops its own left border, so th
 
 In Dark, use emerald `#64D998` for success, amber `#EBB64F` for attention, coral `#FF9087` for failure and violet `#C6A0F6` for the purple status role. Each of the five semantic inks, including blue, has at least 5.80:1 contrast across the base surfaces and its own tinted fill. On a selected row, the minimum is 4.79:1 for the danger label. The audit checks every status ink on the selection fill. Bookmarks keep their user-selected colors.
 
-The preview recolors status by role. Work in progress (`KcapActivity*`) uses neutral ink instead of purple, so purple means a merged PR. PR lifecycle follows GitHub: open green, merged violet, closed red, draft muted. The stock palette keeps open muted, merged green and in-progress work purple.
+The preview recolors status by role. Work in progress (`KcapActivity*`) uses neutral ink instead of purple, so it no longer reads as a merged PR. PR lifecycle follows GitHub: open green, merged violet, closed red, draft muted. The stock palette keeps open muted, merged green and in-progress work purple.
 
 On the graphite canvas, primary text measures 12.42:1 and secondary text 8.64:1. The keyboard focus outline uses the primary text token around the entire tile. Selection uses the blue outline around the miniature and a semibold caption. At 150% zoom on macOS each tile occupies 171 × 150 device-independent pixels, including its caption.
 
