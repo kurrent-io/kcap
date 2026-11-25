@@ -1,7 +1,6 @@
 using System.Collections.Frozen;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Daemon.Harness.Codex;
-using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Codex;
 
@@ -87,27 +86,13 @@ public class CodexTransportResolutionTests {
     }
 
     [Test]
-    [RunOn(OS.Windows)]
-    public async Task On_windows_an_unset_switch_takes_app_server() {
+    public async Task An_unset_switch_takes_app_server() {
         var resolution = CodexTransportResolution.Read(
             1, () => ExperimentalSettingsRead.Empty, () => "0.154.0", _ => throw new InvalidOperationException("unreachable"),
             CodexTransportDecision.AppServerByDefault);
 
         await Assert.That(resolution.InteractiveTransport).IsEqualTo(CodexTransportDecision.AppServer);
         await Assert.That(resolution.ByDefault).IsTrue();
-    }
-
-    [Test]
-    [ExcludeOn(OS.Windows)]
-    public async Task Elsewhere_an_unset_switch_stays_on_pty() {
-        var probes = 0;
-
-        var resolution = CodexTransportResolution.Read(
-            1, () => ExperimentalSettingsRead.Empty, () => { probes++; return "0.154.0"; },
-            _ => throw new InvalidOperationException("unreachable"), CodexTransportDecision.AppServerByDefault);
-
-        await Assert.That(resolution.InteractiveTransport).IsEqualTo(CodexTransportDecision.Pty);
-        await Assert.That(probes).IsEqualTo(0);
     }
 
     static readonly ExperimentalSettingsRead On =
