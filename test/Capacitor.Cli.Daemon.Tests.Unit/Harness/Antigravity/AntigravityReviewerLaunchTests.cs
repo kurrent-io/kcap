@@ -124,9 +124,8 @@ public class AntigravityReviewerLaunchTests {
     public async Task The_reviewer_never_gets_skip_permissions_or_sandbox() {
         var psi = BuildPsi(EnabledConfig());
 
-        // The reviewer reads an OWNED worktree; agy's headless soft-deny of shell and out-of-workspace
-        // operations IS the desired unattended posture. Widening it would grant shell access a
-        // reviewer never needs.
+        // The reviewer reads an OWNED worktree in Default mode, pinned by its home's settings; the
+        // flag would lift every refusal that mode gives it.
         await Assert.That(psi.ArgumentList).DoesNotContain("--dangerously-skip-permissions");
         await Assert.That(psi.ArgumentList).DoesNotContain("--sandbox");
     }
@@ -136,12 +135,9 @@ public class AntigravityReviewerLaunchTests {
     /// and as WHOLE vectors, because the interesting regression is a flag appearing on the arm that
     /// must not have it, which every substring check would pass.
     ///
-    /// <para><b>What the flag actually buys, measured on agy 1.1.10:</b> with it, an absolute
-    /// out-of-workspace <c>view_file</c> succeeds; without it the same read is refused with a typed
-    /// <c>tool_info.error</c>. So the flag IS the read boundary — the daemon-owned worktree is not one
-    /// — and a hosted agent launched without it soft-denies shell and out-of-workspace work and merely
-    /// looks broken. A reviewer only reads its own worktree, so the soft-deny is the posture it
-    /// wants.</para>
+    /// <para>The flag approves every confirmation a headless hosted run would otherwise have refused.
+    /// The reviewer's containment is its home's Default-mode setting, which the flag would
+    /// override.</para>
     ///
     /// <para>Pure builder, so both arms run on every host — no process, no filesystem.</para>
     /// </summary>

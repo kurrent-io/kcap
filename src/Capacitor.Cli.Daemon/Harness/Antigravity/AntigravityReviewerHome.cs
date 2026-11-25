@@ -17,15 +17,20 @@ namespace Capacitor.Cli.Daemon.Harness.Antigravity;
 /// verifies the plugin directory is absent.</para>
 /// <para>Its written <c>mcp_config.json</c> holds only the injected servers and replaces the operator's
 /// global file, so <c>kcap-flows</c> is absent and a reviewer cannot start nested flows. Its
-/// <c>.gemini/antigravity-cli/settings.json</c> grants those tools, because <c>agy -p</c> auto-denies
-/// every confirmation and a reviewer granted nothing can never report
-/// (<see cref="AntigravityReviewerPermissions"/>).</para>
+/// <c>.gemini/antigravity-cli/settings.json</c> pins Default mode, which auto-denies every
+/// confirmation, and grants those tools so the reviewer can still report (see
+/// <see cref="WriteSettings"/>).</para>
 /// <para>Disposal is a security requirement: the reviewer's transcript under <c>brain/</c> carries the
 /// caller's diff and findings. The root is per daemon, because a shared root's "delete every home not of
 /// my epoch" rule would delete a peer daemon's live home.</para>
 /// </summary>
 internal static class AntigravityReviewerHome {
     const string Prefix = "kcap-antigravity-reviewer-";
+
+    internal const string AgentModeKey = "agentMode";
+
+    /// <summary>agy's spelling of Default mode; see <see cref="WriteSettings"/>.</summary>
+    internal const string DefaultAgentMode = "";
 
     /// <summary>This daemon's own reviewer-home root. Never shared with a peer daemon.</summary>
     internal static string RootFor(string stateDir) => Path.Combine(stateDir, "antigravity-reviewers");
@@ -38,7 +43,7 @@ internal static class AntigravityReviewerHome {
     /// <summary>
     /// Creates an owner-only home carrying a fresh <c>mcp_config.json</c> for
     /// <paramref name="injected"/>, and — for an unattended review — the <c>settings.json</c> that
-    /// grants those servers' tools. Never seeds the kcap plugin directory — that absence is what job
+    /// pins Default mode and grants those servers' tools. Never seeds the kcap plugin directory — that absence is what job
     /// 1 above depends on, so it is verified after writing rather than assumed.
     /// </summary>
     /// <param name="grantInjectedMcpTools">Whether this launch's injected MCP tools need
@@ -156,16 +161,19 @@ internal static class AntigravityReviewerHome {
 
     /// <summary>
     /// Writes <c>{home}/.gemini/antigravity-cli/settings.json</c> — the <c>agy</c> CLI's OWN settings
-    /// file, a different file from the <c>mcp_config.json</c> above — carrying nothing but the
-    /// <c>permissions.allow</c> rules for <paramref name="injected"/>.
+    /// file, a different file from the <c>mcp_config.json</c> above — carrying the reviewer's agent
+    /// mode and the <c>permissions.allow</c> rules for <paramref name="injected"/>.
     ///
-    /// <para><b>Injecting a server is only half of a usable reviewer.</b> <c>agy -p</c> has no human to
-    /// answer a tool confirmation, so it auto-denies every one it raises — and the reviewer's result
-    /// channel IS an MCP tool, which made the one call each round depends on the one call print mode
-    /// refused. Measured: the conversation stopped at <c>PLANNER_RESPONSE</c> with no <c>TOOL_CALL</c>,
-    /// agy logged <c>user denied permission for mcp</c>, and every round hung to the flow's timeout. See
-    /// <see cref="AntigravityReviewerPermissions"/> for the rule form and why not
-    /// <c>--dangerously-skip-permissions</c>.</para>
+    /// <para><b><c>"agentMode": ""</c> is the reviewer's containment.</b> With no saved mode agy starts
+    /// headless runs in Auto, which edits files, runs shell commands, and reads and creates files
+    /// outside the workspace without asking. The empty string selects Default, where every confirmation
+    /// is auto-denied: in-workspace reads and the allow-listed tools below still go through, an
+    /// out-of-workspace read is refused. <c>--mode</c> offers no Default value, so it is set here.</para>
+    ///
+    /// <para><b>Injecting a server is only half of a usable reviewer.</b> Default mode auto-denies the
+    /// reviewer's result channel too, since it IS an MCP tool, so a round would hang to the flow
+    /// timeout without the allow-rules. See <see cref="AntigravityReviewerPermissions"/> for the rule
+    /// form.</para>
     ///
     /// <para>Same fresh-write-into-a-fresh-directory shape as <see cref="WriteMcpConfig"/>: the whole
     /// file is this launch's content, so there is no operator config to merge with — which is also what
@@ -182,7 +190,10 @@ internal static class AntigravityReviewerHome {
         // half-written grant would be worse than one carrying none.
         foreach (var rule in AntigravityReviewerPermissions.AllowRulesFor(injected)) allow.Add((JsonNode?)rule);
 
-        var root = new JsonObject { ["permissions"] = new JsonObject { ["allow"] = allow } };
+        var root = new JsonObject {
+            [AgentModeKey] = (JsonNode?)DefaultAgentMode,
+            ["permissions"] = new JsonObject { ["allow"] = allow },
+        };
         File.WriteAllText(pathFull, root.ToJsonString());
     }
 

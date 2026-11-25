@@ -1796,12 +1796,14 @@ refuses the launch rather than running with review context other users could rea
 `agy` run under that home wrote nothing into your own `.gemini` or app-data folders and left no process
 behind.
 
-That home also carries a small `settings.json` holding `permissions.allow` rules for exactly the MCP tools
-the launch injected — the `kcap-flow-result` submit channel, plus any read-only servers the flow definition
-allowlisted — named one `server/tool` pair at a time, never a wildcard. `agy -p` has no human to approve a
-tool confirmation and auto-denies every one it raises, so without those rules a reviewer reads its context,
-reasons, and can never deliver its result. The grant admits those named tools and nothing else;
-`--dangerously-skip-permissions`, which *is* the read boundary, stays off this arm.
+That home also carries a small `settings.json` that pins the reviewer to `agy`'s Default agent mode
+(`"agentMode": ""`). Left unset, `agy` starts headless runs in Auto mode, which edits files, runs shell
+commands, and reads and creates files outside the worktree without asking. In Default mode a headless run
+auto-denies every tool confirmation, so the reviewer reads its worktree and nothing else. The same file
+holds `permissions.allow` rules for exactly the MCP tools the launch injected — the `kcap-flow-result`
+submit channel, plus any read-only servers the flow definition allowlisted — named one `server/tool` pair
+at a time, never a wildcard; without them a reviewer could never deliver its result. The grant admits
+those named tools and nothing else, and `--dangerously-skip-permissions` stays off this arm.
 
 **Give the daemon durable credentials.** A daemon-hosted `agy` reads only its prompt from stdin, which is
 then closed, so it cannot complete an interactive login — an unauthenticated `agy` fails the launch with a coded
@@ -1950,17 +1952,18 @@ Same command and model as Pi and Grok: it moves the recorded minimum to whatever
 
 The same `agy` binary also backs **hosted** Antigravity agents launched from the dashboard, and there the
 posture is the opposite of the reviewer's: the daemon passes `--dangerously-skip-permissions` on every
-hosted launch, unconditionally. `agy` soft-denies shell and out-of-workspace operations in headless mode
-while still exiting 0, so without it a hosted agent quietly fails to do the work you asked for. This is the
-same posture hosted Claude agents already carry (`--permission-mode bypassPermissions`).
+hosted launch, unconditionally, so the dashboard offers no permission-mode choice for Antigravity. A
+headless `agy` run has no one to answer a confirmation: in Auto mode a separate model reviews any command
+that would leave `agy`'s terminal sandbox and a refusal ends the turn, and where Auto is unavailable every
+edit and command is refused. The flag approves everything except `agy`'s system command denylist. This is
+the same posture hosted Claude agents can carry (`--permission-mode bypassPermissions`).
 
-**Measured on `agy` 1.1.10, that flag is the read boundary — the worktree is not.** With it, the agent can
-read absolute paths outside its worktree, so a daemon-owned worktree does not confine what a hosted agent
-sees. A hosted agent runs on your own machine, under your own daemon, at your own request; if you would
-rather it asked first, restrict the vendor with [`kcap daemon consent`](#launch-consent-kcap-daemon-consent).
-**Review-flow reviewers never get the flag** — they read an owned worktree and nothing else, so the
-soft-deny is the posture they want; the one thing they must still be able to call, their own result
-channel, is admitted by name instead (above).
+**The worktree does not confine what a hosted agent sees.** Under either mode `agy` reads absolute paths
+outside its worktree and can create files there. A hosted agent runs on your own machine, under your own
+daemon, at your own request; if you would rather it asked first, restrict the vendor with
+[`kcap daemon consent`](#launch-consent-kcap-daemon-consent). **Review-flow reviewers never get the flag** —
+they run in Default mode and read an owned worktree and nothing else; the one thing they must still be able
+to call, their own result channel, is admitted by name instead (above).
 
 Hosted launches otherwise take the same route as the reviewer above — the per-launch isolated `HOME`
 included, so your own `~/.gemini` config and the kcap capture plugin inside it never reach a hosted agent,
