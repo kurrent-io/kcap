@@ -376,12 +376,13 @@ public class MachineAuthTests : IDisposable {
         await Assert.That(named).IsEqualTo(believed ? "https://idp.example/oauth2/token" : null);
     }
 
-    /// <summary>Discovery follows redirects, so a loopback server whose <c>/auth/config</c> answer came
-    /// from a remote plaintext host does not get to name the token URL either.</summary>
+    /// <summary>Discovery follows redirects, and a plaintext hop anywhere in the chain could have rewritten
+    /// the answer, so only an answer from the URL asked names the token URL.</summary>
     [Test]
+    [Arguments("http://localhost:9473/auth/config", "https://idp.example/oauth2/token")]
     [Arguments("http://discovery.example/auth/config", null)]
-    [Arguments("https://discovery.example/auth/config", "https://idp.example/oauth2/token")]
-    public async Task The_host_that_answered_discovery_must_be_reached_safely_too(string answeredBy, string? expected) {
+    [Arguments("https://discovery.example/auth/config", null)]
+    public async Task Only_an_unredirected_discovery_answer_names_the_token_url(string answeredBy, string? expected) {
         using var handler = new AnsweredBy(answeredBy);
 
         var named = await new AuthProviderDiscovery(new PlainHttpClientFactory(handler), TimeProvider.System)
