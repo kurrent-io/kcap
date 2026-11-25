@@ -91,4 +91,16 @@ public class AntigravityAdcTrioTests {
             ["GOOGLE_APPLICATION_CREDENTIALS"] = file,
         })).IsNull();
     }
+
+    /// <summary>gcloud's <c>set-quota-project</c> rewrites only its own ADC file, so it is offered only
+    /// when the unit carries that file.</summary>
+    [Test]
+    public async Task The_quota_remedy_names_gcloud_only_for_gcloud_own_adc_file() {
+        await Assert.That(AntigravityAdcTrio.QuotaProjectRemedy("/g/adc.json", "/g/adc.json", "p"))
+            .IsEqualTo("run `gcloud auth application-default set-quota-project p`");
+        await Assert.That(AntigravityAdcTrio.QuotaProjectRemedy("/custom/sa.json", "/g/adc.json", "p"))
+            .IsEqualTo("set \"quota_project_id\" to \"p\" in /custom/sa.json");
+        await Assert.That(AntigravityAdcTrio.QuotaProjectRemedy("/custom/sa.json", null, "p"))
+            .IsEqualTo("set \"quota_project_id\" to \"p\" in /custom/sa.json");
+    }
 }

@@ -755,10 +755,14 @@ sealed class DaemonServiceCommands(
             if (agyPresent && agyMissing.Count == 0
                 && Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.MismatchedQuotaProject(env) is { } quotaProject) {
                 var project = env[Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.ProjectKey];
+                var remedy = Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.QuotaProjectRemedy(
+                    env[Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.CredentialsKey],
+                    Capacitor.Cli.Harness.Antigravity.AntigravityAdcTrio.ExistingCredentialsPath(GcloudConfig.ConfigDir(home)),
+                    project);
                 await Console.Out.WriteLineAsync(
                     $"  Antigravity: ADC trio captured, but its credentials bill quota project '{quotaProject}', not '{project}'. "
-                  + "Hosted agy fails every prompt if that project has no billing; to bill the unit's project, run "
-                  + $"`gcloud auth application-default set-quota-project {project}` (no reinstall needed).");
+                  + $"Hosted agy fails every prompt if that project has no billing; to bill the unit's project, {remedy} "
+                  + "(no reinstall needed).");
             } else if (agyPresent && agyMissing.Count == 0) {
                 await Console.Out.WriteLineAsync(
                     "  Antigravity: ADC trio captured into the unit — hosted agy can authenticate.");

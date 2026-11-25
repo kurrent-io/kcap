@@ -84,6 +84,14 @@ static class AntigravityAdcTrio {
         }
     }
 
+    /// <summary>How to point the unit's credentials at <paramref name="project"/>. gcloud's
+    /// <c>set-quota-project</c> rewrites only gcloud's own ADC file, so a credentials file the operator
+    /// exported elsewhere has to be edited instead.</summary>
+    public static string QuotaProjectRemedy(string credentialsPath, string? gcloudAdcPath, string project) =>
+        gcloudAdcPath is not null && Path.GetFullPath(credentialsPath) == Path.GetFullPath(gcloudAdcPath)
+            ? $"run `gcloud auth application-default set-quota-project {project}`"
+            : $"set \"quota_project_id\" to \"{project}\" in {credentialsPath}";
+
     /// <summary>The trio's state in a built environment, for the install path to report:
     /// <c>AnyPresent</c> false means agy is simply not configured (nothing to say); <c>Missing</c>
     /// non-empty with <c>AnyPresent</c> true is a partial trio — never a working agy configuration,
