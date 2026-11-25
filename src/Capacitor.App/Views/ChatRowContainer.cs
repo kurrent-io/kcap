@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Layout;
@@ -18,6 +19,8 @@ public sealed class ChatRowContainer : Panel {
     readonly KeyboardReveal _keyboard;
     ChatItemViewModel? _item;
     AssistantReply? _active;
+    // Focus spends a menu's lifetime inside it; on closing it returns here or goes on elsewhere.
+    FlyoutBase? _footerMenu;
     bool _pointerInside;
 
     public ChatRowContainer() {
@@ -90,8 +93,16 @@ public sealed class ChatRowContainer : Panel {
         if (e.Handled || e.Key != Key.F10 || e.KeyModifiers != KeyModifiers.Shift
             || e.Source is not Visual source || !Footer.IsVisualAncestorOf(source)
             || ReplyMessageRow() is not { ContextFlyout: { } menu } row) return;
+        _footerMenu = menu;
+        menu.Closed += OnFooterMenuClosed;
         menu.ShowAt(row);
         e.Handled = true;
+    }
+
+    void OnFooterMenuClosed(object? sender, EventArgs e) {
+        if (sender is FlyoutBase menu) menu.Closed -= OnFooterMenuClosed;
+        _footerMenu = null;
+        if (!IsKeyboardFocusWithin) _keyboard.FocusLeft();
     }
 
     ChatMessageRow? ReplyMessageRow() {
@@ -107,7 +118,7 @@ public sealed class ChatRowContainer : Panel {
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change) {
         base.OnPropertyChanged(change);
-        if (change.Property == IsKeyboardFocusWithinProperty && !IsKeyboardFocusWithin) _keyboard.FocusLeft();
+        if (change.Property == IsKeyboardFocusWithinProperty && !IsKeyboardFocusWithin && _footerMenu is null) _keyboard.FocusLeft();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {

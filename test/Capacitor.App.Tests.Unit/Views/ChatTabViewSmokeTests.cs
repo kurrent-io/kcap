@@ -3000,6 +3000,9 @@ public class ChatTabViewSmokeTests {
                 host.Press(PhysicalKey.Escape);
                 host.Settle();
                 await Assert.That(messageMenu.IsOpen).IsFalse();
+                // Focus comes back to the reply's Copy, and it is still shown.
+                await Assert.That(replyCopy.IsFocused).IsTrue();
+                await Assert.That(Copy(assistant)!.Opacity).IsEqualTo(1);
 
                 host.Composer.Focus();
                 copyButton.Focus(NavigationMethod.Tab);
