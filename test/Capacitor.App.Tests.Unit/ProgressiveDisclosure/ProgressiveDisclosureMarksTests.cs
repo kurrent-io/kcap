@@ -89,6 +89,37 @@ public class ProgressiveDisclosureMarksTests {
         await Assert.That(Render("A. ⌞B.\n\nC.", AllFaded)).IsEqualTo("A. {w:B.}\nC.");
 
     [Test]
+    public async Task A_span_closed_in_a_later_block_grades_every_block_up_to_its_close() =>
+        await Assert.That(Render("Lead. ⌞The steps:\n\n- A.\n- B.⌟ Not graded.\n\nAfter.", AllFaded))
+            .IsEqualTo("Lead. {w:The steps:}\n{w:A.}\n{w:B.} Not graded.\nAfter.");
+
+    [Test]
+    public async Task A_footnote_span_carries_across_blocks_inside_a_detail_span() =>
+        await Assert.That(Render("⌞A ⌞⌞B\n\nC⌟⌟ D⌟ E.", AllFaded)).IsEqualTo("{w:A }{c:B}\n{c:C}{w: D} E.");
+
+    [Test]
+    public async Task An_unclosed_span_does_not_take_a_later_close() =>
+        await Assert.That(Render("A. ⌞B.\n\n⌞C.⌟ D.", AllFaded)).IsEqualTo("A. {w:B.}\n{w:C.} D.");
+
+    [Test]
+    public async Task The_pieces_of_a_span_across_blocks_share_one_group() {
+        var document = Markdown.Parse("⌞Lead:\n\n- A.\n- B.⌟\n\n⌞Other.⌟", WithoutPass);
+        ProgressiveDisclosureMarks.Apply(document, AllFaded);
+        var groups = document.Descendants<GradedInline>().Select(graded => graded.Group).ToList();
+        await Assert.That(groups.Count).IsEqualTo(4);
+        await Assert.That(groups.Take(3).Distinct().Count()).IsEqualTo(1);
+        await Assert.That(groups[3]).IsNotSameReferenceAs(groups[0]);
+    }
+
+    [Test]
+    public async Task A_hidden_span_across_blocks_removes_them_with_the_code_between() =>
+        await Assert.That(Render("Keep.\n\n⌞Run:\n\n```\nx\n```\n\n- A.\n- B.⌟\n\nAfter.", AllHidden)).IsEqualTo("Keep.\nAfter.");
+
+    [Test]
+    public async Task A_faded_span_across_blocks_leaves_code_blocks_as_they_are() =>
+        await Assert.That(Render("⌞Run:\n\n```\nx\n```\n\nDone.⌟ Next.", AllFaded)).IsEqualTo("{w:Run:}\n<FencedCodeBlock>\n{w:Done.} Next.");
+
+    [Test]
     public async Task A_stray_close_is_ignored() =>
         await Assert.That(Render("A.⌟ B.", AllFaded)).IsEqualTo("A. B.");
 
