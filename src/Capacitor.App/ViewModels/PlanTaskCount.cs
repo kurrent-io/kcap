@@ -6,9 +6,10 @@ public sealed record PlanTaskCount(PlanTaskState State, int Count, bool IsActive
     /// In progress in a session that has ended.
     public bool IsStarted => State == PlanTaskState.InProgress && !IsActive;
 
-    /// The count in words, for the tooltip: the mark beside the number carries no text.
+    /// The count in words, for the tooltip and screen readers: the mark beside the number carries
+    /// no text. Worded as the task rows' state labels.
     public string Label => State switch {
-        PlanTaskState.InProgress => $"{Count} in progress",
+        PlanTaskState.InProgress => IsActive ? $"{Count} in progress" : $"{Count} started",
         PlanTaskState.Completed  => $"{Count} done",
         _                        => $"{Count} pending",
     };

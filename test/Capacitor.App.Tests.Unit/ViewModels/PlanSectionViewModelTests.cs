@@ -438,6 +438,7 @@ public class PlanSectionViewModelTests {
                 .Because("a started task must not read as pending once its pulse stops");
             await Assert.That(h.Vm.Counts.Single().IsActive).IsFalse();
             await Assert.That(h.Vm.Counts.Single().IsStarted).IsTrue();
+            await Assert.That(h.Vm.Counts.Single().Label).IsEqualTo("1 started");
             await h.Vm.TeardownAsync();
         });
     }
