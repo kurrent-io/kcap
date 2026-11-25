@@ -64,7 +64,7 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
             var step = new Step(TranscriptIds.AntigravityStep(line), lineNumber, root.Num("step_index") ?? long.MaxValue, Instant(recordTs), recordTs);
 
             return type switch {
-                "USER_INPUT"       => User(root, step),
+                "USER_INPUT"       => User(root, step, ctx),
                 "PLANNER_RESPONSE" => Planner(root, step, receivedAt, ctx),
                 "USAGE"            => Usage(root, step, ctx),
                 _ when NoiseSteps.Contains(type) => ProjectionResult.Empty,
@@ -82,7 +82,8 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
 
     readonly record struct Step(Guid Id, int LineNumber, long Order, DateTimeOffset At, string? RecordTimestamp);
 
-    static ProjectionResult User(JsonElement root, Step step) {
+    static ProjectionResult User(JsonElement root, Step step, AntigravityContext ctx) {
+        RecordBoundary(step.Order, ctx);
         if (RequestText(root.Str("content")) is not { Length: > 0 } text) return ProjectionResult.Empty;
 
         var message = new UserMessageReceived { Content = text, Timestamp = Timestamp.FromDateTimeOffset(step.At) };
@@ -116,7 +117,10 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
         }
 
         // A result answers only the latest planner's calls: one whose result never came must not take a later one.
-        ctx.PendingCallIds.RemoveAll(id => ctx.CallSteps[id] < step.Order);
+        // A planner with no step_index cannot be ordered, so it drops every waiting call but its own.
+        RecordBoundary(step.Order, ctx);
+        ctx.PendingCallIds.RemoveAll(id => ctx.CallSteps[id] < step.Order
+                                        || (step.Order == long.MaxValue && ctx.CallPlanners[id] != step.Id));
 
         if (root.Arr("tool_calls") is { } toolCalls) {
             var index = -1;
@@ -151,7 +155,8 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
 
                 if (ctx.QueuedCallIds.Add(callId)) {
                     ctx.PendingCallIds.Add(callId);
-                    ctx.CallSteps[callId] = step.Order;
+                    ctx.CallSteps[callId]    = step.Order;
+                    ctx.CallPlanners[callId] = step.Id;
                 }
             }
         }
@@ -184,14 +189,17 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
         ctx.Held = remaining;
     }
 
-    /// The oldest waiting call of the latest planner before <paramref name="resultStep"/>, taken off the queue; a
-    /// result with no step cannot be ordered, so it takes from the latest planner queued.
+    /// The oldest waiting call of the latest planner before <paramref name="resultStep"/> with no planner or prompt
+    /// between them, taken off the queue; a result with no step cannot be ordered, so it takes from the latest planner
+    /// queued.
     static string? TakeCall(long resultStep, AntigravityContext ctx) {
         var taken     = -1;
         var takenStep = long.MinValue;
         for (var i = 0; i < ctx.PendingCallIds.Count; i++) {
             var callStep = ctx.CallSteps[ctx.PendingCallIds[i]];
-            if ((callStep < resultStep || resultStep == long.MaxValue) && (taken < 0 || callStep > takenStep)) {
+            if ((callStep < resultStep || resultStep == long.MaxValue)
+             && !BoundaryBetween(callStep, resultStep, ctx)
+             && (taken < 0 || callStep > takenStep)) {
                 taken     = i;
                 takenStep = callStep;
             }
@@ -202,6 +210,17 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
         var callId = ctx.PendingCallIds[taken];
         ctx.PendingCallIds.RemoveAt(taken);
         return callId;
+    }
+
+    // A step without a step_index cannot be ordered, so it is never a boundary.
+    static void RecordBoundary(long step, AntigravityContext ctx) {
+        if (step != long.MaxValue) ctx.BoundarySteps.Add(step);
+    }
+
+    static bool BoundaryBetween(long callStep, long resultStep, AntigravityContext ctx) {
+        var first = callStep == long.MaxValue ? long.MaxValue : callStep + 1;
+        var last  = resultStep == long.MaxValue ? long.MaxValue : resultStep - 1;
+        return first <= last && ctx.BoundarySteps.GetViewBetween(first, last).Count > 0;
     }
 
     static ProjectionResult Result(JsonElement root, string type, Step step, AntigravityContext ctx) {
