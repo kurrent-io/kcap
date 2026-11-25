@@ -870,7 +870,7 @@ public class MainWindowSmokeTests {
                 var countLeft = count.TranslatePoint(default, header)!.Value.X;
                 await Assert.That(right).IsLessThan(countLeft);
                 await Assert.That(label.TextTrimming).IsEqualTo(TextTrimming.CharacterEllipsis);
-                await Assert.That(count.Text).IsEqualTo("1 session");
+                await Assert.That(count.Text).IsEqualTo("1 live");
                 await Assert.That(header.Focusable).IsTrue();
                 await Assert.That(row.IsEffectivelyVisible).IsTrue();
                 var centre = header.TranslatePoint(new Point(header.Bounds.Width / 2, header.Bounds.Height / 2), window)!.Value;
@@ -918,7 +918,8 @@ public class MainWindowSmokeTests {
             Dispatcher.UIThread.RunJobs();
             window.UpdateLayout();
             await Assert.That(mark.IsEffectivelyVisible).IsTrue();
-            await Assert.That(mark.FindControl<TextBlock>("StatusWord")!.Text).IsEqualTo("Idle");
+            await Assert.That(mark.FindControl<TextBlock>("StatusWord")!.IsEffectivelyVisible).IsFalse();
+            await Assert.That(AutomationProperties.GetName(mark)).IsEqualTo("1 session idle");
             await Assert.That(ToolTip.GetTip(header) as string).Contains("Waiting session — Idle");
             await Assert.That(AutomationProperties.GetName(header)).Contains("1 session idle");
             pending.OnNext(new HashSet<string> { "a1" });
@@ -926,11 +927,11 @@ public class MainWindowSmokeTests {
             window.UpdateLayout();
             await Assert.That(rail.Groups[0].IsExpanded).IsFalse();
             await Assert.That(RailRow(window, "Waiting session").IsEffectivelyVisible).IsFalse();
-            await Assert.That(mark.FindControl<TextBlock>("StatusWord")!.Text).IsEqualTo("Needs you");
-            await Assert.That(ToolTip.GetTip(header) as string).Contains("Pending response");
+            await Assert.That(AutomationProperties.GetName(mark)).IsEqualTo("1 session needs you");
+            await Assert.That(ToolTip.GetTip(header) as string).Contains("Waiting session — Needs you");
             pending.OnNext(new HashSet<string>());
             Dispatcher.UIThread.RunJobs();
-            await Assert.That(mark.FindControl<TextBlock>("StatusWord")!.Text).IsEqualTo("Idle");
+            await Assert.That(AutomationProperties.GetName(mark)).IsEqualTo("1 session idle");
             header.Command.Execute(null);
             Dispatcher.UIThread.RunJobs();
             await Assert.That(mark.IsEffectivelyVisible).IsFalse();

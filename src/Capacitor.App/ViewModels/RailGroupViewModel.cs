@@ -42,14 +42,14 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
     public string Tooltip {
         get {
             var root = IsFolder ? $"{RootDisplay}\nFolder, not a repository with a remote" : RootDisplay;
-            if (_countIsPartial) root += "\nCounts cover the ended sessions loaded so far";
+            if (_countSummary.Length > 0) root += $"\n{_countSummary}";
             return HeaderStatus is { } status ? $"{root}\n\n{status.Tip}" : root;
         }
     }
 
     readonly ObservableAsPropertyHelper<string> _countText;
     public string CountText => _countText.Value;
-    bool _countIsPartial;
+    string _countSummary = "";
 
     readonly ObservableCollectionExtended<RailSessionViewModel> _sessionsSource = new();
     public ReadOnlyObservableCollection<RailSessionViewModel> Sessions { get; }
@@ -113,8 +113,8 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         _countText = counts.Select(count => count.Text)
             .ToProperty(this, x => x.CountText, initialValue: "")
             .DisposeWith(_disposables);
-        counts.Select(count => count.Partial).DistinctUntilChanged().Subscribe(partial => {
-            _countIsPartial = partial;
+        counts.Select(count => count.Summary).DistinctUntilChanged().Subscribe(summary => {
+            _countSummary = summary;
             this.RaisePropertyChanged(nameof(Tooltip));
         }).DisposeWith(_disposables);
 
@@ -157,20 +157,20 @@ public sealed class RailGroupViewModel : ReactiveObject, IDisposable {
         this.RaisePropertyChanged(nameof(ToggleAccessibleName));
     }
 
-    /// Mixed groups count each kind; a group of one kind reads as it always did. A local row whose
-    /// agent completed is ended, as its row and its workspace header already say. The ended list loads
-    /// a page at a time, so while pages remain a count is only a floor and reads "N+" — a group showing
-    /// only live rows may still have ended sessions on a page not yet loaded.
-    static (string Text, bool Partial) CountFor(IEnumerable<AgentRow> rows, bool endedListPartial) {
+    /// The header shows only what is running: an ended count only grows and, while ended pages remain
+    /// unloaded, covers only what is loaded. The tooltip carries both counts. A local row whose agent
+    /// completed is ended, as its row and its workspace header already say.
+    static (string Text, string Summary) CountFor(IEnumerable<AgentRow> rows, bool endedListPartial) {
         int live = 0, ended = 0;
         foreach (var row in rows) {
             if (row.IsEndedSession || row is { Origin: AgentOrigin.Local, Status: "Completed" }) ended++;
             else live++;
         }
-        var more = endedListPartial ? "+" : "";
-        if (ended > 0 && live > 0) return ($"{live} live · {ended}{more} ended", endedListPartial);
-        var count = live + ended;
-        return (count == 1 && !endedListPartial ? "1 session" : $"{count}{more} sessions", endedListPartial);
+        var text = live > 0 ? $"{live} live" : "";
+        var parts = new List<string>(2);
+        if (live > 0) parts.Add($"{live} live");
+        if (ended > 0) parts.Add(endedListPartial ? $"{ended} ended loaded" : $"{ended} ended");
+        return (text, string.Join(" · ", parts));
     }
 
     // Key's own prefixes ("repo:", "path:", "daemon:{owner}/{daemon}:{path}") are a group identity,
