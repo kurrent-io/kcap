@@ -2,7 +2,6 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Auth;
-using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
 
 namespace Capacitor.Cli.Core.Telemetry;
@@ -20,9 +19,6 @@ namespace Capacitor.Cli.Core.Telemetry;
 /// </summary>
 public sealed class CliTelemetry {
     const string Token    = "phc_DeHBgHGersY4LmDlADnPrsCPOAmMO7QFOH8f4DVEVmD";
-
-    /// <summary>The host telemetry posts to by default, for callers that must name every host a run contacts.</summary>
-    public static string EndpointHost => new Uri(HostsSettings.DefaultTelemetry).Host;
 
     static readonly TimeSpan FlushBudget = TimeSpan.FromSeconds(1.5);
 

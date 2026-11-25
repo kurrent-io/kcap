@@ -765,7 +765,7 @@ sealed class SetupCommand(
 
         // Plain Console.Out: an agent reads this from redirected output. Ahead of the funnel event,
         // which flushes to the telemetry host at once, so no card appears before its explanation.
-        var museHosts = museAssistant ? MuseAssistantPosture.ApprovalHosts(serverUrlArg!) : null;
+        var museHosts = museAssistant ? MuseAssistantPosture.ApprovalHosts(serverUrlArg!, HostsSettings.EffectiveTelemetry(profiles.Effective?.Hosts)) : null;
 
         if (museHosts is not null) {
             foreach (var line in MuseAssistantPosture.HostNoticeLines(museHosts)) await Console.Out.WriteLineAsync(line);
