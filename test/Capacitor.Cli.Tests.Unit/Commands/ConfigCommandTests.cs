@@ -435,6 +435,18 @@ public class ConfigCommandTests {
     [Arguments("hosts.telemetry", "phog.example")]
     [Arguments("hosts.npm_registry", "ftp://npm.example/")]
     [Arguments("hosts.docs", "")]
+    [Arguments("hosts.npm_registry", "https://mirror.example/npm#registry")]
+    [Arguments("hosts.docs", "https://docs.example/kcap/?lang=en")]
     public async Task A_host_that_is_not_an_http_url_is_refused(string key, string value) =>
         await Assert.That(() => ConfigCommand.ApplySet(new Profile(), key, value)).Throws<ArgumentException>();
+
+    /// <summary>A hand-edited value the setter would refuse reads as the default: a route appended inside a query or
+    /// fragment would drop the base's own path.</summary>
+    [Test]
+    [Arguments("hosts.npm_registry", "https://mirror.example/npm#registry", HostsSettings.DefaultNpmRegistry)]
+    [Arguments("hosts.docs",         "https://docs.example/kcap/?lang=en",  HostsSettings.DefaultDocs)]
+    public async Task A_stored_host_with_a_query_or_fragment_reads_as_the_default(string key, string value, string expected) {
+        var hosts = key == "hosts.docs" ? new HostsSettings { Docs = value } : new HostsSettings { NpmRegistry = value };
+        await Assert.That(Effective(new Profile { Hosts = hosts }, key)).IsEqualTo(expected);
+    }
 }

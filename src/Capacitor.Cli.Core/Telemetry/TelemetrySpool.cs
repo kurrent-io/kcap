@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using Capacitor.Cli.Core.Config;
+using Capacitor.Cli.Core.Skills;
 using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Core.Telemetry;
@@ -113,7 +114,8 @@ public sealed class TelemetrySpool(string path, int maxEvents = 2000) {
     public void MarkUnreachable(DateTimeOffset at) {
         try {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            File.WriteAllText(UnreachablePath, at.ToString("o", CultureInfo.InvariantCulture));
+            // Replaced whole, so a concurrent UnreachableSince never reads a truncated marker as no marker.
+            AtomicFile.Replace(UnreachablePath, at.ToString("o", CultureInfo.InvariantCulture));
         } catch { /* ignored */ }
     }
 

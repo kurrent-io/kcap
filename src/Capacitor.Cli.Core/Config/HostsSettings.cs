@@ -28,11 +28,16 @@ public record HostsSettings {
     /// <inheritdoc cref="EffectiveNpmRegistry"/>
     public static string EffectiveDocs(HostsSettings? hosts) => Based(hosts?.Docs) ?? DefaultDocs;
 
-    /// <summary>Whether <paramref name="value"/> can be one of these hosts: an absolute http or https URL.</summary>
+    /// <summary>Whether <paramref name="value"/> can be one of these hosts: an absolute http or https URL with no query
+    /// or fragment, since a route appended to a base lands inside them and drops the base's own path.</summary>
     public static bool IsValid(string value) =>
-        Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https";
+        Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri)
+     && uri.Scheme is "http" or "https"
+     && uri.Query.Length == 0
+     && uri.Fragment.Length == 0;
 
-    static string? Named(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    /// <summary>A stored value the setter would refuse, hand-edited into the file, reads as unset.</summary>
+    static string? Named(string? value) => string.IsNullOrWhiteSpace(value) || !IsValid(value) ? null : value.Trim();
 
     static string? Based(string? value) => Named(value) is { } named ? named.TrimEnd('/') + "/" : null;
 }
