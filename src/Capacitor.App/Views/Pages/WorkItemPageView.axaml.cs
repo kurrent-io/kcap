@@ -21,14 +21,11 @@ namespace Capacitor.App.Views.Pages;
 public partial class WorkItemPageView : UserControl, IRowDropSurface {
     WorkItemPageViewModel? _page;
     Control? _outlined;
-    readonly Action? _layOutDetails;
 
     public WorkItemPageView() {
         InitializeComponent();
         // Tunnels, since the field handles Enter itself before a bubbling handler sees it.
         AddHandler(KeyDownEvent, OnComposerKeyDown, RoutingStrategies.Tunnel);
-        _layOutDetails = ContextPaneSizing.Attach(this, SplitGrid.ColumnDefinitions[1], DetailsPane, HideButton, ContextSplitter,
-            ContextShowButton, hidden: () => _page?.IsCompact == true);
         AttachedToVisualTree += (_, _) => LayOut();
         SizeChanged += (_, _) => LayOut();
         StarterSplitter.DragCompleted += (_, _) => {
@@ -61,7 +58,6 @@ public partial class WorkItemPageView : UserControl, IRowDropSurface {
     }
 
     void LayOut() {
-        _layOutDetails?.Invoke();
         var starting = _page?.IsStarting == true;
         StarterPane.IsVisible = starting;
         StarterSplitter.IsVisible = starting;

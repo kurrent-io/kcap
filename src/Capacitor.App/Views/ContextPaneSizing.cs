@@ -7,21 +7,18 @@ namespace Capacitor.App.Views;
 /// <see cref="MainWindow"/> the column keeps its minimum width and neither button shows, since
 /// nothing could bring a hidden pane back.
 public static class ContextPaneSizing {
-    /// <param name="hidden">Keeps the pane closed with neither button showing while true.</param>
-    /// <returns>Lays the pane out again, for when <paramref name="hidden"/> changes.</returns>
-    public static Action Attach(Control view, ColumnDefinition column, Control pane, Button hideButton,
-            GridSplitter splitter, Button showButton, Func<bool>? hidden = null) {
+    public static void Attach(Control view, ColumnDefinition column, Control pane, Button hideButton,
+            GridSplitter splitter, Button showButton) {
         PaneLayout? panes = null;
         var slide = new PaneSlide(column, pane, Dock.Right);
 
         void Apply() {
-            var suppressed = hidden?.Invoke() == true;
-            var collapsed = suppressed || (panes?.ContextCollapsed ?? false);
-            column.MinWidth = panes is null && !suppressed ? PaneLayout.ContextMinWidth : 0;
+            var collapsed = panes?.ContextCollapsed ?? false;
+            column.MinWidth = panes is null ? PaneLayout.ContextMinWidth : 0;
             slide.Apply(collapsed, panes?.ContextWidth ?? PaneLayout.ContextMinWidth);
             splitter.IsVisible = !collapsed;
-            showButton.IsVisible = collapsed && !suppressed;
-            hideButton.IsVisible = panes is not null && !suppressed;
+            showButton.IsVisible = collapsed;
+            hideButton.IsVisible = panes is not null;
         }
 
         void OnChanged(object? sender, EventArgs e) => Apply();
@@ -56,6 +53,5 @@ public static class ContextPaneSizing {
             if (panes is not null) panes.ContextCollapsed = false;
         };
         Apply();
-        return Apply;
     }
 }
