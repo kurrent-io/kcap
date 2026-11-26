@@ -65,6 +65,10 @@ public sealed partial class KcapMarkdownExtension(MarkdownFlavor flavor) : IMark
         protected override void Write(AvaloniaRenderer renderer, LinkInline obj) {
             if (obj.IsImage) { Image(renderer, obj); return; }
             if (scope.Inside || !LinkPolicy.IsOpenable(obj.Url)) { renderer.WriteChildren(obj); return; }
+            if (flavor == MarkdownFlavor.Chat && GitHubLink.ChipFor(obj) is { } github) {
+                renderer.WriteInline(new InlineUIContainer(new GitHubLinkChip(github)));
+                return;
+            }
             var link = Hyperlink(obj.Url!);
             renderer.Push(link.Inlines);
             scope.Enter(obj.Url);

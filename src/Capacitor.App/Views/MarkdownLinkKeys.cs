@@ -101,13 +101,11 @@ sealed class MarkdownLinkKeys {
     static IReadOnlyList<Rect> Rects(Stop stop) =>
         stop is { Span: { } span, Host: TextBlock block } ? LinkRects(block, span) : [new Rect(stop.Host.Bounds.Size)];
 
-    /// In tree order: the hyperlinks of each text block, and each image that links somewhere. A link with
-    /// no text has nowhere to draw its mark, so the keyboard passes over it.
+    /// In tree order: the hyperlinks and link chips of each text block in reading order, and each image
+    /// that links somewhere. A link with no text has nowhere to draw its mark, so the keyboard passes over it.
     List<Stop> Links() =>
         [.. _viewer.GetVisualDescendants().SelectMany(visual => visual switch {
-            TextBlock { Inlines: { } inlines } block => Spans(inlines)
-                .Where(link => link.NavigateUri is not null && HasText(link.Inlines))
-                .Select(link => new Stop(block, link, link.NavigateUri!.ToString())),
+            TextBlock { Inlines: { } inlines } block => Stops(block, inlines),
             MarkdownImage { Target: { } target } image => [new Stop(image, null, target)],
             _ => [],
         })];
@@ -116,10 +114,21 @@ sealed class MarkdownLinkKeys {
     static bool HasText(InlineCollection inlines) =>
         inlines.Any(inline => inline is Span span ? HasText(span.Inlines) : inline is Run { Text.Length: > 0 });
 
-    static IEnumerable<MarkdownHyperlink> Spans(InlineCollection inlines) {
+    static IEnumerable<Stop> Stops(TextBlock block, InlineCollection inlines) {
         foreach (var inline in inlines) {
-            if (inline is MarkdownHyperlink link) yield return link;
-            else if (inline is Span span) foreach (var nested in Spans(span.Inlines)) yield return nested;
+            switch (inline) {
+                case MarkdownHyperlink { NavigateUri: { } target } link when HasText(link.Inlines):
+                    yield return new Stop(block, link, target.ToString());
+                    break;
+                case MarkdownHyperlink:
+                    break;
+                case Span span:
+                    foreach (var nested in Stops(block, span.Inlines)) yield return nested;
+                    break;
+                case InlineUIContainer { Child: GitHubLinkChip chip }:
+                    yield return new Stop(chip, null, chip.Url);
+                    break;
+            }
         }
     }
 

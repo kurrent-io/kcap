@@ -302,6 +302,7 @@ public partial class App : Application {
     AgentDirectory? _directory;
     ServerVendorModelCatalog? _modelCatalog;
     GitHubCliReaderProvider? _gh;
+    GitHubLinkStatuses? _githubLinks;
     TrayViewModel? _trayVm;
     TrayIconManager? _tray;
     DaemonRestartPendingWatcher? _restartPending;
@@ -1374,6 +1375,8 @@ public partial class App : Application {
         var railShown = new ReplaySubject<Func<AgentRow, bool>>(1);
         var pullRequestTones = new PullRequestToneCache(directory, readers, TimeProvider.System, railShown);
         _pullRequestTones = pullRequestTones;
+        var githubLinks = _githubLinks = new GitHubLinkStatuses(new GitHubCliLinkLookup(gh, _gh, _time).LookUpAsync, _time,
+            RxSchedulers.MainThreadScheduler, pullRequestTones.Summaries);
         _permissionFeed = permissionFeed;
         _attention = attention;
 
@@ -1597,7 +1600,7 @@ public partial class App : Application {
                 agentsAwaitingAnswer: permissions.AgentsAwaitingAnswer, agentsRunningWork: commands.Running,
                 requestSignIn: requestSignIn,
                 lifecycleAttention: lifecycleAttention, identityReport: lifecycle.IdentityReport,
-                pullRequestSummaries: pullRequestTones.Summaries, railShown: railShown,
+                pullRequestSummaries: pullRequestTones.Summaries, railShown: railShown, githubLinks: githubLinks,
                 directory: directory, remoteAgents: remoteAgents, lane: serverLane, localAccounts: accounts.Snapshot, readings: readings,
                 viewerId: viewerId, localMachineId: machineId, restartPending: restartPending.Wait,
                 daemonOnOtherInstall: daemonOnOtherInstall,
@@ -2595,7 +2598,7 @@ public partial class App : Application {
             IObservable<string?>? lifecycleAttention = null, IObservable<string?>? identityReport = null,
             IObservable<IReadOnlyDictionary<string, RunningWork>>? agentsRunningWork = null,
             IObservable<IReadOnlyDictionary<string, RailPullRequestSummary>>? pullRequestSummaries = null,
-            IObserver<Func<AgentRow, bool>>? railShown = null,
+            IObserver<Func<AgentRow, bool>>? railShown = null, GitHubLinkStatuses? githubLinks = null,
             IAgentDirectory? directory = null, IRemoteAgentsService? remoteAgents = null,
             IServerLane? lane = null, IObservable<AccountsSnapshotDto?>? localAccounts = null,
             Func<CancellationToken, Task<string?>>? viewerId = null,
@@ -2761,6 +2764,7 @@ public partial class App : Application {
         var agentLinks = new AgentLinkLabels(appServerUrl, resolvedDirectory.Rows, RxSchedulers.MainThreadScheduler);
         MarkdownView.SetAgentLinks(window, agentLinks);
         window.Closed += (_, _) => agentLinks.Dispose();
+        MarkdownView.SetGitHubLinks(window, githubLinks);
         window.Notifier = notifier;
         window.ContentScale = uiScale;
         window.Onboarding = null;
@@ -3650,6 +3654,8 @@ public partial class App : Application {
         _sessions?.Dispose();
         _remoteAgents?.Dispose();
         _modelCatalog?.Dispose();
+        _githubLinks?.Dispose();
+        _githubLinks = null;
         if (_gh is { } gh) { _gh = null; await gh.DisposeAsync().ConfigureAwait(false); }
         if (_serverClients is null) return;
         await _serverClients.DisposeAsync().ConfigureAwait(false);

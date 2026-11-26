@@ -63,6 +63,10 @@ When the viewport moves, a row's container can serve another item with the same 
 
 Inline and fenced code keep their own typography when switching reading faces.
 
+## GitHub links in chat
+
+A github.com pull request or issue address in a prompt or reply shows as a chip: the pull request reader's lifecycle glyph, or the issue circle, then `owner/repo#n`, then Open, Draft, Merged or Closed once the state is known, in the PR lifecycle tones. Until then, and when the state cannot be read, the chip is the neutral glyph and label. The state comes from the PRs linked to listed sessions, else from the signed-in GitHub CLI, one lookup at a time for chips on screen; without a signed-in CLI chips stay neutral. A chip opens in the browser, shows its address on hover, takes a keyboard stop with the other links and copies as its address. A link with a label of its own, another GitHub page, an Enterprise host and `#123` shorthand stay ordinary links or text.
+
 ## Baseline measurements
 
 Pilot questions remain around recognition of lightly filled selections, separation of raised surfaces in Light, and distinguishing a filled destructive action from a primary action. Test those with readers on Windows, macOS and Linux before widening the preview.
