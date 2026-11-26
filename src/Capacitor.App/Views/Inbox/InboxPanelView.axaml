@@ -74,7 +74,7 @@
 
         <Panel>
             <StackPanel IsVisible="{Binding IsLoading}" Margin="0,32" HorizontalAlignment="Center">
-                <ProgressBar IsIndeterminate="True" Width="120" />
+                <ProgressBar views:BusyIndicator.IsBusy="{Binding IsLoading}" Width="120" />
             </StackPanel>
             <StackPanel x:Name="InboxEmptyState" IsVisible="{Binding IsEmpty}" Margin="20,40" Spacing="4" HorizontalAlignment="Center">
                 <views:AppIcon Kind="Bell" Size="28" Foreground="{StaticResource KcapFaintBrush}" HorizontalAlignment="Center" />

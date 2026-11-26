@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:inbox="clr-namespace:Capacitor.App.ViewModels.Inbox"
+        xmlns:views="clr-namespace:Capacitor.App.Views"
         x:Class="Capacitor.App.Views.Inbox.InboxSettingsWindow"
         x:DataType="inbox:InboxSettingsViewModel"
         Title="kcap — Notification settings"
@@ -14,7 +15,7 @@
             <TextBlock Classes="kcapTitle" Text="Notification settings" />
 
             <Panel Grid.Row="1" Margin="0,16,0,0">
-                <ProgressBar IsIndeterminate="True" Width="120" VerticalAlignment="Top" IsVisible="{Binding IsLoading}" />
+                <ProgressBar views:BusyIndicator.IsBusy="{Binding IsLoading}" Width="120" VerticalAlignment="Top" IsVisible="{Binding IsLoading}" />
                 <StackPanel x:Name="InboxSettingsError" Spacing="10" IsVisible="{Binding LoadError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                     <TextBlock Text="{Binding LoadError}" Foreground="{StaticResource KcapDangerBrush}" TextWrapping="Wrap" />
                     <Button Classes="kcapGhost" Content="Retry" Command="{Binding RetryCommand}" HorizontalAlignment="Left" />
