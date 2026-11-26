@@ -557,6 +557,11 @@ public partial class ChatTabViewModelTests {
             await Assert.That(h.Chat.Attachments.CanAttach).IsFalse();
             await Assert.That(h.Chat.Attachments.AttachHint).IsEqualTo(ChatTabViewModel.TerminalMenuAttachHint);
 
+            // A pick that was already reading when the menu appeared lands now, and is not staged.
+            h.Chat.Attachments.Accept(new IntakeResult([new StagedAttachment("a.png", "image/png", new byte[] { 1 })], []));
+            await Assert.That(h.Chat.Tray.Count).IsEqualTo(0);
+            await Assert.That(h.Chat.ComposerHint).IsEqualTo("`a.png` was not attached because a terminal dialog opened. Add it again once it closes");
+
             await h.PushAsync(agent);
             await Assert.That(h.Chat.ShowsComposerInput).IsTrue();
             await Assert.That(h.Chat.Attachments.CanAttach).IsTrue();

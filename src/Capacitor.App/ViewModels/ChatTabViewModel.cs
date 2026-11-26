@@ -1931,11 +1931,26 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
 
     internal const string TerminalMenuAttachHint = "answer the terminal dialog first";
 
+    string NotAttachedNotice(IReadOnlyList<StagedAttachment> files) {
+        var (what, them) = files.Count == 1 ? ($"`{files[0].FileName}` was not attached", "it") : ($"{files.Count} files were not attached", "them");
+        return CanSendAttachments && HasTerminalMenu
+            ? $"{what} because a terminal dialog opened. Add {them} again once it closes"
+            : $"{what}: {SendAttachmentsHint ?? LocalFrameChatInput.AttachmentsRefused}";
+    }
+
     bool CanSendAttachments => _input.CanAttach && !IsReadOnlyParticipant && TakesAttachments;
     string? SendAttachmentsHint => TakesAttachments ? _input.AttachHint : IsAttached ? AttachedAgentCopy.NoFiles : NoAttachmentsHint;
     int IAttachmentSink.FreeSlots => Tray.FreeSlots;
 
     void IAttachmentSink.Accept(IntakeResult result) {
+        // Each source checks the gate when it starts, but a read can outlast it: a picker still open
+        // when a terminal menu appears stages nothing and says so.
+        if (result.Accepted.Count > 0 && !Attachments.CanAttach) {
+            Notice(RefusalNotice.Render(result.Refused) is { } others
+                ? $"{NotAttachedNotice(result.Accepted)}; {others}"
+                : NotAttachedNotice(result.Accepted));
+            return;
+        }
         var refused = Tray.AddAll(result.Accepted).Concat(result.Refused).ToList();
         Notice(RefusalNotice.Render(refused));
     }
