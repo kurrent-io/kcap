@@ -178,7 +178,7 @@ public class McpPassServerTests {
             ReadResult = side is null
                 ? new PassReadResult.NotFound()
                 : new PassReadResult.Found(new("p9", side, "look", "page", "pg-1", "github:1", "github:7", "Check the chart", null, null, null,
-                                               "awaiting_approval", SentAt, null, null, null, null, null, null)),
+                                               "awaiting_approval", SentAt, null, null, null, null, null, null, null)),
             AnswerResult = new PassAnswerResult.Answered(new("sent", "sent", [], FollowUpDue, null))
         };
 
@@ -498,7 +498,7 @@ public class McpPassServerTests {
 
         var read   = await Api(stub.Urls[0]).GetAsync("p1");
         var result = JsonNode.Parse(Text(await Server(new FakePassesApi { ReadResult = read })
-                                             .HandleToolCallAsync(9, Call("pass_status", new() { ["pass_id"] = "p1" }), null)))!.AsObject();
+                                             .HandleToolCallAsync(9, Call("pass_status", new() { ["pass_id"] = "p1" }))))!.AsObject();
 
         if (!serverSendsLanes) {
             await Assert.That(result.ContainsKey("delivery")).IsFalse();
