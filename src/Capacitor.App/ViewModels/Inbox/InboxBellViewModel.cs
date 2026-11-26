@@ -266,9 +266,10 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
             : new InboxAnswerOutcome(false, couldNotSend);
         var note = answered.Note;
         if (_disposed || epoch != _epoch) return answered;
-        // The card that sent the reply may have been replaced meanwhile; the one on screen drops the sent draft.
+        // The card that sent the reply may have been replaced meanwhile; the one on screen drops the draft only while it
+        // still holds the text that was sent, so a newer draft typed since survives.
         if (text is not null && answered.Accepted)
-            foreach (var card in _items.Where(i => i.LogicalId == item.LogicalId)) card.ReplyText = null;
+            foreach (var card in _items.Where(i => i.LogicalId == item.LogicalId && i.ReplyText == text)) card.ReplyText = null;
         _notes[item.LogicalId] = note;
         Refresh();
         return answered;

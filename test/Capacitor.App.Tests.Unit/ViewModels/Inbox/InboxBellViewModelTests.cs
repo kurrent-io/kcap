@@ -322,6 +322,27 @@ public class InboxBellViewModelTests {
     });
 
     [Test]
+    public async Task A_newer_draft_survives_an_earlier_reply_being_accepted() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1", type: "agent_prompt") with { ReplyLabel = "Reply" });
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = true, Message = "Answer sent" });
+        var gate = new TaskCompletionSource();
+        rig.Api.AnswerGate = gate;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        var card = rig.Bell.Items.Single();
+        card.ReplyText = "on it";
+        var sending = card.SendReplyCommand.Execute().ToTask();
+        rig.Changed.OnNext(RxUnit.Default);
+        rig.Bell.Items.Single().ReplyText = "and one more thing";
+        gate.SetResult();
+        await sending;
+
+        await Assert.That(rig.Bell.Items.Single().ReplyText).IsEqualTo("and one more thing");
+    });
+
+    [Test]
     public async Task Delete_all_acts_only_once_confirmed() => await AvaloniaSession.RunOnUiAsync(async () => {
         using var rig = new Rig().Start();
         rig.Api.Page = PageOf(1, Item("n1"));
