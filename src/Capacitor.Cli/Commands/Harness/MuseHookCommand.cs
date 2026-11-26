@@ -214,15 +214,15 @@ sealed class MuseHookCommand(
     void DiscardHandedEnd(string sessionId) {
         var paths = WatcherPaths.FromEnvironment(config);
 
-        MuseSessionEndRequest.MarkResumed(paths, sessionId);
+        HandedSessionEndRequest.MarkResumed(paths, sessionId);
 
-        var kept = new List<MuseSessionEndRequest>();
-        while (MuseSessionEndRequest.TryClaim(paths, sessionId, "rearm") is { } handed) {
-            if (MuseSessionEndRequest.ResumedSince(paths, sessionId, handed.HandedAt)) MuseSessionEndRequest.Release(handed.ClaimedPath);
+        var kept = new List<HandedSessionEndRequest>();
+        while (HandedSessionEndRequest.TryClaim(paths, sessionId, "rearm") is { } handed) {
+            if (HandedSessionEndRequest.ResumedSince(paths, sessionId, handed.HandedAt)) HandedSessionEndRequest.Release(handed.ClaimedPath);
             else kept.Add(handed);
         }
 
-        foreach (var handed in kept) MuseSessionEndRequest.Unclaim(handed);
+        foreach (var handed in kept) HandedSessionEndRequest.Unclaim(handed);
     }
 
     /// <summary>An out-of-scope repository disables the session, so its later hooks stop at the
@@ -278,7 +278,7 @@ sealed class MuseHookCommand(
 
         if (Paths.ResolveSessionLog(session.ToString("D"), today) is { } log && HookHttp.IsPostable(Url)) {
             try {
-                MuseSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString(), Url);
+                HandedSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString(), Url, vendor: Vendor);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
                 await Console.Error.WriteLineAsync($"[kcap] muse session-end handoff failed ({sessionId}): {ex.Message}");
                 return false;

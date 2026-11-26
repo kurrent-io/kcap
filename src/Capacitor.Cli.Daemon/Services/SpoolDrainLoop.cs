@@ -1,8 +1,8 @@
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Harness.Cursor;
-using Capacitor.Cli.Core.Harness.Muse;
 using Microsoft.Extensions.Logging;
 
 using Capacitor.Cli.Recording;
@@ -78,7 +78,7 @@ internal sealed class SpoolDrainLoop {
         try {
             _lifecycle.DeleteExpired();
             _transcript.DeleteExpired();
-            MuseHandedEndSweep.SpoolDue(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, DaemonStore.FromEnvironment(), _time);
+            HandedSessionEndSweep.SpoolDue(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, DaemonStore.FromEnvironment(), _time);
 
             // Spools only, so it needs no credential; the workspace drain posts what it closed.
             await CopilotSpanClose.CloseDueAsync(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, _time, async (owed, run) => {

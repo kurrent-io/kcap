@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Commands.Harness;
 using Capacitor.Cli.Core.Http;
@@ -6,6 +7,7 @@ using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Policy;
 using Capacitor.Cli.Recording.PrDetection;
 
@@ -402,6 +404,99 @@ public class CodexHookCommandTests : IDisposable {
     }
 
     // An envelope-sourced hosted session's transcript comes from the daemon, so the hook spawns no watcher.
+
+    const string EndingSession  = "019e0322-05fc-7570-be65-75719c3ea861";
+    const string EndingDashless = "019e032205fc7570be6575719c3ea861";
+
+    static string SessionEndPayload(string? transcript, string extra = "") =>
+        $$"""{"hook_event_name":"SessionEnd","session_id":"{{EndingSession}}","transcript_path":{{(transcript is null ? "null" : $"\"{transcript}\"")}},"cwd":"/tmp","reason":"other"{{extra}}}""";
+
+    string Rollout() => Config.CreateFile("rollout.jsonl", "{}\n");
+
+    /// <summary>Codex kills a SessionEnd hook within 3 s, so the end goes to the session's watcher, which drains the
+    /// rollout and posts it; nothing is posted from the hook.</summary>
+    [Test]
+    public async Task SessionEnd_hands_the_end_to_the_sessions_watcher() {
+        var spawner = new FakeWatcherSpawner();
+
+        var exit = await RunAsync(SessionEndPayload(Rollout()), spawner: spawner);
+
+        await Assert.That(exit).IsEqualTo(0);
+        var paths   = WatcherPaths.FromEnvironment(Config.Root);
+        var handed  = HandedSessionEndRequest.TryClaim(paths, EndingDashless, "test");
+        await Assert.That(handed).IsNotNull();
+        await Assert.That(handed!.Vendor).IsEqualTo("codex");
+        await Assert.That(JsonNode.Parse(handed.Payload)!["reason"]!.GetValue<string>()).IsEqualTo("other");
+        await Assert.That(spawner.Spawned.Count).IsEqualTo(1);
+        await Assert.That(_server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/codex")).Count).IsEqualTo(0);
+        await Assert.That(Stdout).IsEmpty();
+    }
+
+    /// <summary>A hosted agent's end carries its run, so the watcher's fence can place it.</summary>
+    [Test]
+    public async Task SessionEnd_names_the_hosted_run() {
+        var hosted = new HostedAgent("agent-1", false, DaemonBridge.None) { DaemonEpoch = "epoch-1" };
+
+        await RunAsync(SessionEndPayload(Rollout()), hosted: hosted, spawner: new FakeWatcherSpawner());
+
+        var payload = JsonNode.Parse(HandedSessionEndRequest.TryClaim(WatcherPaths.FromEnvironment(Config.Root), EndingDashless, "test")!.Payload)!;
+        await Assert.That(payload["agent_host_id"]!.GetValue<string>()).IsEqualTo("agent-1");
+        await Assert.That(payload["daemon_epoch"]!.GetValue<string>()).IsEqualTo("epoch-1");
+    }
+
+    /// <summary>An envelope-sourced hosted session's transcript and end belong to the daemon that hosts it.</summary>
+    [Test]
+    public async Task SessionEnd_leaves_an_envelope_sourced_hosted_session_to_the_daemon() {
+        var spawner = new FakeWatcherSpawner();
+
+        await RunAsync(SessionEndPayload(Rollout()), spawner: spawner, hostedAppServer: true);
+
+        await Assert.That(HandedSessionEndRequest.Exists(WatcherPaths.FromEnvironment(Config.Root), EndingDashless)).IsFalse();
+        await Assert.That(spawner.Spawned.Count).IsEqualTo(0);
+    }
+
+    /// <summary>Codex fires no SessionEnd for a subagent; one that names an agent is ignored all the same.</summary>
+    [Test]
+    public async Task SessionEnd_of_a_subagent_is_ignored() {
+        var spawner = new FakeWatcherSpawner();
+
+        await RunAsync(SessionEndPayload(Rollout(), extra: ""","agent_id":"child-1" """), spawner: spawner);
+
+        await Assert.That(HandedSessionEndRequest.Exists(WatcherPaths.FromEnvironment(Config.Root), EndingDashless)).IsFalse();
+        await Assert.That(spawner.Spawned.Count).IsEqualTo(0);
+    }
+
+    /// <summary>A resumed session carries on past an end handed over before it, so the watcher must drop that end.</summary>
+    [Test]
+    public async Task A_resumed_SessionStart_marks_the_session_resumed() {
+        StubNoAuthRequired();
+        _server.Given(Request.Create().WithPath("/hooks/session-start/codex").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
+        var before = DateTimeOffset.UtcNow.AddSeconds(-5);
+
+        await RunAsync($$"""{"hook_event_name":"SessionStart","session_id":"{{EndingSession}}","source":"resume","transcript_path":"/tmp/r.jsonl","cwd":"/tmp"}""",
+            spawner: new FakeWatcherSpawner());
+
+        await Assert.That(HandedSessionEndRequest.ResumedSince(WatcherPaths.FromEnvironment(Config.Root), EndingDashless, before)).IsTrue();
+    }
+
+    /// <summary>A session with no rollout has nothing to drain: its end is spooled for the drain to post.</summary>
+    [Test]
+    public async Task SessionEnd_without_a_rollout_spools_the_end() {
+        var spawner = new FakeWatcherSpawner();
+
+        await RunAsync(SessionEndPayload(transcript: null), spawner: spawner);
+
+        var drained = new List<(string Route, JsonNode Body)>();
+        await new HookSpool(Config.Root, TimeProvider.System, _server.Url!).DrainAllAsync(EndingDashless,
+            (route, body) => { drained.Add((route, JsonNode.Parse(body)!)); return Task.FromResult(DrainOutcome.Delivered); },
+            TimeSpan.FromSeconds(5), CancellationToken.None);
+
+        var (spooledRoute, spooledBody) = drained.Single();
+        await Assert.That(spooledRoute).IsEqualTo("session-end/codex");
+        await Assert.That(spooledBody["session_id"]!.GetValue<string>()).IsEqualTo(EndingDashless);
+        await Assert.That(spawner.Spawned.Count).IsEqualTo(0);
+    }
 
     [Test]
     public async Task Stop_skips_the_watcher_for_an_envelope_sourced_hosted_session() {

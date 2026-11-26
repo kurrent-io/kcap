@@ -5,23 +5,37 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Auth;
 
-namespace Capacitor.Cli.Core.Harness.Muse;
+namespace Capacitor.Cli.Core.Harness;
 
 /// <summary>
-/// A session-end the Muse SessionEnd hook hands to the session's watcher: the hook's own
-/// <c>/hooks/session-end/muse</c> payload, left where the watcher looks every tick. Under
-/// <c>muse exec</c> the hook is killed well inside a second, before it could drain the log and post
-/// the end itself; the watcher is a detached process, so it posts the end after its final drain.
+/// A session-end a vendor's SessionEnd hook hands to the session's watcher: the hook's own
+/// <c>/hooks/session-end/&lt;vendor&gt;</c> payload, left where the watcher looks every tick. Muse and Codex both kill
+/// the hook within seconds (under <c>muse exec</c> well inside one; Codex caps it at 3 s), before it could drain the
+/// transcript and post the end itself; the watcher is a detached process, so it posts the end after its final drain.
+/// The files keep the <c>.muse-end-requested</c> name every version has written, so a request handed over before the
+/// store served other vendors is still taken.
 /// Whoever takes it claims it first by renaming it, an atomic step only one party can win, so two
 /// watchers on the session, or a watcher and the re-arm of a resumed session, never both act on one end.
 /// Each run the request names has a file of its own, so one run's end never overwrites or supersedes another's
 /// whatever order their hooks fire in; a request naming no run keeps the name every version writes.
 /// </summary>
-public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, DateTimeOffset HandedAt, string SourcePath) {
+public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath, DateTimeOffset HandedAt, string SourcePath) {
     const string Suffix = ".muse-end-requested";
 
     /// <summary>The server the request was handed over for; null for one written before requests recorded it.</summary>
     public string? Server { get; init; }
+
+    /// <summary>The vendor whose hook handed it over, which names its session-end route. A request written before
+    /// requests recorded one is Muse's, the only vendor that handed ends over then.</summary>
+    public string Vendor { get; init; } = DefaultVendor;
+
+    const string DefaultVendor = "muse";
+
+    /// <summary>The lifecycle route the request's end is posted on.</summary>
+    public string Route => $"session-end/{Vendor}";
+
+    /// <summary>Whether <paramref name="vendor"/>'s SessionEnd hook hands its end to the session's watcher.</summary>
+    public static bool HandedOverBy(string vendor) => vendor is "muse" or "codex";
 
     /// <summary>How many times its end has failed to be sent or kept.</summary>
     public int Attempts { get; init; }
@@ -85,7 +99,7 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
         Path.Combine(paths.Directory, $"{sessionId}.muse-resumed");
 
     /// <summary>A request as stored: the payload to send, the server it is for, and its failed sends.</summary>
-    readonly record struct Stored(string Payload, string? Server, int Attempts, DateTimeOffset NotBefore);
+    readonly record struct Stored(string Payload, string? Server, int Attempts, DateTimeOffset NotBefore, string Vendor);
 
     static Stored Parse(string content) {
         try {
@@ -94,20 +108,22 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
                 return new Stored(end.ToJsonString(),
                     handoff["server"]?.GetValue<string>(),
                     handoff["attempts"]?.GetValue<int>() ?? 0,
-                    handoff["not_before"]?.GetValue<long>() is { } ticks ? new DateTimeOffset(ticks, TimeSpan.Zero) : DateTimeOffset.MinValue);
+                    handoff["not_before"]?.GetValue<long>() is { } ticks ? new DateTimeOffset(ticks, TimeSpan.Zero) : DateTimeOffset.MinValue,
+                    handoff["vendor"]?.GetValue<string>() is { Length: > 0 } vendor ? vendor : DefaultVendor);
             }
         } catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException) { }
 
-        return new Stored(content, null, 0, DateTimeOffset.MinValue);
+        return new Stored(content, null, 0, DateTimeOffset.MinValue, DefaultVendor);
     }
 
-    static string Render(string payload, string? server, int attempts, DateTimeOffset notBefore) {
+    static string Render(string payload, string? server, int attempts, DateTimeOffset notBefore, string vendor) {
         try {
-            if ((server is not null || attempts > 0) && JsonNode.Parse(payload) is JsonObject end) {
+            if ((server is not null || attempts > 0 || vendor != DefaultVendor) && JsonNode.Parse(payload) is JsonObject end) {
                 end[HandoffKey] = new JsonObject {
                     ["server"]     = server,
                     ["attempts"]   = attempts,
                     ["not_before"] = notBefore.UtcTicks,
+                    ["vendor"]     = vendor,
                 };
                 return end.ToJsonString();
             }
@@ -125,13 +141,13 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
     }
 
     /// <summary>Written whole, then renamed into place, so a reader never sees a partial request, nor one without the
-    /// server <paramref name="server"/> it is for.</summary>
-    public static void Write(WatcherPaths paths, string sessionId, string payload, string? server = null) {
+    /// server <paramref name="server"/> it is for or the <paramref name="vendor"/> whose route it is posted on.</summary>
+    public static void Write(WatcherPaths paths, string sessionId, string payload, string? server = null, string vendor = DefaultVendor) {
         Directory.CreateDirectory(paths.Directory);
         var target = PathFor(paths, sessionId, payload);
         var temp   = $"{target}.{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}.tmp";
 
-        File.WriteAllText(temp, Render(payload, server, 0, DateTimeOffset.MinValue));
+        File.WriteAllText(temp, Render(payload, server, 0, DateTimeOffset.MinValue, vendor));
         File.Move(temp, target, overwrite: true);
     }
 
@@ -140,12 +156,12 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
 
     /// <summary>Takes the session's oldest unclaimed request that is due for <paramref name="owner"/>, or null when there
     /// is none or other parties took each first. An empty request is discarded rather than claimed.</summary>
-    public static MuseSessionEndRequest? TryClaim(WatcherPaths paths, string sessionId, string owner, TimeProvider? time = null) =>
+    public static HandedSessionEndRequest? TryClaim(WatcherPaths paths, string sessionId, string owner, TimeProvider? time = null) =>
         TryClaim(paths, sessionId, owner, time, forServer: _ => true);
 
     /// <summary><see cref="TryClaim(WatcherPaths,string,string,TimeProvider?)"/>, taking only a request whose recorded
     /// server <paramref name="forServer"/> accepts; it is passed null for a request that recorded none.</summary>
-    public static MuseSessionEndRequest? TryClaim(
+    public static HandedSessionEndRequest? TryClaim(
             WatcherPaths paths, string sessionId, string owner, TimeProvider? time, Func<string?, bool> forServer) {
         var now = (time ?? TimeProvider.System).GetUtcNow();
 
@@ -159,11 +175,11 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
 
     /// <summary>Only a request handed over for <paramref name="serverUrl"/>, or one that recorded none: a recorder posts
     /// to its own server, and one for another is left to that server's drain.</summary>
-    public static MuseSessionEndRequest? ClaimHandedEnd(WatcherPaths paths, string sessionId, string serverUrl, TimeProvider time) =>
+    public static HandedSessionEndRequest? ClaimHandedEnd(WatcherPaths paths, string sessionId, string serverUrl, TimeProvider time) =>
         TryClaim(paths, sessionId, Environment.ProcessId.ToString(CultureInfo.InvariantCulture), time,
             recorded => recorded is null || ServerIdentity.SameServer(recorded, serverUrl));
 
-    static MuseSessionEndRequest? TryClaimAt(string source, string owner) {
+    static HandedSessionEndRequest? TryClaimAt(string source, string owner) {
         var claimed = $"{source}.{owner}.claimed";
 
         try {
@@ -192,8 +208,8 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
         // The rename keeps the write time, which is when the hook handed the end over.
         var stored = Parse(content);
         if (!string.IsNullOrWhiteSpace(stored.Payload))
-            return new MuseSessionEndRequest(stored.Payload, claimed, new DateTimeOffset(handedAt, TimeSpan.Zero), source) {
-                Server = stored.Server, Attempts = stored.Attempts
+            return new HandedSessionEndRequest(stored.Payload, claimed, new DateTimeOffset(handedAt, TimeSpan.Zero), source) {
+                Server = stored.Server, Attempts = stored.Attempts, Vendor = stored.Vendor
             };
 
         Release(claimed);
@@ -225,7 +241,7 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
 
     /// <summary>Puts a claimed request back for the next taker when its end could not be sent, unless the same run
     /// has handed over a newer one since, which supersedes it. Another run's request never does.</summary>
-    public static void Unclaim(MuseSessionEndRequest request) {
+    public static void Unclaim(HandedSessionEndRequest request) {
         var source = request.SourcePath;
 
         try {
@@ -244,13 +260,13 @@ public sealed record MuseSessionEndRequest(string Payload, string ClaimedPath, D
     /// doubles with each failure, up to a cap: whatever failed may well fail the same way at once. Its backoff is written
     /// into the request and published by the one rename that puts it back, keeping its hand-over time; a newer request
     /// of the same run supersedes it.</summary>
-    public static void Defer(MuseSessionEndRequest request, TimeProvider time) {
+    public static void Defer(HandedSessionEndRequest request, TimeProvider time) {
         var attempts = request.Attempts + 1;
         var delay    = TimeSpan.FromTicks(Math.Min(MaxRetryDelay.Ticks, FirstRetryDelay.Ticks << Math.Min(attempts - 1, 16)));
         var temp     = $"{request.SourcePath}.{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}.tmp";
 
         try {
-            File.WriteAllText(temp, Render(request.Payload, request.Server, attempts, time.GetUtcNow() + delay));
+            File.WriteAllText(temp, Render(request.Payload, request.Server, attempts, time.GetUtcNow() + delay, request.Vendor));
             File.SetLastWriteTimeUtc(temp, request.HandedAt.UtcDateTime);
             File.Move(temp, request.SourcePath);
             File.Delete(request.ClaimedPath);

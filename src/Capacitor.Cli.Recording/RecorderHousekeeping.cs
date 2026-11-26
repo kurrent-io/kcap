@@ -9,7 +9,6 @@ using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Harness.Codex;
 using Capacitor.Cli.Core.Harness.Copilot;
 using Capacitor.Cli.Core.Harness.Grok;
-using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Harness.Titles;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.RepoEvidence;
@@ -69,9 +68,9 @@ public sealed class RecorderHousekeeping(
 
     DateTimeOffset _nextWorkspaceDrain = DateTimeOffset.MinValue;
 
-    // The end the Muse SessionEnd hook handed over, posted after the final drain in place of the
+    // The end a Muse or Codex SessionEnd hook handed over, posted after the final drain in place of the
     // parent-exit synthesis.
-    MuseSessionEndRequest? _museEndRequest;
+    HandedSessionEndRequest? _handedEnd;
 
     // Idle grace between a Codex collab child's task_complete and its live subagent-stop post. The
     // agent type is read lazily from the child rollout's own header, once.
@@ -84,8 +83,9 @@ public sealed class RecorderHousekeeping(
     /// <inheritdoc/>
     public IReadOnlyCollection<string> SpawnedChildKeys => _spawnedChildWatcherKeys;
 
-    /// <summary>The end a Muse SessionEnd hook handed over, for the host to post after the final drain.</summary>
-    public MuseSessionEndRequest? HandedMuseEnd => _museEndRequest;
+    /// <summary>The end a SessionEnd hook handed over, for the host to post after the final drain. Only a <c>kcap watch</c>
+    /// host reads it: the daemon's recorder records Claude sessions alone, whose hooks hand no end over.</summary>
+    public HandedSessionEndRequest? HandedEnd => _handedEnd;
 
     /// <summary>Runs each post this makes about its session, for a host that counts them with the session's calls over
     /// its transport, as <see cref="ISilenceableRecorderTransport.CarryAsync"/> does: a refused post throws, and a post
@@ -241,12 +241,13 @@ public sealed class RecorderHousekeeping(
         } else if (agentId is null && vendor == "muse") {
             await MuseSubagentScan.ScanMuseSubagents(_scans, sessionId, transcriptPath, _seenSubagents, _museChildren, _spawnedChildWatcherKeys, ct);
             await MuseSubagentScan.StopFinishedMuseChildren(_scans, sessionId, transcriptPath, drained, _museChildren);
+        }
 
-            if (MuseSessionEndRequest.ClaimHandedEnd(_paths, sessionId, Url, time) is { } handed) {
-                _log("Muse SessionEnd hook handed its session-end to this watcher; draining and posting it");
-                _museEndRequest = handed;
-                host.StopRun();
-            }
+        if (agentId is null && HandedSessionEndRequest.HandedOverBy(vendor)
+         && HandedSessionEndRequest.ClaimHandedEnd(_paths, sessionId, Url, time) is { } handed) {
+            _log($"{vendor} SessionEnd hook handed its session-end to this watcher; draining and posting it");
+            _handedEnd = handed;
+            host.StopRun();
         }
 
         // A Codex collab child posts its own subagent-stop once its rollout's last turn completed and the

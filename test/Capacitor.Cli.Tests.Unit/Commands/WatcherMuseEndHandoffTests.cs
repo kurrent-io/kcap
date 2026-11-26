@@ -1,6 +1,6 @@
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
-using Capacitor.Cli.Core.Harness.Muse;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
@@ -11,9 +11,11 @@ public class WatcherMuseEndHandoffTests {
     [Test]
     [Arguments("muse", null, true)]
     [Arguments("muse", "agent-1", false)]
+    [Arguments("codex", null, true)]
+    [Arguments("codex", "agent-1", false)]
     [Arguments("claude", null, false)]
-    public async Task Only_a_muse_session_watcher_takes_a_handed_end(string vendor, string? agentId, bool expected) =>
-        await Assert.That(WatchCommand.TakesHandedMuseEnd(vendor, agentId)).IsEqualTo(expected);
+    public async Task Only_a_muse_or_codex_session_watcher_takes_a_handed_end(string vendor, string? agentId, bool expected) =>
+        await Assert.That(WatchCommand.TakesHandedEnd(vendor, agentId)).IsEqualTo(expected);
 
     /// <summary>A live process claimed for the session means its exit is not the session's; without one, or
     /// for any other vendor, the watcher's exit ends the session as before.</summary>
@@ -22,6 +24,7 @@ public class WatcherMuseEndHandoffTests {
     [Arguments("muse", null, null, false)]
     [Arguments("muse", "agent-1", 4242, false)]
     [Arguments("claude", null, 4242, false)]
+    [Arguments("codex", null, 4242, false)]
     public async Task A_muse_session_claimed_by_a_live_process_runs_on(string vendor, string? agentId, int? claimant, bool expected) =>
         await Assert.That(WatchCommand.SessionRunsOnElsewhere(vendor, agentId, claimant)).IsEqualTo(expected);
 
@@ -32,8 +35,8 @@ public class WatcherMuseEndHandoffTests {
     [Arguments(null, true)]
     public async Task A_handed_end_held_for_resume_releases_its_claim(string? resumingId, bool claimRemains) {
         var paths = new WatcherPaths(Tmp.PathTo("watchers"));
-        MuseSessionEndRequest.Write(paths, "session-1", """{"reason":"exit"}""");
-        var handed = MuseSessionEndRequest.TryClaim(paths, "session-1", "watcher")!;
+        HandedSessionEndRequest.Write(paths, "session-1", """{"reason":"exit"}""");
+        var handed = HandedSessionEndRequest.TryClaim(paths, "session-1", "watcher")!;
 
         var held = WatchCommand.HoldHandedEndForResume(handed, resumingId);
 

@@ -415,10 +415,10 @@ public class WatcherParentExitPostTests : IDisposable {
         var sessionId = Guid.NewGuid().ToString("N");
         var paths     = WatcherPaths.FromEnvironment(Config.Root);
         var spawner   = new FakeWatcherSpawner();
-        Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+        Core.Harness.HandedSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""");
-        var first = Core.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
-        Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+        var first = Core.Harness.HandedSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+        Core.Harness.HandedSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""");
 
         await Watch(spawner).SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, first);
@@ -429,8 +429,8 @@ public class WatcherParentExitPostTests : IDisposable {
         await Assert.That(epochs).Contains("epoch-2");
         await Assert.That(epochs.Count(e => e == "epoch-1")).IsEqualTo(2);
         await Assert.That(epochs).DoesNotContain((string?)null);
-        await Assert.That(Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsTrue();
-        await Assert.That(Core.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "check")).IsNull();
+        await Assert.That(Core.Harness.HandedSessionEndRequest.Exists(paths, sessionId)).IsTrue();
+        await Assert.That(Core.Harness.HandedSessionEndRequest.TryClaim(paths, sessionId, "check")).IsNull();
         await Assert.That(spawner.Spawned).IsEmpty();
     }
 
@@ -446,14 +446,14 @@ public class WatcherParentExitPostTests : IDisposable {
         var sessionId = Guid.NewGuid().ToString("N");
         var paths     = WatcherPaths.FromEnvironment(Config.Root);
         var spawner   = new FakeWatcherSpawner();
-        Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+        Core.Harness.HandedSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""");
-        var handed = Core.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+        var handed = Core.Harness.HandedSessionEndRequest.TryClaim(paths, sessionId, "test")!;
 
         await Watch(spawner).SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, handed);
 
         await Assert.That(_server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost()).Count).IsEqualTo(1);
-        await Assert.That(Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsFalse();
+        await Assert.That(Core.Harness.HandedSessionEndRequest.Exists(paths, sessionId)).IsFalse();
         await Assert.That(File.Exists(handed.ClaimedPath)).IsFalse();
         await Assert.That(spawner.Spawned).IsEmpty();
     }
@@ -469,10 +469,10 @@ public class WatcherParentExitPostTests : IDisposable {
 
         var sessionId = Guid.NewGuid().ToString("N");
         var paths     = WatcherPaths.FromEnvironment(Config.Root);
-        Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+        Core.Harness.HandedSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""", _server.Url);
-        var own = Core.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
-        Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+        var own = Core.Harness.HandedSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+        Core.Harness.HandedSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""", "https://other.example");
 
         await Watch().SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, own);
@@ -481,7 +481,7 @@ public class WatcherParentExitPostTests : IDisposable {
             .Select(e => JsonElement.Parse(e.RequestMessage.Body!).GetProperty("daemon_epoch").GetString())
             .ToList();
         await Assert.That(epochs).IsEquivalentTo(new string?[] { "epoch-1" });
-        await Assert.That(Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsTrue();
+        await Assert.That(Core.Harness.HandedSessionEndRequest.Exists(paths, sessionId)).IsTrue();
     }
 
     /// <summary>A watcher settles every handed end before it exits, not only the one it claimed: one handed over after
@@ -495,10 +495,10 @@ public class WatcherParentExitPostTests : IDisposable {
 
         var sessionId = Guid.NewGuid().ToString("N");
         var paths     = WatcherPaths.FromEnvironment(Config.Root);
-        Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+        Core.Harness.HandedSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""");
-        var claimed = Core.Harness.Muse.MuseSessionEndRequest.TryClaim(paths, sessionId, "test")!;
-        Core.Harness.Muse.MuseSessionEndRequest.Write(paths, sessionId,
+        var claimed = Core.Harness.HandedSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+        Core.Harness.HandedSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""");
 
         await Watch().SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, claimed);
@@ -507,6 +507,6 @@ public class WatcherParentExitPostTests : IDisposable {
             .Select(e => JsonElement.Parse(e.RequestMessage.Body!).GetProperty("daemon_epoch").GetString())
             .ToList();
         await Assert.That(epochs).IsEquivalentTo(new string?[] { "epoch-1", "epoch-2" });
-        await Assert.That(Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, sessionId)).IsFalse();
+        await Assert.That(Core.Harness.HandedSessionEndRequest.Exists(paths, sessionId)).IsFalse();
     }
 }

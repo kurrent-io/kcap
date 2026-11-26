@@ -1,11 +1,11 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness.Cursor;
-using Capacitor.Cli.Core.Harness.Muse;
 
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Workspace;
@@ -266,7 +266,7 @@ internal sealed class AgentHookPoster(
         transcript.DeleteExpired();
         SessionCommits.DeleteExpired(config, time);
         SpoolEnds(AgentSessions.OnThisMachine(config).ReapExited(Url), Url, lifecycle, time);
-        MuseHandedEndSweep.SpoolDue(WatcherPaths.FromEnvironment(config), lifecycle, Url, DaemonStore.FromEnvironment(), time);
+        HandedSessionEndSweep.SpoolDue(WatcherPaths.FromEnvironment(config), lifecycle, Url, DaemonStore.FromEnvironment(), time);
         // No record is waited for, and the sweep stops early. The daemon, the Copilot finalizer and the next drain take what
         // is left.
         if (sweepPendingEnds)
