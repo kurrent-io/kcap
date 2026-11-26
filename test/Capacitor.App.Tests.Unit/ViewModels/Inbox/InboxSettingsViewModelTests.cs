@@ -255,6 +255,24 @@ public class InboxSettingsViewModelTests {
     });
 
     [Test]
+    public async Task A_stalled_write_from_the_previous_account_does_not_hold_back_the_next() => await AvaloniaSession.RunOnUiAsync(async () => {
+        var api = new FakeInboxApi { Prefs = Prefs("connected", true, Type("pass_received")) };
+        var signIn = new System.Reactive.Subjects.Subject<RxUnit>();
+        using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: false, () => { }, null, signIn);
+        var stalled = new TaskCompletionSource();
+        api.PutGate = stalled;
+        settings.Types.Single().Enabled = false;
+        api.PutGate = null;
+
+        signIn.OnNext(RxUnit.Default);
+        await Task.Yield();
+
+        await Assert.That(settings.CanWrite).IsTrue();
+        await Assert.That(api.PrefsReads).IsEqualTo(2);
+        stalled.SetResult();
+    });
+
+    [Test]
     public async Task A_failed_first_load_offers_a_retry() => await AvaloniaSession.RunOnUiAsync(async () => {
         var api = new FakeInboxApi { Prefs = InboxRead<NotificationPrefsDto>.Failed };
         using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: false, () => { });

@@ -131,7 +131,10 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
         _generation++;
         _account++;
         _pendingWrites.Clear();
+        _writing.Clear();
         _pendingTellAgent = null;
+        // Writes still in flight belong to the previous account: they no longer hold back this account's read.
+        _mutations = 0;
         IsLoading = false;
         if (drop) {
             IsLoaded = false;
@@ -177,14 +180,15 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
 
     // A write invalidates every read already in flight; once the last write settles, one fresh read shows the result.
     async Task MutateAsync(Func<Task> write) {
+        var account = _account;
         _generation++;
         _mutations++;
         try {
             await write();
         } finally {
-            _mutations--;
+            if (account == _account) _mutations--;
         }
-        if (_mutations == 0) Reload();
+        if (account == _account && _mutations == 0) Reload();
     }
 
     void ApplyPrefs(NotificationPrefsDto prefs) {
@@ -226,13 +230,14 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
         }
         _pendingWrites[row.Type] = (enabled, slackEnabled);
         if (!_writing.Add(row.Type)) return;
+        var account = _account;
         try {
             await MutateAsync(async () => {
-                while (!_disposed && _pendingWrites.Remove(row.Type, out var pair))
+                while (!_disposed && account == _account && _pendingWrites.Remove(row.Type, out var pair))
                     await Guard(_api.PutPrefAsync(row.Type, pair.Enabled, pair.SlackEnabled, _lifetime.Token));
             });
         } finally {
-            _writing.Remove(row.Type);
+            if (account == _account) _writing.Remove(row.Type);
         }
     }
 
