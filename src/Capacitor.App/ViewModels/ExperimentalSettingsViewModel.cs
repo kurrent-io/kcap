@@ -8,7 +8,8 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// Settings' Experimental tab shares its store with the CLI and presents the daemon's reported feature state.
+/// Settings' Experimental tab: one switch per experimental feature, saved to the attached profile in the
+/// store the CLI shares, with the daemon's own report of whether each took effect.
 public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable {
     readonly ExperimentalSettingsStore _store;
     readonly Action? _saved;
@@ -20,7 +21,7 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
     string? _saveProblem;
     readonly HashSet<string> _saving = new(StringComparer.Ordinal);
     readonly Lock _fingerprintLock = new();
-    ((bool Exists, DateTime Written, long Length) Profile, (bool Exists, DateTime Written, long Length) App)? _fingerprint;
+    (bool Exists, DateTime Written, long Length)? _fingerprint;
     long _saveEpoch;
     long _readSequence;
     long _appliedSequence;
@@ -35,8 +36,6 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
         Features = (features ?? ExperimentalFeatures.All)
             .Select(f => new ExperimentalFeatureRowViewModel(f, false, false, SaveAsync))
             .ToList();
-        ProfileWide = Features.Where(row => !row.Feature.AppWide).ToArray();
-        AppWide = Features.Where(row => row.Feature.AppWide).ToArray();
 
         service.Status.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(status => {
             _attach = status;
@@ -62,8 +61,6 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
     internal Task Loaded { get; }
 
     public IReadOnlyList<ExperimentalFeatureRowViewModel> Features { get; }
-    public IReadOnlyList<ExperimentalFeatureRowViewModel> ProfileWide { get; }
-    public IReadOnlyList<ExperimentalFeatureRowViewModel> AppWide { get; }
 
     /// Why the switches cannot change anything, or why the last change was not kept.
     public string? Problem {
@@ -71,34 +68,33 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
         private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    /// Null when both stores match the fingerprints of a readable revision or a read in progress.
-    internal (ExperimentalSettingsRead Settings, ExperimentalSettingsRead AppSettings, long Epoch, long Sequence)? ReadIfChanged() => Read(onlyIfChanged: true);
+    /// Null when the store matches the fingerprint of a readable revision or a read in progress.
+    internal (ExperimentalSettingsRead Settings, long Epoch, long Sequence)? ReadIfChanged() => Read(onlyIfChanged: true);
 
     // The sequence is taken with the fingerprint, so it orders reads by the file state each one recorded.
-    (ExperimentalSettingsRead Settings, ExperimentalSettingsRead AppSettings, long Epoch, long Sequence)? Read(bool onlyIfChanged) {
+    (ExperimentalSettingsRead Settings, long Epoch, long Sequence)? Read(bool onlyIfChanged) {
         var epoch = Interlocked.Read(ref _saveEpoch);
-        var fingerprint = (Fingerprint(_store.Path), Fingerprint(_store.AppWidePath));
+        var fingerprint = Fingerprint(_store.Path);
         long sequence;
         lock (_fingerprintLock) {
             if (onlyIfChanged && fingerprint == _fingerprint) return null;
             _fingerprint = fingerprint;
             sequence = ++_readSequence;
         }
-        var profileSettings = _store.Load(_profile);
-        var appSettings = _store.LoadAppWide();
-        if (!profileSettings.Readable || !appSettings.Readable) {
+        var settings = _store.Load(_profile);
+        if (!settings.Readable) {
             lock (_fingerprintLock) {
                 if (sequence == _readSequence) _fingerprint = null;
             }
         }
-        return (profileSettings, appSettings, epoch, sequence);
+        return (settings, epoch, sequence);
     }
 
     /// A read that a save began or ended after is stale, and a row being saved keeps the value the user
     /// just chose; the next snapshot reads again. A read older than one already applied is dropped: the
     /// fingerprint already matches the newer file, so nothing would read it again.
-    internal void Apply((ExperimentalSettingsRead Settings, ExperimentalSettingsRead AppSettings, long Epoch, long Sequence) next) {
-        var (profileSettings, appSettings, epoch, sequence) = next;
+    internal void Apply((ExperimentalSettingsRead Settings, long Epoch, long Sequence) next) {
+        var (read, epoch, sequence) = next;
         if (sequence <= _appliedSequence) return;
         if (epoch != Interlocked.Read(ref _saveEpoch)) {
             lock (_fingerprintLock) _fingerprint = null;
@@ -107,10 +103,9 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
         _appliedSequence = sequence;
         foreach (var row in Features) {
             if (_saving.Contains(row.Id)) continue;
-            var read = row.Feature.AppWide ? appSettings : profileSettings;
             row.Load(read.Readable && read.IsOn(row.Feature), read.Readable && read.IsSet(row.Id), read.Readable);
         }
-        Problem = profileSettings.Problem ?? appSettings.Problem ?? _saveProblem;
+        Problem = read.Problem ?? _saveProblem;
     }
 
     // Reads off the UI thread; constructed and saved on it, so each continuation applies back on it. A read that

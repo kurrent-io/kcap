@@ -252,10 +252,10 @@ public class WorkContextViewSmokeTests {
     [NotInParallel("AvaloniaSession")]
     [Arguments(false)]
     [Arguments(true)]
-    public Task Structured_issue_tips_show_available_metadata_and_keep_link_access(bool appearancePreview) => RunOnUiAsync(async () => {
+    public Task Structured_issue_tips_show_available_metadata_and_keep_link_access(bool light) => RunOnUiAsync(async () => {
         const string title = "Keep the linked issue title readable when the work context pane is narrow";
-        using var preview = new TooltipPreviewScope();
-        if (appearancePreview) preview.Enable(ClassicAppearance.Light);
+        using var appearance = new AppearanceScope();
+        appearance.Apply(light ? DesktopTheme.Light : DesktopTheme.Dark);
         var openedWorkItems = new List<string>();
         await using var host = new Host(openedWorkItems.Add);
         var read = KeyOnlyRead("WK-2200", title);
@@ -263,30 +263,30 @@ public class WorkContextViewSmokeTests {
         await host.ShowAsync(read with { Item = read.Item with { Links = [issue] } });
         var workItem = host.Find<Button>("OpenWorkItemButton");
         workItem.Focus(NavigationMethod.Directional);
-        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
-        await Assert.That(TooltipPreviewScope.Text(workItem)).IsEquivalentTo(
+        AppearanceScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(AppearanceScope.Text(workItem)).IsEquivalentTo(
             new[] { "WK-2198", "In flight" }, CollectionOrdering.Matching);
-        TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
-        TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
+        AppearanceScope.Press(host.Window, PhysicalKey.Escape);
+        AppearanceScope.Press(host.Window, PhysicalKey.Enter);
         await Assert.That(openedWorkItems).IsEquivalentTo(new[] { "w1" });
 
         var header = host.Find<Button>("IssueHeader");
         var single = host.Find<Button>("IssueTitleButton");
         header.Focus(NavigationMethod.Directional);
-        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
-        await Assert.That(TooltipPreviewScope.Text(header)).IsEquivalentTo(
+        AppearanceScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(AppearanceScope.Text(header)).IsEquivalentTo(
             new[] { title, "In Progress", "linear.app · WK-2200", "Opens in browser" }, CollectionOrdering.Matching);
-        TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
-        TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
+        AppearanceScope.Press(host.Window, PhysicalKey.Escape);
+        AppearanceScope.Press(host.Window, PhysicalKey.Enter);
         await Assert.That(host.Opener.Opened).IsEquivalentTo(new[] { issue.Url! });
         host.Opener.Opened.Clear();
         single.Focus(NavigationMethod.Directional);
         await Assert.That(ToolTip.GetIsOpen(header)).IsFalse();
-        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
-        await Assert.That(TooltipPreviewScope.Text(single)).Contains(title);
+        AppearanceScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(AppearanceScope.Text(single)).Contains(title);
         await Assert.That(Peer(single).GetHelpText()).Contains("In Progress");
-        TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
-        TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
+        AppearanceScope.Press(host.Window, PhysicalKey.Escape);
+        AppearanceScope.Press(host.Window, PhysicalKey.Enter);
         await Assert.That(host.Opener.Opened).IsEquivalentTo(new[] { issue.Url! });
 
         var partial = issue with { Value = "WK-2201", ShortKey = "WK-2201", Title = null, State = null, Url = "file:///tmp/private", IsSeed = false };
@@ -294,20 +294,20 @@ public class WorkContextViewSmokeTests {
         host.Source.Enqueue(read with { Item = read.Item with { Links = [issue with { State = "Done" }, partial, extra] } });
         await host.Vm.RefreshCommand.Execute();
         await (host.Vm.PendingReadForTesting ?? Task.CompletedTask);
-        TooltipPreviewScope.Pump(host.Window);
+        AppearanceScope.Pump(host.Window);
         header.Focus(NavigationMethod.Directional);
-        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
-        await Assert.That(TooltipPreviewScope.Text(header)).IsEquivalentTo(
+        AppearanceScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(AppearanceScope.Text(header)).IsEquivalentTo(
             new[] { "3 linked issues" }, CollectionOrdering.Matching);
-        TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
-        TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
+        AppearanceScope.Press(host.Window, PhysicalKey.Escape);
+        AppearanceScope.Press(host.Window, PhysicalKey.Enter);
         var buttons = host.Find<ItemsControl>("IssueList").GetVisualDescendants().OfType<Button>().ToArray();
         await Assert.That(buttons.Length).IsEqualTo(3);
         await Assert.That(Peer(buttons[0]).GetHelpText()).Contains("Done");
         await Assert.That(buttons[1].IsEffectivelyEnabled).IsFalse();
         ToolTip.SetIsOpen(buttons[1], true);
-        TooltipPreviewScope.Pump(host.Window);
-        await Assert.That(TooltipPreviewScope.Text(buttons[1])).IsEquivalentTo(
+        AppearanceScope.Pump(host.Window);
+        await Assert.That(AppearanceScope.Text(buttons[1])).IsEquivalentTo(
             new[] { "WK-2201", "Link unavailable" }, CollectionOrdering.Matching);
         await Assert.That(host.Opener.Opened.Count).IsEqualTo(1);
         ToolTip.SetIsOpen(buttons[1], false);
@@ -315,10 +315,10 @@ public class WorkContextViewSmokeTests {
         host.Source.Enqueue(read with { Item = read.Item with { Links = [issue with { State = "Closed" }, partial, extra] } });
         await host.Vm.RefreshCommand.Execute();
         await (host.Vm.PendingReadForTesting ?? Task.CompletedTask);
-        TooltipPreviewScope.Pump(host.Window);
+        AppearanceScope.Pump(host.Window);
         await Assert.That(buttons[0].IsFocused).IsTrue();
-        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
-        await Assert.That(TooltipPreviewScope.Text(buttons[0])).Contains("Closed");
+        AppearanceScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(AppearanceScope.Text(buttons[0])).Contains("Closed");
     });
 
     [Test]

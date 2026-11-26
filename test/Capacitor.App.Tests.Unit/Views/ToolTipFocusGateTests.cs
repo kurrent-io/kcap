@@ -25,12 +25,12 @@ public class ToolTipFocusGateTests {
             var window = new Window { Content = label, Width = 550, Height = 150 };
             window.Show();
             try {
-                TooltipPreviewScope.Pump(window);
+                AppearanceScope.Pump(window);
                 ToolTip.SetIsOpen(label, true);
                 await Assert.That(ToolTip.GetIsOpen(label)).IsFalse();
 
                 label.Width = 90;
-                TooltipPreviewScope.Pump(window);
+                AppearanceScope.Pump(window);
                 ToolTip.SetIsOpen(label, true);
                 await Assert.That(ToolTip.GetIsOpen(label)).IsTrue();
             } finally {
@@ -49,7 +49,7 @@ public class ToolTipFocusGateTests {
             window.Show();
             try {
                 choices.IsDropDownOpen = true;
-                TooltipPreviewScope.Pump(window);
+                AppearanceScope.Pump(window);
                 var second = (ComboBoxItem)choices.ContainerFromIndex(1)!;
                 second.Focus();
                 var popup = (PopupRoot)TopLevel.GetTopLevel(second)!;

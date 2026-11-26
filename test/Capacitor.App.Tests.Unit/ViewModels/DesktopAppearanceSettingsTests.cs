@@ -20,17 +20,12 @@ public class DesktopAppearanceSettingsTests {
         DesktopAppearancePreferences? live = null;
         using var settings = new DesktopAppearanceSettings(store, (await store.LoadAsync()).DesktopAppearance, choice => live = choice);
         await Assert.That(settings.Density).IsEqualTo(DesktopDensity.Comfortable);
-        settings.SetEnabled(true);
+        await Assert.That(live).IsEqualTo(new DesktopAppearancePreferences());
         settings.ReadingFont = DesktopReadingFont.Monospace;
         settings.HighContrast = true;
         settings.Density = DesktopDensity.Compact;
         await Task.WhenAll(settings.PendingSave, store.UpdateAsync(state => state with { UiScale = 1.3, RailCollapsed = true }));
         await Assert.That(live).IsEqualTo(new DesktopAppearancePreferences(DesktopDensity.Compact, DesktopReadingFont.Monospace, true));
-
-        settings.SetEnabled(false);
-        await Assert.That(live).IsNull();
-        settings.SetEnabled(true);
-        await Assert.That(live!.Density).IsEqualTo(DesktopDensity.Compact);
 
         var saved = await new AppStateStore(path).LoadAsync();
         await Assert.That(saved.UiScale).IsEqualTo(1.3);
@@ -49,7 +44,6 @@ public class DesktopAppearanceSettingsTests {
         store.UpdateAsync(Arg.Any<Func<AppState, AppState>>()).Returns(first.Task, Task.FromResult(true));
         DesktopAppearancePreferences? live = null;
         using var settings = new DesktopAppearanceSettings(store, null, choice => live = choice);
-        settings.SetEnabled(true);
         settings.ReadingFont = DesktopReadingFont.Monospace;
         await Assert.That(live!.ReadingFont).IsEqualTo(DesktopReadingFont.Monospace);
         first.SetResult(false);

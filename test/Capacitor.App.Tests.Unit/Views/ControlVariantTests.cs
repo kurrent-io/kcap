@@ -151,14 +151,14 @@ public class ControlVariantTests {
     [Test]
     [Arguments(true)]
     [Arguments(false)]
-    public Task The_preview_keeps_unchecked_choice_controls_distinguishable_from_their_surface(bool light) => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task Each_theme_keeps_unchecked_choice_controls_distinguishable_from_their_surface(bool light) => AvaloniaSession.RunOnUiAsync(async () => {
         var app = Application.Current!;
-        var palette = new ClassicPreviewPalette(app);
+        var palette = new DesktopPalette(app);
         var radio = new RadioButton { Content = "Branch" };
         var check = new CheckBox { Content = "Include drafts" };
         var window = new Window { Content = new StackPanel { Children = { radio, check } } };
         try {
-            await Assert.That(palette.TryApply(light ? ClassicAppearance.Light : ClassicAppearance.Dark)).IsTrue();
+            await Assert.That(palette.TryApply(light ? DesktopTheme.Light : DesktopTheme.Dark)).IsTrue();
             var surface = (ISolidColorBrush)app.FindResource("KcapSurfaceBrush")!;
             window.Background = surface;
             window.Show();
@@ -169,7 +169,7 @@ public class ControlVariantTests {
             await Assert.That(Contrast(Over(Solid(frame.BorderBrush), surface.Color), surface.Color)).IsGreaterThanOrEqualTo(3.0);
         } finally {
             window.Close();
-            palette.TryApply(ClassicAppearance.Original);
+            palette.TryApply(DesktopTheme.Dark);
         }
     });
 
@@ -177,7 +177,7 @@ public class ControlVariantTests {
     public async Task Higher_contrast_strengthens_faded_code_and_preserves_hover_readability() =>
         await AvaloniaSession.RunOnUiAsync(async () => {
             var app = Application.Current!;
-            var palette = new ClassicPreviewPalette(app);
+            var palette = new DesktopPalette(app);
             Color Ink(string key) => ((ISolidColorBrush)app.FindResource(key)!).Color;
             double FadedCodeContrast(string grade) {
                 var fill = Over(Ink($"ProgressiveDisclosure{grade}CodeFadeBrush"), Ink("KcapCanvasBrush"));
@@ -185,7 +185,7 @@ public class ControlVariantTests {
             }
 
             try {
-                foreach (var theme in new[] { ClassicAppearance.Light, ClassicAppearance.Dark }) {
+                foreach (var theme in new[] { DesktopTheme.Light, DesktopTheme.Dark }) {
                     palette.SetHigherContrast(false);
                     await Assert.That(palette.TryApply(theme)).IsTrue();
                     var detail = FadedCodeContrast("Detail");
@@ -210,7 +210,10 @@ public class ControlVariantTests {
                     var hover = button.Read();
                     await Assert.That(Contrast(hover.Foreground, hover.Background)).IsGreaterThanOrEqualTo(4.5);
                 }
-            } finally { palette.TryApply(ClassicAppearance.Original); }
+            } finally {
+                palette.SetHigherContrast(false);
+                palette.TryApply(DesktopTheme.Dark);
+            }
         });
 
     [Test]

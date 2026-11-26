@@ -11,7 +11,7 @@
                 <ResourceInclude Source="avares://kcap-desktop/Design/Brand.axaml" />
                 <ResourceInclude Source="avares://kcap-desktop/Design/Typography.axaml" />
                 <ResourceInclude Source="avares://kcap-desktop/Design/Metrics.axaml" />
-                <ResourceInclude Source="avares://kcap-desktop/Design/ClassicPreview.axaml" />
+                <ResourceInclude Source="avares://kcap-desktop/Design/Themes.axaml" />
                 <ResourceInclude Source="avares://kcap-desktop/Views/PendingCardTemplates.axaml" />
                 <ResourceInclude Source="avares://kcap-desktop/Views/Onboarding/OnboardingResources.axaml" />
             </ResourceDictionary.MergedDictionaries>

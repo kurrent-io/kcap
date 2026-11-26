@@ -118,9 +118,9 @@ public partial class App : Application {
     readonly UiScaleSetting _uiScale;
     readonly string? _openingDesktopColorScheme;
     readonly IReadOnlyDictionary<string, string>? _openingDesktopAppearance;
-    ClassicAppearancePreview? _classicPreview;
+    DesktopColorSchemeSettings? _colorScheme;
     DesktopAppearanceSettings? _desktopAppearance;
-    CompositeDisposable? _classicPreviewSubscription;
+    CompositeDisposable? _appearanceSubscription;
     ChatMarksFiles? _chatMarksFiles;
     readonly ProgressiveDisclosurePreferences? _progressiveDisclosure;
     readonly BetaUpdatesSetting _betaUpdates;
@@ -393,6 +393,7 @@ public partial class App : Application {
                 () => _shutdownStarted ? null : MainWindowAction(_coordinator), AppKitDock.SetVisible);
             _windowLifecycle = windowLifecycle;
             desktop.Exit += (_, _) => { windowLifecycle.Dispose(); Program.Host.Dispose(); };
+            ConfigureDesktopAppearance();
             Program.Host.SingleInstance.UninstallRequested += () => Dispatcher.UIThread.Post(() => {
                 // A copy started to uninstall is already asking or removing; a second question would start a second removal.
                 if (_shutdownStarted || _uninstalling || _uninstallRun is not null || _uninstallMode is not null) return;
@@ -453,10 +454,6 @@ public partial class App : Application {
                 if (RunInstallLocationGuard(desktop)) return; // the guard window owns the rest of this run
                 if (await RunLegacyInstallGuardAsync(desktop)) return;
             }
-            var appearanceFlag = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profile: null, ExperimentalFeatures.DesktopAppearance);
-            var appearanceEnabled = await Task.Run(() => appearanceFlag.IsOn, _shutdown.Token);
-            if (_shutdown.IsCancellationRequested) return;
-            ConfigureDesktopAppearance(appearanceFlag, appearanceEnabled);
             _updater = CreateUpdater(_betaUpdates);
             if (UpdateCoordinator.TryApplyPendingAtStartup(_updater, Program.Host.UpdateRelaunch,
                     HandOver(AppUpdateTransition.PendingAtStartup), LifecycleLog)) return; // the process is being replaced
@@ -1125,48 +1122,32 @@ public partial class App : Application {
     internal static bool ShouldShowWizard(GateResult gate, string[]? args, bool firstRunAfterInstall = false) =>
         gate is GateResult.Incomplete || firstRunAfterInstall || args?.Contains("--setup", StringComparer.Ordinal) == true;
 
-    void ConfigureDesktopAppearance(ExperimentalSwitch flag, bool enabledAtStartup) {
-        var palette = new ClassicPreviewPalette(this);
+    /// Paints the saved color scheme, contrast, density and reading font. It runs before the first
+    /// window of any kind, so the install, update, uninstall and error dialogs open in the user's
+    /// scheme, which under the default Auto is the system's light or dark setting.
+    void ConfigureDesktopAppearance() {
+        var palette = new DesktopPalette(this);
         var platform = PlatformSettings;
         var systemChanges = platform is null ? Observable.Never<Unit>() :
             Observable.FromEventPattern<PlatformColorValues>(h => platform.ColorValuesChanged += h, h => platform.ColorValuesChanged -= h)
                 .Select(_ => Unit.Default).ObserveOn(RxSchedulers.MainThreadScheduler);
-        var preview = new ClassicAppearancePreview(_appState, _openingDesktopColorScheme,
-            palette.TryApply, () => platform?.GetColorValues().ThemeVariant != PlatformThemeVariant.Light, systemChanges);
         var reading = new DesktopReadingResources(this);
         var contrastWatch = new SerialDisposable();
         var zoomWatch = new SerialDisposable();
+        // Contrast is settled before the first paint, so the scheme paints once.
         var appearance = new DesktopAppearanceSettings(_appState, _openingDesktopAppearance, preferences => {
             reading.Apply(preferences);
-            var highContrast = preferences?.HighContrast == true;
+            var highContrast = preferences.HighContrast;
             void ApplyContrast() => palette.SetHigherContrast(highContrast ||
                 platform?.GetColorValues().ContrastPreference == ColorContrastPreference.High);
-            contrastWatch.Disposable = preferences is not null && !highContrast
-                ? systemChanges.Subscribe(_ => ApplyContrast()) : null;
-            if (preferences is null) palette.SetHigherContrast(false);
-            else ApplyContrast();
+            contrastWatch.Disposable = !highContrast ? systemChanges.Subscribe(_ => ApplyContrast()) : null;
+            ApplyContrast();
         });
-        void SetEnabled(bool enabled) {
-            if (appearance.Enabled == enabled) return;
-            if (enabled) {
-                zoomWatch.Disposable = _uiScale.Changes.ObserveOn(RxSchedulers.MainThreadScheduler)
-                    .Subscribe(reading.SetZoom);
-                appearance.SetEnabled(true);
-                preview.SetEnabled(true);
-            } else {
-                preview.SetEnabled(false);
-                appearance.SetEnabled(false);
-                zoomWatch.Disposable = null;
-            }
-        }
-
-        SetEnabled(enabledAtStartup);
-        _classicPreview = preview;
+        zoomWatch.Disposable = _uiScale.Changes.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(reading.SetZoom);
+        _colorScheme = new DesktopColorSchemeSettings(_appState, _openingDesktopColorScheme,
+            palette.TryApply, () => platform?.GetColorValues().ThemeVariant != PlatformThemeVariant.Light, systemChanges);
         _desktopAppearance = appearance;
-        _classicPreviewSubscription = new CompositeDisposable(contrastWatch, zoomWatch, _experimentalSaved.Merge(
-                Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default))
-            .ObserveOn(TaskPoolScheduler.Default).Select(_ => flag.IsOn).DistinctUntilChanged()
-            .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(SetEnabled));
+        _appearanceSubscription = new CompositeDisposable(contrastWatch, zoomWatch);
     }
 
     void BuildDaemonGraph(
@@ -2036,7 +2017,7 @@ public partial class App : Application {
                             _userHome, AccountStore.Beside(_daemonStore).TryLoad() ?? new AccountRegistry(), Environment.GetEnvironmentVariable),
                         pickDirectory: PickAccountDirectoryAsync, daemonStatus: service.Status, usageClock: _usageClock, appLifetime: _shutdown.Token)
                     : null,
-                Appearance = new AppearanceSettingsViewModel(_uiScale, _classicPreview, _desktopAppearance),
+                Appearance = new AppearanceSettingsViewModel(_uiScale, _colorScheme, _desktopAppearance),
                 Privacy    = new PrivacySettingsViewModel(_telemetry, _config, _usageNotice),
                 Search     = _localStack?.Search,
                 Intelligence = _localUpgrade is { } upgrade && _localSearch is { } search
@@ -3542,8 +3523,8 @@ public partial class App : Application {
     void LatchNavigation() {
         _notificationAccessPrompt?.Dispose();
         _desktopNotifications?.Dispose();
-        _classicPreviewSubscription?.Dispose();
-        _classicPreview?.Dispose();
+        _appearanceSubscription?.Dispose();
+        _colorScheme?.Dispose();
         _desktopAppearance?.Dispose();
         _notificationBadgeSubscription?.Dispose();
         _windowLifecycle?.SetPendingNotificationCount(0);

@@ -234,7 +234,7 @@
         <Setter Property="MinHeight" Value="0" />
     </Style>
     <Style Selector="Border.workspaceSegment Button.kcapSegmentItem.active">
-        <Setter Property="FontWeight" Value="{DynamicResource KcapWorkspaceSelectionWeight}" />
+        <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
     <Style Selector="Button.kcapSegmentItem /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="Transparent" />

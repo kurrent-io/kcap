@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""WCAG contrast table for the desktop app palette in src/Capacitor.App/Design/Palette.axaml.
+"""WCAG contrast table for the desktop app's Light and Dark themes in src/Capacitor.App/Design/Themes.axaml.
 
 Exits non-zero when a text pair falls below 4.5:1 or a non-text pair below 3:1.
-Usage: python3 tools/ui-audit/contrast.py [path/to/palette.axaml]
+Usage: python3 tools/ui-audit/contrast.py [path/to/palette.axaml]  (a path audits that palette alone)
 """
 import re
 import sys
@@ -107,10 +107,13 @@ if __name__ == "__main__":
     key = "{http://schemas.microsoft.com/winfx/2006/xaml}Key"
     opacities = {entry.attrib[key]: float(entry.attrib["Opacity"])
                  for entry in ET.parse(AXAML).getroot().iter() if key in entry.attrib and "Opacity" in entry.attrib}
-    result = audit(base, opacities)
-    if len(sys.argv) == 1:
-        for variant in ET.parse(AXAML.with_name("ClassicPreview.axaml")).getroot():
-            print(f"\n{variant.attrib[key]}")
-            overrides = {entry.attrib[key]: entry.text.strip() for entry in variant}
-            result |= audit(base | overrides, opacities, [*EDGES, "KcapChoiceBorderBrush", "KcapTopicRailBrush"])
+    edges = [*EDGES, "KcapChoiceBorderBrush", "KcapTopicRailBrush"]
+    if len(sys.argv) > 1:
+        sys.exit(audit(base, opacities, edges))
+    # The app always paints one of the themes over the palette's brushes.
+    result = 0
+    for variant in ET.parse(AXAML.with_name("Themes.axaml")).getroot():
+        print(f"\n{variant.attrib[key]}")
+        overrides = {entry.attrib[key]: entry.text.strip() for entry in variant}
+        result |= audit(base | overrides, opacities, edges)
     sys.exit(result)

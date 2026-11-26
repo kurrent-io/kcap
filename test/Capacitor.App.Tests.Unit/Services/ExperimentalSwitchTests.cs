@@ -50,19 +50,17 @@ public class ExperimentalSwitchTests {
     [Test]
     public async Task An_unreadable_revision_preserves_the_last_value_and_retries_the_read() {
         var store = new ExperimentalSettingsStore(Config.Root);
-        var sut = new ExperimentalSwitch(store, "work", ExperimentalFeatures.DesktopAppearance);
+        var sut = new ExperimentalSwitch(store, "work", ExperimentalFeatures.CodexAppServer);
         await Assert.That(sut.IsOn).IsTrue();
 
-        const string disabled = """{"desktop-appearance-preview":false}""";
-        await File.WriteAllTextAsync(store.AppWidePath, new string('x', disabled.Length));
-        var written = File.GetLastWriteTimeUtc(store.AppWidePath);
-        var startup = new ExperimentalSwitch(store, null, ExperimentalFeatures.DesktopAppearance);
+        const string disabled = """{"work":{"codex-app-server":false}}""";
+        await File.WriteAllTextAsync(store.Path, new string('x', disabled.Length));
+        var written = File.GetLastWriteTimeUtc(store.Path);
 
-        await Assert.That(startup.IsOn).IsTrue();
         await Assert.That(sut.IsOn).IsTrue();
 
-        await File.WriteAllTextAsync(store.AppWidePath, disabled);
-        File.SetLastWriteTimeUtc(store.AppWidePath, written);
+        await File.WriteAllTextAsync(store.Path, disabled);
+        File.SetLastWriteTimeUtc(store.Path, written);
         await Assert.That(sut.IsOn).IsFalse();
     }
 

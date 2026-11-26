@@ -2714,7 +2714,7 @@ public class ChatTabViewSmokeTests {
     public Task Message_chrome_keeps_mixed_rows_still_and_leaves_prose_selectable() =>
         RunOnUiAsync(async () => {
             var reading = new DesktopReadingResources(Application.Current!);
-            var palette = new ClassicPreviewPalette(Application.Current!);
+            var palette = new DesktopPalette(Application.Current!);
             var host = new Host(show: false, marks: false);
             host.Window.Content = null;
             host.Window.Content = new LayoutTransformControl { Child = host.View, LayoutTransform = new ScaleTransform(1.3, 1.3) };
@@ -2731,12 +2731,12 @@ public class ChatTabViewSmokeTests {
                 await Assert.That(MessageAuthor(user).IsEffectivelyVisible).IsFalse();
                 await Assert.That(MessageTime(user).Opacity).IsEqualTo(0);
 
-                palette.TryApply(ClassicAppearance.Light);
+                palette.TryApply(DesktopTheme.Light);
                 reading.Apply(new DesktopAppearancePreferences());
                 host.Settle();
                 await Assert.That(MessageTime(user).Opacity).IsEqualTo(0);
 
-                palette.TryApply(ClassicAppearance.Dark);
+                palette.TryApply(DesktopTheme.Dark);
                 host.Window.Width = 460;
                 reading.Apply(new DesktopAppearancePreferences(DesktopDensity.Compact));
                 host.Settle();
@@ -2866,8 +2866,8 @@ public class ChatTabViewSmokeTests {
                 await CheckWrappedRevealAsync();
             } finally {
                 await host.CloseAsync();
-                reading.Apply(null);
-                palette.TryApply(ClassicAppearance.Original);
+                AppearanceScope.ResetReading(reading);
+                palette.TryApply(DesktopTheme.Dark);
             }
         });
 
@@ -2972,7 +2972,7 @@ public class ChatTabViewSmokeTests {
                 await Assert.That(new[] { time.Opacity, copy.Opacity, topic.Opacity, bookmark.Opacity }).IsEquivalentTo([1d, 1d, 1d, 1d]);
             } finally {
                 await host.CloseAsync();
-                reading.Apply(null);
+                AppearanceScope.ResetReading(reading);
             }
         });
 
@@ -3118,15 +3118,11 @@ public class ChatTabViewSmokeTests {
                 host.Window.KeyReleaseQwerty(PhysicalKey.F10, RawInputModifiers.Shift);
                 host.Settle();
                 await Assert.That(rowMenu.IsOpen).IsTrue();
-                // The message chrome is not part of the redesign preview.
-                reading.Apply(null);
-                host.Settle();
-                await Assert.That(rowMenu.IsOpen).IsTrue();
                 await Assert.That(MessageTime(rows[0]).Opacity).IsEqualTo(1);
                 await Assert.That(MessageAuthor(assistant).IsEffectivelyVisible).IsFalse();
             } finally {
                 await host.CloseAsync();
-                reading.Apply(null);
+                AppearanceScope.ResetReading(reading);
             }
         });
 
@@ -3198,18 +3194,16 @@ public class ChatTabViewSmokeTests {
                 await Assert.That(nextRow.AccessibleMetadata).IsEqualTo($"You · Replacement {nextUnrealized}");
             } finally {
                 await host.CloseAsync();
-                reading.Apply(null);
+                AppearanceScope.ResetReading(reading);
             }
         });
 
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
     [NotInParallel("AvaloniaSession")]
-    public Task A_pressed_message_action_keeps_its_pointer_through_a_far_jump(bool preview) =>
+    public Task A_pressed_message_action_keeps_its_pointer_through_a_far_jump() =>
         RunOnUiAsync(async () => {
             var reading = new DesktopReadingResources(Application.Current!);
-            if (preview) reading.Apply(new DesktopAppearancePreferences());
+            reading.Apply(new DesktopAppearancePreferences());
             var host = new Host();
             try {
                 var rows = (Avalonia.Collections.AvaloniaList<ChatItemViewModel>)host.Chat.Items;
@@ -3241,18 +3235,16 @@ public class ChatTabViewSmokeTests {
                 await Assert.That(pointer.Captured).IsNull();
             } finally {
                 await host.CloseAsync();
-                reading.Apply(null);
+                AppearanceScope.ResetReading(reading);
             }
         });
 
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
     [NotInParallel("AvaloniaSession")]
-    public Task Transcript_far_jumps_rebind_visible_actions_and_discard_removed_messages(bool preview) =>
+    public Task Transcript_far_jumps_rebind_visible_actions_and_discard_removed_messages() =>
         RunOnUiAsync(async () => {
             var reading = new DesktopReadingResources(Application.Current!);
-            if (preview) reading.Apply(new DesktopAppearancePreferences());
+            reading.Apply(new DesktopAppearancePreferences());
             var host = new Host();
             try {
                 var rows = (Avalonia.Collections.AvaloniaList<ChatItemViewModel>)host.Chat.Items;
@@ -3335,16 +3327,15 @@ public class ChatTabViewSmokeTests {
                 Jump(160);
                 var removedCopy = Copy(Message(160))!.FindControl<Button>("CopyButton")!;
                 removedCopy.Focus(NavigationMethod.Tab);
-                if (preview) {
-                    reading.Apply(null);
-                    host.Settle();
-                    await Assert.That(removedCopy.IsFocused).IsTrue();
-                    await Assert.That(MessageTime(Message(160)).Text).IsEqualTo("11:00");
-                    host.Window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
-                    host.Window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
-                    await Copy(Message(160))!.PendingCopyForTesting!;
-                    await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo("Current prompt");
-                }
+                // A density change relays the transcript out under the focused action.
+                reading.Apply(new DesktopAppearancePreferences(DesktopDensity.Compact));
+                host.Settle();
+                await Assert.That(removedCopy.IsFocused).IsTrue();
+                await Assert.That(MessageTime(Message(160)).Text).IsEqualTo("11:00");
+                host.Window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+                host.Window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+                await Copy(Message(160))!.PendingCopyForTesting!;
+                await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo("Current prompt");
                 rows.Clear();
                 rows.Add(new AssistantTextItem("Replacement feed"));
                 host.Settle();
@@ -3354,7 +3345,7 @@ public class ChatTabViewSmokeTests {
                     .IsEquivalentTo(["Replacement feed"]);
             } finally {
                 await host.CloseAsync();
-                reading.Apply(null);
+                AppearanceScope.ResetReading(reading);
             }
         });
 
@@ -3418,7 +3409,7 @@ public class ChatTabViewSmokeTests {
                 await Assert.That(Copy(user)!.Opacity).IsEqualTo(1);
             } finally {
                 await host.CloseAsync();
-                reading.Apply(null);
+                AppearanceScope.ResetReading(reading);
             }
         });
 

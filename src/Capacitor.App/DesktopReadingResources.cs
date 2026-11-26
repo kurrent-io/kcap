@@ -17,10 +17,10 @@ internal sealed class DesktopReadingResources(Application application) {
         if (_layout != 0) PublishLayout();
     }
 
-    public void Apply(DesktopAppearancePreferences? preferences) {
-        var compact = preferences?.Density == DesktopDensity.Compact;
-        var mono = preferences?.ReadingFont == DesktopReadingFont.Monospace;
-        var layout = preferences is null ? 0 : 1 + (compact ? 1 : 0) + (mono ? 2 : 0);
+    public void Apply(DesktopAppearancePreferences preferences) {
+        var compact = preferences.Density == DesktopDensity.Compact;
+        var mono = preferences.ReadingFont == DesktopReadingFont.Monospace;
+        var layout = 1 + (compact ? 1 : 0) + (mono ? 2 : 0);
         if (layout == _layout) return;
         _layout = layout;
         var resources = application.Resources;

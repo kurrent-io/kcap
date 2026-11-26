@@ -6,26 +6,19 @@ namespace Capacitor.Cli.Core.Config;
 
 /// <summary>
 /// <c>experimental.json</c>: <c>{ "&lt;profile&gt;": { "&lt;feature-id&gt;": true|false } }</c>. Unknown profiles
-/// and ids are kept on write. App-wide flags live in a separate flat object. Unparseable files are never overwritten.
+/// and ids are kept on write, and an unparseable file is never overwritten.
 /// </summary>
 public sealed class ExperimentalSettingsStore(ConfigRoot root) {
     public const string FileName = "experimental.json";
 
-    const string AppWideFileName = "desktop-experimental.json";
-
     public string Path { get; } = root.Path(FileName);
-    public string AppWidePath { get; } = root.Path(AppWideFileName);
 
-    public ExperimentalSettingsRead Load(string profile) => Load(Path, profile);
-    public ExperimentalSettingsRead LoadAppWide() => Load(AppWidePath, profile: null);
-
-    static ExperimentalSettingsRead Load(string path, string? profile) {
-        var (document, problem) = ReadDocument(path);
+    public ExperimentalSettingsRead Load(string profile) {
+        var (document, problem) = ReadDocument();
         if (problem is not null) return new(false, ExperimentalSettingsRead.Empty.Features, problem);
 
         var features = new Dictionary<string, bool>();
-        var section = profile is null ? document : document[profile] as JsonObject;
-        if (section is not null)
+        if (document[profile] is JsonObject section)
             foreach (var (id, value) in section) {
                 if (value is JsonValue v && v.TryGetValue<bool>(out var on))
                     features[id] = on;
@@ -40,52 +33,45 @@ public sealed class ExperimentalSettingsStore(ConfigRoot root) {
         Task.Run(() => Set(profile, featureId, enabled), ct);
 
     bool Set(string profile, string featureId, bool enabled) {
-        var appWide = ExperimentalFeatures.Find(featureId)?.AppWide == true;
-        var path = appWide ? AppWidePath : Path;
-        using var _ = root.AcquireLock(appWide ? AppWideFileName : FileName);
+        using var _ = root.AcquireLock(FileName);
 
-        var (document, problem) = ReadDocument(path);
+        var (document, problem) = ReadDocument();
         if (problem is not null) return false;
 
-        var section = document;
-        if (!appWide) {
-            if (document[profile] is not JsonObject profileSettings) {
-                profileSettings = new JsonObject();
-                document[profile] = profileSettings;
-            }
-            section = profileSettings;
+        if (document[profile] is not JsonObject section) {
+            section = new JsonObject();
+            document[profile] = section;
         }
         section[featureId] = enabled;
 
         Directory.CreateDirectory(root.Directory);
         // Windows refuses File.Move over a file any reader holds open; this rename gets past one that
         // shares delete, as ReadDocument's does, and the daemon's watcher and the app re-read it.
-        AtomicFile.Replace(path, document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        AtomicFile.Replace(Path, document.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
 
         return true;
     }
 
-    static (JsonObject Document, string? Problem) ReadDocument(string path) {
-        var name = System.IO.Path.GetFileName(path);
+    (JsonObject Document, string? Problem) ReadDocument() {
         string text;
         try {
-            if (!File.Exists(path)) return (new JsonObject(), null);
-            text = File.ReadAllTextShared(path);
+            if (!File.Exists(Path)) return (new JsonObject(), null);
+            text = File.ReadAllTextShared(Path);
         } catch (IOException e) {
-            return (new JsonObject(), $"{name} could not be read: {e.Message}");
+            return (new JsonObject(), $"{FileName} could not be read: {e.Message}");
         } catch (UnauthorizedAccessException e) {
-            return (new JsonObject(), $"{name} could not be read: {e.Message}");
+            return (new JsonObject(), $"{FileName} could not be read: {e.Message}");
         }
 
-        if (string.IsNullOrWhiteSpace(text)) return (new JsonObject(), $"{name} is empty");
+        if (string.IsNullOrWhiteSpace(text)) return (new JsonObject(), $"{FileName} is empty");
 
         try {
             // A JsonObject with a duplicate key parses, then throws ArgumentException on first access.
             return JsonNode.Parse(text, documentOptions: new JsonDocumentOptions { AllowDuplicateProperties = false }) is JsonObject obj
                 ? (obj, null)
-                : (new JsonObject(), $"{name} is not a JSON object");
+                : (new JsonObject(), $"{FileName} is not a JSON object");
         } catch (JsonException e) {
-            return (new JsonObject(), $"{name} is not valid JSON: {e.Message}");
+            return (new JsonObject(), $"{FileName} is not valid JSON: {e.Message}");
         }
     }
 }

@@ -4,34 +4,41 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-public sealed class ClassicAppearancePreview : ReactiveObject, IDisposable {
+/// The desktop color scheme: Auto follows the system's light or dark setting, live; Light and Dark
+/// stay fixed. Saved for this computer, across profiles. The saved choice is painted as soon as this
+/// is built, so every window, dialogs included, opens in it.
+public sealed class DesktopColorSchemeSettings : ReactiveObject, IDisposable {
     const string LoadFailure = "Could not load this appearance.";
 
     readonly IAppStateStore _store;
-    readonly Func<ClassicAppearance, bool> _apply;
+    readonly Func<DesktopTheme, bool> _apply;
     readonly Func<bool> _systemIsDark;
     readonly IObservable<Unit> _systemChanges;
     IDisposable? _watch;
     bool _disposed;
     DesktopColorScheme _selected;
     DesktopColorScheme _saved;
-    ClassicAppearance _visible;
+    DesktopTheme? _visible;
     int _revision;
     Task _pendingSave = Task.CompletedTask;
 
-    internal ClassicAppearancePreview(IAppStateStore store, string? preference,
-            Func<ClassicAppearance, bool> apply, Func<bool> systemIsDark, IObservable<Unit> systemChanges) {
+    internal DesktopColorSchemeSettings(IAppStateStore store, string? preference,
+            Func<DesktopTheme, bool> apply, Func<bool> systemIsDark, IObservable<Unit> systemChanges) {
         _store = store;
         _apply = apply;
         _systemIsDark = systemIsDark;
         _systemChanges = systemChanges;
-        _saved = preference switch {
-            "light" => DesktopColorScheme.Light,
-            "dark" => DesktopColorScheme.Dark,
-            _ => DesktopColorScheme.Auto,
-        };
+        _saved = Parse(preference);
         _selected = _saved;
+        UpdateWatch();
+        Paint();
     }
+
+    static DesktopColorScheme Parse(string? preference) => preference switch {
+        "light" => DesktopColorScheme.Light,
+        "dark" => DesktopColorScheme.Dark,
+        _ => DesktopColorScheme.Auto,
+    };
 
     public static IReadOnlyList<DesktopColorScheme> Choices { get; } =
         [DesktopColorScheme.Auto, DesktopColorScheme.Light, DesktopColorScheme.Dark];
@@ -40,19 +47,10 @@ public sealed class ClassicAppearancePreview : ReactiveObject, IDisposable {
         get => _selected;
         set => _ = SelectAsync(value);
     }
-    public bool Enabled { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public string? Problem { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
-    internal void SetEnabled(bool enabled) {
-        if (_disposed || Enabled == enabled) return;
-        Enabled = enabled;
-        Problem = null;
-        UpdateWatch();
-        Paint();
-    }
-
     internal Task SelectAsync(DesktopColorScheme choice) {
-        if (_disposed || !Enabled || choice == _selected && Problem is null) return _pendingSave;
+        if (_disposed || choice == _selected && Problem is null) return _pendingSave;
         var previous = _selected;
         _selected = choice;
         if (!Paint()) {
@@ -69,7 +67,7 @@ public sealed class ClassicAppearancePreview : ReactiveObject, IDisposable {
     }
 
     void UpdateWatch() {
-        if (Enabled && _selected == DesktopColorScheme.Auto) {
+        if (!_disposed && _selected == DesktopColorScheme.Auto) {
             _watch ??= _systemChanges.Subscribe(_ => Paint());
         } else {
             _watch?.Dispose();
@@ -78,10 +76,10 @@ public sealed class ClassicAppearancePreview : ReactiveObject, IDisposable {
     }
 
     bool Paint() {
-        var theme = !Enabled ? ClassicAppearance.Original : _selected switch {
-            DesktopColorScheme.Light => ClassicAppearance.Light,
-            DesktopColorScheme.Dark => ClassicAppearance.Dark,
-            _ => _systemIsDark() ? ClassicAppearance.Dark : ClassicAppearance.Light,
+        var theme = _selected switch {
+            DesktopColorScheme.Light => DesktopTheme.Light,
+            DesktopColorScheme.Dark => DesktopTheme.Dark,
+            _ => _systemIsDark() ? DesktopTheme.Dark : DesktopTheme.Light,
         };
         if (_visible != theme && !_apply(theme)) {
             Problem = LoadFailure;

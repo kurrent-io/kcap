@@ -1,6 +1,6 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <ResourceDictionary x:Key="KcapClassicLight">
+    <ResourceDictionary x:Key="KcapLightTheme">
         <Color x:Key="KcapCanvasBrush">#FAF9FB</Color>
         <Color x:Key="KcapSurfaceBrush">#FFFFFF</Color>
         <Color x:Key="KcapSurfaceRaisedBrush">#F3F1F6</Color>
@@ -56,7 +56,7 @@
         <Color x:Key="ScrollBarTrackStrokePointerOver">#DCE7FA</Color>
         <Color x:Key="KcapGrokBrandBrush">#28242D</Color>
     </ResourceDictionary>
-    <ResourceDictionary x:Key="KcapClassicDark">
+    <ResourceDictionary x:Key="KcapDarkTheme">
         <Color x:Key="KcapCanvasBrush">#202123</Color>
         <Color x:Key="KcapSurfaceBrush">#262729</Color>
         <Color x:Key="KcapSurfaceRaisedBrush">#2D2E30</Color>
