@@ -32,16 +32,7 @@ public static class ExperimentalFeatures {
         DesktopAppOnly: true,
         OnByDefault: false);
 
-    public static ExperimentalFeature DesktopAppearance { get; } = new(
-        "desktop-appearance-preview",
-        "Desktop redesign preview",
-        "A new Light theme and a redesigned graphite Dark theme, with automatic system matching and options for density, reading font, and contrast.",
-        AppliesLive: true,
-        DesktopAppOnly: true,
-        OnByDefault: true,
-        AppWide: true);
-
-    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks, DesktopAppearance];
+    public static IReadOnlyList<ExperimentalFeature> All { get; } = [CodexAppServer, InAppPages, LauncherNextWork, ChatMarks];
 
     /// <summary>Ids are matched exactly, case included.</summary>
     public static ExperimentalFeature? Find(string id) =>

@@ -7,21 +7,27 @@ using Avalonia.VisualTree;
 
 namespace Capacitor.App.Tests.Unit.Views;
 
-internal sealed class TooltipPreviewScope : IDisposable {
-    readonly ClassicPreviewPalette _palette = new(Application.Current!);
+/// Paints a theme and the default reading preferences for one test, and puts the test app back in
+/// its resting state (Light, no reading layout) afterwards.
+internal sealed class AppearanceScope : IDisposable {
+    readonly DesktopPalette _palette = new(Application.Current!);
     readonly DesktopReadingResources _reading = new(Application.Current!);
 
-    public void Enable(ClassicAppearance appearance) {
-        if (!_palette.TryApply(appearance)) throw new InvalidOperationException($"Could not apply {appearance}");
+    public void Apply(DesktopTheme theme) {
+        if (!_palette.TryApply(theme)) throw new InvalidOperationException($"Could not apply {theme}");
         _reading.Apply(new());
     }
 
-    public void Disable() {
-        _reading.Apply(null);
-        _palette.TryApply(ClassicAppearance.Original);
+    public void Dispose() {
+        ResetReading(_reading);
+        _palette.TryApply(DesktopTheme.Light);
     }
 
-    public void Dispose() => Disable();
+    /// Default preferences, and no reading-layout revision for a later test's transcript to react to.
+    public static void ResetReading(DesktopReadingResources reading) {
+        reading.Apply(new());
+        Application.Current!.Resources.Remove("KcapReadingLayout");
+    }
 
     public static void Pump(Window window) {
         Dispatcher.UIThread.RunJobs();

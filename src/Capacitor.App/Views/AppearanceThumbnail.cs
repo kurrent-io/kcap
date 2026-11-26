@@ -36,9 +36,9 @@ public sealed class AppearanceThumbnail : Control {
         if (Bounds.Width <= 0 || Bounds.Height <= 0) return;
         using var transform = context.PushTransform(Matrix.CreateScale(Bounds.Width / 100, Bounds.Height / 62));
         using var clip = context.PushClip(new RoundedRect(new Rect(0, 0, 100, 62), 5));
-        if (Scheme != DesktopColorScheme.Dark && this.TryFindResource("KcapClassicLight", out var light) && light is ResourceDictionary lightPalette)
+        if (Scheme != DesktopColorScheme.Dark && this.TryFindResource(DesktopPalette.LightTheme, out var light) && light is ResourceDictionary lightPalette)
             DrawWindow(context, _light ??= new(lightPalette));
-        if (Scheme == DesktopColorScheme.Light || !this.TryFindResource("KcapClassicDark", out var dark) || dark is not ResourceDictionary darkPalette) return;
+        if (Scheme == DesktopColorScheme.Light || !this.TryFindResource(DesktopPalette.DarkTheme, out var dark) || dark is not ResourceDictionary darkPalette) return;
         using var half = context.PushClip(Scheme == DesktopColorScheme.Auto ? new Rect(50, 0, 50, 62) : new Rect(0, 0, 100, 62));
         DrawWindow(context, _dark ??= new(darkPalette));
     }

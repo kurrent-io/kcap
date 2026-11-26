@@ -141,8 +141,7 @@ running notes file that every PR edits.
   passing; `KcapWarning*` is blocked, stale, needs-you. Identity must not share them: a work-item
   key, vendor chip, "this session" mark, or title in success green reads as done, and a Claude chip
   in warning orange reads as attention. `KcapActivity*` is in-flight execution (a running session or
-  an in-progress task and its count): purple in the stock palette, neutral ink under Desktop redesign
-  preview. PR lifecycle uses `KcapPrOpen` / `KcapPrMerged` / `KcapPrClosed`, never the outcome tones
+  an in-progress task and its count), in neutral ink. PR lifecycle uses `KcapPrOpen` / `KcapPrMerged` / `KcapPrClosed`, never the outcome tones
   directly. Selection and open items (the selected rail session or selected master-list row) use
   `KcapInfo*` / `KcapSelectionBrush`; labels and keys use text/muted/surface tokens.
 - **Desktop-app chrome is the kcap theme, not Fluent's defaults.** `FluentTheme` is the substrate

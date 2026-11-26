@@ -243,13 +243,11 @@ public class ExperimentalSettingsViewModelTests {
     });
 
     [Test]
-    [Arguments(false)]
-    [Arguments(true)]
-    public Task A_snapshot_retries_an_unreadable_store_with_an_unchanged_fingerprint(bool appWide) => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task A_snapshot_retries_an_unreadable_store_with_an_unchanged_fingerprint() => AvaloniaSession.RunOnUiAsync(async () => {
         var store = new ExperimentalSettingsStore(Config.Root);
-        var feature = appWide ? ExperimentalFeatures.DesktopAppearance : OffByDefault.Single();
+        var feature = OffByDefault.Single();
         await store.SetAsync("work", feature.Id, true, CancellationToken.None);
-        var path = appWide ? store.AppWidePath : store.Path;
+        var path = store.Path;
         var valid = await File.ReadAllTextAsync(path);
         await File.WriteAllTextAsync(path, "!" + valid[1..]);
         var written = File.GetLastWriteTimeUtc(path);

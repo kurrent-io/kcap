@@ -1014,85 +1014,85 @@ public class MainWindowSmokeTests {
             new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([single]) });
         var (vm, window) = RailWindow(firstStatus: "Completed", pullRequestSummaries: summaries,
             firstTitle: title, firstPath: checkout);
-        using var preview = new TooltipPreviewScope();
+        using var appearance = new AppearanceScope();
         try {
             vm.Rail!.State = RailState.All;
-            TooltipPreviewScope.Pump(window);
+            AppearanceScope.Pump(window);
             var row = RailRow(window, title);
             var pr = row.GetVisualParent()!.GetVisualChildren().OfType<Button>().Single(button => button.Name == "SessionPullRequestLink");
             pr.Focus(NavigationMethod.Directional);
-            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
-            await Assert.That(TooltipPreviewScope.Text(pr)).Contains("Merged");
-            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+            AppearanceScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(AppearanceScope.Text(pr)).Contains("Merged");
+            AppearanceScope.Press(window, PhysicalKey.Escape);
 
-            preview.Enable(ClassicAppearance.Dark);
-            TooltipPreviewScope.Pump(window);
+            appearance.Apply(DesktopTheme.Dark);
+            AppearanceScope.Pump(window);
             ToolTip.SetShowDelay(row, 0);
             ToolTip.SetShowDelay(pr, 0);
             window.MouseMove(row.TranslatePoint(new Point(8, 8), window)!.Value);
             await WorkspaceFixtures.WaitUntilAsync(() => ToolTip.GetIsOpen(row), what: "rail session hover tooltip");
-            TooltipPreviewScope.Pump(window);
-            await Assert.That(TooltipPreviewScope.Text(row)).IsEquivalentTo(
+            AppearanceScope.Pump(window);
+            await Assert.That(AppearanceScope.Text(row)).IsEquivalentTo(
                 new[] { title, "Done", "Harness", "Claude Code", "Checkout", checkout },
                 CollectionOrdering.Matching);
 
             window.MouseMove(new Point(window.Bounds.Width - 3, 3));
             window.MouseMove(pr.TranslatePoint(new Point(pr.Bounds.Width / 2, pr.Bounds.Height / 2), window)!.Value);
             await WorkspaceFixtures.WaitUntilAsync(() => ToolTip.GetIsOpen(pr), what: "nested pull request hover tooltip");
-            TooltipPreviewScope.Pump(window);
+            AppearanceScope.Pump(window);
             await Assert.That(ToolTip.GetIsOpen(row)).IsFalse();
-            await Assert.That(TooltipPreviewScope.Text(pr)).IsEquivalentTo(
+            await Assert.That(AppearanceScope.Text(pr)).IsEquivalentTo(
                 new[] { link.Title!, "Merged", "Pull request", "example/repo #142", "Linked session", title },
                 CollectionOrdering.Matching);
             await Assert.That(AutomationProperties.GetHelpText(pr)).Contains("Merged").And.Contains($"Linked session · {title}");
 
             window.MouseMove(new Point(window.Bounds.Width - 3, 3));
             row.Focus(NavigationMethod.Directional);
-            TooltipPreviewScope.Press(window, PhysicalKey.ArrowRight);
+            AppearanceScope.Press(window, PhysicalKey.ArrowRight);
             await Assert.That(pr.IsFocused).IsTrue();
-            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            AppearanceScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
             await Assert.That(ToolTip.GetIsOpen(pr)).IsTrue();
-            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+            AppearanceScope.Press(window, PhysicalKey.Escape);
             await Assert.That(ToolTip.GetIsOpen(pr)).IsFalse();
             await Assert.That(pr.IsFocused).IsTrue();
 
             summaries.OnNext(new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([single with { Title = null }]) });
-            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
-            await Assert.That(TooltipPreviewScope.Text(pr)).IsEquivalentTo(
+            AppearanceScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(AppearanceScope.Text(pr)).IsEquivalentTo(
                 new[] { "Pull request #142", "Merged", "Repository", "example/repo", "Linked session", title },
                 CollectionOrdering.Matching);
-            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+            AppearanceScope.Press(window, PhysicalKey.Escape);
 
             summaries.OnNext(new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([
                 single, new(PullRequestWire.Subject(FakePullRequestSource.Link(143)), null, "Open"),
             ]) });
-            preview.Enable(ClassicAppearance.Light);
-            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
-            await Assert.That(TooltipPreviewScope.Text(pr)).IsEquivalentTo(
+            appearance.Apply(DesktopTheme.Light);
+            AppearanceScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(AppearanceScope.Text(pr)).IsEquivalentTo(
                 new[] { "2 pull requests", "Linked session", title }, CollectionOrdering.Matching);
-            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
-            TooltipPreviewScope.Press(window, PhysicalKey.Enter);
+            AppearanceScope.Press(window, PhysicalKey.Escape);
+            AppearanceScope.Press(window, PhysicalKey.Enter);
             await Assert.That(window.FocusManager.GetFocusedElement()).IsTypeOf<Button>();
             var choice = (Button)window.FocusManager.GetFocusedElement()!;
             await Assert.That(AutomationProperties.GetName(choice)).Contains("#142");
-            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
-            await Assert.That(TooltipPreviewScope.Text(choice)).Contains("Merged");
-            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
-            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+            AppearanceScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(AppearanceScope.Text(choice)).Contains("Merged");
+            AppearanceScope.Press(window, PhysicalKey.Escape);
+            AppearanceScope.Press(window, PhysicalKey.Escape);
 
             pr.Focus(NavigationMethod.Directional);
-            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            AppearanceScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
             await Assert.That(ToolTip.GetIsOpen(pr)).IsTrue();
-            preview.Disable();
-            TooltipPreviewScope.Pump(window);
+            appearance.Apply(DesktopTheme.Dark);
+            AppearanceScope.Pump(window);
             await Assert.That(pr.IsFocused).IsTrue();
-            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
-            await Assert.That(TooltipPreviewScope.Text(pr)).Contains("2 pull requests");
+            AppearanceScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(AppearanceScope.Text(pr)).Contains("2 pull requests");
             await Assert.That(AutomationProperties.GetHelpText(pr)).Contains($"Linked session · {title}");
-            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+            AppearanceScope.Press(window, PhysicalKey.Escape);
         } finally {
             window.Close();
-            TooltipPreviewScope.Pump(window);
+            AppearanceScope.Pump(window);
         }
     });
 
@@ -1206,8 +1206,8 @@ public class MainWindowSmokeTests {
             await Assert.That(ToolTip.GetTip(badge) as string).Contains(machine);
             await Assert.That(ToolTip.GetTip(badge) as string).Contains("remote daemon");
             ToolTip.SetIsOpen(row, true);
-            TooltipPreviewScope.Pump(window);
-            await Assert.That(TooltipPreviewScope.Text(row)).Contains("Remote daemon").And.Contains(machine);
+            AppearanceScope.Pump(window);
+            await Assert.That(AppearanceScope.Text(row)).Contains("Remote daemon").And.Contains(machine);
             ToolTip.SetIsOpen(row, false);
             rail.SelectedSessionKey = "remote:r1";
             Dispatcher.UIThread.RunJobs();
@@ -1288,7 +1288,7 @@ public class MainWindowSmokeTests {
                 var result = (
                     Offset: Math.Abs(first.TranslatePoint(default, window)!.Value.X - other.TranslatePoint(default, window)!.Value.X),
                     HasHeader: window.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text is "feature-x" or "x"),
-                    Tip: TooltipPreviewScope.Text(first));
+                    Tip: AppearanceScope.Text(first));
                 window.Close();
                 Dispatcher.UIThread.RunJobs();
                 return result;

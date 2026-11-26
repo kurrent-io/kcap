@@ -17,10 +17,10 @@ internal sealed class DesktopReadingResources(Application application) {
         if (_layout != 0) PublishLayout();
     }
 
-    public void Apply(DesktopAppearancePreferences? preferences) {
-        var compact = preferences?.Density == DesktopDensity.Compact;
-        var mono = preferences?.ReadingFont == DesktopReadingFont.Monospace;
-        var layout = preferences is null ? 0 : 1 + (compact ? 1 : 0) + (mono ? 2 : 0);
+    public void Apply(DesktopAppearancePreferences preferences) {
+        var compact = preferences.Density == DesktopDensity.Compact;
+        var mono = preferences.ReadingFont == DesktopReadingFont.Monospace;
+        var layout = 1 + (compact ? 1 : 0) + (mono ? 2 : 0);
         if (layout == _layout) return;
         _layout = layout;
         var resources = application.Resources;
@@ -39,7 +39,7 @@ internal sealed class DesktopReadingResources(Application application) {
     }
 
     void PublishLayout() {
-        Set(application.Resources, "KcapReadingLayout", _layout == 0 ? null : ++_revision);
+        application.Resources["KcapReadingLayout"] = ++_revision;
     }
 
     static void Set(IResourceDictionary resources, string key, object? value) {

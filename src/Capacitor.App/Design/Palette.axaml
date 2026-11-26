@@ -1,62 +1,64 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <SolidColorBrush x:Key="KcapCanvasBrush" Color="#0B0D12" />
-    <SolidColorBrush x:Key="KcapSurfaceBrush" Color="#12151D" />
-    <SolidColorBrush x:Key="KcapSurfaceRaisedBrush" Color="#191D27" />
-    <SolidColorBrush x:Key="KcapBorderBrush" Color="#2A3040" />
-    <SolidColorBrush x:Key="KcapChoiceBorderBrush" Color="#2A3040" />
-    <SolidColorBrush x:Key="KcapBorderStrongBrush" Color="#414A5E" />
-    <SolidColorBrush x:Key="KcapTextBrush" Color="#F1F3F7" />
-    <SolidColorBrush x:Key="KcapMutedBrush" Color="#B0B7C6" />
-    <SolidColorBrush x:Key="KcapFaintBrush" Color="#949BAA" />
-    <SolidColorBrush x:Key="KcapPlaceholderBrush" Color="#949BAA" />
-    <SolidColorBrush x:Key="KcapFieldBorderBrush" Color="#616B80" />
-    <SolidColorBrush x:Key="ProgressiveDisclosureDetailFadeBrush" Color="#99F1F3F7" />
-    <SolidColorBrush x:Key="ProgressiveDisclosureFootnoteFadeBrush" Color="#4CF1F3F7" />
-    <SolidColorBrush x:Key="ProgressiveDisclosureDetailCodeFadeBrush" Color="#99191D27" />
-    <SolidColorBrush x:Key="ProgressiveDisclosureFootnoteCodeFadeBrush" Color="#4C191D27" />
-    <SolidColorBrush x:Key="KcapPrimaryBrush" Color="#F1F3F7" />
-    <SolidColorBrush x:Key="KcapPrimaryHoverBrush" Color="#FFFFFF" />
-    <SolidColorBrush x:Key="KcapPrimaryPressedBrush" Color="#E4E7EE" />
-    <SolidColorBrush x:Key="KcapOnPrimaryBrush" Color="#0B0D12" />
-    <SolidColorBrush x:Key="KcapSuccessBrush" Color="#5BE0B3" />
-    <SolidColorBrush x:Key="KcapSuccessDimBrush" Color="#14382F" />
-    <SolidColorBrush x:Key="KcapWarningBrush" Color="#F4B860" />
-    <SolidColorBrush x:Key="KcapWarningDimBrush" Color="#3E301B" />
-    <SolidColorBrush x:Key="KcapPurpleBrush" Color="#A994FF" />
-    <SolidColorBrush x:Key="KcapPurpleDimBrush" Color="#29233E" />
-    <SolidColorBrush x:Key="KcapActivityBrush" Color="#A994FF" />
-    <SolidColorBrush x:Key="KcapActivityDimBrush" Color="#29233E" />
-    <SolidColorBrush x:Key="KcapPrOpenBrush" Color="#B0B7C6" />
-    <SolidColorBrush x:Key="KcapPrMergedBrush" Color="#5BE0B3" />
-    <SolidColorBrush x:Key="KcapPrClosedBrush" Color="#FF7272" />
-    <SolidColorBrush x:Key="KcapPrMergedTipBrush" Color="#B0B7C6" />
-    <SolidColorBrush x:Key="KcapDangerBrush" Color="#FF7272" />
-    <SolidColorBrush x:Key="KcapDangerDimBrush" Color="#321F29" />
-    <SolidColorBrush x:Key="KcapInfoBrush" Color="#7BA7F7" />
-    <SolidColorBrush x:Key="KcapInfoDimBrush" Color="#1B2740" />
-    <SolidColorBrush x:Key="KcapControlHoverBrush" Color="#2A3040" />
-    <SolidColorBrush x:Key="KcapControlPressedBrush" Color="#2A3040" />
-    <SolidColorBrush x:Key="KcapSelectionBrush" Color="#1E2E52" />
-    <SolidColorBrush x:Key="KcapTopicRailBrush" Color="#B0B7C6" Opacity="0.55" />
-    <SolidColorBrush x:Key="KcapTopicBrush" Color="#B0B7C6" />
-    <SolidColorBrush x:Key="KcapBookmarkRedBrush" Color="#F87171" />
-    <SolidColorBrush x:Key="KcapBookmarkOrangeBrush" Color="#FB923C" />
-    <SolidColorBrush x:Key="KcapBookmarkYellowBrush" Color="#FACC15" />
-    <SolidColorBrush x:Key="KcapBookmarkGreenBrush" Color="#4ADE80" />
-    <SolidColorBrush x:Key="KcapBookmarkBlueBrush" Color="#60A5FA" />
-    <SolidColorBrush x:Key="KcapBookmarkPurpleBrush" Color="#C084FC" />
-    <SolidColorBrush x:Key="KcapBookmarkPinkBrush" Color="#F472B6" />
-    <SolidColorBrush x:Key="KcapBookmarkGreyBrush" Color="#9CA3AF" />
+    <!-- A brush without a color here is themed: its colors live only in Themes.axaml, and
+         App.Initialize paints Light into it before anything can render. -->
+    <SolidColorBrush x:Key="KcapCanvasBrush" />
+    <SolidColorBrush x:Key="KcapSurfaceBrush" />
+    <SolidColorBrush x:Key="KcapSurfaceRaisedBrush" />
+    <SolidColorBrush x:Key="KcapBorderBrush" />
+    <SolidColorBrush x:Key="KcapChoiceBorderBrush" />
+    <SolidColorBrush x:Key="KcapBorderStrongBrush" />
+    <SolidColorBrush x:Key="KcapTextBrush" />
+    <SolidColorBrush x:Key="KcapMutedBrush" />
+    <SolidColorBrush x:Key="KcapFaintBrush" />
+    <SolidColorBrush x:Key="KcapPlaceholderBrush" />
+    <SolidColorBrush x:Key="KcapFieldBorderBrush" />
+    <SolidColorBrush x:Key="ProgressiveDisclosureDetailFadeBrush" />
+    <SolidColorBrush x:Key="ProgressiveDisclosureFootnoteFadeBrush" />
+    <SolidColorBrush x:Key="ProgressiveDisclosureDetailCodeFadeBrush" />
+    <SolidColorBrush x:Key="ProgressiveDisclosureFootnoteCodeFadeBrush" />
+    <SolidColorBrush x:Key="KcapPrimaryBrush" />
+    <SolidColorBrush x:Key="KcapPrimaryHoverBrush" />
+    <SolidColorBrush x:Key="KcapPrimaryPressedBrush" />
+    <SolidColorBrush x:Key="KcapOnPrimaryBrush" />
+    <SolidColorBrush x:Key="KcapSuccessBrush" />
+    <SolidColorBrush x:Key="KcapSuccessDimBrush" />
+    <SolidColorBrush x:Key="KcapWarningBrush" />
+    <SolidColorBrush x:Key="KcapWarningDimBrush" />
+    <SolidColorBrush x:Key="KcapPurpleBrush" />
+    <SolidColorBrush x:Key="KcapPurpleDimBrush" />
+    <SolidColorBrush x:Key="KcapActivityBrush" />
+    <SolidColorBrush x:Key="KcapActivityDimBrush" />
+    <SolidColorBrush x:Key="KcapPrOpenBrush" />
+    <SolidColorBrush x:Key="KcapPrMergedBrush" />
+    <SolidColorBrush x:Key="KcapPrClosedBrush" />
+    <SolidColorBrush x:Key="KcapPrMergedTipBrush" />
+    <SolidColorBrush x:Key="KcapDangerBrush" />
+    <SolidColorBrush x:Key="KcapDangerDimBrush" />
+    <SolidColorBrush x:Key="KcapInfoBrush" />
+    <SolidColorBrush x:Key="KcapInfoDimBrush" />
+    <SolidColorBrush x:Key="KcapControlHoverBrush" />
+    <SolidColorBrush x:Key="KcapControlPressedBrush" />
+    <SolidColorBrush x:Key="KcapSelectionBrush" />
+    <SolidColorBrush x:Key="KcapTopicRailBrush" Opacity="0.55" />
+    <SolidColorBrush x:Key="KcapTopicBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkRedBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkOrangeBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkYellowBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkGreenBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkBlueBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkPurpleBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkPinkBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkGreyBrush" />
     <Color x:Key="ScrollBarThumbBackgroundColor">#3A66B8</Color>
     <Color x:Key="ScrollBarPanningThumbBackgroundColor">#3A66B8</Color>
-    <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#3A66B8" />
-    <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#5989E3" />
-    <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#7BA7F7" />
+    <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" />
+    <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" />
+    <SolidColorBrush x:Key="ScrollBarThumbFillPressed" />
     <SolidColorBrush x:Key="ScrollBarTrackFill" Color="#00000000" />
-    <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#1B2740" />
+    <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" />
     <SolidColorBrush x:Key="ScrollBarTrackStroke" Color="#00000000" />
-    <SolidColorBrush x:Key="ScrollBarTrackStrokePointerOver" Color="#1E2E52" />
+    <SolidColorBrush x:Key="ScrollBarTrackStrokePointerOver" />
     <SolidColorBrush x:Key="ScrollBarBackground" Color="#00000000" />
     <ScaleTransform x:Key="VerticalSmallScrollThumbScaleTransform" ScaleX="1" ScaleY="1" />
     <ScaleTransform x:Key="HorizontalSmallScrollThumbScaleTransform" ScaleX="1" ScaleY="1" />

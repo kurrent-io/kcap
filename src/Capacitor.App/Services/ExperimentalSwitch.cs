@@ -24,13 +24,14 @@ public sealed class ExperimentalSwitch(ExperimentalSettingsStore store, string? 
 
     public bool IsOn {
         get {
-            if (!feature.AppWide && string.IsNullOrEmpty(profile)) return false;
-            var file = new FileInfo(feature.AppWide ? store.AppWidePath : store.Path);
+            if (string.IsNullOrEmpty(profile)) return false;
+            var file = new FileInfo(store.Path);
             var fingerprint = file.Exists ? (true, file.LastWriteTimeUtc, file.Length) : (false, default(DateTime), 0L);
             lock (_lock) {
                 if (fingerprint == _fingerprint) return field;
-                var settings = feature.AppWide ? store.LoadAppWide() : store.Load(profile!);
-                if (!settings.Readable) return _fingerprint is null && feature.AppWide ? feature.OnByDefault : field;
+                var settings = store.Load(profile);
+                // An unreadable revision keeps the last value and is read again at the next ask.
+                if (!settings.Readable) return field;
                 field = settings.IsOn(feature);
                 _fingerprint = fingerprint;
                 return field;
