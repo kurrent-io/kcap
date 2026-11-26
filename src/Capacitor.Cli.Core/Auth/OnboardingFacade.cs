@@ -302,7 +302,7 @@ public sealed class OnboardingFacade(
 
         // Hooks read the provider from this cache for a day, keyed as CapacitorServer.Url trims it; a
         // server that changed provider would otherwise be treated as the old one until it expired.
-        AuthProviderCache.Set(serverUrl.TrimEnd('/'), config.Provider, root, time);
+        AuthProviderCache.Set(serverUrl.TrimEnd('/'), config.Provider, root, time, config.MachineTokenUrl);
 
         if (!ServerIdentity.TryCanonicalizeForStamping(serverUrl, out var canonical, out var identityError)) {
             return Fail($"Error: {identityError}", identityError, ct);

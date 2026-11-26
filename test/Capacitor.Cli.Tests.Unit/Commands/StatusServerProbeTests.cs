@@ -42,6 +42,29 @@ public sealed class StatusServerProbeTests : IDisposable {
         await Assert.That(reach.Provider).IsEqualTo(provider);
     }
 
+    /// <summary>The mint sends the client secret to the recorded <c>machine_token_url</c>, so an answer
+    /// that came through a redirect, where any hop could have rewritten it, records none.</summary>
+    [Test]
+    [Arguments(false, "https://idp.example/oauth2/token")]
+    [Arguments(true, null)]
+    public async Task Only_an_unredirected_answer_records_the_machine_token_url(bool redirected, string? recorded) {
+        const string body = """{"provider":"workos","machine_token_url":"https://idp.example/oauth2/token"}""";
+
+        if (redirected) {
+            _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
+                .RespondWith(Response.Create().WithStatusCode(302).WithHeader("Location", $"{Url}/moved/auth/config"));
+            _server.Given(Request.Create().WithPath("/moved/auth/config").UsingGet())
+                .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody(body));
+        } else {
+            StubAuthConfig(200, body);
+        }
+
+        await ProbeAsync(Url);
+
+        await Assert.That(AuthProviderCache.TryGetMachineTokenUrl(Url, Config.Root, TimeProvider.System, out var url)).IsTrue();
+        await Assert.That(url).IsEqualTo(recorded);
+    }
+
     // A dropped VPN must not turn a set-up machine into an unconfigured one, and for a server that
     // asks for no auth the provider is the only evidence of setup there is.
     [Test]

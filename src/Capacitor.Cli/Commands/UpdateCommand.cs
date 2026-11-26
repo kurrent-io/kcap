@@ -124,10 +124,14 @@ public sealed class UpdateCommand(
         await probe;
         var advisory          = UpdateAdvisoryResolver.Resolve(checkResult, channel, profiles.Resolution.ServerUrl, profiles.Resolution.Endpoint, root);
         var (latest, current) = (advisory.Target, advisory.Current);
+        // A forced check reads the cache only when the feed did not answer.
+        var stale             = checkResult.FromCache;
+
+        if (stale && latest is not null) await Console.Error.WriteLineAsync(StaleNotice);
 
         if (checkOnly) {
             // One JSON line for the npm launcher (kcap.js); exit 1 only when the check itself failed.
-            await Console.Out.WriteLineAsync(CheckJson(advisory, channel));
+            await Console.Out.WriteLineAsync(CheckJson(advisory, channel, stale));
 
             return latest is null ? 1 : 0;
         }
@@ -470,15 +474,21 @@ public sealed class UpdateCommand(
     /// <summary>
     /// The `--check` contract the npm launcher installs from. <c>newer</c> is null when either version
     /// is unknown, which the launcher must not read as "up to date" — that would strand a stale CLI.
+    /// <para><c>stale</c> is true when the release feed could not be reached and <c>latest</c> is the
+    /// last version an earlier check saw.</para>
     /// </summary>
-    internal static string CheckJson(UpdateAdvisory advisory, string channel) =>
+    internal static string CheckJson(UpdateAdvisory advisory, string channel, bool stale = false) =>
         new JsonObject {
             ["current"]     = advisory.Current,
             ["latest"]      = advisory.Target,
             ["newer"]       = string.IsNullOrEmpty(advisory.Current) || advisory.Target is null ? (bool?)null : advisory.Newer,
             ["channel"]     = channel,
             ["install_tag"] = InstallTag(advisory, channel),
+            ["stale"]       = stale,
         }.ToJsonString();
+
+    internal const string StaleNotice =
+        "Could not reach the release feed; the latest version shown is from an earlier check.";
 
     /// <summary>The server's version when it caps the target, so an update never installs a CLI newer
     /// than the server it talks to; otherwise the channel's dist-tag.</summary>

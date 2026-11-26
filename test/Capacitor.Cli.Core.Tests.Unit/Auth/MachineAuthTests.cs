@@ -337,6 +337,108 @@ public class MachineAuthTests : IDisposable {
         await Assert.That(mints).IsEqualTo(1);
     }
 
+    /// <summary>A server on its own WorkOS environment names its machine token endpoint in
+    /// <c>/auth/config</c>; with no environment override the mint goes there.</summary>
+    [Test]
+    public async Task The_mint_goes_to_the_servers_machine_token_url() {
+        _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200)
+                .WithHeader("Content-Type", "application/json")
+                .WithBody($"{{\"provider\":\"workos\",\"machine_token_url\":\"{_server.Urls[0]}/tenant-idp/token\"}}"));
+        _server.Given(Request.Create().WithPath("/tenant-idp/token").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200)
+                .WithHeader("Content-Type", "application/json")
+                .WithBody("""{"access_token":"tok_tenant","expires_in":3600}"""));
+
+        await using var sp = Container(new MachineAuth("client_01ABC", "sekrit", null));
+        var       attempt  = await sp.GetRequiredService<ICapacitorHttpClient>().ForHookAsync();
+        using var client   = attempt.Client;
+
+        await Assert.That(attempt.Status).IsEqualTo(AuthStatus.Ok);
+        await Assert.That(_server.LogEntries.Count(e => e.RequestMessage.Path == "/tenant-idp/token")).IsEqualTo(1);
+    }
+
+    /// <summary>The mint sends the secret to the server's <c>machine_token_url</c>, so only a server
+    /// reached over https, or http on loopback, may name it; a plaintext one falls back to the default.
+    /// The URL is already on disk, so the answer cannot be a failed fetch.</summary>
+    [Test]
+    [Arguments("https://kcap.example", true)]
+    [Arguments("http://127.0.0.1:9473", true)]
+    [Arguments("http://localhost:9473", true)]
+    [Arguments("http://kcap.example", false)]
+    [Arguments("http://10.0.0.5:8080", false)]
+    public async Task Only_a_server_reached_safely_may_name_the_token_url(string baseUrl, bool believed) {
+        AuthProviderCache.Set(baseUrl, "workos", Config.Root, TimeProvider.System, "https://idp.example/oauth2/token");
+
+        var named = await new AuthProviderDiscovery(new PlainHttpClientFactory(), TimeProvider.System)
+            .MachineTokenUrlAsync(baseUrl, Config.Root);
+
+        await Assert.That(named).IsEqualTo(believed ? "https://idp.example/oauth2/token" : null);
+    }
+
+    /// <summary>Discovery follows redirects, and a plaintext hop anywhere in the chain could have rewritten
+    /// the answer, so only an answer from the URL asked names the token URL.</summary>
+    [Test]
+    [Arguments("http://localhost:9473/auth/config", "https://idp.example/oauth2/token")]
+    [Arguments("http://discovery.example/auth/config", null)]
+    [Arguments("https://discovery.example/auth/config", null)]
+    public async Task Only_an_unredirected_discovery_answer_names_the_token_url(string answeredBy, string? expected) {
+        using var handler = new AnsweredBy(answeredBy);
+
+        var named = await new AuthProviderDiscovery(new PlainHttpClientFactory(handler), TimeProvider.System)
+            .MachineTokenUrlAsync("http://localhost:9473", Config.Root);
+
+        await Assert.That(named).IsEqualTo(expected);
+    }
+
+    /// <summary>Login records the provider from its own fetch, so that fetch drops a token URL that came
+    /// through a redirect the same way discovery does.</summary>
+    [Test]
+    public async Task Login_takes_no_token_url_from_a_redirected_answer() {
+        using var handler = new AnsweredBy("https://discovery.example/auth/config");
+        using var http    = new HttpClient(handler);
+
+        var config = await OAuthLoginFlow.FetchAuthConfigAsync(http, "http://localhost:9473", default, new RecordingAuthProgress());
+
+        await Assert.That(config!.Provider).IsEqualTo("workos");
+        await Assert.That(config.MachineTokenUrl).IsNull();
+    }
+
+    sealed class AnsweredBy(string url) : HttpMessageHandler {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
+                RequestMessage = new HttpRequestMessage(HttpMethod.Get, url),
+                Content        = new StringContent(
+                    """{"provider":"workos","machine_token_url":"https://idp.example/oauth2/token"}""",
+                    Encoding.UTF8, "application/json"),
+            });
+    }
+
+    [Test]
+    [Arguments(null, null, MachineAuth.DefaultTokenUrl)]
+    [Arguments(null, " ", MachineAuth.DefaultTokenUrl)]
+    [Arguments(null, "https://idp.example/oauth2/token", "https://idp.example/oauth2/token")]
+    [Arguments("https://env.example/token", "https://idp.example/oauth2/token", "https://env.example/token")]
+    [Arguments("https://env.example/token", null, "https://env.example/token")]
+    public async Task The_environment_outranks_the_server_which_outranks_the_default(
+            string? environment, string? server, string expected) {
+        await Assert.That(new MachineAuth(null, null, environment).TokenUrlFor(server)).IsEqualTo(expected);
+    }
+
+    /// <summary>A server-named endpoint receives the secret too, so it passes the same check, and the
+    /// refusal names the server rather than an environment variable nobody set.</summary>
+    [Test]
+    public async Task A_plaintext_server_token_url_is_refused_naming_the_server() {
+        using var minter = new MachineTokenProvider(MachineAuth.None, TimeProvider.System);
+        var       result = await minter.GetTokenAsync(
+            Workos, new MachineCredential("client_01ABC", "sekrit"), null, CancellationToken.None,
+            "http://evil.example.com/oauth2/token");
+
+        await Assert.That(result.Token).IsNull();
+        await Assert.That(result.Problem!).Contains("machine_token_url");
+        await Assert.That(result.Problem!).DoesNotContain(MachineAuth.TokenUrlVar);
+    }
+
     /// <summary>
     /// The same path with a half-configured credential reports NotAuthenticated rather than silently
     /// producing an unauthenticated client that would 401 with no explanation.

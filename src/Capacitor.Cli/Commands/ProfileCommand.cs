@@ -140,6 +140,9 @@ public sealed class ProfileCommand(ConfigRoot config, ICapacitorHttpClient http,
         await Console.Out.WriteLineAsync($"  daemon.name: {profile.Daemon?.Name            ?? "(not set)"}");
         await Console.Out.WriteLineAsync($"  daemon.max_agents: {profile.Daemon?.MaxAgents ?? DaemonSettings.DefaultMaxAgents}");
         await Console.Out.WriteLineAsync($"  daemon.auto_resume: {profile.Daemon?.AutoResume ?? true}");
+        await Console.Out.WriteLineAsync($"  hosts.telemetry: {HostsSettings.EffectiveTelemetry(profile.Hosts)}");
+        await Console.Out.WriteLineAsync($"  hosts.npm_registry: {HostsSettings.EffectiveNpmRegistry(profile.Hosts)}");
+        await Console.Out.WriteLineAsync($"  hosts.docs: {HostsSettings.EffectiveDocs(profile.Hosts)}");
 
         if (profile.Remotes is { Length: > 0 }) {
             await Console.Out.WriteLineAsync("  remotes:");

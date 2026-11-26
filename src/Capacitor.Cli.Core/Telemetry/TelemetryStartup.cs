@@ -1,3 +1,5 @@
+using Capacitor.Cli.Core.Config;
+
 namespace Capacitor.Cli.Core.Telemetry;
 
 /// <summary>
@@ -14,6 +16,9 @@ namespace Capacitor.Cli.Core.Telemetry;
 public sealed record TelemetryStartup(
         string Command, string? ServerUrl, string SignupUrl, bool Suppressed, bool Debug, string Source = TelemetryStartup.CliSource,
         UnsavedConsent Unsaved = UnsavedConsent.Share) {
+    /// <summary>The PostHog host this run sends to: the profile's <c>hosts.telemetry</c>, the default otherwise.</summary>
+    public string Endpoint { get; init; } = HostsSettings.DefaultTelemetry;
+
     public const string CliSource     = "cli";
     public const string DesktopSource = "desktop";
 

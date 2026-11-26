@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.DependencyInjection;
 using WireMock.RequestBuilders;
@@ -87,5 +89,40 @@ public class NpmRegistryClientTests : IDisposable {
         var sent = _server.LogEntries.Single().RequestMessage;
 
         await Assert.That(sent.Headers!["User-Agent"].Single()).IsEqualTo("kcap-cli");
+    }
+
+    /// <summary>A registry whose packets are dropped gives up at the connect bound rather than the
+    /// request's 5 s cap.</summary>
+    [Test]
+    public async Task A_registry_that_never_answers_gives_up_at_the_connect_bound() {
+        using var host = new SilentHost();
+        using var sp   = new ServiceCollection()
+            .AddCapacitorForeignClients()
+            .AddHttpClient<NpmRegistryClient>(c => c.BaseAddress = new Uri(host.HttpsUrl + "/"))
+            .Services.BuildServiceProvider();
+
+        var clock  = Stopwatch.StartNew();
+        var result = await sp.GetRequiredService<NpmRegistryClient>().GetDistTagAsync("latest", CancellationToken.None);
+
+        await Assert.That(result.Reached).IsFalse();
+        await Assert.That(clock.Elapsed).IsLessThan(FailFastConnect.Timeout + TimeSpan.FromMilliseconds(400));
+    }
+
+    /// <summary>The profile's <c>hosts.npm_registry</c> is where the registered client reads, a path
+    /// under it included.</summary>
+    [Test]
+    public async Task The_profiles_npm_registry_is_where_the_version_is_read() {
+        _server.Given(Request.Create().WithPath("/mirror/@kurrent/kcap/latest").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"version":"7.7.7"}"""));
+
+        var profile = new Profile { Hosts = new HostsSettings { NpmRegistry = _server.Url + "/mirror" } };
+        using var sp = new ServiceCollection()
+            .AddSingleton(Resolutions.Of(profile))
+            .AddCapacitorForeignClients()
+            .BuildServiceProvider();
+
+        var result = await sp.GetRequiredService<NpmRegistryClient>().GetDistTagAsync("latest", CancellationToken.None);
+
+        await Assert.That(result.Version).IsEqualTo("7.7.7");
     }
 }

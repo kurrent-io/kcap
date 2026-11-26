@@ -173,17 +173,20 @@ public sealed class StatusCommand(
         try {
             using var client = http.Anonymous();
             client.Timeout = TimeSpan.FromSeconds(5);
-            using var resp = await client.GetAsync($"{baseUrl}/auth/config");
+            var       asked  = new Uri($"{baseUrl}/auth/config");
+            using var resp   = await client.GetAsync(asked);
 
             if (!resp.IsSuccessStatusCode) return new ServerReach(baseUrl, false, (int)resp.StatusCode, LastKnownProvider());
 
-            var announced = await AnnouncedProviderAsync(resp);
+            var announced = await AnnouncedAsync(resp);
 
             // Status may be the only thing that ever asks this server, so its answer is recorded
             // the way discovery records its own: the fallback above has nothing else to read.
-            if (announced is not null) AuthProviderCache.Set(baseUrl, announced, config, time);
+            if (announced is not null)
+                AuthProviderCache.Set(baseUrl, announced.Provider, config, time,
+                    AuthProviderDiscovery.TrustedTokenUrl(asked, resp, announced.MachineTokenUrl));
 
-            return new ServerReach(baseUrl, true, null, announced ?? LastKnownProvider());
+            return new ServerReach(baseUrl, true, null, announced?.Provider ?? LastKnownProvider());
         } catch (Exception ex) {
             return new ServerReach(baseUrl, false, null, LastKnownProvider(), ConnectionFailures.Of(ex));
         }
@@ -193,11 +196,11 @@ public sealed class StatusCommand(
 
     /// <summary>Read the way discovery reads it, so both agree on what a server announced: a body
     /// with no provider is <see cref="AuthProvider.None"/>. Null when the body is not that document.</summary>
-    static async Task<string?> AnnouncedProviderAsync(HttpResponseMessage resp) {
+    static async Task<AuthDiscoveryResponse?> AnnouncedAsync(HttpResponseMessage resp) {
         try {
             var config = await resp.Content.ReadFromJsonAsync(CapacitorJsonContext.Default.AuthDiscoveryResponse);
 
-            return config?.Provider ?? AuthProvider.None;
+            return (config ?? new AuthDiscoveryResponse()) with { Provider = config?.Provider ?? AuthProvider.None };
         } catch (Exception e) when (e is JsonException or NotSupportedException) {
             return null;
         }

@@ -196,6 +196,9 @@ public record Profile {
     [JsonPropertyName("grok_bot")]
     public GrokBotSettings? GrokBot { get; init; }
 
+    [JsonPropertyName("hosts")]
+    public HostsSettings? Hosts { get; init; }
+
     /// <summary>
     /// Provider + canonical server identity learned at the last successful sign-in (Plan C's
     /// commit boundary). Additive and READ-only in Plan B — nothing writes it yet; only
