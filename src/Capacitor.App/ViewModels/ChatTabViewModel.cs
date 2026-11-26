@@ -1503,7 +1503,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             TerminalMenuScreen = dialog!.Screen;
         } else if (shown) {
             TerminalMenuTitle = "Waiting for you in Terminal";
-            TerminalMenuHint = "Answer the terminal dialog. The chat continues once it closes.";
+            TerminalMenuHint = "Answer the terminal dialog first";
             if (dialog!.Options.Count > 0) {
                 TerminalMenuHeading = dialog.Heading;
                 TerminalMenuSummary = dialog.Body;
