@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
              xmlns:views="clr-namespace:Capacitor.App.Views"
+             xmlns:inboxViews="clr-namespace:Capacitor.App.Views.Inbox"
              xmlns:svc="clr-namespace:Capacitor.App.Services"
              xmlns:client="clr-namespace:Capacitor.Client;assembly=Capacitor.Client"
              xmlns:cmd="clr-namespace:Capacitor.Cli.Core.Commands;assembly=Capacitor.Cli.Core"
@@ -425,7 +426,7 @@
                         </StackPanel>
                     </Border>
                     <!-- The chip docks beside the column, on its last line. -->
-                    <Grid ColumnDefinitions="*,Auto" ClipToBounds="True">
+                    <Grid ColumnDefinitions="*,Auto,Auto" ClipToBounds="True">
                     <StackPanel Grid.Column="0" VerticalAlignment="Bottom" Spacing="2" IsVisible="{Binding !ShowsUpdateContext}">
                     <!-- One status slot above the org: the alert when something needs the user,
                          Connected otherwise. The words are the indicator; the hover carries what the
@@ -473,7 +474,29 @@
                             <TextBlock Grid.Column="2" Text="{Binding DaemonName}" Classes="footerMeta" TextTrimming="CharacterEllipsis" />
                         </Grid>
                     </StackPanel>
-                    <Button x:Name="RailHelpButton" Grid.Column="1" Classes="kcapChip" VerticalAlignment="Bottom"
+                    <!-- The notification bell: the same server inbox as the web bell. Absent where the server does not
+                         offer notifications to this user. -->
+                    <Panel Grid.Column="1" VerticalAlignment="Bottom" Margin="10,0,0,0" IsVisible="{Binding Inbox.IsVisible, FallbackValue=False}">
+                        <Button x:Name="RailInboxButton" Classes="kcapChip" DataContext="{Binding Inbox}"
+                                Width="{StaticResource KcapMinTargetSize}" Height="{StaticResource KcapMinTargetSize}" Padding="0" CornerRadius="6"
+                                ToolTip.Tip="Notifications" AutomationProperties.Name="{Binding AccessibleName, FallbackValue=Notifications}">
+                            <views:AppIcon Kind="Bell" Size="16" Foreground="{StaticResource KcapMutedBrush}" />
+                            <Button.Flyout>
+                                <Flyout Placement="TopEdgeAlignedRight" VerticalOffset="6" FlyoutPresenterClasses="kcapPanel"
+                                        Opened="OnInboxFlyoutOpened" Closed="OnInboxFlyoutClosed">
+                                    <inboxViews:InboxPanelView x:Name="RailInboxPanel" />
+                                </Flyout>
+                            </Button.Flyout>
+                        </Button>
+                        <Border x:Name="RailInboxBadge" IsHitTestVisible="False" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                Margin="0,-6,-6,0" MinWidth="18" Height="18" Padding="5,0" CornerRadius="9"
+                                Background="{StaticResource KcapDangerBrush}" BorderBrush="{StaticResource KcapSurfaceBrush}" BorderThickness="2"
+                                IsVisible="{Binding Inbox.HasUnread, FallbackValue=False}">
+                            <TextBlock Text="{Binding Inbox.BadgeText, FallbackValue=''}" FontSize="10.5" FontWeight="Bold"
+                                       Foreground="{StaticResource KcapCanvasBrush}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </Panel>
+                    <Button x:Name="RailHelpButton" Grid.Column="2" Classes="kcapChip" VerticalAlignment="Bottom"
                             Width="{StaticResource KcapMinTargetSize}" Height="{StaticResource KcapMinTargetSize}" Padding="0" CornerRadius="6" Margin="10,0,0,0"
                             ToolTip.Tip="Help and support" AutomationProperties.Name="Help and support">
                         <views:AppIcon Kind="CircleQuestionMark" Size="14" Foreground="{StaticResource KcapMutedBrush}" />

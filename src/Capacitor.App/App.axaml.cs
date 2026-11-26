@@ -21,6 +21,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Capacitor.App.Services;
 using Capacitor.App.Services.Composer;
+using Capacitor.App.Services.Inbox;
 using Capacitor.App.Services.CliAdoption;
 using Capacitor.App.Services.LocalSetup;
 using Capacitor.App.Services.Mutation;
@@ -30,10 +31,12 @@ using Capacitor.App.Services.Update;
 using Capacitor.Cli.Core.Install;
 using Capacitor.App.ProgressiveDisclosure;
 using Capacitor.App.ViewModels;
+using Capacitor.App.ViewModels.Inbox;
 using Capacitor.App.ViewModels.NextWork;
 using Capacitor.App.ViewModels.Onboarding;
 using ReactiveUI.Reactive;
 using Capacitor.App.Views;
+using Capacitor.App.Views.Inbox;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
@@ -1612,6 +1615,8 @@ public partial class App : Application {
                 nextWork: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : new NextWorkApi(sessionHttp, profiles),
                 openUrl: url => LinkPolicy.Open(opener, url), pickers: pickers, sessionCli: lifecycleCli,
                 nextWorkEnabled: () => launcherNextWork.IsOn,
+                inbox: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : new InboxApi(sessionHttp, profiles),
+                inboxSignInCompleted: serverClients.SignInCompleted,
                 nextWorkSwitchMayChange: _experimentalSaved.Merge(
                     Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default)))))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
@@ -2607,7 +2612,10 @@ public partial class App : Application {
             IObservable<Func<bool>?>? harnessesSettingsAction = null, IObservable<NewHarnesses?>? newHarnesses = null, INextWorkApi? nextWork = null, Action<string>? openUrl = null,
             ComposerPickers? pickers = null,
             IKcapCli? sessionCli = null,
-            Func<bool>? nextWorkEnabled = null, IObservable<Unit>? nextWorkSwitchMayChange = null) {
+            Func<bool>? nextWorkEnabled = null,
+            IInboxApi? inbox = null,
+            IObservable<Unit>? inboxSignInCompleted = null,
+            IObservable<Unit>? nextWorkSwitchMayChange = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
         // the VM's WhenActivated-scoped projections.
@@ -2723,6 +2731,26 @@ public partial class App : Application {
                 time, RxSchedulers.MainThreadScheduler, open, sidebar: () => rail.Groups.SelectMany(group => group.Sessions),
                 openSidebar: row => vm?.OpenSession(row.Id, row.IsServer ? AgentOrigin.Server : row.IsRemote ? AgentOrigin.Remote : AgentOrigin.Local) == true,
                 viewerUserId: sessions.ViewerUserId.ObserveOn(RxSchedulers.MainThreadScheduler));
+        InboxSettingsWindow? inboxSettings = null;
+        InboxBellViewModel? inboxBell = null;
+        if (inbox is not null && lane is not null) {
+            var inboxChanged = lane.NotificationsChanged;
+            inboxBell = new InboxBellViewModel(inbox, lane.Status, inboxChanged, url => openUrl?.Invoke(url), () => {
+                if (inboxSettings is { } shown) {
+                    shown.Activate();
+                    return;
+                }
+                var settingsVm = new InboxSettingsViewModel(inbox, inboxChanged, inboxBell?.PassesOffered == true,
+                    () => { if (appServerUrl is { Length: > 0 } server) openUrl?.Invoke(server); });
+                var settingsWindow = new InboxSettingsWindow { DataContext = settingsVm };
+                inboxSettings = settingsWindow;
+                settingsWindow.Closed += (_, _) => { inboxSettings = null; settingsVm.Dispose(); };
+                if (railOwner is { } owner) settingsWindow.Show(owner);
+                else settingsWindow.Show();
+            }, time, inboxSignInCompleted);
+            // One settings window serves one account; reopening it reads the account signed in now.
+            inboxBell.AccountChanged += () => inboxSettings?.Close();
+        }
         vm = new MainWindowViewModel(
             service, shutdownToken, activity, time, startAction, lifecycleStatus, home: home,
             navigation: navigation, trackWorkspaceTeardown: trackWorkspaceTeardown, workspaceFactory: workspaceFactory,
@@ -2737,11 +2765,16 @@ public partial class App : Application {
             movingToWindowsService: movingToWindowsService) {
             LocalStack = localStack,
             Web = web,
+            Inbox = inboxBell,
         };
         var window = adopt?.Window ?? new MainWindow();
         railOwner = window;
         window.DataContext = vm;
         window.Closed += (_, _) => vm.Search?.Dispose();
+        window.Closed += (_, _) => {
+            inboxSettings?.Close();
+            inboxBell?.Dispose();
+        };
         // An adopted window still holds the labels over the directory it was built with.
         window.GetValue(MarkdownView.AgentLinksProperty)?.Dispose();
         var agentLinks = new AgentLinkLabels(appServerUrl, resolvedDirectory.Rows, RxSchedulers.MainThreadScheduler);

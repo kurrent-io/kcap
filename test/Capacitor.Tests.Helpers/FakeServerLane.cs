@@ -29,6 +29,7 @@ public sealed class FakeServerLane : IServerLane {
     public Subject<SessionPush> SessionPushesSubject { get; } = new();
     public Subject<PendingInputUpdate> PendingInputSubject { get; } = new();
     public Subject<string> HeldMessagesSubject { get; } = new();
+    public Subject<ReactiveUnit> NotificationsSubject { get; } = new();
     public Subject<TerminalOutputFrame> TerminalOutputSubject { get; } = new();
     public Subject<TerminalSize> TerminalDimensionsSubject { get; } = new();
     public Func<Task<IReadOnlyList<DaemonInfo>?>> DaemonsHandler { get; set; } = () => Task.FromResult<IReadOnlyList<DaemonInfo>?>([]);
@@ -86,6 +87,7 @@ public sealed class FakeServerLane : IServerLane {
     public IObservable<SessionPush> SessionPushes => SessionPushesSubject;
     public IObservable<PendingInputUpdate> PendingInputChanged => PendingInputSubject;
     public IObservable<string> HeldMessagesChanged => HeldMessagesSubject;
+    public IObservable<ReactiveUnit> NotificationsChanged => NotificationsSubject;
     public IObservable<TerminalOutputFrame> TerminalOutput => TerminalOutputSubject;
     public IObservable<TerminalSize> TerminalDimensions => TerminalDimensionsSubject;
     public Task<IReadOnlyList<DaemonInfo>?> GetConnectedDaemonsAsync(CancellationToken ct) => DaemonsHandler();

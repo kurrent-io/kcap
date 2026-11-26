@@ -1,0 +1,522 @@
+using System.Reactive.Linq;
+using System.Reactive.Threading.Tasks;
+using RxUnit = System.Reactive.Unit;
+using System.Reactive.Subjects;
+using Capacitor.App.Services.Inbox;
+using Capacitor.App.ViewModels.Inbox;
+using Capacitor.Remote.Models;
+using Microsoft.Extensions.Time.Testing;
+
+namespace Capacitor.App.Tests.Unit.ViewModels.Inbox;
+
+[NotInParallel("AvaloniaSession")]
+public class InboxBellViewModelTests {
+    static readonly DateTimeOffset Now = new(2026, 11, 25, 12, 0, 0, TimeSpan.Zero);
+
+    static NotificationItemDto Item(string id, long version = 1, bool unread = true, string type = "pass_received") => new() {
+        LogicalId = id, Version = version, IsUnread = unread, Type = type, Title = $"title {id}", UpdatedAt = Now.AddMinutes(-5),
+        LinkUrl = "/passes/p1", LinkLabel = "Open pass",
+    };
+
+    static InboxRead<NotificationPageDto> PageOf(int unread, params NotificationItemDto[] items) =>
+        new(InboxReadKind.Ready, new() { Items = items, UnreadCount = unread });
+
+    sealed class Rig : IDisposable {
+        public readonly FakeInboxApi Api = new();
+        public readonly BehaviorSubject<ServerLaneStatus> Status = new(new(ServerLaneState.Dormant));
+        public readonly Subject<RxUnit> Changed = new();
+        public readonly Subject<RxUnit> SignIn = new();
+        public int AccountChanges;
+        public readonly List<string> Opened = [];
+        public int SettingsOpened;
+        public InboxBellViewModel Bell = null!;
+
+        public Rig Start() {
+            Bell = new(Api, Status, Changed, Opened.Add, () => SettingsOpened++, new FakeTimeProvider(Now), SignIn);
+            Bell.AccountChanged += () => AccountChanges++;
+            return this;
+        }
+
+        public void Connect() => Status.OnNext(new(ServerLaneState.Connected));
+
+        public void Dispose() => Bell.Dispose();
+    }
+
+    [Test]
+    public async Task The_bell_shows_once_connected_where_notifications_are_offered_and_names_its_count() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Count = new(InboxReadKind.Ready, new() { Count = 120 });
+        await Assert.That(rig.Bell.IsVisible).IsFalse();
+
+        rig.Connect();
+
+        await Assert.That(rig.Bell.IsVisible).IsTrue();
+        await Assert.That(rig.Bell.BadgeText).IsEqualTo("99+");
+        await Assert.That(rig.Bell.AccessibleName).IsEqualTo("Notifications, 120 unread");
+
+        rig.Status.OnNext(new(ServerLaneState.SignedOut));
+        await Assert.That(rig.Bell.IsVisible).IsFalse();
+    });
+
+    [Test]
+    public async Task The_bell_stays_hidden_where_notifications_are_off_or_the_server_lacks_the_routes() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var off = new Rig().Start();
+        off.Api.Surfaces = new(InboxReadKind.Ready, new() { Notifications = false });
+        off.Connect();
+        await Assert.That(off.Bell.IsVisible).IsFalse();
+        await Assert.That(off.Api.CountReads).IsEqualTo(0);
+
+        using var old = new Rig().Start();
+        old.Api.Count = InboxRead<NotificationUnreadCountDto>.Unavailable;
+        old.Connect();
+        await Assert.That(old.Bell.IsVisible).IsFalse();
+    });
+
+    [Test]
+    public async Task A_closed_panel_reads_only_the_count_and_opening_it_reads_the_list() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1"));
+        rig.Connect();
+        rig.Changed.OnNext(RxUnit.Default);
+        await Assert.That(rig.Api.PageReads).IsEqualTo(0);
+        await Assert.That(rig.Api.CountReads).IsEqualTo(2);
+
+        rig.Bell.IsOpen = true;
+
+        await Assert.That(rig.Api.PageReads).IsEqualTo(1);
+        await Assert.That(rig.Bell.Items.Single().LinkUrl).IsEqualTo("https://kcap.example/passes/p1");
+        await Assert.That(rig.Bell.UnreadCount).IsEqualTo(1);
+        await Assert.That(rig.Bell.IsLoading).IsFalse();
+    });
+
+    [Test]
+    public async Task Pushes_that_land_during_a_read_cost_one_more_read() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Connect();
+        var gate = new TaskCompletionSource();
+        rig.Api.CountGate = gate;
+        rig.Changed.OnNext(RxUnit.Default);
+        rig.Changed.OnNext(RxUnit.Default);
+        rig.Changed.OnNext(RxUnit.Default);
+        rig.Api.CountGate = null;
+        gate.SetResult();
+        await Task.Yield();
+
+        await Assert.That(rig.Api.CountReads).IsEqualTo(3);
+    });
+
+    [Test]
+    public async Task A_dismissed_row_stays_hidden_until_the_server_shows_a_newer_version() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(2, Item("n1"), Item("n2"));
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        await rig.Bell.Items[0].DismissCommand.Execute();
+
+        await Assert.That(rig.Api.Calls).Contains("dismiss n1@1");
+        await Assert.That(rig.Bell.Items.Select(i => i.LogicalId)).IsEquivalentTo(["n2"]);
+        await Assert.That(rig.Bell.UnreadCount).IsEqualTo(1);
+
+        rig.Api.Page = PageOf(2, Item("n1", version: 2), Item("n2"));
+        rig.Bell.Refresh();
+        await Assert.That(rig.Bell.Items.Select(i => i.LogicalId)).IsEquivalentTo(["n1", "n2"]);
+    });
+
+    [Test]
+    public async Task An_answer_shows_the_servers_sentence_or_a_fallback_when_it_could_not_be_sent() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        var prompt = Item("n1", type: "agent_prompt") with {
+            Buttons = [new() { Answer = "allow", Label = "Allow", Style = "primary" }], ReplyLabel = "Reply",
+        };
+        rig.Api.Page = PageOf(1, prompt);
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        var card = rig.Bell.Items.Single();
+
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = true, Message = "Approved" });
+        card.Buttons.Single().Command.Execute(null);
+        await Assert.That(card.Note).IsEqualTo("Approved");
+
+        rig.Api.Answer = InboxRead<NotificationAnswerResponseDto>.Failed;
+        card.ReplyText = "on it";
+        await card.SendReplyCommand.Execute();
+        await Assert.That(rig.Api.Calls).Contains("answer n1 reply on it");
+        await Assert.That(card.Note).IsEqualTo("Couldn't send that answer. Try again, or answer it in kcap");
+        await Assert.That(card.ReplyText).IsEqualTo("on it");
+    });
+
+    [Test]
+    public async Task A_read_begun_before_a_disconnect_never_shows_the_bell() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        var gate = new TaskCompletionSource();
+        rig.Api.CountGate = gate;
+        rig.Api.Count = new(InboxReadKind.Ready, new() { Count = 4 });
+        rig.Connect();
+        rig.Status.OnNext(new(ServerLaneState.Retrying));
+
+        gate.SetResult();
+        await Task.Yield();
+
+        await Assert.That(rig.Bell.IsVisible).IsFalse();
+        await Assert.That(rig.Bell.UnreadCount).IsEqualTo(0);
+    });
+
+    [Test]
+    public async Task A_reconnect_during_a_running_read_still_admits_the_bell() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        var gate = new TaskCompletionSource();
+        rig.Api.CountGate = gate;
+        rig.Api.Count = new(InboxReadKind.Ready, new() { Count = 2 });
+        rig.Connect();
+        rig.Status.OnNext(new(ServerLaneState.Retrying));
+        rig.Connect();
+
+        rig.Api.CountGate = null;
+        gate.SetResult();
+        await Task.Yield();
+
+        await Assert.That(rig.Bell.IsVisible).IsTrue();
+        await Assert.That(rig.Bell.UnreadCount).IsEqualTo(2);
+    });
+
+    [Test]
+    public async Task A_re_read_keeps_the_answer_sentence_and_an_unsent_reply_on_the_replacement_card() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        var prompt = Item("n1", type: "agent_prompt") with {
+            Buttons = [new() { Answer = "allow", Label = "Allow", Style = "primary" }], ReplyLabel = "Reply",
+        };
+        rig.Api.Page = PageOf(1, prompt, Item("n2"));
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = true, Message = "Approved" });
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        rig.Bell.Items[0].Buttons.Single().Command.Execute(null);
+        rig.Bell.Items[1].ReplyText = "half typed";
+        rig.Changed.OnNext(RxUnit.Default);
+
+        await Assert.That(rig.Bell.Items[0].Note).IsEqualTo("Approved");
+        await Assert.That(rig.Bell.Items[1].ReplyText).IsEqualTo("half typed");
+    });
+
+    [Test]
+    public async Task An_answer_that_lands_after_a_disconnect_leaves_no_sentence_for_the_next_connection() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        var prompt = Item("n1", type: "agent_prompt") with { Buttons = [new() { Answer = "allow", Label = "Allow", Style = "primary" }] };
+        rig.Api.Page = PageOf(1, prompt);
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = true, Message = "Approved" });
+        var gate = new TaskCompletionSource();
+        rig.Api.AnswerGate = gate;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        rig.Bell.Items.Single().Buttons.Single().Command.Execute(null);
+        rig.Status.OnNext(new(ServerLaneState.SignedOut));
+        gate.SetResult();
+        await Task.Yield();
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        await Assert.That(rig.Bell.Items.Single().Note).IsNull();
+    });
+
+    [Test]
+    public async Task A_push_retries_admission_after_a_failed_first_read() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Count = InboxRead<NotificationUnreadCountDto>.Failed;
+        rig.Connect();
+        await Assert.That(rig.Bell.IsVisible).IsFalse();
+
+        rig.Api.Count = new(InboxReadKind.Ready, new() { Count = 1 });
+        rig.Changed.OnNext(RxUnit.Default);
+
+        await Assert.That(rig.Bell.IsVisible).IsTrue();
+    });
+
+    [Test]
+    public async Task A_refused_reply_keeps_its_draft() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1", type: "agent_prompt") with { ReplyLabel = "Reply" });
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = false, Message = "This prompt has already been answered, or is no longer waiting" });
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        var card = rig.Bell.Items.Single();
+
+        card.ReplyText = "on it";
+        await card.SendReplyCommand.Execute();
+
+        await Assert.That(card.ReplyText).IsEqualTo("on it");
+        await Assert.That(card.Note).StartsWith("This prompt has already been answered");
+    });
+
+    [Test]
+    public async Task A_dismissal_does_not_carry_over_to_the_next_connection() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1"));
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        await rig.Bell.Items.Single().DismissCommand.Execute();
+
+        rig.Status.OnNext(new(ServerLaneState.SignedOut));
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        await Assert.That(rig.Bell.Items.Select(i => i.LogicalId)).IsEquivalentTo(["n1"]);
+        await Assert.That(rig.Bell.UnreadCount).IsEqualTo(1);
+    });
+
+    [Test]
+    public async Task A_push_during_admission_costs_one_more_read_afterwards() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        var gate = new TaskCompletionSource();
+        rig.Api.SurfacesGate = gate;
+        rig.Api.Count = new(InboxReadKind.Ready, new() { Count = 1 });
+        rig.Connect();
+        rig.Changed.OnNext(RxUnit.Default);
+        rig.Api.Count = new(InboxReadKind.Ready, new() { Count = 2 });
+
+        rig.Api.SurfacesGate = null;
+        gate.SetResult();
+        await Task.Yield();
+
+        await Assert.That(rig.Bell.IsVisible).IsTrue();
+        await Assert.That(rig.Bell.UnreadCount).IsEqualTo(2);
+    });
+
+    [Test]
+    public async Task A_draft_typed_while_a_reply_is_in_flight_survives_a_refresh_and_a_refusal() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1", type: "agent_prompt") with { ReplyLabel = "Reply" });
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = false, Message = "Answer this one in kcap: that answer isn't offered here" });
+        var gate = new TaskCompletionSource();
+        rig.Api.AnswerGate = gate;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        var card = rig.Bell.Items.Single();
+        card.ReplyText = "on it";
+        var sending = card.SendReplyCommand.Execute().ToTask();
+        rig.Changed.OnNext(RxUnit.Default);
+        gate.SetResult();
+        await sending;
+
+        await Assert.That(rig.Bell.Items.Single().ReplyText).IsEqualTo("on it");
+    });
+
+    [Test]
+    public async Task An_accepted_reply_clears_the_draft_on_the_card_on_screen() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1", type: "agent_prompt") with { ReplyLabel = "Reply" });
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = true, Message = "Answer sent" });
+        var gate = new TaskCompletionSource();
+        rig.Api.AnswerGate = gate;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        var card = rig.Bell.Items.Single();
+        card.ReplyText = "on it";
+        var sending = card.SendReplyCommand.Execute().ToTask();
+        rig.Changed.OnNext(RxUnit.Default);
+        gate.SetResult();
+        await sending;
+
+        await Assert.That(rig.Bell.Items.Single().ReplyText).IsNull();
+        await Assert.That(rig.Bell.Items.Single().Note).IsEqualTo("Answer sent");
+    });
+
+    [Test]
+    public async Task A_newer_draft_survives_an_earlier_reply_being_accepted() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1", type: "agent_prompt") with { ReplyLabel = "Reply" });
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = true, Message = "Answer sent" });
+        var gate = new TaskCompletionSource();
+        rig.Api.AnswerGate = gate;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        var card = rig.Bell.Items.Single();
+        card.ReplyText = "on it";
+        var sending = card.SendReplyCommand.Execute().ToTask();
+        rig.Changed.OnNext(RxUnit.Default);
+        rig.Bell.Items.Single().ReplyText = "and one more thing";
+        gate.SetResult();
+        await sending;
+
+        await Assert.That(rig.Bell.Items.Single().ReplyText).IsEqualTo("and one more thing");
+    });
+
+    [Test]
+    public async Task A_card_that_replaces_one_mid_answer_stays_busy_until_the_answer_settles() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1", type: "agent_prompt") with { Buttons = [new() { Answer = "allow", Label = "Allow", Style = "primary" }] });
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = true, Message = "Approved" });
+        var gate = new TaskCompletionSource();
+        rig.Api.AnswerGate = gate;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        rig.Bell.Items.Single().Buttons.Single().Command.Execute(null);
+        rig.Changed.OnNext(RxUnit.Default);
+        var replacement = rig.Bell.Items.Single();
+        await Assert.That(replacement.IsAnswering).IsTrue();
+        await Assert.That(replacement.Buttons.Single().Command.CanExecute(null)).IsFalse();
+
+        gate.SetResult();
+        await Task.Yield();
+
+        await Assert.That(rig.Bell.Items.Single().IsAnswering).IsFalse();
+        await Assert.That(rig.Api.Calls.Count(c => c.StartsWith("answer", StringComparison.Ordinal))).IsEqualTo(1);
+    });
+
+    [Test]
+    public async Task An_answer_from_a_previous_connection_does_not_settle_one_in_flight_now() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1", type: "agent_prompt") with { Buttons = [new() { Answer = "allow", Label = "Allow", Style = "primary" }] });
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = true, Message = "Approved" });
+        var first = new TaskCompletionSource();
+        rig.Api.AnswerGate = first;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        rig.Bell.Items.Single().Buttons.Single().Command.Execute(null);
+
+        rig.Status.OnNext(new(ServerLaneState.SignedOut));
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        var second = new TaskCompletionSource();
+        rig.Api.AnswerGate = second;
+        rig.Bell.Items.Single().Buttons.Single().Command.Execute(null);
+        rig.Changed.OnNext(RxUnit.Default);
+
+        first.SetResult();
+        await Task.Yield();
+
+        await Assert.That(rig.Bell.Items.Single().IsAnswering).IsTrue();
+        second.SetResult();
+    });
+
+    [Test]
+    public async Task A_failed_first_list_read_offers_a_retry_instead_of_spinning() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = InboxRead<NotificationPageDto>.Failed;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        await Assert.That(rig.Bell.ListFailed).IsTrue();
+        await Assert.That(rig.Bell.IsLoading).IsFalse();
+        await Assert.That(rig.Bell.IsEmpty).IsFalse();
+
+        rig.Api.Page = PageOf(1, Item("n1"));
+        await rig.Bell.RetryListCommand.Execute();
+
+        await Assert.That(rig.Bell.ListFailed).IsFalse();
+        await Assert.That(rig.Bell.Items.Single().LogicalId).IsEqualTo("n1");
+    });
+
+    [Test]
+    public async Task A_completed_sign_in_starts_the_bell_over_for_the_new_account() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1"));
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        await Assert.That(rig.Bell.Items.Count).IsEqualTo(1);
+
+        rig.Api.Count = new(InboxReadKind.Ready, new() { Count = 3 });
+        rig.SignIn.OnNext(RxUnit.Default);
+
+        await Assert.That(rig.AccountChanges).IsEqualTo(1);
+        await Assert.That(rig.Bell.IsOpen).IsFalse();
+        await Assert.That(rig.Bell.Items.Count).IsEqualTo(0);
+        await Assert.That(rig.Bell.UnreadCount).IsEqualTo(3);
+        await Assert.That(rig.Bell.IsVisible).IsTrue();
+    });
+
+    [Test]
+    public async Task A_dropped_connection_or_another_account_counts_as_an_account_change() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Status.OnNext(new(ServerLaneState.Connected, Subject: "alice"));
+        rig.Status.OnNext(new(ServerLaneState.Connected, Subject: "alice"));
+        await Assert.That(rig.AccountChanges).IsEqualTo(0);
+
+        rig.Status.OnNext(new(ServerLaneState.Retrying));
+        rig.Status.OnNext(new(ServerLaneState.Connected, Subject: "alice"));
+        rig.Status.OnNext(new(ServerLaneState.Connected, Subject: "bob"));
+        rig.Status.OnNext(new(ServerLaneState.SignedOut));
+
+        await Assert.That(rig.AccountChanges).IsEqualTo(3);
+    });
+
+    [Test]
+    public async Task A_bulk_action_still_on_its_way_out_at_a_sign_in_is_not_sent() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1"));
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        var gate = new TaskCompletionSource();
+        rig.Api.DismissAllGate = gate;
+        await rig.Bell.AskDeleteAllCommand.Execute();
+        var deleting = rig.Bell.DeleteAllCommand.Execute().ToTask();
+
+        rig.SignIn.OnNext(RxUnit.Default);
+        gate.SetResult();
+        await deleting;
+
+        await Assert.That(rig.Api.Calls).DoesNotContain("dismiss-all");
+    });
+
+    [Test]
+    public async Task A_dismissal_from_an_earlier_connection_does_not_undo_one_made_since() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1"));
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        var stale = new TaskCompletionSource();
+        rig.Api.DismissGate = stale;
+        var first = rig.Bell.Items.Single().DismissCommand.Execute().ToTask();
+
+        rig.Status.OnNext(new(ServerLaneState.Retrying));
+        rig.Api.DismissGate = null;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        await rig.Bell.Items.Single().DismissCommand.Execute();
+        stale.SetResult();
+        await first;
+        rig.Bell.Refresh();
+
+        await Assert.That(rig.Bell.Items).IsEmpty();
+    });
+
+    [Test]
+    public async Task Delete_all_acts_only_once_confirmed() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1"));
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        await rig.Bell.AskDeleteAllCommand.Execute();
+        await rig.Bell.CancelDeleteAllCommand.Execute();
+        await Assert.That(rig.Api.DismissAllCalls).IsEqualTo(0);
+
+        await rig.Bell.AskDeleteAllCommand.Execute();
+        await Assert.That(rig.Bell.IsConfirmingDeleteAll).IsTrue();
+        await rig.Bell.DeleteAllCommand.Execute();
+        await Assert.That(rig.Api.DismissAllCalls).IsEqualTo(1);
+        await Assert.That(rig.Bell.IsConfirmingDeleteAll).IsFalse();
+    });
+
+    [Test]
+    public async Task Following_a_link_or_opening_settings_closes_the_panel() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1"));
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        await rig.Bell.Items.Single().OpenLinkCommand.Execute();
+        await Assert.That(rig.Opened).IsEquivalentTo(["https://kcap.example/passes/p1"]);
+        await Assert.That(rig.Bell.IsOpen).IsFalse();
+
+        rig.Bell.IsOpen = true;
+        await rig.Bell.OpenSettingsCommand.Execute();
+        await Assert.That(rig.SettingsOpened).IsEqualTo(1);
+        await Assert.That(rig.Bell.IsOpen).IsFalse();
+    });
+}
