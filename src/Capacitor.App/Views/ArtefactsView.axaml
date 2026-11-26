@@ -59,7 +59,7 @@
         </Style>
     </UserControl.Styles>
     <Grid RowDefinitions="Auto,*">
-        <Border x:Name="SelectorBar" IsVisible="{Binding HasAny}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1" Padding="16,8">
+        <Border x:Name="SelectorBar" IsVisible="{Binding HasAny}" PointerEntered="OnSelectorBarEntered" Background="Transparent" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1" Padding="16,8">
             <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto" ColumnSpacing="6">
                 <Button x:Name="PreviousItem" Classes="kcapGhost kcapIcon" Command="{Binding PreviousCommand}" IsVisible="{Binding CanChoose}"
                         AutomationProperties.Name="Previous" ToolTip.Tip="Previous" VerticalAlignment="Center">

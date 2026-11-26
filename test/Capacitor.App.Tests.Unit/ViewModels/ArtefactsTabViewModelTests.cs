@@ -753,6 +753,31 @@ public class ArtefactsTabViewModelTests {
         });
     }
 
+    /// The in-app switch flipping raises nothing, so the arrows ask again when refreshed: a page that would
+    /// now open in the browser stops being a step.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Refreshing_the_steps_follows_the_in_app_switch() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            var now = h.Time.GetUtcNow();
+            h.Source.EnqueuePages(Pages(Page("a", "Poll", now), Page("b", "Report", now)));
+            await h.SwitchAsync(SessionA);
+            await h.Vm.OpenPageCommand.Execute(h.Vm.Pages[0]);
+            await h.PageLoadedAsync();
+            await Assert.That(h.Vm.CanStepNext).IsTrue();
+
+            var raised = new List<string?>();
+            h.Vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+            h.InAppPages = false;
+            h.Vm.RefreshSteps();
+
+            await Assert.That(raised).Contains(nameof(ArtefactsTabViewModel.CanStepNext));
+            await Assert.That(h.Vm.CanStepNext).IsFalse();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
     /// The only listed item, open, leaves nothing to choose. A page opened from a link the session does
     /// not list is named as such and stays open with the listed one a step away.
     [Test]

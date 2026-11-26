@@ -1,6 +1,8 @@
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
+using Avalonia.Input;
 using Avalonia.Interactivity;
+using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
 
@@ -8,6 +10,8 @@ public partial class ArtefactsView : UserControl {
     FlyoutBase? _openMenu;
 
     public ArtefactsView() => InitializeComponent();
+
+    void OnSelectorBarEntered(object? sender, PointerEventArgs e) => (DataContext as ArtefactsTabViewModel)?.RefreshSteps();
 
     void OnMenuOpened(object? sender, EventArgs e) => _openMenu = sender as FlyoutBase;
 

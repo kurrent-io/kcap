@@ -128,7 +128,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     public object? CurrentItem => PageViewer is { } viewer ? _pages.FirstOrDefault(p => p.Id == viewer.ArtefactId) : Selected;
     public bool ShowsUnlistedPage => PageViewer is { } viewer && _pages.All(p => p.Id != viewer.ArtefactId);
     public string CurrentTitle => CurrentItem switch {
-        PageRow page => page.Title,
+        PageRow page => PageViewer is { Title.Length: > 0 } loaded ? loaded.Title : page.Title,
         DocumentRow document => document.FileName,
         _ => PageViewer is { Title.Length: > 0 } viewer ? viewer.Title
             : PageViewer is not null ? "Page"
@@ -147,6 +147,12 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     public bool CanStepPrevious => StepTarget(-1) is not null;
     public bool CanStepNext => StepTarget(1) is not null;
 
+    /// The in-app switch raises nothing when it flips, so the bar asks again before it is used.
+    public void RefreshSteps() {
+        this.RaisePropertyChanged(nameof(CanStepPrevious));
+        this.RaisePropertyChanged(nameof(CanStepNext));
+    }
+
     public bool ShowsReaderNote => Reader is null && PageViewer is null;
 
     /// The transcript the listed session is read from, in the chat's terms; a published page is cited
@@ -159,6 +165,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         get;
         set {
             this.RaiseAndSetIfChanged(ref field, value);
+            RefreshSteps();
             OpenFirst();
         }
     }
