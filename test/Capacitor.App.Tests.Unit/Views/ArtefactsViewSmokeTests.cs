@@ -98,4 +98,38 @@ public class ArtefactsViewSmokeTests {
         window.Close();
         await vm.TeardownAsync();
     });
+
+    /// The in-app switch raises nothing when it flips, so focusing an arrow re-asks it: a page that would now
+    /// open in the browser stops being a step before the keyboard can press it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Focusing_an_arrow_rereads_the_in_app_switch() => RunOnUiAsync(async () => {
+        var now = DateTimeOffset.UtcNow;
+        var inApp = true;
+        var source = new FakePlanArtifactSource();
+        source.EnqueuePages(new SessionPagesRead(SessionPlansReadKind.Ready, [
+            new ArtefactDto("01ec", "Release checklist", "u1", "org", 1, now, true, null, null, "https://kurrent.kcap.ai/pages/01ec"),
+            new ArtefactDto("02fd", "Rollout notes", "u1", "org", 1, now, true, null, null, "https://kurrent.kcap.ai/pages/02fd"),
+        ]));
+        var vm = new ArtefactsTabViewModel(source, new PlanActivity(), TimeProvider.System, opener: new RecordingOpener(),
+            pageContent: new FakePageContentSource(), webView: new FixedWebViewAvailability(true), inAppPages: () => inApp);
+        var window = new Window { Content = new ArtefactsView { DataContext = vm }, Width = 900, Height = 600 };
+        window.Show();
+        vm.SwitchSession(Session, "/repo");
+        await (vm.PendingPagesForTesting ?? Task.CompletedTask);
+        await vm.OpenPageCommand.Execute(vm.Pages[0]);
+        await (vm.PendingPageLoadForTesting ?? Task.CompletedTask);
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+        var next = Find<Button>(window, "NextItem");
+        await Assert.That(next.IsEffectivelyEnabled).IsTrue();
+
+        inApp = false;
+        next.Focus();
+        Dispatcher.UIThread.RunJobs();
+
+        await Assert.That(next.IsEffectivelyEnabled).IsFalse();
+        window.Close();
+        await vm.TeardownAsync();
+    });
 }

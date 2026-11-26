@@ -1,6 +1,5 @@
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
-using Avalonia.Input;
 using Avalonia.Interactivity;
 using Capacitor.App.ViewModels;
 
@@ -11,7 +10,8 @@ public partial class ArtefactsView : UserControl {
 
     public ArtefactsView() => InitializeComponent();
 
-    void OnSelectorBarEntered(object? sender, PointerEventArgs e) => (DataContext as ArtefactsTabViewModel)?.RefreshSteps();
+    // Any pointer or keyboard approach to the arrows re-asks the in-app switch, which raises nothing itself.
+    void OnSelectorBarUsed(object? sender, RoutedEventArgs e) => (DataContext as ArtefactsTabViewModel)?.RefreshSteps();
 
     void OnMenuOpened(object? sender, EventArgs e) => _openMenu = sender as FlyoutBase;
 
