@@ -464,9 +464,22 @@ The match rule is unproven on real sessions, because G2 hasn't run. What it deci
 - Produces: an optional `Guid? LaunchDispatchId` on `LaunchAgentCommand` on both sides. The record is bound by name, so a daemon that predates it ignores it
 
 - [ ] **Tests:** `A_launch_prompt_row_is_stamped_with_its_minted_dispatch`, `A_launch_from_an_older_server_stamps_nothing`, `The_launch_command_names_the_dispatch_the_queue_registers`, and `An_older_daemon_ignores_the_launch_dispatch`
-- [ ] **Implement:** mint the id once where the command is built, and give the same id to `RegisterLaunchPrompt`, so the dispatch `FlushLaunchPromptAsync` appends carries it. The daemon passes it to the launch prompt's `AppendPending`. The paste follows the existing launch path, so a launch prompt never reaches the command line. `FlushLaunchPromptAsync` runs on SessionStart, so a launch prompt's row projected before that dispatch is appended finds nothing in the agent's stream, and Task 11's projector leaves it on today's path
+- [ ] **Implement:** mint the id once where the command is built, and give the same id to `RegisterLaunchPrompt`, so the dispatch `FlushLaunchPromptAsync` appends carries it. The daemon passes it to the launch prompt's `AppendPending`. The paste follows the existing launch path, so a launch prompt never reaches the command line. `FlushLaunchPromptAsync` runs on SessionStart, so a launch prompt's row projected before that dispatch is appended finds nothing in the agent's stream, and Task 11's projector leaves it on today's path; Task 13a credits it once the dispatch arrives
 - [ ] **Verify:** those suites
 - [ ] **Commit:** server `[AI-4410] Send a launch prompt's dispatch id to the daemon`, CLI `Carry a launch prompt's dispatch id to the daemon`
+
+### Task 13a: A launch prompt's early row is credited when its dispatch arrives (server only)
+
+The daemon is told the session started before the hook posts session-start, so it can paste the launch prompt, and the row can be stored, before `FlushLaunchPromptAsync` appends the dispatch. The session check needs that dispatch, so the row can't be credited when it's projected.
+
+**Files:**
+- Server: `src/Capacitor.Server.Core/Events/HostedAgentLaunchPromptRecorded.cs` (new), `HostedAgentInputOrigins.cs` (`Launch`); `src/Capacitor.Server.Services/Agents/HostedAgentInputQueue.cs`; `src/Capacitor.Server.Services/ReadModels/HostedAgentInputProjector.cs`, `EarlyStampedRows.cs` (new); `src/Capacitor.Server.Services/Persistence/CapacitorDb.cs`
+- Test: `test/Capacitor.Server.Tests.Agents`
+
+- [x] **Tests:** `A_launch_prompt_is_recorded_before_its_session_starts`, `A_restarted_queue_records_a_launch_prompt_from_its_record`, `A_restarted_queue_does_not_record_a_launch_prompt_twice`, `A_restarted_queue_reads_back_only_its_own_daemons_launch_prompt`, `A_discarded_launch_prompt_is_not_read_back_by_its_own_process`, `A_launch_row_stamped_before_its_dispatch_arrives_is_credited_to_the_launcher_once_it_does`, `A_restarted_projector_credits_an_early_launch_row_from_the_session_store`, `An_early_launch_row_with_no_attribution_is_credited_to_the_launcher`, `A_launch_dispatch_its_row_already_took_is_not_listed_as_pending`, `A_launch_dispatch_with_no_early_row_waits_for_its_row`, `An_early_row_in_another_session_is_not_credited_by_a_launch_dispatch`
+- [x] **Implement:** `RegisterLaunchPrompt` appends a `HostedAgentLaunchPromptRecorded` in the background (it runs under the daemon registry's lock) and still holds the prompt. `FlushLaunchPromptAsync` waits for that record, then appends the dispatch with `Origin = launch`. A prompt another process recorded, as before a restart, is read back from the newest record for its daemon unless a launch dispatch already bound it; a discarded one is never read back by the process that discarded it. The projector holds a stamped row whose dispatch its stream lacks. A launch dispatch first looks for a row already credited to it, then for that held row, then for a row stamped with it in the first and last page of the session's stream. It moves the row's credit to the sender and stays off the pending list. No new tables, and no change to the session check
+- [x] **Verify:** `test/Capacitor.Server.Tests.Agents` and `test/Capacitor.Api.Public.Tests`
+- [x] **Commit:** server `[AI-4410] Credit a launch prompt's early row once its dispatch arrives`
 
 ### Task 14: Hosted Codex PTY (not built)
 
