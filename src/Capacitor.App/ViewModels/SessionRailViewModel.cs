@@ -58,7 +58,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     readonly Func<string, string, Task<bool>>? _renameWorkItem;
     readonly Action<string>? _openWorkItem;
     readonly Func<string, string, Task<string?>>? _createWorkItem;
-    readonly Func<string, string, Task<string?>>? _createProjectWorkItem;
+    readonly Func<string, string, string?, Task<string?>>? _createProjectWorkItem;
     SessionTitleEditorViewModel? _renaming;
     Action? _endRename;
     readonly IAppNotifier? _notifier;
@@ -216,6 +216,9 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
 
     string _newWorkItemTitle = "";
     public string NewWorkItemTitle { get => _newWorkItemTitle; set => this.RaiseAndSetIfChanged(ref _newWorkItemTitle, value); }
+    string? _newWorkItemDirectory;
+    /// Where the new work item's main chat starts; null leaves the launcher's repository as it is.
+    public string? NewWorkItemDirectory { get => _newWorkItemDirectory; set => this.RaiseAndSetIfChanged(ref _newWorkItemDirectory, value); }
 
     public string GroupingLabel => GroupingName(_grouping);
 
@@ -424,7 +427,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             Func<string, string, Task<bool>>? renameWorkItem = null,
             Func<string, string, Task<string?>>? createWorkItem = null,
             Action<string>? openWorkItem = null,
-            Func<string, string, Task<string?>>? createProjectWorkItem = null) {
+            Func<string, string, string?, Task<string?>>? createProjectWorkItem = null) {
         _directory = directory;
         _createWorkItem = createWorkItem;
         _createProjectWorkItem = createProjectWorkItem;
@@ -929,12 +932,17 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     async Task CreateWorkItemAsync() {
         if (_createProjectWorkItem is not { } create || _shownProject is not { } project) return;
         var title = NewWorkItemTitle.Trim();
+        var workingDirectory = NewWorkItemDirectory;
         NewWorkItemTitle = "";
-        var created = await create(project.Id, title);
+        NewWorkItemDirectory = null;
+        var created = await create(project.Id, title, workingDirectory);
         if (_disposables.IsDisposed) return;
         if (created is null) {
             _notifier?.Notify("Couldn't create the work item");
-            if (NewWorkItemTitle.Length == 0) NewWorkItemTitle = title;
+            if (NewWorkItemTitle.Length == 0) {
+                NewWorkItemTitle = title;
+                NewWorkItemDirectory ??= workingDirectory;
+            }
             return;
         }
         _created = [.. _created.Where(id => id != created).Append(created).TakeLast(CreatedKept)];

@@ -2059,6 +2059,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         RevalidateVendor(Harnesses);
     }
 
+    /// Selects a checkout on this machine, leaving a remote machine first: a local folder names nothing there.
+    public async Task SelectLocalRepositoryAsync(string repoPath) {
+        if (RemoteMachineSelected) await SelectMachineAsync(_daemon.DaemonName, isLocal: true);
+        await SelectRepositoryAsync(repoPath);
+    }
+
     /// A remote machine's repository is typed rather than picked: the local folder picker would hand
     /// it a path from this machine. Returns the reason a path was refused, or null once it is
     /// selected. Only shape is checked; existence and the daemon's allowed-repo list are judged by

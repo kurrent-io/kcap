@@ -2488,7 +2488,11 @@ public partial class App : Application {
             renameWorkItem: workItemPages is null ? null : (workItemId, title) => workItemPages.RenameAsync(workItemId, title, CancellationToken.None),
             createWorkItem: workItemPages is null ? null : (sessionId, title) => workItemPages.CreateForSessionAsync(sessionId, title, CancellationToken.None),
             openWorkItem: workItemPages is null ? null : id => vm?.OpenWorkItemCommand.Execute(id).Subscribe(),
-            createProjectWorkItem: workItemPages is null ? null : (projectId, title) => workItemPages.CreateAsync(projectId, title, CancellationToken.None));
+            createProjectWorkItem: workItemPages is null ? null : async (projectId, title, workingDirectory) => {
+                var created = await workItemPages.CreateAsync(projectId, title, CancellationToken.None);
+                if (created is not null && workingDirectory is not null) await home.SelectLocalRepositoryAsync(workingDirectory);
+                return created;
+            });
         home.AttachWorkItems(rail.ProjectWorkItems.Select(next => next.Read?.Items ?? []));
         // The page mutates on whatever thread its inputs arrive on, so every input lands on the UI thread.
         Func<Func<string, PinPresentation, CancellationToken, Task<SearchOpenOutcome>>, SessionSearchViewModel>? searchFactory =

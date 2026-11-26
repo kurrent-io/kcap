@@ -4,6 +4,7 @@ using Avalonia.Animation;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
@@ -186,6 +187,14 @@ public partial class SessionRailView : UserControl, IRowDropSurface {
     void OnProjectPickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailProjectButton, sender, e);
 
     void OnCreateWorkItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailNewWorkItemButton, sender, e);
+
+    // The native picker deactivates the window, which closes the flyout, so it opens again with the choice.
+    async void OnNewWorkItemDirectoryClick(object? sender, RoutedEventArgs e) {
+        if (RailModel is not { } rail || TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage) return;
+        var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions { Title = "Choose the main chat's working directory" });
+        if (folders is [{ } folder] && folder.TryGetLocalPath() is { } path) rail.NewWorkItemDirectory = path;
+        if (RailNewWorkItemButton.Flyout is { IsOpen: false } flyout) flyout.ShowAt(RailNewWorkItemButton);
+    }
 
     void OnNewWorkItemTitleKeyDown(object? sender, KeyEventArgs e) {
         if (e.Key == Key.Enter) RunFlyoutItem(RailNewWorkItemButton, RailCreateWorkItemButton, e);

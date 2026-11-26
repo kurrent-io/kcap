@@ -654,6 +654,17 @@
                                             <TextBox x:Name="RailNewWorkItemTitle" Classes="kcapField" Text="{Binding NewWorkItemTitle}"
                                                      PlaceholderText="Work item title" AutomationProperties.Name="Work item title"
                                                      KeyDown="OnNewWorkItemTitleKeyDown" />
+                                            <Button x:Name="RailNewWorkItemDirectory" Classes="kcapGhost" HorizontalAlignment="Stretch"
+                                                    HorizontalContentAlignment="Left" Padding="8,5" Click="OnNewWorkItemDirectoryClick"
+                                                    ToolTip.Tip="{Binding NewWorkItemDirectory}"
+                                                    AutomationProperties.Name="Main chat working directory">
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <views:AppIcon Kind="Folder" Size="14" Foreground="{StaticResource KcapMutedBrush}" />
+                                                    <TextBlock FontSize="13" TextTrimming="PrefixCharacterEllipsis" MaxWidth="215"
+                                                               Foreground="{StaticResource KcapMutedBrush}"
+                                                               Text="{Binding NewWorkItemDirectory, TargetNullValue='Choose working directory…'}" />
+                                                </StackPanel>
+                                            </Button>
                                             <Button x:Name="RailCreateWorkItemButton" Classes="kcapChip" Content="Create" HorizontalAlignment="Right"
                                                     Command="{Binding CreateWorkItemCommand}" Click="OnCreateWorkItemClick" />
                                         </StackPanel>

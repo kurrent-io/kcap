@@ -1090,7 +1090,7 @@ public class SessionRailViewModelTests {
             Func<AgentRow, string, CancellationToken, Task<SessionRenameResult>>? renameSession = null,
             Func<AgentRow, bool>? canRenameSession = null, Func<string, string, Task<bool>>? renameWorkItem = null,
             IAppNotifier? notifier = null, Func<string, string, Task<string?>>? createWorkItem = null,
-            Action<string>? openWorkItem = null, Func<string, string, Task<string?>>? createProjectWorkItem = null,
+            Action<string>? openWorkItem = null, Func<string, string, string?, Task<string?>>? createProjectWorkItem = null,
             IReadOnlyList<RailWorkItem>? alsoListed = null) {
         var directory = new FakeAgentDirectory();
         var sessions = new FakeServerSessionsService();
@@ -1272,8 +1272,8 @@ public class SessionRailViewModelTests {
         });
     }
 
-    /// A new work item is created in the rail's project, opened, and listed before it has a session, while another
-    /// session-less work item stays out; a refused one says so and gives the title back.
+    /// A new work item is created in the rail's project with its working directory, opened, and listed before it has a
+    /// session, while another session-less work item stays out; a refused one says so and gives the title and directory back.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_new_work_item_is_created_in_the_rails_project_and_opened() {
@@ -1282,8 +1282,8 @@ public class SessionRailViewModelTests {
             var opened = new List<string>();
             var notifier = new RecordingNotifier();
             var (directory, sessions, rail) = BuildWithWorkItems(notifier: notifier, openWorkItem: opened.Add,
-                createProjectWorkItem: (project, title) => {
-                    calls.Add($"{project} {title}");
+                createProjectWorkItem: (project, title, workingDirectory) => {
+                    calls.Add($"{project} {title} {workingDirectory}");
                     return Task.FromResult<string?>(title == "Faster checkout" ? "AI-9" : null);
                 },
                 alsoListed: [Empty("AI-9"), Empty("AI-8")]);
@@ -1292,16 +1292,20 @@ public class SessionRailViewModelTests {
                 await Assert.That(rail.WorkItemGroups).IsEmpty();
 
                 rail.NewWorkItemTitle = "  Faster checkout ";
+                rail.NewWorkItemDirectory = "/src/shop";
                 rail.CreateWorkItemCommand.Execute().Subscribe();
+                await Assert.That(rail.NewWorkItemDirectory).IsNull();
                 rail.NewWorkItemTitle = "Refused";
+                rail.NewWorkItemDirectory = "/src/other";
                 rail.CreateWorkItemCommand.Execute().Subscribe();
 
-                await Assert.That(calls).IsEquivalentTo(["p Faster checkout", "p Refused"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+                await Assert.That(calls).IsEquivalentTo(["p Faster checkout /src/shop", "p Refused /src/other"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
                 await Assert.That(opened).IsEquivalentTo(["AI-9"]);
                 await Assert.That(rail.WorkItemGroups.Select(group => group.Label)).IsEquivalentTo(["AI-9"]);
                 await Assert.That(rail.Preferences.Created).IsEquivalentTo(["AI-9"]);
                 await Assert.That(notifier.Notified).IsEquivalentTo(["Couldn't create the work item"]);
                 await Assert.That(rail.NewWorkItemTitle).IsEqualTo("Refused");
+                await Assert.That(rail.NewWorkItemDirectory).IsEqualTo("/src/other");
             }
         });
     }
