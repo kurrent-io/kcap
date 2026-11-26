@@ -240,8 +240,10 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
 
     async Task<string> AnswerAsync(InboxItemViewModel item, string answer, string? text) {
         const string couldNotSend = "Couldn't send that answer. Try again, or answer it in kcap";
+        var epoch = _epoch;
         var read = await Guard(_api.AnswerAsync(item.LogicalId, answer, text, _lifetime.Token));
         var note = read is { Kind: InboxReadKind.Ready, Value: { } outcome } ? outcome.Message : couldNotSend;
+        if (_disposed || epoch != _epoch) return note;
         _notes[item.LogicalId] = note;
         Refresh();
         return note;

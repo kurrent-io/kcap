@@ -196,6 +196,27 @@ public class InboxBellViewModelTests {
     });
 
     [Test]
+    public async Task An_answer_that_lands_after_a_disconnect_leaves_no_sentence_for_the_next_connection() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        var prompt = Item("n1", type: "agent_prompt") with { Buttons = [new() { Answer = "allow", Label = "Allow", Style = "primary" }] };
+        rig.Api.Page = PageOf(1, prompt);
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = true, Message = "Approved" });
+        var gate = new TaskCompletionSource();
+        rig.Api.AnswerGate = gate;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        rig.Bell.Items.Single().Buttons.Single().Command.Execute(null);
+        rig.Status.OnNext(new(ServerLaneState.SignedOut));
+        gate.SetResult();
+        await Task.Yield();
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        await Assert.That(rig.Bell.Items.Single().Note).IsNull();
+    });
+
+    [Test]
     public async Task Delete_all_acts_only_once_confirmed() => await AvaloniaSession.RunOnUiAsync(async () => {
         using var rig = new Rig().Start();
         rig.Api.Page = PageOf(1, Item("n1"));

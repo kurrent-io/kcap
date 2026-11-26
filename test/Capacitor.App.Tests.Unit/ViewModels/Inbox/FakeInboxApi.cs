@@ -13,6 +13,8 @@ sealed class FakeInboxApi : IInboxApi {
     public bool DismissResult { get; set; } = true;
     /// <summary>When set, count reads wait on it, so a test can push while a read runs.</summary>
     public TaskCompletionSource? CountGate { get; set; }
+    /// <summary>When set, answers wait on it, so a test can disconnect while one is in flight.</summary>
+    public TaskCompletionSource? AnswerGate { get; set; }
 
     public int CountReads, PageReads, DismissAllCalls, PrefsReads;
     public readonly List<string> Calls = [];
@@ -39,9 +41,10 @@ sealed class FakeInboxApi : IInboxApi {
         return Record("dismiss-all", true);
     }
 
-    public Task<InboxRead<NotificationAnswerResponseDto>> AnswerAsync(string logicalId, string answer, string? text, CancellationToken ct) {
+    public async Task<InboxRead<NotificationAnswerResponseDto>> AnswerAsync(string logicalId, string answer, string? text, CancellationToken ct) {
         Calls.Add($"answer {logicalId} {answer} {text}");
-        return Task.FromResult(Answer);
+        if (AnswerGate is { } gate) await gate.Task;
+        return Answer;
     }
 
     public Task<InboxRead<NotificationPrefsDto>> PrefsAsync(CancellationToken ct) {
