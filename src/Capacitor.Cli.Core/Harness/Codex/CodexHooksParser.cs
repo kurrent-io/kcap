@@ -16,7 +16,8 @@ public static class CodexHooksParser {
         "PreToolUse",
         "PostToolUse",
         "PermissionRequest",
-        "Stop"
+        "Stop",
+        "SessionEnd",
     ];
 
     /// <summary>
