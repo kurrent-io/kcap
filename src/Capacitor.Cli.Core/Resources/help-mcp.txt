@@ -345,13 +345,15 @@ mcp sharing:
   `kcap login`.
 
 mcp pass:
-  Exposes six tools, where the server offers passes; elsewhere it lists none.
+  Exposes seven tools, where the server offers passes; elsewhere it lists none.
 
     find_colleague        Colleagues matching a name. Several matches mean
                           the agent asks which one.
     pass                  Pass a work item, session, page or hosted agent
                           with a brief the user approved.
     message               A short note, optionally about an item, or a reply.
+    approve_pass          Approve the sharing a sent pass waits on, after
+                          the user says yes.
     pass_status           Where a pass or message stands.
     catch_me_up           The passes the user shared with their agent in
                           kcap, as a colleague's labelled text; the rest
@@ -360,7 +362,8 @@ mcp pass:
                           brief leaves out, each point citing a turn.
 
   When the colleague cannot see the item, the user approves exactly what will
-  be shared, in the harness's prompt or in kcap; no tool approves it.
+  be shared: in the harness's prompt, in chat (the agent then calls
+  approve_pass), or in kcap. The approval waits until the user answers.
 
 mcp knowledge:
   Exposes eight tools for agents to read retained facts and curated skills,

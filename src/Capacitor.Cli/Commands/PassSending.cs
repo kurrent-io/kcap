@@ -5,6 +5,8 @@ namespace Capacitor.Cli.Commands;
 /// <summary>What <c>kcap pass</c> and <c>kcap message</c> share: the server's say on whether either exists, picking the
 /// recipient, and sending. Sharing is approved only by an answer typed at a terminal; there is no flag for it.</summary>
 static class PassSending {
+    internal const string WaitingForApproval = "Waiting for your approval in kcap";
+
     /// <summary>Null when passes are offered; otherwise the exit code, having answered as for an unknown command. A server
     /// that cannot say is treated as not offering them, so the command's existence is never revealed by an error.</summary>
     public static async Task<int?> HiddenAsync(IPassesApi passes, string command, PassTerminal terminal) {
@@ -96,7 +98,7 @@ static class PassSending {
         }
 
         if (!terminal.Interactive) {
-            await terminal.Out.WriteLineAsync($"{McpPassServer.WaitingForApproval}: {PassLinks.Sent(serverUrl)}");
+            await terminal.Out.WriteLineAsync($"{WaitingForApproval}: {PassLinks.Sent(serverUrl)}");
 
             return 0;
         }

@@ -163,17 +163,80 @@ public class McpPassServerTests {
         await Assert.ThrowsAsync<OperationCanceledException>(() => Api(stub.Urls[0]).SendAsync(body, budget.Token));
     }
 
-    /// <summary>A harness that cannot prompt gets the way to approve in kcap, and nothing is answered for the human.</summary>
+    /// <summary>A harness that cannot prompt, or a prompt nobody answers, tells the agent plainly that the colleague can't
+    /// see the item, what would be shared, and to ask the user before approve_pass; nothing is answered for the human.</summary>
     [Test]
-    public async Task Pass_NoElicitation_ReturnsWaitingWithLink() {
-        var api = new FakePassesApi { SendResult = FakePassesApi.AwaitingApproval(ApprovalText, SessionGrant) };
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task Pass_NoAnswer_TellsTheAgentToAskInChat(bool elicits) {
+        var time = new FakeTimeProvider();
+        var api  = new FakePassesApi { Colleagues = [new("github:2", "Sam", null)], SendResult = FakePassesApi.AwaitingApproval(ApprovalText, SessionGrant) };
+        var server = new McpPassServer(api, Url, time, () => SendingSession);
 
-        var response = await Server(api).HandleToolCallAsync(9, Call("pass", PassArguments()), elicit: null);
+        await server.HandleToolCallAsync(9, Call("find_colleague", new JsonObject { ["name"] = "Sam" }), null);
 
-        await Assert.That(Text(response)).Contains("Waiting for your approval in kcap");
-        await Assert.That(Text(response)).Contains($"{Url}/passes?tab=sent");
+        McpPassServer.Elicit? unanswered = elicits ? async (_, ct) => { await Task.Delay(Timeout.Infinite, ct); return null; } : null;
+        var call = server.HandleToolCallAsync(9, Call("pass", PassArguments()), unanswered);
+        time.Advance(McpPassServer.ApprovalBudget);
+        var result = JsonNode.Parse(Text(await call.WaitAsync(TimeSpan.FromSeconds(10))))!;
+
+        var message = result["message"]!.GetValue<string>();
+        await Assert.That(message).Contains("Sam can't see this item");
+        await Assert.That(message).Contains("ask whether to share it");
+        await Assert.That(message).Contains("approve_pass");
+        await Assert.That(result["approval_text"]!.GetValue<string>()).IsEqualTo(ApprovalText);
+        await Assert.That(result["sharing"]![0]!.GetValue<string>()).Contains("Sam can see this session (session s-1)");
+        await Assert.That(result["link"]!.GetValue<string>()).IsEqualTo($"{Url}/passes?tab=sent");
         await Assert.That(api.Approved).IsEmpty();
         await Assert.That(api.Declined).IsEmpty();
+    }
+
+    /// <summary>The user's yes in chat approves as the sender, through the agent, and declares the same follow-up the pass
+    /// would have declared had the prompt been answered.</summary>
+    [Test]
+    public async Task ApprovePass_AfterWaiting_ApprovesAsAgent_DeclaresTheFollowUp() {
+        var api = new FakePassesApi {
+            Colleagues   = [new("github:7", "Jonny", null)],
+            SendResult   = FakePassesApi.AwaitingApproval(ApprovalText, SessionGrant),
+            AnswerResult = new PassAnswerResult.Answered(new("sent", "sent", [SessionGrant], FollowUpDue, null))
+        };
+        var time = new FakeTimeProvider(SentAt);
+        time.SetLocalTimeZone(TimeZoneInfo.Utc);
+        var server = new McpPassServer(api, Url, time, () => SendingSession);
+
+        await server.HandleToolCallAsync(9, Call("find_colleague", new JsonObject { ["name"] = "Jonny" }), null);
+        await server.HandleToolCallAsync(9, Call("pass", PageToJonny()), elicit: null);
+
+        await Assert.That(api.Approved).IsEmpty();
+
+        var response = await server.HandleToolCallAsync(9, Call("approve_pass", new JsonObject { ["pass_id"] = "p1" }), elicit: null);
+
+        await Assert.That(IsError(response)).IsFalse();
+        await Assert.That(Text(response)).Contains("Shared and sent");
+        await Assert.That(api.Approved.ToArray()).IsEquivalentTo(new[] { ("p1", "agent") });
+        await Assert.That(api.FollowUps.ToArray()).IsEquivalentTo(new[] {
+            new DeclareLooseEndBody("You passed a Page to Jonny on 30 Oct. If you haven't had feedback, follow up.", SendingSession, FollowUpDue)
+        });
+    }
+
+    /// <summary>A pass this process did not leave waiting, such as one from before a restart, is approved only when the
+    /// server says the caller sent it.</summary>
+    [Test]
+    [Arguments("sent", true)]
+    [Arguments("received", false)]
+    [Arguments(null, false)]
+    public async Task ApprovePass_UnknownToThisProcess_ApprovesOnlyTheCallersOwn(string? side, bool approves) {
+        var api = new FakePassesApi {
+            ReadResult = side is null
+                ? new PassReadResult.NotFound()
+                : new PassReadResult.Found(new("p9", side, "look", "page", "pg-1", "github:1", "github:7", "Check the chart", null, null, null,
+                                               "awaiting_approval", SentAt, null, null, null, null, null, null))
+        };
+
+        var response = await Server(api).HandleToolCallAsync(9, Call("approve_pass", new JsonObject { ["pass_id"] = "p9" }), elicit: null);
+
+        await Assert.That(IsError(response)).IsEqualTo(!approves);
+        await Assert.That(api.Approved.Count).IsEqualTo(approves ? 1 : 0);
     }
 
     static readonly DateTimeOffset SentAt = new(2026, 10, 30, 9, 0, 0, TimeSpan.Zero);
