@@ -82,6 +82,33 @@ public class SessionEndFenceTests {
         await Assert.That(entry.EndCommittedSoft).IsNull();
     }
 
+    /// <summary>After a Claude /clear the entry runs a new session while the stamp still names the old one: the current
+    /// session's end replaces it, or a restart would resume a run whose end is on its way.</summary>
+    [Test]
+    public async Task The_current_sessions_end_replaces_an_earlier_sessions_stamp() {
+        var store = Seed(ResumeState.Running);
+        SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-0", _ => store, new FakeTimeProvider(Now));
+
+        await Assert.That(SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-1", _ => store, new FakeTimeProvider(Now.AddMinutes(5)))).IsFalse();
+
+        var entry = store.TryRead("agent-1")!;
+        await Assert.That(entry.EndCommittedSession).IsEqualTo("session-1");
+        await Assert.That(entry.EndCommittedAt).IsEqualTo(Now.AddMinutes(5));
+    }
+
+    /// <summary>A late end of the earlier session never displaces the current session's.</summary>
+    [Test]
+    public async Task A_late_end_of_an_earlier_session_leaves_the_current_sessions_stamp() {
+        var store = Seed(ResumeState.Running);
+        Hold("agent-1", "epoch-1", store);
+
+        SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-0", _ => store, new FakeTimeProvider(Now.AddMinutes(5)));
+
+        var entry = store.TryRead("agent-1")!;
+        await Assert.That(entry.EndCommittedSession).IsEqualTo("session-1");
+        await Assert.That(entry.EndCommittedAt).IsEqualTo(Now);
+    }
+
     [Test]
     public async Task An_end_from_an_earlier_run_holds() {
         await Assert.That(Hold("agent-1", "epoch-1", Seed(ResumeState.Running, runEpoch: "epoch-2"))).IsTrue();

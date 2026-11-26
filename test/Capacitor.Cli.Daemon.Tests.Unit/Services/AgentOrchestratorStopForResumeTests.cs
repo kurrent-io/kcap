@@ -288,6 +288,28 @@ public class AgentOrchestratorStopForResumeTests {
         await Assert.That(server.ShutdownReports).IsNotEmpty();
     }
 
+    /// <summary>A turn after a soft end means the session ran on, even when the write that would clear the end is still
+    /// queued when the shutdown takes the entry: the shutdown marks it resuming and drops the end.</summary>
+    [Test]
+    public async Task A_soft_end_the_session_outlived_does_not_block_the_resume() {
+        var orch  = Build(new CaptureServerConnection());
+        var agent = Seed(orch, "outlived-1");
+        var entry = Ledger().TryRead("outlived-1")!;
+        Ledger().Write(entry with {
+            EndCommittedAt = TimeProvider.System.GetUtcNow().AddMinutes(-1), EndCommittedSession = entry.SessionId, EndCommittedSoft = true
+        });
+        Interlocked.Add(ref agent.UnpersistedWaitEdges, 1_000);
+        agent.ActivityClock.SetAwaitingInput(false);
+
+        await orch.PrepareForResumeAsync(agent, CancellationToken.None);
+
+        var resuming = Ledger().TryRead("outlived-1")!;
+        await Assert.That(resuming.State).IsEqualTo(ResumeState.Resuming);
+        await Assert.That(resuming.EndCommittedAt).IsNull();
+        await Assert.That(resuming.EndCommittedSoft).IsNull();
+        await orch.DisposeAsync();
+    }
+
     /// <summary>An end committed for an earlier session of the same process, as a Claude /clear does,
     /// leaves the current session resumable.</summary>
     [Test]

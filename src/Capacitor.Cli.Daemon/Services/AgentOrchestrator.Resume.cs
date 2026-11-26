@@ -306,9 +306,13 @@ internal partial class AgentOrchestrator {
                     // A participant has no kcap continue to fall back on, so one with no session to reopen ends here.
                     if (entry.Participant is not null && (vendorSession is null || EndCommittedForCurrentSession(entry, agent))) return null;
 
+                    // A soft end the session outlived is no end, though the write that would have cleared it may still be
+                    // queued behind this one.
+                    var outlived = OutlivedSoftEnd(entry, agent, agent.ActivityClock.LastTurnStartedUtcTicks);
+
                     // The end may be on its way to the server, so a successor must not resume this run on its own.
                     // An operator still can: the entry stays, interrupted, with everything a resume needs.
-                    if (EndCommittedForCurrentSession(entry, agent)) {
+                    if (!outlived && EndCommittedForCurrentSession(entry, agent)) {
                         interrupted = true;
 
                         return entry with {
@@ -331,7 +335,11 @@ internal partial class AgentOrchestrator {
                         SessionId             = agent.SessionId ?? entry.SessionId,
                         VendorSession         = vendorSession,
                         Participant           = entry.Participant is { } p ? p with { ActivitySeq = clock.ActivitySeq, AgeMs = clock.AgeMs } : null,
-                        Launch                = WithShownTitle(entry.Launch, agent)
+                        Launch                = WithShownTitle(entry.Launch, agent),
+                        EndCommittedAt        = outlived ? null : entry.EndCommittedAt,
+                        EndCommittedEpoch     = outlived ? null : entry.EndCommittedEpoch,
+                        EndCommittedSession   = outlived ? null : entry.EndCommittedSession,
+                        EndCommittedSoft      = outlived ? null : entry.EndCommittedSoft,
                     };
                 }, EntryLockWait);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
@@ -358,13 +366,9 @@ internal partial class AgentOrchestrator {
     /// <summary>Records on the agent's entry whether it has anything in flight, so a successor of a daemon that was
     /// killed rather than stopped resumes an idle agent without a turn. Written off the edge's thread, which can be
     /// the PTY read loop: a ledger write waits on the entry lock, and that loop must never wait.</summary>
-    /// <param name="turnStarted">The edge started a turn: its time is kept on the agent for the write to compare
-    /// against a soft end, however the edges after it coalesce.</param>
-    void PersistWaitingSoon(AgentActivityClock clock, bool turnStarted = false) {
+    void PersistWaitingSoon(AgentActivityClock clock) {
         if (ResumeLedger is null) return;
         if (_agents.Values.FirstOrDefault(a => ReferenceEquals(a.ActivityClock, clock)) is not { } agent || !IsInteractive(agent)) return;
-
-        if (turnStarted) Interlocked.Exchange(ref agent.LastTurnStartedAtTicks, _time.GetUtcNow().UtcTicks);
 
         if (Interlocked.Increment(ref agent.UnpersistedWaitEdges) == 1) _ = Task.Run(() => PersistWaiting(agent));
     }
@@ -380,7 +384,7 @@ internal partial class AgentOrchestrator {
                     if (agent.IsCleanupStarted) return;
 
                     var waiting     = agent.ActivityClock.NothingInFlight;
-                    var turnStarted = Interlocked.Read(ref agent.LastTurnStartedAtTicks);
+                    var turnStarted = agent.ActivityClock.LastTurnStartedUtcTicks;
                     var reopened    = false;
                     var result      = ResumeLedger!.TryUpdateUnderLock(agent.Id, entry => {
                         // A stop has marked the entry for its successor; what the agent does while it ends must not undo that.
@@ -669,7 +673,8 @@ internal partial class AgentOrchestrator {
             var result = ledger.TryUpdateUnderLock(agentId, current => newRun ? build() : build() with {
                 EndCommittedAt      = current.EndCommittedAt,
                 EndCommittedEpoch   = current.EndCommittedEpoch,
-                EndCommittedSession = current.EndCommittedSession
+                EndCommittedSession = current.EndCommittedSession,
+                EndCommittedSoft    = current.EndCommittedSoft,
             }, EntryLockWait);
 
             if (result == LockedUpdate.NoEntry) ledger.Write(build());
@@ -1936,6 +1941,7 @@ internal partial class AgentOrchestrator {
                 EndCommittedAt        = null,
                 EndCommittedEpoch     = null,
                 EndCommittedSession   = null,
+                EndCommittedSoft      = null,
                 AwaitingInput         = agent.ActivityClock.NothingInFlight
             }, newRun: true);
         }

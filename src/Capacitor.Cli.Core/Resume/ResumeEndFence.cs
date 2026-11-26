@@ -10,6 +10,9 @@ public static class ResumeEndFence {
 
     /// <param name="soft">The end is the watcher's idle timeout, which the session can outlive: a later turn of it lets
     /// the daemon clear the stamp. A real end stamped over a soft one replaces it, so a turn never clears a real end.</param>
+    /// <remarks>The stamp describes one session's end. An end of the session the entry now runs replaces a stamp an earlier
+    /// session of the same process left (a Claude <c>/clear</c>); a late end of that earlier session never replaces the
+    /// current one's.</remarks>
     public static bool ShouldHold(
             string? agentId, string? endingEpoch, string? endingSession, Func<string, ResumeLedgerStore?> locate,
             TimeProvider time, bool soft = false, TimeSpan? lockWait = null) {
@@ -27,7 +30,7 @@ public static class ResumeEndFence {
                     return null;
                 }
 
-                return entry.EndCommittedAt is null || (entry.EndCommittedSoft == true && !soft)
+                return Replaces(entry, endingSession, soft)
                     ? entry with {
                         EndCommittedAt      = time.GetUtcNow(),
                         EndCommittedEpoch   = endingEpoch,
@@ -41,6 +44,21 @@ public static class ResumeEndFence {
         } catch {
             return false;
         }
+    }
+
+    /// <summary>Whether an end of <paramref name="endingSession"/> takes the entry's stamp: there is none, the ending session
+    /// is the one the entry runs and the stamp names another, or the stamp is the same session's soft end and this one is real.</summary>
+    static bool Replaces(ResumeLedgerEntry entry, string? endingSession, bool soft) {
+        if (entry.EndCommittedAt is null) return true;
+
+        var stamped = SessionIds.Canonical(entry.EndCommittedSession);
+        var ending  = SessionIds.Canonical(endingSession);
+
+        if (stamped is null || ending is null || string.Equals(stamped, ending, StringComparison.OrdinalIgnoreCase))
+            return entry.EndCommittedSoft == true && !soft;
+
+        // An entry that has not learned its session yet cannot tell the two apart; the newer end is the likelier current one.
+        return SessionIds.Canonical(entry.SessionId) is not { } current || string.Equals(ending, current, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>An end that names no agent is placed by its session instead: otherwise the first restart after an

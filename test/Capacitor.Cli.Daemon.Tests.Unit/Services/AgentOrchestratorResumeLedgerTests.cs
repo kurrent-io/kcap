@@ -324,19 +324,36 @@ public class AgentOrchestratorResumeLedgerTests {
     }
 
     /// <summary>A turn that starts and ends before the write runs leaves the clock waiting again, yet the session ran on:
-    /// the turn's start is kept on the agent, so the write, which reads only the waiting clock, still clears the soft end.</summary>
+    /// the clock keeps the turn's start, so the write, which runs with the clock waiting, still clears the soft end.</summary>
     [Test]
     public async Task A_turn_that_ends_before_the_write_still_clears_a_soft_end() {
         await using var orch  = Build();
         var             agent = await SeedWaitingAsync(orch, "ledger-fast-turn");
         StampEnd(orch, "ledger-fast-turn", soft: true);
+        HoldWrites(agent);
 
-        // The turn's edges, as they would have come, with the write they queued not yet run.
-        Interlocked.Exchange(ref agent.LastTurnStartedAtTicks, TimeProvider.System.GetUtcNow().UtcTicks);
+        agent.ActivityClock.SetAwaitingInput(false);
+        agent.ActivityClock.SetAwaitingInput(true);
         orch.PersistWaiting(agent);
 
         await Assert.That(agent.ActivityClock.NothingInFlight).IsTrue();
         await Assert.That(orch.ResumeLedger!.TryRead("ledger-fast-turn")!.EndCommittedAt).IsNull();
+    }
+
+    /// <summary>A key that clears the terminal's wait is no turn: no prompt reached the agent, so the session did not
+    /// outlive its idle end.</summary>
+    [Test]
+    public async Task A_cleared_terminal_wait_does_not_clear_a_soft_end() {
+        await using var orch      = Build();
+        var             agent     = await SeedWaitingAsync(orch, "ledger-enter");
+        var             committed = StampEnd(orch, "ledger-enter", soft: true);
+
+        agent.ActivityClock.ClearAwaitingInputSince(agent.ActivityClock.WaitGeneration);
+        await EntryOnceAsync(orch, "ledger-enter", e => e.AwaitingInput == false);
+        await WritesDrainedAsync(agent);
+
+        await Assert.That(agent.ActivityClock.LastTurnStartedUtcTicks).IsEqualTo(0L);
+        await Assert.That(orch.ResumeLedger!.TryRead("ledger-enter")!.EndCommittedAt).IsEqualTo(committed);
     }
 
     /// <summary>A real end, such as a Claude SessionEnd, may be on its way to the server: no turn clears it.</summary>
@@ -358,18 +375,24 @@ public class AgentOrchestratorResumeLedgerTests {
     [Test]
     public async Task A_soft_end_committed_after_the_turn_started_stays() {
         await using var orch  = Build();
-        var             agent = orch.SeedAgentForTest("ledger-later-end");
-        orch.WriteLedger(agent, cmd: null, origin: "local", consent: null);
+        var             agent = await SeedWaitingAsync(orch, "ledger-later-end");
         agent.ActivityClock.SetAwaitingInput(false);
         await EntryOnceAsync(orch, "ledger-later-end", e => e.AwaitingInput == false);
         await WritesDrainedAsync(agent);
-        var committed = StampEnd(orch, "ledger-later-end", soft: true, at: TimeProvider.System.GetUtcNow().AddMinutes(1));
+        var turnStarted = agent.ActivityClock.LastTurnStartedUtcTicks;
+        var committed   = StampEnd(orch, "ledger-later-end", soft: true, at: TimeProvider.System.GetUtcNow().AddMinutes(1));
 
         agent.ActivityClock.SetAwaitingInput(true);
         var settled = await EntryOnceAsync(orch, "ledger-later-end", e => e.AwaitingInput == true);
 
+        await Assert.That(turnStarted).IsGreaterThan(0L);
+        await Assert.That(turnStarted).IsLessThan(committed.UtcTicks);
         await Assert.That(settled.EndCommittedAt).IsEqualTo(committed);
     }
+
+    /// <summary>Keeps the edges from starting a writer of their own, so a test runs the write itself at the moment it
+    /// chooses: a writer starts only on the edge that raises the count from zero.</summary>
+    static void HoldWrites(AgentInstance agent) => Interlocked.Add(ref agent.UnpersistedWaitEdges, 1_000);
 
     static async Task<AgentInstance> SeedWaitingAsync(AgentOrchestrator orch, string agentId) {
         var agent = orch.SeedAgentForTest(agentId);
