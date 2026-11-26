@@ -44,6 +44,30 @@ public class SessionRailViewModelTests {
         });
     }
 
+    /// A working session in a project the rail is not showing marks that project and the picker; a selected
+    /// project's own work, or an idle session elsewhere, marks neither.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Picker_marks_a_project_with_a_working_session_the_rail_is_not_showing() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var directory = new FakeAgentDirectory();
+            RailProject a = new("a", "A", ["ha"]), b = new("b", "B", ["hb"]);
+            using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System,
+                preferences: RailPreferences.Default with { Project = a },
+                projects: Observable.Return<IReadOnlyList<RailProject>>([a, b]));
+            var inB = AgentRow.FromLocal(Dto("b1", "/b") with { AwaitingInput = true }, new RepoIdentity("b", "b")) with { RepoHash = "hb" };
+            directory.Rows.AddOrUpdate(inB);
+            await Assert.That(rail.HasRunningElsewhere).IsFalse();
+
+            directory.Rows.AddOrUpdate(inB with { AwaitingInput = false });
+            await Assert.That(rail.ProjectOptions.Select(o => o.HasRunning)).IsEquivalentTo(new[] { false, true }, CollectionOrdering.Matching);
+            await Assert.That(rail.HasRunningElsewhere).IsTrue();
+
+            rail.Project = b;
+            await Assert.That(rail.HasRunningElsewhere).IsFalse();
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Permission_and_answer_changes_count_each_present_row_once() {

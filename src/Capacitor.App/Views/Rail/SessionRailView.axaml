@@ -561,7 +561,7 @@
                             DataContext="{Binding Rail}" x:DataType="vm:SessionRailViewModel"
                             IsVisible="{Binding Converter={x:Static ObjectConverters.IsNotNull}}"
                             AutomationProperties.Name="{Binding ProjectLabel, StringFormat='Project: {0}'}">
-                        <Grid ColumnDefinitions="30,*,Auto">
+                        <Grid ColumnDefinitions="30,*,Auto,Auto">
                             <Border Width="20" Height="20" CornerRadius="5" HorizontalAlignment="Center" Background="{StaticResource KcapSurfaceRaisedBrush}"
                                     BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1">
                                 <Panel>
@@ -574,7 +574,11 @@
                             </Border>
                             <TextBlock x:Name="RailProjectLabel" Grid.Column="1" Text="{Binding ProjectLabel}" FontSize="13" FontWeight="SemiBold"
                                        Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                            <views:AppIcon Grid.Column="2" Kind="ChevronDown" Size="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
+                            <Border x:Name="RailProjectRunningDot" Grid.Column="2" Width="6" Height="6" CornerRadius="3" Margin="6,0,6,0"
+                                    Background="{StaticResource KcapPurpleBrush}" VerticalAlignment="Center" UseLayoutRounding="False"
+                                    ToolTip.Tip="A session is running in another project"
+                                    IsVisible="{Binding HasRunningElsewhere}" views:PulseClock.IsActive="{Binding HasRunningElsewhere}" />
+                            <views:AppIcon Grid.Column="3" Kind="ChevronDown" Size="12" Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center" />
                         </Grid>
                         <Button.Flyout>
                             <Flyout Placement="BottomEdgeAlignedLeft" VerticalOffset="4" FlyoutPresenterClasses="kcapPanel">
@@ -585,9 +589,12 @@
                                                 <Button Classes="kcapGhost railPickerRow" Click="OnProjectPickerItemClick"
                                                         Command="{Binding $parent[ItemsControl].((vm:SessionRailViewModel)DataContext).SetProjectCommand}"
                                                         CommandParameter="{Binding Project}" AutomationProperties.Name="{Binding Project.Name}">
-                                                    <Grid ColumnDefinitions="16,*" ColumnSpacing="6">
+                                                    <Grid ColumnDefinitions="16,*,Auto" ColumnSpacing="6">
                                                         <views:AppIcon Kind="Check" Size="12" IsVisible="{Binding IsCurrent}" VerticalAlignment="Center" />
                                                         <TextBlock Grid.Column="1" Text="{Binding Project.Name}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                                                        <Border Grid.Column="2" Width="6" Height="6" CornerRadius="3" Background="{StaticResource KcapPurpleBrush}"
+                                                                VerticalAlignment="Center" UseLayoutRounding="False"
+                                                                IsVisible="{Binding HasRunning}" views:PulseClock.IsActive="{Binding HasRunning}" />
                                                     </Grid>
                                                 </Button>
                                             </DataTemplate>

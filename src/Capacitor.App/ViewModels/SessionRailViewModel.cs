@@ -281,7 +281,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             this.RaisePropertyChanged(nameof(ProjectLabel));
             this.RaisePropertyChanged(nameof(ProjectInitial));
             this.RaisePropertyChanged(nameof(IsAllProjects));
-            ProjectOptions = Options(_projects, value);
+            ProjectOptions = Options(_projects, value, _working);
             _projectChanges.OnNext(value);
             if (_sessions is null) ShowProject();
             else {
@@ -324,10 +324,17 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
         private set {
             this.RaiseAndSetIfChanged(ref _projectOptions, value);
             this.RaisePropertyChanged(nameof(HasProjects));
+            this.RaisePropertyChanged(nameof(HasRunningElsewhere));
         }
     }
 
     public bool HasProjects => _projectOptions.Count > 0;
+
+    /// A session is working in a project the rail is not showing.
+    public bool HasRunningElsewhere => _project is not null && _projectOptions.Any(o => o.HasRunning && !o.IsCurrent);
+
+    // Rows whose status chip says Working, in any project.
+    IReadOnlyList<AgentRow> _working = [];
 
     /// True when any of the five controls differs from the defaults, or sessions are removed, however the panel
     /// is collapsed.
@@ -569,10 +576,24 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
                 .Subscribe(ApplyPreferences)
                 .DisposeWith(_disposables);
 
+        // Working implies status Running, so the cheap filter runs before the hop to the UI thread.
+        directory.Rows.Connect()
+            .Filter(row => row.Status == "Running")
+            .ToCollection()
+            .ObserveOn(RxSchedulers.MainThreadScheduler)
+            .CombineLatest(work, (rows, running) => (IReadOnlyList<AgentRow>)[.. rows.Where(row =>
+                SessionStatusDots.ForRow(row, pending: false, work: running.GetValueOrDefault(row.Key)).Kind == AgentStatusKind.Working)])
+            .Subscribe(rows => {
+                if (_disposables.IsDisposed) return;
+                _working = rows;
+                var options = Options(_projects, _project, rows);
+                if (!options.SequenceEqual(_projectOptions)) ProjectOptions = options;
+            }).DisposeWith(_disposables);
+
         projects?.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(list => {
             if (_disposables.IsDisposed) return;
             _projects = list;
-            ProjectOptions = Options(list, _project);
+            ProjectOptions = Options(list, _project, _working);
             Project = Current(_project);
         }).DisposeWith(_disposables);
 
@@ -1069,8 +1090,8 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     RailProject? Current(RailProject? project) =>
         project is null || _projects is null ? project : _projects.FirstOrDefault(p => p.Id == project.Id);
 
-    static IReadOnlyList<RailProjectOption> Options(IReadOnlyList<RailProject>? projects, RailProject? current) =>
-        projects is null ? [] : [.. projects.Select(p => new RailProjectOption(p, p.Id == current?.Id))];
+    static IReadOnlyList<RailProjectOption> Options(IReadOnlyList<RailProject>? projects, RailProject? current, IReadOnlyList<AgentRow> working) =>
+        projects is null ? [] : [.. projects.Select(p => new RailProjectOption(p, p.Id == current?.Id, working.Any(p.Holds)))];
 
     /// A row the workspace is on is always shown, whatever the filter says.
     internal static bool StateAdmits(RailState state, AgentRow row, string? selectedKey) =>

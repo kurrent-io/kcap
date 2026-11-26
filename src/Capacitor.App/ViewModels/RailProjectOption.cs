@@ -1,4 +1,4 @@
 namespace Capacitor.App.ViewModels;
 
 /// One row of the project switcher's list.
-public sealed record RailProjectOption(RailProject Project, bool IsCurrent);
+public sealed record RailProjectOption(RailProject Project, bool IsCurrent, bool HasRunning = false);
