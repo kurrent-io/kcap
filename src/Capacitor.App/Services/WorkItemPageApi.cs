@@ -35,6 +35,9 @@ public sealed class WorkItemPageApi(ICapacitorHttpClient http, ProfileContext pr
     public Task<bool> SetGoalAsync(string workItemId, string? goal, CancellationToken ct) =>
         PostAsync(ApiRoutes.WorkItem(workItemId, "goal"), new WorkItemGoalRequestDto(goal), Json.WorkItemGoalRequestDto, ct);
 
+    public Task<bool> ChooseMainSessionAsync(string workItemId, string sessionId, CancellationToken ct) =>
+        PostAsync(ApiRoutes.WorkItem(workItemId, "main-session"), new WorkItemSessionRequestDto(sessionId), Json.WorkItemSessionRequestDto, ct);
+
     public Task<bool> OrderPartsAsync(string workItemId, IReadOnlyList<string> partIds, CancellationToken ct) =>
         PostAsync(ApiRoutes.WorkItem(workItemId, "parts/order"), new WorkItemPartOrderRequestDto(partIds), Json.WorkItemPartOrderRequestDto, ct);
 

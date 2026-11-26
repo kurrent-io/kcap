@@ -1,6 +1,6 @@
 namespace Capacitor.App.Services;
 
-/// The session each work item opens as its main chat, kept in app state so it survives a restart.
+/// A main chat not yet recorded on the server, which holds every other, kept in app state so it survives a restart.
 /// A choice the store fails to write still holds for this run.
 public sealed class WorkItemMainSessions {
     readonly IAppStateStore _state;

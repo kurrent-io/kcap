@@ -16,4 +16,6 @@ public sealed record WorkItemPartsDto {
     [JsonPropertyName("sessions")]    public List<WorkItemPartSessionDto> Sessions { get; init => field = value ?? []; } = [];
     /// Newest first; an older server sends none, which reads as empty.
     [JsonPropertyName("pages")]       public List<WorkItemPageDto> Pages { get; init => field = value ?? []; } = [];
+    /// One of the sessions above or a part's; null when the work item has none, and from an older server, which keeps none.
+    [JsonPropertyName("main_session_id")] public string? MainSessionId { get; init; }
 }

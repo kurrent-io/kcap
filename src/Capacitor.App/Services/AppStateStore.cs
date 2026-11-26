@@ -60,7 +60,8 @@ public sealed record AppState(
     bool CloseToTrayExplained = false,
     // Canonical session ids whose hand-off card the user closed, newest last; see HandoffOutcomeDismissals.
     IReadOnlyList<string>? DismissedHandoffOutcomes = null,
-    // Work item id -> its main chat: a session id, or a hosted agent id until the session is known.
+    // Work item id -> the hosted agent id of a main chat launched from it, until its session is known and recorded on the
+    // server. Older apps kept every choice here as a session id; those are recorded on the server when next opened.
     IReadOnlyDictionary<string, string>? MainSessionByWorkItem = null);
 
 public interface IAppStateStore {

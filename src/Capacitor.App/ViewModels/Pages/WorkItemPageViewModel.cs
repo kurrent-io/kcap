@@ -148,8 +148,18 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
 
     /// Set by the window hosting the page: docks it beside its main chat (true) or spreads it across the main area.
     public Action<bool>? Dock { get; set; }
-    /// Set by the window hosting the page: makes a session the main chat, or clears it with null.
-    public Action<string?>? ChooseMainChat { get; set; }
+    /// Set by the window hosting the page: makes a session the main chat.
+    public Action<string>? ChooseMainChat { get; set; }
+    Action<string?>? _mainChatRead;
+    /// Set by the window hosting the page: told the main chat the server holds after every read, and at once of a read
+    /// that landed before it was set.
+    public Action<string?>? MainChatRead {
+        get => _mainChatRead;
+        set {
+            _mainChatRead = value;
+            if (_read is not null) value?.Invoke(_read.MainSessionId);
+        }
+    }
     /// Set by the window hosting the page: opens the launcher aimed at a work item, since a docked page has no composer.
     public Func<string, string, Task>? StartInLauncher { get; set; }
     public ReactiveCommand<Unit, Unit> OpenMainChatCommand { get; }
@@ -261,6 +271,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
                 _read = read;
                 Message = null;
                 Rebuild();
+                MainChatRead?.Invoke(read.MainSessionId);
                 if (first && AimsComposer) _ = PickAsync(WorkItemId, Title);
             })
             .DisposeWith(_disposables);
@@ -273,15 +284,19 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     }
 
     public IReadOnlyList<RowMenuItem> MenuFor(WorkItemPageSession session) {
+        // The main chat stays on its work item until another is chosen; the server refuses its removal too.
+        if (SessionIds.SameSession(MainChat, session.SessionId)) return [];
         var items = new List<RowMenuItem>();
         if (ChooseMainChat is { } choose)
-            items.Add(SessionIds.SameSession(MainChat, session.SessionId)
-                ? new(LucideIconKind.MessageSquareOff, "Stop using as main chat", () => choose(null))
-                : new(LucideIconKind.MessageSquare, "Use as main chat", () => choose(session.SessionId)));
+            items.Add(new(LucideIconKind.MessageSquare, "Use as main chat", () => choose(session.SessionId)));
         items.Add(new(LucideIconKind.X, "Remove from work item",
             () => _ = ChangeAsync(ct => _api.RemoveSessionAsync(WorkItemId, session.SessionId, ct), "Couldn't remove that session")));
         return items;
     }
+
+    /// Records the main chat on the server, where every device and viewer reads it.
+    public Task<bool> RecordMainChatAsync(string sessionId) =>
+        ChangeAsync(ct => _api.ChooseMainSessionAsync(WorkItemId, sessionId, ct), "Couldn't make that the main chat");
 
     /// <param name="pickWaits">Opens the slice's wait picker.</param>
     public IReadOnlyList<RowMenuItem> MenuFor(WorkItemPagePart part, Action<WorkItemPagePart> pickWaits) {

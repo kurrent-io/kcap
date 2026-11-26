@@ -12,6 +12,7 @@ public sealed class FakeWorkItemPageApi : IWorkItemPageApi {
     public IObservable<IReadOnlySet<string>> SuggestedSessions => Observable.Return<IReadOnlySet<string>>(FrozenSet<string>.Empty);
     public List<WorkItemPartDetailDto> Parts { get; init; } = [Part("p1", "in_progress", "s1")];
     public List<string> SessionIds { get; init; } = [];
+    public string? MainSessionId { get; set; }
 
     public static WorkItemPartDetailDto Part(string id, string status, params string[] sessions) => new() {
         WorkItemId = id, Title = id == "p1" ? "Card form" : id, Status = status, SessionIds = [.. sessions],
@@ -19,9 +20,10 @@ public sealed class FakeWorkItemPageApi : IWorkItemPageApi {
     };
 
     public Task<WorkItemPartsDto?> ReadAsync(string workItemId, CancellationToken ct) => Task.FromResult<WorkItemPartsDto?>(
-        new() { WorkItem = new() { WorkItemId = workItemId, Title = "Checkout" }, Goal = "Pay in two steps", Parts = Parts, SessionIds = SessionIds });
+        new() { WorkItem = new() { WorkItemId = workItemId, Title = "Checkout" }, Goal = "Pay in two steps", Parts = Parts, SessionIds = SessionIds, MainSessionId = MainSessionId });
     public Task<bool> RenameAsync(string workItemId, string title, CancellationToken ct) => Record($"title {title}");
     public Task<bool> SetGoalAsync(string workItemId, string? goal, CancellationToken ct) => Record($"goal {goal ?? "<none>"}");
+    public Task<bool> ChooseMainSessionAsync(string workItemId, string sessionId, CancellationToken ct) => Record($"main {workItemId} {sessionId}");
     public Task<bool> SetStatusAsync(string workItemId, string? status, CancellationToken ct) => Record($"status {workItemId} {status ?? "<links>"}");
     public Task<bool> OrderPartsAsync(string workItemId, IReadOnlyList<string> partIds, CancellationToken ct) => Record($"order {string.Join(",", partIds)}");
     public Task<bool> MoveSessionAsync(string workItemId, string sessionId, CancellationToken ct) => Record($"move {sessionId} to {workItemId}");

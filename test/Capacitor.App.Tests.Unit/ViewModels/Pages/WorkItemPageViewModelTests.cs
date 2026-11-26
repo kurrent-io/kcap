@@ -56,6 +56,28 @@ public class WorkItemPageViewModelTests {
         await Assert.That(page.Message).IsEqualTo("Couldn't save the goal");
     });
 
+    /// The main chat's row offers neither another main chat nor its removal, while any other session offers both; the
+    /// server's main chat reaches a window that starts listening after the read, and a choice is recorded on the server.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_main_chat_cant_be_removed_and_another_session_can_take_its_place() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        var api = new FakeWorkItemPageApi { Parts = [FakeWorkItemPageApi.Part("p1", "open", "s1", "s2")], MainSessionId = "s1" };
+        using var directory = new FakeAgentDirectory();
+        using var page = Page(api, directory);
+        string? read = null;
+        page.MainChatRead = id => read = id;
+        page.ChooseMainChat = _ => { };
+        page.MainChat = read;
+        string[] Labels(string id) => [.. page.MenuFor(page.Groups.Single().Parts.Single().Sessions.Single(s => s.SessionId == id)).Select(item => item.Label)];
+
+        await Assert.That(read).IsEqualTo("s1");
+        await Assert.That(Labels("s1")).IsEmpty();
+        await Assert.That(Labels("s2")).IsEquivalentTo(["Use as main chat", "Remove from work item"]);
+
+        await page.RecordMainChatAsync("s2");
+        await Assert.That(api.Calls).IsEquivalentTo(["main w1 s2"]);
+    });
+
     static WorkItemPartDetailDto Waiting(string id, params string[] on) =>
         FakeWorkItemPageApi.Part(id, "open") with { WaitsOn = [.. on.Select(other => new WorkItemRefDto { WorkItemId = other, Title = other })] };
 

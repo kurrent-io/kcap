@@ -2686,11 +2686,11 @@ public class MainWindowViewModelTests {
         });
     }
 
-    /// A work item with a main chat opens that chat with its page docked beside it; expanding spreads
-    /// the page across the main area again, and clearing the main chat forgets it.
+    /// A main chat launched from the page opens with the page docked beside it, and outranks the server's until its
+    /// session is known; expanding spreads the page across the main area again.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_work_item_opens_beside_its_main_chat() {
+    public async Task A_work_item_opens_beside_the_main_chat_it_launched() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var service = new FakeDaemonClientService();
             using var tmp = TempDir.WithPathTo("app-state.json", out var path);
@@ -2700,11 +2700,13 @@ public class MainWindowViewModelTests {
             var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id), trackWorkspaceTeardown: teardown => _ = teardown(),
                 directory: directory, mainSessions: mainSessions,
                 pages: key => key is PageKey.WorkItem { Id: var id }
-                    ? new WorkItemPageViewModel(id, new FakeWorkItemPageApi(), directory, TimeProvider.System, new HashSet<string>())
+                    ? new WorkItemPageViewModel(id, new FakeWorkItemPageApi { MainSessionId = "s9" }, directory, TimeProvider.System, new HashSet<string>())
                     : null);
 
             await vm.OpenWorkItemCommand.Execute("w1").ToTask();
             var page = (WorkItemPageViewModel)vm.Page!;
+            await Assert.That(page.Goal).IsEqualTo("Pay in two steps");
+            await Assert.That(page.MainChat).IsEqualTo("a1");
             await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
             await Assert.That(vm.DockedPage).IsSameReferenceAs(page);
             await Assert.That(vm.ShownPage).IsNull();
@@ -2713,10 +2715,38 @@ public class MainWindowViewModelTests {
             await page.ExpandCommand.Execute().ToTask();
             await Assert.That(vm.ShownPage).IsSameReferenceAs(page);
             await Assert.That(page.CanOpenMainChat).IsTrue();
+            vm.CloseWorkspace();
+        });
+    }
 
-            page.ChooseMainChat!(null);
+    /// The main chat the server holds opens beside the page, and choosing another opens that one and records it on the
+    /// server rather than on this device.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_work_item_opens_beside_the_main_chat_the_server_holds_and_a_new_choice_goes_to_the_server() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            var mainSessions = new WorkItemMainSessions(new AppStateStore(path));
+            using var directory = new FakeAgentDirectory();
+            directory.SessionRows["s1"] = ("a1", AgentOrigin.Local);
+            directory.SessionRows["s2"] = ("a2", AgentOrigin.Local);
+            var api = new FakeWorkItemPageApi { MainSessionId = "s1" };
+            var vm = NewVm(service, workspaceFactory: id => NewWorkspace(service, id), trackWorkspaceTeardown: teardown => _ = teardown(),
+                directory: directory, mainSessions: mainSessions,
+                pages: key => key is PageKey.WorkItem { Id: var id }
+                    ? new WorkItemPageViewModel(id, api, directory, TimeProvider.System, new HashSet<string>())
+                    : null);
+
+            await vm.OpenWorkItemCommand.Execute("w1").ToTask();
+            var page = (WorkItemPageViewModel)vm.Page!;
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a1");
+            await Assert.That(vm.DockedPage).IsSameReferenceAs(page);
+
+            page.ChooseMainChat!("s2");
+            await Assert.That(vm.CurrentWorkspace?.AgentId).IsEqualTo("a2");
+            await Assert.That(api.Calls).IsEquivalentTo(["main w1 s2"]);
             await Assert.That(mainSessions.Get("w1")).IsNull();
-            await Assert.That(page.CanOpenMainChat).IsFalse();
             vm.CloseWorkspace();
         });
     }

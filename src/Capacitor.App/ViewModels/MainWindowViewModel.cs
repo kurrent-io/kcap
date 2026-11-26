@@ -1091,17 +1091,19 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// started there after the last main chat's row is gone.
     void NoteWorkItemLaunch((string WorkItemId, string AgentId) launch) {
         if (_mainSessions is null || Page is not WorkItemPageViewModel item || item.WorkItemId != launch.WorkItemId
-            || MainChatRow(item.WorkItemId) is not null) return;
+            || MainChatRow(item.MainChat) is not null) return;
         _mainSessions.Set(item.WorkItemId, launch.AgentId);
         item.MainChat = launch.AgentId;
     }
 
-    (string Id, AgentOrigin Origin)? MainChatRow(string workItemId) {
-        if (_mainSessions?.Get(workItemId) is not { } id) return null;
+    (string Id, AgentOrigin Origin)? MainChatRow(string? id) {
+        if (id is null) return null;
         if (_directory?.RowForSession(id) is { } row) return row;
         return _originOf(id) is { } lane ? (id, lane) : null;
     }
 
+    // The server holds the main chat. The local store holds only a launch's agent id until its session
+    // is known, and choices an older app kept there, until they are recorded on the server.
     void AttachMainChat(WorkItemPageViewModel item) {
         if (_mainSessions is null) return;
         item.MainChat = _mainSessions.Get(item.WorkItemId);
@@ -1113,33 +1115,50 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         };
         item.ChooseMainChat = sessionId => {
             if (Page != item) return;
-            if (sessionId is null) {
-                _mainSessions.Remove(item.WorkItemId);
-                item.MainChat = null;
-                SetPageDocked(false);
-                return;
-            }
-            _mainSessions.Set(item.WorkItemId, sessionId);
+            _mainSessions.Remove(item.WorkItemId);
             item.MainChat = sessionId;
             DockMainChat(item);
+            _ = item.RecordMainChatAsync(sessionId);
         };
         item.StartInLauncher = StartInWorkItemAsync;
         DockMainChat(item);
+        item.MainChatRead = sessionId => {
+            if (_mainSessions.Get(item.WorkItemId) is not null || SessionIds.SameSession(item.MainChat, sessionId)) return;
+            var first = item.MainChat is null;
+            item.MainChat = sessionId;
+            if (first && Page == item && DockedPage is null) DockMainChat(item);
+        };
     }
 
     /// Opens the work item's main chat with its page beside it; the page stays across the main area
     /// when the chat has no row to open.
     void DockMainChat(WorkItemPageViewModel item, (string Id, AgentOrigin Origin)? row = null) {
-        if ((row ?? MainChatRow(item.WorkItemId)) is not { } open || !OpenSessionCore(open.Id, open.Origin, revealInRail: true)) {
+        if ((row ?? MainChatRow(item.MainChat)) is not { } open || !OpenSessionCore(open.Id, open.Origin, revealInRail: true)) {
             SetPageDocked(false);
+            if (row is null && _mainSessions?.Get(item.WorkItemId) is null && item.MainChat is { } unlisted) _ = DockUnlistedMainChatAsync(item, unlisted);
             return;
         }
         SetPageDocked(true);
-        // A launch records its agent id; the session id outlives the agent, so it replaces it once known.
-        if (SessionOfOpen() is { Length: > 0 } sessionId && _mainSessions is not null) {
-            _mainSessions.Set(item.WorkItemId, sessionId);
+        // A launch's agent id gives way to its session, which outlives the agent, once that is known.
+        if (SessionOfOpen() is { Length: > 0 } sessionId && _mainSessions?.Get(item.WorkItemId) is not null) {
+            _mainSessions.Remove(item.WorkItemId);
             item.MainChat = sessionId;
+            _ = item.RecordMainChatAsync(sessionId);
         }
+    }
+
+    /// A main chat the rail doesn't list, such as an older or a teammate's session, gets a row by pinning it, as opening
+    /// it from a search does.
+    async Task DockUnlistedMainChatAsync(WorkItemPageViewModel item, string sessionId) {
+        if (_sessions is null || _directory is null) return;
+        var previousPin = _searchPin;
+        _searchPin = sessionId;
+        if (await _sessions.PinAsync(sessionId, new PinPresentation(null, null, null), CancellationToken.None) is not PinOutcome.Pinned) {
+            if (_searchPin == sessionId) _searchPin = previousPin;
+            return;
+        }
+        if (Page != item || !SessionIds.SameSession(item.MainChat, sessionId) || _directory.RowForSession(sessionId) is not { } row) return;
+        DockMainChat(item, row);
     }
 
     /// The launcher words a launch failure, and an open workspace covers the launcher. Only a
