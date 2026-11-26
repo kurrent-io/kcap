@@ -25,7 +25,7 @@ public class AcpHostedAgentRuntimeRestartResumeTests {
         public int? ExitCode  { get; private set; }
 
         public async Task WaitForExitAsync(TimeSpan? timeout = null) {
-            if (timeout is { } t) await Task.WhenAny(_exited.Task, Task.Delay(t));
+            if (timeout is { } t) await _exited.Task.FinishedWithinAsync(t, TimeProvider.System);
             else await _exited.Task;
         }
 
@@ -46,7 +46,7 @@ public class AcpHostedAgentRuntimeRestartResumeTests {
         Task _drain    = Task.CompletedTask;
 
         public FakeAcpAgent            Fake    { get; } = new();
-        public CancellationTokenSource Cts     { get; } = new();
+        CancellationTokenSource Cts     { get; } = new();
         public AcpHostedAgentRuntime   Runtime { get; }
 
         public Harness() =>
@@ -86,8 +86,8 @@ public class AcpHostedAgentRuntimeRestartResumeTests {
         h.Fake.SetSessionLoadReplay([FakeAcpAgent.DefaultAgentMessageChunkUpdate(ResumedSession, "replayed-history")]);
         h.Fake.EnqueuePromptScript(
             [FakeAcpAgent.DefaultAgentMessageChunkUpdate(ResumedSession, "after-the-nudge")],
-            JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone());
-        h.Fake.EnqueuePromptScript([], JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone());
+            JsonElement.Parse("""{"stopReason":"end_turn"}"""));
+        h.Fake.EnqueuePromptScript([], JsonElement.Parse("""{"stopReason":"end_turn"}"""));
 
         await h.StartAsync("the nudge", ResumedSession);
         await h.Runtime.SendUserInputAsync("typed during the hold").WaitAsync(HangGuard);

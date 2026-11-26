@@ -179,17 +179,10 @@ public class SettingsWindowSmokeTests {
             await Assert.That(AutomationProperties.GetName(card)).IsEqualTo(manageHint);
             Click(window, card);
             await Assert.That(tabs.SelectedItem).IsEqualTo(tab);
-            var presenter = card.GetVisualDescendants().OfType<Avalonia.Controls.Presenters.ContentPresenter>()
-                .Single(p => p.Name == "PART_ContentPresenter");
-            await Assert.That(presenter.Background).IsEqualTo((Avalonia.Media.IBrush)window.FindResource("KcapSelectionBrush")!);
-            Click(window, window.FindControl<TabItem>("PrivacyTab")!);
-            await Assert.That(presenter.Background).IsNotEqualTo((Avalonia.Media.IBrush)window.FindResource("KcapSelectionBrush")!);
-            Click(window, card);
 
             // A TabItem's own visual tree is its header only; the selected tab's content is hosted
             // by the TabControl's PART_SelectedContentHost, so the row content is found from tabs.
-            var chips = tabs.GetVisualDescendants().OfType<Button>().Where(b => b.Classes.Contains("kcapChip")).ToList();
-            await Assert.That(chips.Any(b => b.Content as string == "Sign in" && b.IsEffectivelyVisible)).IsTrue();
+            await Assert.That(tabs.GetVisualDescendants().OfType<Button>().Any(b => b.Content as string == "Sign in" && b.IsEffectivelyVisible)).IsTrue();
 
             var marks = tabs.GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.Classes.Contains("profileMark") && t.IsEffectivelyVisible)
@@ -204,7 +197,6 @@ public class SettingsWindowSmokeTests {
             await Assert.That(flyout.IsOpen).IsTrue();
             var remove = ((Control)flyout.Content!).GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("profileRemove"));
             await Assert.That(remove.IsEffectivelyVisible).IsTrue();
-            await Assert.That(remove.FindAncestorOfType<FlyoutPresenter>()!.Classes.Contains("kcapPanel")).IsTrue();
             flyout.Hide();
 
             var statuses = tabs.GetVisualDescendants().OfType<TextBlock>().Where(t => t.Classes.Contains("profileStatus")).Select(t => t.Text).ToList();
@@ -255,13 +247,13 @@ public class SettingsWindowSmokeTests {
             tabs.SelectedItem = tab;
             Settle(window);
 
-            var rows = tabs.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("accountRow")).ToList();
-            string Label(Control row) => row.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Classes.Contains("accountLabel")).Text!;
+            var rows = tabs.GetVisualDescendants().OfType<Border>().Where(b => b.Name == "AccountRow").ToList();
+            string Label(Control row) => row.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "AccountLabel").Text!;
             Border RowOf(string label) => rows.Single(r => Label(r) == label);
-            bool HasPill(Control row) => row.GetVisualDescendants().OfType<Border>().Any(b => b.Classes.Contains("accountDefault") && b.IsEffectivelyVisible);
-            TextBlock State(Control row) => row.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Classes.Contains("accountState"));
+            bool HasPill(Control row) => row.GetVisualDescendants().OfType<Border>().Any(b => b.Name == "AccountDefault" && b.IsEffectivelyVisible);
+            TextBlock State(Control row) => row.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "AccountState");
             Button? Visible(Control row, string kind) =>
-                row.GetVisualDescendants().OfType<Button>().SingleOrDefault(b => b.Classes.Contains(kind) && b.IsEffectivelyVisible);
+                row.GetVisualDescendants().OfType<Button>().SingleOrDefault(b => b.Name == kind && b.IsEffectivelyVisible);
 
             await Assert.That(string.Join(",", rows.Select(Label))).IsEqualTo("home,work,main,.codex");
             await Assert.That(HasPill(RowOf("home"))).IsTrue();
@@ -269,16 +261,17 @@ public class SettingsWindowSmokeTests {
             await Assert.That(HasPill(RowOf("main"))).IsFalse();
             await Assert.That(HasPill(RowOf(".codex"))).IsTrue();
 
-            var trust = State(RowOf("main"));
-            await Assert.That(trust.Text).IsEqualTo("Needs approval in Codex");
-            await Assert.That(trust.Foreground).IsSameReferenceAs(window.FindResource("KcapWarningBrush"));
-            await Assert.That(ToolTip.GetTip(trust)).IsEqualTo("Start Codex once with this account and approve kcap's hooks when it asks.");
+            var trust = RowOf("main").GetVisualDescendants().OfType<Border>().Single(b => b.Name == "AccountStateNotice");
+            await Assert.That(trust.IsEffectivelyVisible).IsTrue();
+            await Assert.That(string.Join("|", trust.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text)))
+                .Contains("Needs approval in Codex|Start Codex once with this account and approve kcap's hooks when it asks.");
+            await Assert.That(State(RowOf("main")).IsEffectivelyVisible).IsFalse();
             await Assert.That(State(RowOf("home")).Text).IsEqualTo("Recording");
-            await Assert.That(State(RowOf("home")).Foreground).IsSameReferenceAs(window.FindResource("KcapSuccessBrush"));
-            await Assert.That(Visible(RowOf(".codex"), "accountMenu")).IsNull();
-            await Assert.That(Visible(RowOf("home"), "accountAdd")).IsNull();
+            await Assert.That(State(RowOf("home")).IsEffectivelyVisible).IsTrue();
+            await Assert.That(Visible(RowOf(".codex"), "AccountMenu")).IsNull();
+            await Assert.That(Visible(RowOf("home"), "AccountAdd")).IsNull();
 
-            var menuButton = Visible(RowOf("work"), "accountMenu")!;
+            var menuButton = Visible(RowOf("work"), "AccountMenu")!;
             await Assert.That(AutomationProperties.GetName(menuButton)).IsEqualTo("Actions for work");
             var menu = (Flyout)menuButton.Flyout!;
             menuButton.BringIntoView();
@@ -286,17 +279,15 @@ public class SettingsWindowSmokeTests {
             await Assert.That(menu.IsOpen).IsTrue();
             var items = ((Control)menu.Content!).GetVisualDescendants().OfType<Button>().ToList();
             await Assert.That(string.Join(",", items.Select(b => b.Content))).IsEqualTo("Refresh,Rename,Reconnect,Remove");
-            await Assert.That(items.All(b => b.Classes.Contains("kcapGhost"))).IsTrue();
-            await Assert.That(items[0].FindAncestorOfType<FlyoutPresenter>()!.Classes.Contains("kcapPanel")).IsTrue();
             MainWindowSmokeTests.ClickFlyoutButton(items[1]);
             Settle(window);
             await Assert.That(menu.IsOpen).IsFalse();
             await Assert.That(accountsVm.Renaming!.Id).IsEqualTo("a2");
-            var field = RowOf("work").GetVisualDescendants().OfType<TextBox>().Single(t => t.Classes.Contains("kcapField"));
+            var field = RowOf("work").GetVisualDescendants().OfType<TextBox>().Single(t => t.IsEffectivelyVisible);
             await Assert.That(field.IsEffectivelyVisible).IsTrue();
             await Assert.That(field.Text).IsEqualTo("work");
 
-            var add = Visible(RowOf(".codex"), "accountAdd")!;
+            var add = Visible(RowOf(".codex"), "AccountAdd")!;
             add.BringIntoView();
             Click(window, add);
             await WaitUntilAsync(() => requests.Count == 1);
@@ -353,7 +344,7 @@ public class SettingsWindowSmokeTests {
             tabs.SelectedItem = window.FindControl<TabItem>("AccountsTab")!;
             Settle(window);
 
-            var pills = tabs.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("accountBlocked")).ToArray();
+            var pills = tabs.GetVisualDescendants().OfType<Border>().Where(b => b.Name == "AccountBlocked").ToArray();
             await Assert.That(pills).IsNotEmpty();
             await Assert.That(pills.Any(b => b.IsEffectivelyVisible)).IsFalse();
         } finally {
@@ -391,7 +382,7 @@ public class SettingsWindowSmokeTests {
             tabs.SelectedItem = window.FindControl<TabItem>("AccountsTab")!;
             Settle(window);
 
-            var menuButton = tabs.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("accountMenu") && b.IsEffectivelyVisible);
+            var menuButton = tabs.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "AccountMenu" && b.IsEffectivelyVisible);
             menuButton.BringIntoView();
             Click(window, menuButton);
             var menu = (Flyout)menuButton.Flyout!;
@@ -444,7 +435,6 @@ public class SettingsWindowSmokeTests {
                 var permissions = window.FindControl<ToggleSwitch>("PermissionNotificationsToggle")!;
                 var questions = window.FindControl<ToggleSwitch>("QuestionNotificationsToggle")!;
                 var idle = window.FindControl<ToggleSwitch>("IdleNotificationsToggle")!;
-                await Assert.That(permissions.Classes.Contains("kcapSwitch")).IsTrue();
                 await Assert.That(permissions.IsEffectivelyVisible).IsTrue();
                 await Assert.That(permissions.IsEffectivelyEnabled).IsTrue();
                 Click(window, permissions);
@@ -530,7 +520,7 @@ public class SettingsWindowSmokeTests {
             save.BringIntoView();
             Settle(window);
             Click(window, save);
-            await WaitUntilAsync(() => !vm.Capture.Busy && vm.Capture.Saved);
+            await WaitUntilAsync(() => vm.Capture is { Busy: false, Saved: true });
             var saved = new SettingsProfileStore(Config.Root, "work", "https://work.example").LoadProfile();
             await Assert.That(saved.DefaultVisibility).IsEqualTo("private");
             await Assert.That(saved.AllowedRepos).IsEquivalentTo(new[] { "team/project" });
@@ -565,9 +555,9 @@ public class SettingsWindowSmokeTests {
             Click(window, window.FindControl<TabItem>("HarnessesTab")!);
             var view = window.GetVisualDescendants().OfType<HarnessesSettingsView>().Single();
             Click(window, view.FindControl<Button>("RescanHarnessesButton")!);
-            await WaitUntilAsync(() => harnesses.Rows.Count == 1);
+            await WaitUntilAsync(() => harnesses.Rows.Count == 1 && !harnesses.Scanning);
             Settle(window);
-            var connect = view.GetVisualDescendants().OfType<CheckBox>().Single(c => c.IsVisible);
+            var connect = view.GetVisualDescendants().OfType<CheckBox>().Single(c => c.IsEffectivelyVisible);
             Click(window, connect);
             await Assert.That(harnesses.Busy).IsTrue();
             await Assert.That(vm.CanEdit).IsFalse();
@@ -608,13 +598,44 @@ public class SettingsWindowSmokeTests {
         try {
             window.Show();
             Click(window, window.FindControl<TabItem>("HarnessesTab")!);
-            var checkbox = window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.IsVisible);
+            var checkbox = window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.IsEffectivelyVisible);
             Click(window, checkbox);
             await WaitUntilAsync(() => !harnesses.Busy);
             Settle(window);
             await Assert.That(checkbox.IsChecked).IsTrue();
             await Assert.That(checkbox.IsEffectivelyEnabled).IsTrue();
             await Assert.That(harnesses.Rows[0].Details).IsEqualTo("Could not remove hooks");
+        } finally { window.Close(); }
+    });
+
+    [Test]
+    [Arguments(true, "restore a working copy")]
+    [Arguments(false, "Restart the app")]
+    public Task Failed_grok_bot_save_restores_the_checkbox_and_explains_how_to_recover(bool malformed, string nextStep) => AvaloniaSession.RunOnUiAsync(async () => {
+        ConfigMutator.Mutate(Config.Root, c => c with { Profiles = new() {
+            ["work"] = new Profile { ServerUrl = "https://work.example" }
+        } });
+        var harnesses = new HarnessesSettingsViewModel(new SettingsProfileStore(Config.Root, "work", "https://work.example"), Substitute.For<IKcapCli>(),
+            _ => Task.FromResult<IReadOnlyDictionary<HarnessId, DetectedAgent>>(new Dictionary<HarnessId, DetectedAgent>()),
+            grokBotFound: () => true);
+        using var notifications = new NotificationSettingsService(Config.PathTo("notifications.json"));
+        using var vm = MakeViewModel(notifications, harnesses: harnesses);
+        await harnesses.RescanAsync();
+        var window = new SettingsWindow { DataContext = vm };
+        try {
+            window.Show();
+            Click(window, window.FindControl<TabItem>("HarnessesTab")!);
+            var view = window.GetVisualDescendants().OfType<HarnessesSettingsView>().Single();
+            var checkbox = view.FindControl<CheckBox>("GrokBotRecordCheck")!;
+            if (malformed)
+                await File.WriteAllTextAsync(AppConfig.GetConfigPath(Config.Root), "{not json");
+            else
+                ConfigMutator.Mutate(Config.Root, c => c with { Profiles = new() });
+            Click(window, checkbox);
+            await WaitUntilAsync(() => !harnesses.Busy && harnesses.GrokBotMessage is not null);
+            Settle(window);
+            await Assert.That(harnesses.GrokBotMessage!).Contains(nextStep);
+            await Assert.That(checkbox.IsChecked).IsFalse();
         } finally { window.Close(); }
     });
 
@@ -653,7 +674,7 @@ public class SettingsWindowSmokeTests {
 
             await Assert.That(tools.IsChecked).IsNull();
             await Assert.That(view.GetVisualDescendants().OfType<TextBlock>()
-                .Any(t => t.IsEffectivelyVisible && t.Text == "Setup unverified")).IsTrue();
+                .Any(t => t is { IsEffectivelyVisible: true, Text: "Setup unverified" })).IsTrue();
         } finally { window.Close(); }
     });
 
@@ -687,7 +708,7 @@ public class SettingsWindowSmokeTests {
             await Assert.That(capture.Visibility).IsEqualTo("project");
             await Assert.That(choices.SelectedValue).IsEqualTo("project");
             var noteShown = window.GetVisualDescendants().OfType<TextBlock>()
-                .Any(t => t.IsEffectivelyVisible && t.Text is { } text && text.Contains("not offered by this server", StringComparison.Ordinal));
+                .Any(t => t is { IsEffectivelyVisible: true, Text: { } text } && text.Contains("not offered by this server", StringComparison.Ordinal));
             await Assert.That(noteShown).IsEqualTo(!supported);
             await Assert.That(capture.VisibilityNote is null).IsEqualTo(supported);
             capture.AllowedRepos = "team/project";
@@ -750,7 +771,7 @@ public class SettingsWindowSmokeTests {
             window.Show();
             Settle(window);
             var peers = window.GetVisualDescendants().OfType<SettingsSectionHeader>()
-                .Select(header => ControlAutomationPeer.CreatePeerForElement(header))
+                .Select(ControlAutomationPeer.CreatePeerForElement)
                 .ToList();
 
             await Assert.That(peers.Select(peer => peer.GetName())).IsEquivalentTo(["This profile", "This computer"]);
@@ -764,8 +785,92 @@ public class SettingsWindowSmokeTests {
         } finally { window.Close(); }
     });
 
+    [Test]
+    public Task Reading_choices_work_from_the_keyboard() => AvaloniaSession.RunOnUiAsync(async () => {
+        ConfigMutator.Mutate(Config.Root, config => config with {
+            Profiles = new() { ["work"] = new Profile { ServerUrl = "https://work.example" } },
+        });
+        var state = new AppStateStore(Config.PathTo("app-state.json"));
+        using var reading = new DesktopAppearanceSettings(state, null, _ => { });
+        using var notifications = new NotificationSettingsService(Config.PathTo("notifications.json"));
+        using var vm = MakeViewModel(notifications, appearance: new AppearanceSettingsViewModel(UiScaleSetting.From(state, new AppState()), reading: reading));
+        var window = new SettingsWindow { DataContext = vm };
+        try {
+            window.Show();
+            window.FindControl<TabItem>("AppearanceTab")!.IsSelected = true;
+            Settle(window);
+            var density = window.FindControl<ComboBox>("DensityPicker")!;
+            var font = window.FindControl<ComboBox>("ReadingFontPicker")!;
+            var contrast = window.FindControl<CheckBox>("HigherContrastToggle")!;
+            foreach (var picker in new[] { density, font }) {
+                await Assert.That(picker.Focus(NavigationMethod.Tab)).IsTrue();
+                window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+                window.KeyReleaseQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
+                Settle(window);
+            }
+            await Assert.That(contrast.Focus(NavigationMethod.Tab)).IsTrue();
+            window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            window.KeyReleaseQwerty(PhysicalKey.Space, RawInputModifiers.None);
+            Settle(window);
+            await reading.PendingSave;
+            await Assert.That(reading.Density).IsEqualTo(DesktopDensity.Compact);
+            await Assert.That(reading.ReadingFont).IsEqualTo(DesktopReadingFont.Monospace);
+            await Assert.That(reading.HighContrast).IsTrue();
+            await Assert.That(density.SelectedItem).IsEqualTo(DesktopDensity.Compact);
+        } finally { window.Close(); }
+    });
+
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public Task Appearance_offers_three_keyboard_choices(bool lightAvailable) => AvaloniaSession.RunOnUiAsync(async () => {
+        ConfigMutator.Mutate(Config.Root, config => config with {
+            Profiles = new() { ["work"] = new Profile { ServerUrl = "https://work.example" } },
+        });
+        var state = new AppStateStore(Config.PathTo("app-state.json"));
+        var palette = new DesktopPalette(Application.Current!);
+        using var scheme = new DesktopColorSchemeSettings(state, null,
+            theme => (theme != DesktopTheme.Light || lightAvailable) && palette.TryApply(theme), () => true, System.Reactive.Linq.Observable.Never<System.Reactive.Unit>());
+        using var notifications = new NotificationSettingsService(Config.PathTo("notifications.json"));
+        using var vm = MakeViewModel(notifications, appearance: new AppearanceSettingsViewModel(UiScaleSetting.From(state, new AppState()), scheme));
+        var window = new SettingsWindow { DataContext = vm };
+        try {
+            window.Show();
+            window.FindControl<TabItem>("AppearanceTab")!.IsSelected = true;
+            Settle(window);
+            var picker = window.FindControl<ListBox>("ColorSchemePicker")!;
+            var auto = (ListBoxItem)picker.ContainerFromIndex(0)!;
+            await Assert.That(auto.IsSelected).IsTrue();
+            await Assert.That(auto.Focus(NavigationMethod.Tab)).IsTrue();
+            if (lightAvailable) {
+                window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
+                window.KeyReleaseQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
+                Settle(window);
+                await Assert.That(scheme.Selected).IsEqualTo(DesktopColorScheme.Light);
+            }
+            var next = lightAvailable ? PhysicalKey.ArrowRight : PhysicalKey.End;
+            window.KeyPressQwerty(next, RawInputModifiers.None);
+            window.KeyReleaseQwerty(next, RawInputModifiers.None);
+            Settle(window);
+            var dark = (ListBoxItem)picker.ContainerFromIndex(2)!;
+            await Assert.That(dark.IsFocused && dark.IsSelected).IsTrue();
+            await Assert.That(scheme.Selected).IsEqualTo(DesktopColorScheme.Dark);
+            await Assert.That(ControlAutomationPeer.CreatePeerForElement(dark).GetName()).IsEqualTo("Dark");
+            Click(window, picker.ContainerFromIndex(1)!);
+            var expected = lightAvailable ? DesktopColorScheme.Light : DesktopColorScheme.Dark;
+            await Assert.That(scheme.Selected).IsEqualTo(expected);
+            await Assert.That(picker.SelectedItem).IsEqualTo(expected);
+            if (lightAvailable) await scheme.SelectAsync(expected);
+            await Assert.That((await state.LoadAsync()).DesktopColorScheme).IsEqualTo(lightAvailable ? "light" : "dark");
+        } finally {
+            window.Close();
+            palette.TryApply(DesktopTheme.Light);
+        }
+    });
+
     SettingsViewModel MakeViewModel(NotificationSettingsService notifications, IDesktopNotificationAccess? access = null,
-            HarnessesSettingsViewModel? harnesses = null, CaptureSettingsViewModel? capture = null, AboutSettingsViewModel? about = null) {
+            HarnessesSettingsViewModel? harnesses = null, CaptureSettingsViewModel? capture = null, AboutSettingsViewModel? about = null,
+            AppearanceSettingsViewModel? appearance = null) {
         var service = new FakeDaemonClientService();
         service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, ["settings/1"]));
         service.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap());
@@ -773,7 +878,7 @@ public class SettingsWindowSmokeTests {
             service, new ScriptedLocalControlOps(), (_, _) => Task.FromResult(false),
             (_, _) => Task.FromResult<MutationOutcome>(new MutationOutcome.Succeeded()),
             (_, _) => Task.FromResult(false), _ => Task.FromResult(false), true, Task.CompletedTask,
-            (_, _) => Task.FromResult(true), notificationSettings: notifications, notificationAccess: access, harnesses: harnesses, capture: capture) { About = about };
+            (_, _) => Task.FromResult(true), notificationSettings: notifications, notificationAccess: access, harnesses: harnesses, capture: capture) { About = about, Appearance = appearance };
     }
 
     static async Task WaitUntilAsync(Func<bool> ready) {

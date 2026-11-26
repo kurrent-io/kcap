@@ -50,7 +50,7 @@ public class ClaudeSessionEnvTests {
 
     [Test]
     public async Task Without_an_env_file_nothing_happens() {
-        using var stderr = new StringWriter();
+        await using var stderr = new StringWriter();
 
         ClaudeSessionEnv.Persist(Hook("SessionStart", "abc"), null, stderr);
         ClaudeSessionEnv.Persist("not json", Tmp.PathTo("env.sh"), stderr);
@@ -62,7 +62,7 @@ public class ClaudeSessionEnvTests {
     [Test]
     public async Task An_env_file_it_cannot_append_to_is_reported() {
         var envFile = Tmp.PathTo("missing", "env.sh");
-        using var stderr = new StringWriter();
+        await using var stderr = new StringWriter();
 
         ClaudeSessionEnv.Persist(Hook("SessionStart", "abc"), envFile, stderr);
 

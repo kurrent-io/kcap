@@ -35,14 +35,12 @@ public class DaemonSettingsIpcTests {
         var statusIpc   = new DaemonStatusIpc(config, orchestrator, server, notifier, TimeProvider.System);
         var settingsIpc = new DaemonSettingsIpc(config, orchestrator, notifier, NullLogger<DaemonSettingsIpc>.Instance);
         var restart     = RestartCoordinator.ForTest(config.Store, config.Name, "test", new NoopRestartStrategy(), TimeProvider.System);
-        var control     = new LocalControlServer(config, orchestrator, restart, consentIpc, permissionIpc, statusIpc, settingsIpc, TestFences.Ipc(config, orchestrator), TestShutdown.Ipc(orchestrator, restart), TestAccountsIpc.Inert(), TestSteering.Switch(config), NullLogger<LocalControlServer>.Instance);
+        var socket      = new LocalControlSocket(config);
+        socket.Bind();
+        var control     = new LocalControlServer(config, orchestrator, restart, consentIpc, permissionIpc, statusIpc, settingsIpc, TestFences.Ipc(config, orchestrator), TestShutdown.Ipc(orchestrator, restart), TestAccountsIpc.Inert(), TestSteering.Switch(config), NullLogger<LocalControlServer>.Instance, socket);
         await control.StartAsync(ct);
 
-        var sockPath = config.Store.SocketPath(config.Name);
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        while (!File.Exists(sockPath) && DateTime.UtcNow < deadline) await Task.Delay(20, ct);
-
-        return new Harness(control, orchestrator, config, sockPath);
+        return new Harness(control, orchestrator, config, socket.Path);
     }
 
     static async Task StopAsync(Harness h) {

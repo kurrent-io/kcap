@@ -1,7 +1,6 @@
 using System.Globalization;
 using Avalonia.Data.Converters;
 using Avalonia.Media;
-using Avalonia.Media.Immutable;
 
 namespace Capacitor.App.Views;
 
@@ -22,8 +21,8 @@ public sealed class UppercaseConverter : IValueConverter {
 public sealed class OutcomeBrushConverter : IValueConverter {
     public static readonly OutcomeBrushConverter Instance = new();
 
-    static readonly IBrush Allowed = new ImmutableSolidColorBrush(Color.Parse(StatusColors.Connected));
-    static readonly IBrush Denied = new ImmutableSolidColorBrush(Color.Parse(StatusColors.Disrupted));
+    static IBrush Allowed => AppPalette.Brush(AppStatusPalette.Connected);
+    static IBrush Denied => AppPalette.Brush(AppStatusPalette.Disrupted);
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         value is true ? Allowed : Denied;
@@ -39,18 +38,6 @@ public sealed class BoolToOpacityConverter : IValueConverter {
 
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         value is true ? 1.0 : 0.0;
-
-    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        throw new NotSupportedException();
-}
-
-/// A stale remote rail row stays visible, just dimmed — unlike BoolToOpacityConverter above
-/// (fully transparent when false), so it cannot be reused inverted.
-public sealed class StaleOpacityConverter : IValueConverter {
-    public static readonly StaleOpacityConverter Instance = new();
-
-    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
-        value is true ? 0.55 : 1.0;
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         throw new NotSupportedException();
@@ -73,8 +60,8 @@ public sealed class OffscreenWhenInactiveConverter : IValueConverter {
 public sealed class ToolOutcomeBrushConverter : IValueConverter {
     public static readonly ToolOutcomeBrushConverter Instance = new();
 
-    static readonly IBrush Success = new ImmutableSolidColorBrush(Color.Parse(StatusColors.Connected));
-    static readonly IBrush Failure = new ImmutableSolidColorBrush(Color.Parse(StatusColors.Disrupted));
+    static IBrush Success => AppPalette.Brush(AppStatusPalette.Connected);
+    static IBrush Failure => AppPalette.Brush(AppStatusPalette.Disrupted);
 
     public object? Convert(object? value, Type targetType, object? parameter, CultureInfo culture) =>
         value is true ? Failure : Success;

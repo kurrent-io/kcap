@@ -60,7 +60,7 @@ public class RailSessionViewModelTests {
             });
             await Assert.That(row.PullRequestLabel).IsEqualTo("PR #142");
             await Assert.That(row.PullRequestStatus!.Text).IsEqualTo("Draft");
-            await Assert.That(row.PullRequestTooltip).Contains("Linked to this session: Fix the flaky test");
+            await Assert.That(row.LinkedPullRequestTip!.Description).Contains("Linked session · Fix the flaky test");
             await Assert.That(row.Primary).IsEqualTo("Fix the flaky test");
             await Assert.That(changes).Contains(nameof(RailSessionViewModel.PullRequestLabel));
             row.OpenPullRequestCommand.Execute().Subscribe();
@@ -241,8 +241,8 @@ public class RailSessionViewModelTests {
             await Assert.That(row.Vendor).IsEqualTo("claude");
             await Assert.That(row.HasVendor).IsTrue();
             await Assert.That(row.Model).IsEqualTo("Opus 5");
-            await Assert.That(row.Tooltip).Contains("Claude Code\nHarness");
-            await Assert.That(row.Tooltip).Contains("Opus 5\nModel");
+            await Assert.That(row.Tooltip).Contains("Harness\nClaude Code");
+            await Assert.That(row.Tooltip).Contains("Model\nOpus 5");
         });
     }
 
@@ -288,8 +288,8 @@ public class RailSessionViewModelTests {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var row = new RailSessionViewModel(Row(model: null), new BehaviorSubject<string?>(null), NoPending, NotStale, _ => { }, _ => { }, TimeProvider.System);
             await Assert.That(row.Model).IsNull();
-            await Assert.That(row.Tooltip).Contains("Claude Code\nHarness");
-            await Assert.That(row.Tooltip).DoesNotContain("\nModel");
+            await Assert.That(row.Tooltip).Contains("Harness\nClaude Code");
+            await Assert.That(row.Tooltip).DoesNotContain("Model\n");
         });
     }
 
@@ -311,7 +311,7 @@ public class RailSessionViewModelTests {
             await Assert.That(older.Status.Kind).IsEqualTo(AgentStatusKind.Other);
             await Assert.That(older.Status.Label).IsEqualTo("Running");
             await Assert.That(older.Status.ShowsRing).IsTrue();
-            await Assert.That(older.Status.ShowsDash).IsFalse();
+            await Assert.That(older.Status.ShowsSettledMark).IsFalse();
             await Assert.That(older.Status.Pulses).IsFalse();
         });
     }
@@ -410,18 +410,24 @@ public class RailSessionViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_remote_row_greys_out_while_the_lane_is_stale_and_a_local_row_never_does() {
+    public async Task A_remote_row_says_it_cannot_update_while_the_lane_is_down_and_a_local_row_never_does() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var stale = new BehaviorSubject<bool>(true);
             using var remote = new RailSessionViewModel(RemoteRow("r1"), new BehaviorSubject<string?>(null), NoPending, stale, _ => { }, _ => { }, TimeProvider.System);
             using var local = new RailSessionViewModel(LocalRow("a1"), new BehaviorSubject<string?>(null), NoPending, stale, _ => { }, _ => { }, TimeProvider.System);
-            await Assert.That(remote.IsStale).IsTrue();
-            await Assert.That(local.IsStale).IsFalse();
+            await Assert.That(remote.LaneNote).IsEqualTo(RailSessionViewModel.LaneStaleNote);
+            await Assert.That(remote.RowAccessibleName).EndsWith(", " + RailSessionViewModel.LaneStaleNote);
+            await Assert.That(KcapTip.Session(remote.Status, remote.Primary, remote.MachineBadge, remote.CheckoutPath, remote.LaneNote).Description)
+                .Contains(RailSessionViewModel.LaneStaleNote);
+            await Assert.That(local.LaneNote).IsNull();
+            await Assert.That(local.RowAccessibleName).IsEqualTo(local.SessionAccessibleName);
 
             stale.OnNext(false);
-            await Assert.That(remote.IsStale).IsFalse();
+            await Assert.That(remote.LaneNote).IsNull();
+            await Assert.That(remote.RowAccessibleName).IsEqualTo(remote.SessionAccessibleName);
         });
     }
+
 
     /// A background command keeps a finished turn Working, as a live subagent does, and the row
     /// reads Idle again once the command ends. The count is keyed by lane: an unproven twin on the
@@ -758,7 +764,7 @@ public class RailSessionViewModelTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_stale_server_row_greys_out_and_reads_stale() {
+    public async Task A_stale_server_row_reads_stale_and_its_name_says_what_stale_means() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var laneStale = new BehaviorSubject<bool>(false);
             using var fresh = new RailSessionViewModel(ServerRow(status: "active"), new BehaviorSubject<string?>(null), NoPending, laneStale,
@@ -766,13 +772,15 @@ public class RailSessionViewModelTests {
             using var idle = new RailSessionViewModel(ServerRow(status: "active", stale: true), new BehaviorSubject<string?>(null), NoPending, laneStale,
                 _ => { }, _ => { }, At(Started));
 
-            await Assert.That(fresh.IsStale).IsFalse();
-            await Assert.That(idle.IsStale).IsTrue();
             await Assert.That(fresh.Status.Label).IsEqualTo("Running");
+            await Assert.That(fresh.RowAccessibleName).IsEqualTo("Desktop app RAM growth");
             await Assert.That(idle.Status.Label).IsEqualTo("Stale");
+            await Assert.That(idle.RowAccessibleName).IsEqualTo("Desktop app RAM growth, Stale: No activity for over an hour");
             laneStale.OnNext(true);
-            await Assert.That(fresh.IsStale).IsTrue();
             await Assert.That(fresh.Status.Label).IsEqualTo("Running");
+            await Assert.That(fresh.RowAccessibleName).IsEqualTo($"Desktop app RAM growth, {RailSessionViewModel.LaneStaleNote}");
+            await Assert.That(idle.RowAccessibleName)
+                .IsEqualTo($"Desktop app RAM growth, Stale: No activity for over an hour, {RailSessionViewModel.LaneStaleNote}");
         });
     }
 }

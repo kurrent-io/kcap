@@ -39,6 +39,11 @@ internal sealed record PrivilegedNpmInstall(string Scope, string Sibling, IReadO
         return dir;
     }
 
+    /// <summary>Far past any stall a test can sit through between the helper's swap and its go: a helper that gives up
+    /// first restores the install, and the test reads a different outcome. The go timeout itself is pinned by the
+    /// test that passes its own.</summary>
+    internal static readonly TimeSpan DefaultGoWait = TimeSpan.FromMinutes(10);
+
     /// <summary>Each package must still hold its own name and the recorded version. The homes folder is the test's
     /// own, empty unless a test puts a launch agent in it.</summary>
     public PrivilegedSpec Spec(TempDir tmp, TimeSpan? goWait = null, string helper = "helper") {
@@ -47,7 +52,7 @@ internal sealed record PrivilegedNpmInstall(string Scope, string Sibling, IReadO
             Links,
             [.. Packages.Select(p => new PrivilegedEntry(
                 retirement.Plan(p), PrivilegedEntryKind.Directory, "package.json", [$"\"@kurrent/{Path.GetFileName(p)}\"", $"\"{Version}\""]))],
-            tmp.PathTo(helper, "control"), tmp.PathTo(helper, "status"), goWait ?? TimeSpan.FromSeconds(30), Staging,
+            tmp.PathTo(helper, "control"), tmp.PathTo(helper, "status"), goWait ?? DefaultGoWait, Staging,
             tmp.CreateDir("homes"));
     }
 

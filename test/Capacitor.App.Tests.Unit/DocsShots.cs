@@ -199,7 +199,7 @@ public sealed class DocsShots {
     public async Task The_settings_window_lists_accounts_with_a_row_menu_open() {
         await CaptureAsync(() => DocsShotScenes.SettingsAsync(Config, "AccountsTab", height: 920, width: 960), "AddAccountButton",
             afterShow: window => OpenFlyoutInsideTheWindow(window, window.GetVisualDescendants().OfType<Button>()
-                .Single(b => b.Classes.Contains("accountMenu") && AutomationProperties.GetName(b) == "Actions for northwind"), "desktop-settings-accounts"));
+                .Single(b => b.Name == "AccountMenu" && AutomationProperties.GetName(b) == "Actions for northwind"), "desktop-settings-accounts"));
     }
 
     [Test, DocsShot("desktop-settings-profiles")]

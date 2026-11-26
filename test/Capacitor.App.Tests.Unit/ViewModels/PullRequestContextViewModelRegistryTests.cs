@@ -59,7 +59,7 @@ public class PullRequestContextViewModelRegistryTests {
         var h = new Harness("github.com");
         h.Links.Links = [Link("ghe.example", 4)];
         h.Push(); h.Vm.SetForeground(true);
-        await WaitUntilAsync(() => !h.Vm.IsReading && h.Vm.HasChoice, what: "list applied");
+        await WaitUntilAsync(() => h.Vm is { IsReading: false, HasChoice: true }, what: "list applied");
         await Assert.That(h.Vm.CanReveal).IsFalse();
         await Assert.That(h.Vm.Notice).IsEqualTo("No reader is available for this pull request's host.");
         await Assert.That(h.Vm.ShowsSignIn).IsFalse();
@@ -74,7 +74,7 @@ public class PullRequestContextViewModelRegistryTests {
         h.Provider.Status = PullRequestReaderStatusKind.ToolMissing;
         h.Links.Links = [];
         h.Push(); h.Vm.SetForeground(true);
-        await WaitUntilAsync(() => !h.Vm.IsReading && h.Vm.HasReaderNote, what: "note shown");
+        await WaitUntilAsync(() => h.Vm is { IsReading: false, HasReaderNote: true }, what: "note shown");
         await Assert.That(h.Vm.ReaderNote).IsEqualTo("Install GitHub CLI to read pull requests here.");
         await Assert.That(h.Vm.ShowsInstallTool).IsTrue();
         await Assert.That(h.Vm.InstallToolLabel).IsEqualTo("Install GitHub CLI");
@@ -90,7 +90,7 @@ public class PullRequestContextViewModelRegistryTests {
         var h = new Harness("github.com", Primary);
         h.Provider.Status = PullRequestReaderStatusKind.SignedOut;
         h.Push(); h.Vm.SetForeground(true);
-        await WaitUntilAsync(() => !h.Vm.IsReading && h.Vm.HasReaderNote, what: "note shown");
+        await WaitUntilAsync(() => h.Vm is { IsReading: false, HasReaderNote: true }, what: "note shown");
         await Assert.That(h.Vm.ReaderNote).IsEqualTo("GitHub CLI is not signed in. Run gh auth login to read pull requests here.");
         await Assert.That(h.Vm.ShowsInstallTool).IsFalse();
         h.Provider.Status = PullRequestReaderStatusKind.Ready;
@@ -108,7 +108,7 @@ public class PullRequestContextViewModelRegistryTests {
         var h = new Harness("github.com", Primary);
         h.Links.Links = [Link("ghe.example", 4)];
         h.Push(); h.Vm.SetForeground(true);
-        await WaitUntilAsync(() => !h.Vm.IsReading && h.Vm.HasChoice, what: "list applied");
+        await WaitUntilAsync(() => h.Vm is { IsReading: false, HasChoice: true }, what: "list applied");
         await Assert.That(h.Vm.ReaderNote).IsEqualTo("GitHub CLI is not signed in for ghe.example. Run gh auth login --hostname ghe.example to read it here.");
         await Assert.That(h.Vm.ShowsInstallTool).IsFalse();
         await h.Dispose();
@@ -120,7 +120,7 @@ public class PullRequestContextViewModelRegistryTests {
         h.Provider.Status = PullRequestReaderStatusKind.Failed;
         h.Provider.StatusReason = "unsupported_version";
         h.Push(); h.Vm.SetForeground(true);
-        await WaitUntilAsync(() => !h.Vm.IsReading && h.Vm.HasReaderNote, what: "note shown");
+        await WaitUntilAsync(() => h.Vm is { IsReading: false, HasReaderNote: true }, what: "note shown");
         await Assert.That(h.Vm.ReaderNote).IsEqualTo("Update GitHub CLI to read pull requests here.");
         await Assert.That(h.Vm.ShowsInstallTool).IsTrue();
         await Assert.That(h.Vm.InstallToolLabel).IsEqualTo("Update GitHub CLI");
@@ -143,7 +143,7 @@ public class PullRequestContextViewModelRegistryTests {
     });
 
     [Test]
-    public Task An_unclassified_local_failure_names_the_tool_not_the_server() => RunOnUiAsync(async () => {
+    public Task An_unclassified_local_failure_reports_the_local_reader() => RunOnUiAsync(async () => {
         var h = new Harness("github.com", Primary);
         h.Push(); await h.Show();
         h.Provider.OverviewResponses.Enqueue((subject, _) => Task.FromResult(new PullRequestRead<PullRequestOverviewDto>(PullRequestReadKind.TransportFailure, Subject: subject, Reason: "timeout", AccessFailure: "transient")));
@@ -151,7 +151,7 @@ public class PullRequestContextViewModelRegistryTests {
         h.Time.Advance(TimeSpan.FromSeconds(3));
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
         await h.Vm.RefreshCommand.Execute();
-        await WaitUntilAsync(() => h.Vm.FreshnessDetail == "Couldn't read this pull request through GitHub CLI. Refresh to try again.", what: "tool-named freshness detail");
+        await WaitUntilAsync(() => h.Vm.FreshnessDetail == "Couldn't read this pull request through GitHub CLI. Refresh to try again.", what: "local reader failure");
         await Assert.That(h.Vm.HasNotice).IsFalse();
         await h.Dispose();
     });
@@ -229,11 +229,11 @@ public class PullRequestContextViewModelRegistryTests {
     });
 
     sealed class Harness {
-        internal BehaviorSubject<AgentStatusDto?> Presence { get; } = new(null);
+        BehaviorSubject<AgentStatusDto?> Presence { get; } = new(null);
         internal FakeTimeProvider Time { get; } = new();
         internal FakePullRequestSource Links { get; }
         internal StubReaderProvider Provider { get; }
-        internal PullRequestReaderRegistry Registry { get; }
+        PullRequestReaderRegistry Registry { get; }
         internal RecordingOpener Opener { get; } = new();
         internal PullRequestContextViewModel Vm { get; }
         internal Harness(string host, PullRequestRepository? primary = null) {

@@ -20,8 +20,8 @@ public class ServerAttachmentUploaderTests {
     const string IdC = "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3";
 
     static IReadOnlyList<StagedAttachment> TwoFiles() => [
-        new StagedAttachment("a.png", "image/png", new byte[] { 1, 2, 3 }),
-        new StagedAttachment("b.txt", "text/plain", new byte[] { 4, 5 }),
+        new("a.png", "image/png", new byte[] { 1, 2, 3 }),
+        new("b.txt", "text/plain", new byte[] { 4, 5 }),
     ];
 
     [Test]
@@ -72,6 +72,7 @@ public class ServerAttachmentUploaderTests {
 
         await Assert.That(outcome.Kind).IsEqualTo(UploadKind.Rejected);
         await Assert.That(outcome.Reason).IsEqualTo(ServerAttachmentUploader.UnexpectedResponse);
+        await Assert.That(outcome.FailureText).Contains("contact support if it keeps happening");
         await Assert.That(outcome.Ids).IsEmpty();
     }
 
@@ -79,7 +80,7 @@ public class ServerAttachmentUploaderTests {
     public async Task Status_codes_map_to_kinds() {
         var badRequest = await UploadWithStatusAsync(400, "nope");
         await Assert.That(badRequest.Kind).IsEqualTo(UploadKind.Rejected);
-        await Assert.That(badRequest.Reason).IsEqualTo("nope");
+        await Assert.That(badRequest.Reason).IsEqualTo("bad_request");
 
         var unauthorized = await UploadWithStatusAsync(401, null);
         await Assert.That(unauthorized.Kind).IsEqualTo(UploadKind.Unauthorized);
@@ -87,7 +88,8 @@ public class ServerAttachmentUploaderTests {
 
         var serverError = await UploadWithStatusAsync(500, null);
         await Assert.That(serverError.Kind).IsEqualTo(UploadKind.Unreachable);
-        await Assert.That(serverError.Reason).IsEqualTo("server_status_500");
+        await Assert.That(serverError.Reason).IsEqualTo(UploadOutcome.ServerFailed);
+        await Assert.That(serverError.FailureText).Contains("server couldn’t finish the upload");
 
         const string closedPort = "http://127.0.0.1:1";
         var profiles = Resolutions.At(closedPort, Config.Root);
@@ -102,6 +104,34 @@ public class ServerAttachmentUploaderTests {
         var refused = await new ServerAttachmentUploader(provider.GetRequiredService<ICapacitorHttpClient>(), profiles)
             .UploadAsync(TwoFiles(), CancellationToken.None);
         await Assert.That(refused.Kind).IsEqualTo(UploadKind.Unreachable);
+    }
+
+    [Test]
+    [Arguments(403, "Check your workspace permissions")]
+    [Arguments(413, "Try fewer or smaller files")]
+    [Arguments(415, "try a different format")]
+    [Arguments(429, "Wait a moment and try again")]
+    public async Task A_known_upload_refusal_offers_a_specific_next_step(int status, string guidance) {
+        var result = await UploadWithStatusAsync(status, "internal details");
+
+        await Assert.That(result.FailureText).Contains(guidance);
+        await Assert.That(result.FailureText).DoesNotContain("internal details");
+    }
+
+    [Test]
+    [NotInParallel]
+    [Arguments(false)]
+    [Arguments(true)]
+    public async Task A_bad_request_logs_a_bounded_redacted_diagnostic(bool oversized) {
+        using var stderr = ConsoleOutput.StartErrorCapture();
+        const string body = """{"message":"upload-size-mismatch","access_token":"fake-credential-marker"}""";
+        var result = await UploadWithStatusAsync(400, oversized ? body + new string(' ', 4096) : body);
+
+        await Assert.That(result.Reason).IsEqualTo("bad_request");
+        await Assert.That(result.FailureText).DoesNotContain("upload-size-mismatch");
+        await Assert.That(stderr.GetCapturedError()).Contains("HTTP 400");
+        await Assert.That(stderr.GetCapturedError()).Contains(oversized ? "diagnostic size limit" : "upload-size-mismatch");
+        await Assert.That(stderr.GetCapturedError()).DoesNotContain("fake-credential-marker");
     }
 
     async Task<UploadOutcome> UploadWithStatusAsync(int statusCode, string? body) {

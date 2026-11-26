@@ -6,7 +6,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.Harness.Codex;
 /// <summary>Pins the <c>skills/list</c> mapping: flat or per-cwd skills become commands, a disabled one is
 /// left out, and an unexpected shape yields an empty list rather than throwing.</summary>
 public class CodexSkillsTests {
-    static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
+    static JsonElement Parse(string json) => JsonElement.Parse(json);
 
     [Test]
     public async Task Extract_reads_a_flat_data_array() {

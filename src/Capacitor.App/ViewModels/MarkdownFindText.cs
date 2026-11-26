@@ -1,4 +1,5 @@
 using System.Text;
+using Capacitor.App.Services;
 using Markdig;
 using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
@@ -40,6 +41,8 @@ public static class MarkdownFindText {
                 case LineBreakInline lineBreak: text.Append(lineBreak.IsHard ? '\n' : ' '); break;
                 case HtmlEntityInline entity: text.Append(entity.Transcoded); break;
                 case AutolinkInline link: text.Append(link.Url); break;
+                // A chip is a control in its line, which the view's find reads as one object character.
+                case LinkInline link when GitHubLink.ChipFor(link) is not null: text.Append('\uFFFC'); break;
                 case HtmlInline html: text.Append(html.Tag); break;
                 case ContainerInline inner: Append(inner, text); break;
             }

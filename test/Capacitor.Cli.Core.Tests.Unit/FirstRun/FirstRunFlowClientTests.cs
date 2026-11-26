@@ -242,8 +242,8 @@ public class FirstRunFlowClientTests {
         using var server = WireMockServer.Start();
         server.Given(Request.Create().WithPath(PollPath).UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
-                .WithBody($$$"""
-                    {"flow_id":"{{{FlowId}}}","step":"Done","can_finish":true,
+                .WithBody($$"""
+                    {"flow_id":"{{FlowId}}","step":"Done","can_finish":true,
                      "steps":{"SignIn":"Completed","Agents":"Completed","Import":"Skipped","Done":"Completed"},
                      "agents":[{"vendor":"claude","record":true,"tools":true},
                                {"vendor":"cursor","record":true,"tools":false}],
@@ -565,8 +565,8 @@ public class FirstRunFlowClientTests {
         using var server = WireMockServer.Start();
         server.Given(Request.Create().WithPath(PollPath).UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200)
-                .WithBody($$$"""
-                  {"flow_id":"{{{FlowId}}}","step":"Import","can_finish":true,
+                .WithBody($$"""
+                  {"flow_id":"{{FlowId}}","step":"Import","can_finish":true,
                    "steps":{"SignIn":"Completed","Agents":"Completed","Import":"Active","Done":"Pending"},
                    "agents":[{"vendor":"claude","record":true,"tools":true}],
                    "agents_decided_at":"2026-08-26T10:00:00Z",
@@ -587,8 +587,8 @@ public class FirstRunFlowClientTests {
         using var server = WireMockServer.Start();
         server.Given(Request.Create().WithPath(PollPath).UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200)
-                .WithBody($$$"""
-                  {"flow_id":"{{{FlowId}}}","step":"Import","can_finish":true,
+                .WithBody($$"""
+                  {"flow_id":"{{FlowId}}","step":"Import","can_finish":true,
                    "steps":{"SignIn":"Completed","Agents":"Completed","Import":"Active","Done":"Pending"},
                    "agents":[{"vendor":"claude","record":true,"tools":true}],
                    "agents_decided_at":"2026-08-26T10:00:00Z"}
@@ -630,8 +630,8 @@ public class FirstRunFlowClientTests {
 
         await Assert.That(outcome.Recorded).IsTrue();
 
-        var sent = System.Text.Json.JsonDocument.Parse(server.LogEntries.Single()
-            .RequestMessage.Body!).RootElement;
+        var sent = System.Text.Json.JsonElement.Parse(server.LogEntries.Single()
+            .RequestMessage.Body!);
 
         await Assert.That(sent.GetProperty("imported").GetInt32()).IsEqualTo(7);
         await Assert.That(sent.GetProperty("skipped").GetInt32()).IsEqualTo(2);
@@ -664,8 +664,8 @@ public class FirstRunFlowClientTests {
             },
             CancellationToken.None);
 
-        var sent = System.Text.Json.JsonDocument.Parse(server.LogEntries.Single()
-            .RequestMessage.Body!).RootElement;
+        var sent = System.Text.Json.JsonElement.Parse(server.LogEntries.Single()
+            .RequestMessage.Body!);
 
         await Assert.That(sent.GetProperty("reason").GetString()).IsEqualTo("no_readable_agents");
     }

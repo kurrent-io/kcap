@@ -32,7 +32,7 @@ public sealed class ServerPermissionFeed : IDisposable {
         _permissions = permissions;
         _interrupts = interrupts;
 
-        lane.Status.Where(s => s.State == ServerLaneState.Connected && s.Subject is not null)
+        lane.Status.Where(s => s is { State: ServerLaneState.Connected, Subject: not null })
             .Subscribe(s => {
                 if (_subject is not null && _subject != s.Subject) {
                     interrupts.Forget();

@@ -17,23 +17,23 @@ public class GrokToolAdmissionTests {
     static readonly IReadOnlySet<string> Admitted = new HashSet<string>(StringComparer.Ordinal) { Injected };
 
     static JsonElement UseTool(string toolName, string? title = null, string metaName = "use_tool", string variant = "UseTool") =>
-        JsonDocument.Parse($$"""
+        JsonElement.Parse($$"""
             {"toolCallId":"call-1","kind":"other","title":"{{title ?? toolName}}",
              "rawInput":{"variant":"{{variant}}","tool_name":"{{toolName}}","tool_input":{} },
              "_meta":{"x.ai/tool":{"version":1,"name":"{{metaName}}","kind":"use_tool","namespace":"grok_build"} } }
-            """).RootElement.Clone();
+            """);
 
-    static readonly JsonElement ShellWrite = JsonDocument.Parse("""
+    static readonly JsonElement ShellWrite = JsonElement.Parse("""
         {"toolCallId":"call-2","kind":"execute","title":"Execute `echo changed > notes.txt`",
          "rawInput":{"variant":"Bash","command":"echo changed > notes.txt","is_background":false},
          "_meta":{"x.ai/tool":{"version":1,"name":"run_terminal_command","kind":"execute","namespace":"grok_build"}}}
-        """).RootElement.Clone();
+        """);
 
-    static readonly JsonElement FileWrite = JsonDocument.Parse("""
+    static readonly JsonElement FileWrite = JsonElement.Parse("""
         {"toolCallId":"call-3","kind":"edit","title":"Write `/repo/notes.txt`",
          "rawInput":{"variant":"Write","file_path":"/repo/notes.txt","content":"hi"},
          "_meta":{"x.ai/tool":{"version":1,"name":"write","kind":"write","namespace":"opencode"}}}
-        """).RootElement.Clone();
+        """);
 
     [Test]
     public async Task A_call_on_an_injected_server_is_admitted() {
@@ -105,5 +105,5 @@ public class GrokToolAdmissionTests {
     }
 
     static JsonElement Params(JsonElement toolCall, string optionsJson) =>
-        JsonDocument.Parse($$"""{"sessionId":"s-1","toolCall":{{toolCall.GetRawText()}},"options":{{optionsJson}}}""").RootElement.Clone();
+        JsonElement.Parse($$"""{"sessionId":"s-1","toolCall":{{toolCall.GetRawText()}},"options":{{optionsJson}}}""");
 }

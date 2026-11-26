@@ -1,4 +1,5 @@
 using System.Globalization;
+using Capacitor.Cli.Core.LocalEdition;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.Services.LocalSetup;
@@ -9,9 +10,7 @@ namespace Capacitor.App.Services.LocalSetup;
 /// Ollama probe setup makes without a flag.
 public sealed class LocalEmbeddingProgress(LocalEmbeddingChoice? asked = null) : ReactiveObject {
     long _bytes;
-    double? _pullFraction;
-    bool _pulling, _builtin;
-    string? _model, _configuredModel, _replacedModel, _skipCode, _skipMessage, _removed;
+    string? _removed;
 
     const string BuiltinName = "the built-in model";
     const string KeywordAsChosen = "Search by keyword, as chosen.";
@@ -20,45 +19,45 @@ public sealed class LocalEmbeddingProgress(LocalEmbeddingChoice? asked = null) :
 
     /// The model the step is working on, from its latest line.
     public string? Model {
-        get => _model;
-        private set => this.RaiseAndSetIfChanged(ref _model, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool Pulling {
-        get => _pulling;
-        private set => this.RaiseAndSetIfChanged(ref _pulling, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public double? PullFraction {
-        get => _pullFraction;
-        private set => this.RaiseAndSetIfChanged(ref _pullFraction, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? ConfiguredModel {
-        get => _configuredModel;
-        private set => this.RaiseAndSetIfChanged(ref _configuredModel, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The model `ConfiguredModel` replaced: everything stored is embedded again in the background.
     public string? ReplacedModel {
-        get => _replacedModel;
-        private set => this.RaiseAndSetIfChanged(ref _replacedModel, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? SkipCode {
-        get => _skipCode;
-        private set => this.RaiseAndSetIfChanged(ref _skipCode, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? SkipMessage {
-        get => _skipMessage;
-        private set => this.RaiseAndSetIfChanged(ref _skipMessage, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The step works on, or ended with, the built-in model rather than an Ollama model.
     public bool Builtin {
-        get => _builtin;
-        private set => this.RaiseAndSetIfChanged(ref _builtin, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool Configured => ConfiguredModel is not null;
@@ -75,7 +74,12 @@ public sealed class LocalEmbeddingProgress(LocalEmbeddingChoice? asked = null) :
             null                                 => null,
             "declined"                           => KeywordAsChosen,
             _ when asked is { ByMeaning: false } => KeywordAsChosen,
-            _                                    => TerminalAdvice.Strip(SkipMessage) ?? "Search by keyword.",
+            "ollama_not_found"                    => "kcap couldn’t reach Ollama. Keyword search is still available. Start Ollama, then choose a model in Search settings.",
+            "pull_failed" or "model_download_failed" => "The search model couldn’t be downloaded. Keyword search is still available. Check your connection, then try again in Search settings.",
+            "model_unusable"                     => "kcap couldn’t use this search model. Keyword search is still available. Choose another model in Search settings.",
+            "builtin_unavailable"                => "The built-in search model is unavailable. Keyword search is still available. Choose another model in Search settings.",
+            "write_failed"                       => "kcap couldn’t save the search settings. Keyword search is still available. Check that you can write to the kcap settings folder, then try again.",
+            _                                     => "Search settings couldn’t be updated. Keyword search is still available. Open Search settings to try again.",
         };
 
     public string? ReembedNote => ConfiguredModel switch {
@@ -158,11 +162,20 @@ public sealed class LocalEmbeddingProgress(LocalEmbeddingChoice? asked = null) :
                 break;
             case "embeddings_skipped":
                 SkipMessage = root.Str("message");
+                Console.Error.WriteLine($"kcap: search model setup skipped: {SkipMessage}");
                 SkipCode    = root.Str("code") ?? "unknown";
                 End(RowState.Skipped);
                 break;
             case "embeddings_builtin_removed":
-                _removed = TerminalAdvice.Strip(root.Str("message"));
+                var freed = root.Num("bytes");
+                var left = root.Num("bytes_left");
+                var location = root.Str("path") is { Length: > 0 } directory ? $" in {directory}" : "";
+                _removed = (freed, left) switch {
+                    (> 0, 0) => $"Removed the built-in search model{location}, freeing {LocalModelSets.Megabytes(freed.Value)} MB.",
+                    (> 0, > 0) => $"Freed {LocalModelSets.Megabytes(freed.Value)} MB. {LocalModelSets.Megabytes(left.Value)} MB of unused search model files remain{location}. Close any apps using those files before removing them.",
+                    (> 0, _) => $"Freed {LocalModelSets.Megabytes(freed.Value)} MB while removing unused search model files{location}.",
+                    _ => $"kcap couldn’t remove the unused built-in search model{location}. Close any apps using those files before removing them.",
+                };
                 break;
             default:
                 return false;

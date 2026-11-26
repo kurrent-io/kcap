@@ -299,7 +299,7 @@ public class GeminiMemoryIndexLiveCertTests {
                 UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }
 
-        public string BinDir { get; }
+        string BinDir { get; }
 
         public string PrependedTo(string? path) =>
             string.IsNullOrEmpty(path) ? BinDir : $"{BinDir}{Path.PathSeparator}{path}";

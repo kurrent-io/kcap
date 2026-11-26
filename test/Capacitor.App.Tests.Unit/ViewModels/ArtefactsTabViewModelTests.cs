@@ -784,7 +784,7 @@ public class ArtefactsTabViewModelTests {
                 h.Source.Gate();
             }
             var hidden = false;
-            h.Vm.PropertyChanged += (_, _) => hidden |= !h.Vm.HasAny && !h.Vm.IsLoading;
+            h.Vm.PropertyChanged += (_, _) => hidden |= h.Vm is { HasAny: false, IsLoading: false };
 
             h.Vm.SwitchSession(SessionB, "/repo");
 

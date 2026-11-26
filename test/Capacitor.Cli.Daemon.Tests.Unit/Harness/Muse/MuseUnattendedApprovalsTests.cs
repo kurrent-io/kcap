@@ -40,9 +40,8 @@ public class MuseUnattendedApprovalsTests {
         MuseUnattendedApprovals.AdmittedFor(Servers(Canonical, servers), Canonical);
 
     static JsonElement ToolApproval(string toolName) =>
-        JsonDocument.Parse(
-            $$"""{"subject":{"kind":"tool","toolName":"{{toolName}}"},"availableChoices":[{"choiceId":"allow_once","label":"Allow once","decision":"approved"},{"choiceId":"allow_session","label":"Allow for this session","decision":"approvedForSession"},{"choiceId":"abort","label":"Reject","decision":"abort","acceptsFeedback":true}]}""")
-            .RootElement;
+        JsonElement.Parse(
+            $$"""{"subject":{"kind":"tool","toolName":"{{toolName}}"},"availableChoices":[{"choiceId":"allow_once","label":"Allow once","decision":"approved"},{"choiceId":"allow_session","label":"Allow for this session","decision":"approvedForSession"},{"choiceId":"abort","label":"Reject","decision":"abort","acceptsFeedback":true}]}""");
 
     [Test]
     public async Task Each_server_is_admitted_under_its_per_launch_alias() {
@@ -146,8 +145,8 @@ public class MuseUnattendedApprovalsTests {
 
     [Test]
     public async Task An_admitted_tool_without_an_allow_once_choice_is_refused() {
-        var p = JsonDocument.Parse(
-            """{"subject":{"kind":"tool","toolName":"mcp__kcap_sessions__search_sessions"},"availableChoices":[{"choiceId":"abort","label":"Reject","decision":"abort"}]}""").RootElement;
+        var p = JsonElement.Parse(
+            """{"subject":{"kind":"tool","toolName":"mcp__kcap_sessions__search_sessions"},"availableChoices":[{"choiceId":"abort","label":"Reject","decision":"abort"}]}""");
 
         var decision = MuseUnattendedApprovals.Decide(p, Admitted("kcap-sessions"));
 
@@ -156,7 +155,7 @@ public class MuseUnattendedApprovalsTests {
 
     [Test]
     public async Task A_payload_without_a_subject_is_refused_and_never_falls_back_to_an_allow_choice() {
-        var p = JsonDocument.Parse("""{"availableChoices":[{"choiceId":"allow_once","label":"x","decision":"approved"}]}""").RootElement;
+        var p = JsonElement.Parse("""{"availableChoices":[{"choiceId":"allow_once","label":"x","decision":"approved"}]}""");
 
         var decision = MuseUnattendedApprovals.Decide(p, Admitted("kcap-sessions"));
 

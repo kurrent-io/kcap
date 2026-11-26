@@ -26,8 +26,10 @@ public partial class CommandChip : UserControl {
         try {
             await clipboard.SetTextAsync(text);
             Show(copied: true, "Copied");
+            LiveAnnouncer.Polite(this, "Copied");
         } catch (Exception) {
             Show(copied: false, "Copy failed");
+            LiveAnnouncer.Polite(this, "Copy failed");
         }
         DispatcherTimer.RunOnce(() => { if (_copies == mine) Show(copied: false, "Copy"); }, CopiedFor);
     }

@@ -7,7 +7,7 @@ namespace Capacitor.App.ViewModels;
 
 /// An outgoing message stays here until the transcript acknowledges it. Transport acceptance
 /// alone does not mean the runtime has started consuming a prompt queued behind its current turn.
-/// Only the ids are held: the chips themselves live in the tray until a delivery clears them.
+/// The staged files stay here after the tray drops them, so a refusal can put the same chips back.
 public sealed class QueuedChatMessage(string text, int composerEdits, int generation, long? offset, IReadOnlyList<Guid> attachmentIds) : ReactiveObject {
     public const string AwaitingPickupNote = "The agent reads it when its current step ends";
     public const string AttachmentsOnlyText = "Attachments only";
@@ -21,6 +21,12 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     /// with empty text.
     public string DisplayText => string.IsNullOrWhiteSpace(Text) ? AttachmentsOnlyText : Text;
     public IReadOnlyList<Guid> AttachmentIds { get; } = attachmentIds;
+    /// The chips this send took out of the tray. Empty for a row the server listed that this pane did not send.
+    /// Acknowledgment drops them: a refusal is the only reason they are still here.
+    internal IReadOnlyList<StagedAttachment> Files { get => _files; init => _files = value; }
+    IReadOnlyList<StagedAttachment> _files = [];
+    internal void ReleaseFiles() => _files = [];
+    internal bool RefusalNoted { get; set; }
     internal int ComposerEdits { get; } = composerEdits;
     internal bool Acknowledged { get; set; }
     /// Own sends are numbered in the order they were handed to the channel. The file offset
@@ -35,12 +41,11 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     internal bool HasBaseline => _offset.HasValue;
     internal long? Baseline => _offset;
 
-    bool _isUnconfirmed;
     public bool IsUnconfirmed {
-        get => _isUnconfirmed;
+        get;
         private set {
-            if (_isUnconfirmed == value) return;
-            _isUnconfirmed = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(ShowsUnconfirmed));
             this.RaisePropertyChanged(nameof(IsAwaitingPickup));
@@ -49,29 +54,27 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     }
 
     bool? _agentIdle;
-    bool _canSendNow;
-    bool _canDiscard;
     public bool CanDiscard {
-        get => _canDiscard;
+        get;
         private set {
-            if (_canDiscard == value) return;
-            _canDiscard = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
         }
     }
     /// The agent is idle and the channel can take text, so this row can be delivered instead of waiting.
     public bool CanSendNow {
-        get => _canSendNow;
+        get;
         private set {
-            if (_canSendNow == value) return;
-            _canSendNow = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
         }
     }
 
     /// Which wait the row describes. A channel that is still delivering the last paste is not a step. The server's
     /// word on a message to an attached agent outranks what this pane can tell.
-    public string? PickupNote => _deliveryState is not null
+    public string? PickupNote => DeliveryState is not null
         ? IsSettled ? null : DeliveryNote
         : !IsAwaitingPickup ? null : IsNotPickedUp ? NotPickedUpNote : _agentIdle switch {
             true => IdlePickupNote,
@@ -110,13 +113,12 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     /// A turn cannot be tied to one send: this only withholds the pickup handling, never acknowledges.
     internal bool TurnSeen { get; set; }
 
-    bool _isNotPickedUp;
     /// The agent sat idle without echoing this row, even after a second Enter.
     public bool IsNotPickedUp {
-        get => _isNotPickedUp;
+        get;
         private set {
-            if (_isNotPickedUp == value) return;
-            _isNotPickedUp = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(PickupNote));
         }
@@ -138,27 +140,28 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     /// A server entry unmatched to this pane's sends. Its originating client is unknown.
     public bool IsForeign { get; private init; }
 
-    string? _deliveryState;
     string? _deliveryReason;
+    internal string? DeliveryReason => _deliveryReason;
 
-    /// Where the server says a message to an attached agent stands; null for a hosted agent's.
-    internal string? DeliveryState => _deliveryState;
-    public string? DeliveryNote => AttachedAgentCopy.Delivery(_deliveryState, _deliveryReason);
+    /// Where the server says the message stands. Null while a hosted send is still in flight; a refusal
+    /// is <c>rejected</c>, for a hosted agent as well as an attached one.
+    internal string? DeliveryState { get; private set; }
+    public string? DeliveryNote => AttachedAgentCopy.Delivery(DeliveryState, _deliveryReason);
     /// Delivered or not, as far as the server can tell: a notice, no longer a message waiting for the agent.
-    public bool IsSettled => AttachedAgentCopy.IsSettled(_deliveryState);
-    public bool IsDelivered => _deliveryState == "delivered";
-    public bool DeliveryNeedsSender => AttachedAgentCopy.NeedsSender(_deliveryState);
-    public bool ShowsUnconfirmed => IsUnconfirmed && _deliveryState is null;
+    public bool IsSettled => AttachedAgentCopy.IsSettled(DeliveryState);
+    public bool IsDelivered => DeliveryState == "delivered";
+    public bool DeliveryNeedsSender => AttachedAgentCopy.NeedsSender(DeliveryState);
+    public bool ShowsUnconfirmed => IsUnconfirmed && DeliveryState is null;
     /// What a discard does. Only a message the server still holds for an attached agent can be cancelled; a hosted
     /// agent's, or one already handed to the session, can't be recalled.
-    public string DiscardTip => _deliveryState == "held" ? AttachedAgentCopy.DiscardCancels : NotCancelledDiscardTip;
-    public bool ShowsForeignUnconfirmed => IsForeign && _deliveryState is null;
+    public string DiscardTip => DeliveryState == "held" ? AttachedAgentCopy.DiscardCancels : NotCancelledDiscardTip;
+    public bool ShowsForeignUnconfirmed => IsForeign && DeliveryState is null;
 
     internal void SetDelivery(string? state, string? reason) {
         var known = AttachedAgentCopy.Known(state);
         var why = known is null ? null : reason;
-        if (known == _deliveryState && why == _deliveryReason) return;
-        _deliveryState = known;
+        if (known == DeliveryState && why == _deliveryReason) return;
+        DeliveryState = known;
         _deliveryReason = why;
         this.RaisePropertyChanged(nameof(DeliveryNote));
         this.RaisePropertyChanged(nameof(IsSettled));
@@ -189,6 +192,12 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
 
     internal bool MatchesText(string text) => Normalize(Text) == Normalize(text);
 
+    /// The feed line its echo landed on, once matched there.
+    internal long? EchoLine { get; set; }
+
+    /// The send that retried it, while that retry stands.
+    internal QueuedChatMessage? RetriedAs { get; set; }
+
     /// A new transcript may contain either replayed history or the lost echo. Neither is safe
     /// evidence. Retain the message, then allow only subsequent appends in this generation.
     internal void Rebase(int generation, long? offset) {
@@ -202,8 +211,14 @@ public sealed class QueuedChatMessage(string text, int composerEdits, int genera
     /// bare text, which may be replayed history — is the only receipt an attachment send has. The
     /// trailer follows the prompt untrimmed, so whatever trailing whitespace Normalize took off the
     /// sent text still stands between the two in the echo.
-    internal bool Matches(string text, int generation, long offset) {
-        if (_generation != generation || _offset is not { } baseline || offset < baseline) return false;
+    internal bool Matches(string text, int generation, long offset) =>
+        _generation == generation && _offset is { } baseline && offset >= baseline && IsReceipt(text);
+
+    /// Whether a turn reads as this send's echo, in any form its receipt takes. Without a feed
+    /// position to check, this is only safe for a send already acknowledged.
+    internal bool MatchesEcho(string text) => MatchesText(text) || IsReceipt(text);
+
+    bool IsReceipt(string text) {
         var sent = Normalize(Text);
         var seen = Normalize(text);
         if (AttachmentIds.Count == 0) return SamePrompt(sent, seen);

@@ -71,6 +71,8 @@ public sealed class LateBoundKcapCli(Func<IKcapCli> bind, string? cliPath) : IKc
         bind().ServiceStatusAsync(daemonName, ct);
 
     public Task<bool> SupportsServiceRetireAsync(CancellationToken ct) => bind().SupportsServiceRetireAsync(ct);
+    public Task<bool> SupportsServiceInstallFlagsAsync(IReadOnlyList<string> flags, CancellationToken ct) =>
+        bind().SupportsServiceInstallFlagsAsync(flags, ct);
 
     public Task<ProcessResult> ServiceStartVerifiedAsync(CancellationToken ct) => bind().ServiceStartVerifiedAsync(ct);
 
@@ -79,8 +81,9 @@ public sealed class LateBoundKcapCli(Func<IKcapCli> bind, string? cliPath) : IKc
 
     public Task<ProcessResult> ServiceInstallWindowsServiceAsync(CancellationToken ct) => bind().ServiceInstallWindowsServiceAsync(ct);
 
-    public Task<ProcessResult> ServiceInstallVerifiedAsync(bool replace, CancellationToken ct, string? retireServiceId = null) =>
-        bind().ServiceInstallVerifiedAsync(replace, ct, retireServiceId);
+    public Task<ProcessResult> ServiceInstallVerifiedAsync(
+            bool replace, CancellationToken ct, string? retireServiceId = null, string? retireProfile = null, bool activate = false) =>
+        bind().ServiceInstallVerifiedAsync(replace, ct, retireServiceId, retireProfile, activate);
 
     public Task<ProcessResult> DetachedStartAsync(string bootAttemptId, CancellationToken ct) =>
         bind().DetachedStartAsync(bootAttemptId, ct);
@@ -91,6 +94,13 @@ public sealed class LateBoundKcapCli(Func<IKcapCli> bind, string? cliPath) : IKc
     public Task<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome> LocalIntelligenceAsync(
             Cli.Core.Setup.Intelligence.IntelligenceAnswer answer, string? model, string? apiKey, bool? importOutcomes, CancellationToken ct) =>
         bind().LocalIntelligenceAsync(answer, model, apiKey, importOutcomes, ct);
+
+    public Task<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome> LocalIntelligenceStatusAsync(CancellationToken ct) =>
+        bind().LocalIntelligenceStatusAsync(ct);
+
+    public Task<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome> LocalIntelligencePreferencesAsync(
+            bool? importOutcomes, int? dailyLimit, CancellationToken ct) =>
+        bind().LocalIntelligencePreferencesAsync(importOutcomes, dailyLimit, ct);
 
     public Task<ProcessResult> PluginInstallAsync(string? vendorFlag, CancellationToken ct, IReadOnlyList<string>? options = null) =>
         bind().PluginInstallAsync(vendorFlag, ct, options);
@@ -114,8 +124,8 @@ public sealed class LateBoundKcapCli(Func<IKcapCli> bind, string? cliPath) : IKc
     public Task<StreamingResult> LocalUpgradeAsync(Action<StreamedLine> onLine, CancellationToken interrupt, CancellationToken ct) =>
         bind().LocalUpgradeAsync(onLine, interrupt, ct);
 
-    public Task<StreamingResult> UninstallAsync(bool purgeLocal, Action<StreamedLine> onLine, CancellationToken ct) =>
-        bind().UninstallAsync(purgeLocal, onLine, ct);
+    public Task<StreamingResult> UninstallAsync(bool purgeLocal, bool keepConfig, Action<StreamedLine> onLine, CancellationToken ct) =>
+        bind().UninstallAsync(purgeLocal, keepConfig, onLine, ct);
 
     public Task<ProcessResult> LocalStartAsync(CancellationToken ct) => bind().LocalStartAsync(ct);
 

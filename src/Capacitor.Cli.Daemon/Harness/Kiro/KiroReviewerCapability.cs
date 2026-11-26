@@ -13,38 +13,16 @@ internal enum KiroReviewerDecision {
 }
 
 /// <summary>
-/// Whether THIS daemon may run Kiro as an unattended review-flow reviewer. Pure, so every arm is
-/// testable without a vendor or a process.
-///
-/// <para><b>ENABLED by default; the switch is an opt-OUT.</b> It shipped as an opt-in and that was
-/// wrong. The reviewer vendor is a caller-chosen parameter, and Claude, Codex, Cursor and Copilot have
-/// never been gated — each running with FULL tool access, including shell and write. So on any daemon
-/// that also ADVERTISES one of those, gating Kiro did not widen the capability class a requester could
-/// reach (they simply ask for an ungated vendor with more capability) while taxing the honest path with
-/// a service-unit edit and a restart. On a daemon advertising only gated vendors it did separate the
-/// hosted role from the unattended reviewer role, and the flip genuinely widens what a non-operator can
-/// cause to run with no human in the loop. It was also the wrong end of the risk
-/// scale: this reviewer's trust list is <c>fs_read</c> + <c>thinking</c>, never <c>fs_write</c>, never
-/// <c>execute_bash</c>.</para>
-///
-/// <para><b>The residual risk is real and unchanged, it just is not what a per-vendor gate addressed.</b>
-/// A trusted <c>fs_read</c> is measurably NOT path-scoped — a whole-filesystem read primitive under the
-/// daemon's uid — so a review can read every file this daemon user can, credentials included, and its
-/// findings text goes back to the requester. Equally true of the four never-gated vendors. The honest
-/// framing is that running ANY unattended reviewer is the decision, not running this one.</para>
-///
-/// <para><b>Why a version MINIMUM rather than a certified set or an exact affirmation.</b> Containment
-/// is source suppression — an empty per-launch <see cref="KiroReviewerHome"/> plus the worktree
-/// layer's removal of branch-authored config. The second is ours; the first is not, because Kiro
-/// honouring <c>KIRO_HOME</c> and reading no other global config source are behaviours of the build.
-/// A maintainer-curated certified set took the reviewer offline on every vendor release, recoverable
-/// only by a kcap release; an exact affirmation fixed the release-coupling but kept the treadmill,
-/// merely relocating it onto the operator. The recorded value is now the OLDEST build this daemon
-/// will run, so a vendor upgrade needs no action and a downgrade below it is refused. The trade — a
-/// future build that weakens its own containment is admitted silently — is accepted, and the affirm
-/// verb raises the floor past a build once found to be bad. Gemini uses the same model; the shared
-/// comparison lives in <see cref="Core.ReviewerVersionAffirmations"/> and the record in
-/// <see cref="Core.ReviewerVersionStore"/>.</para>
+/// Whether this daemon may run Kiro as an unattended review-flow reviewer. Pure.
+/// <para>Enabled by default; the switch is an opt-out. The trust list is <c>fs_read</c> and
+/// <c>thinking</c>, never <c>fs_write</c> or <c>execute_bash</c>, but a trusted <c>fs_read</c> is not
+/// path-scoped: a review can read every file the daemon user can, credentials included, and its findings
+/// go to the requester. The ungated vendors share that, so the real decision is whether to run
+/// unattended reviewers at all.</para>
+/// <para>Containment is an empty per-launch <see cref="KiroReviewerHome"/> plus removal of
+/// branch-authored config. The first depends on the build honouring <c>KIRO_HOME</c> and reading no other
+/// global config, so a minimum build is recorded in <see cref="Core.ReviewerVersionStore"/>; the affirm
+/// verb raises it past a bad build.</para>
 /// </summary>
 internal static class KiroReviewerCapability {
     /// <summary>Production entry point: reads the host platform, then defers to the pure overload.</summary>

@@ -178,7 +178,7 @@ public sealed record ImportDiscoverySummary(
         public DateTimeOffset? Last    { get; private set; }
         public int[]           Windows { get; } = new int[windowCount];
 
-        public SortedDictionary<HarnessId, Accumulator> Vendors { get; } = new();
+        SortedDictionary<HarnessId, Accumulator> Vendors { get; } = new();
 
         public Accumulator Vendor(HarnessId vendor) {
             if (!Vendors.TryGetValue(vendor, out var bucket)) Vendors[vendor] = bucket = new Accumulator(Windows.Length);

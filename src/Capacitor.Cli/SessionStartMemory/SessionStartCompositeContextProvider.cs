@@ -26,7 +26,7 @@ internal sealed class SessionStartCompositeContextProvider(
         var flowsTask = request.FlowsDisabled ? null : RunLaneAsync(() => flows.FetchAsync(request, cts.Token));
 
         // Flows ignore scope, and a slow scope resolution must not spend the budget they share.
-        if (request.Disabled && request.GuidelinesDisabled)
+        if (request is { Disabled: true, GuidelinesDisabled: true })
             return Combine(null, null, ReportFlows(flowsTask is null ? null : await flowsTask));
 
         SessionStartMemoryScope scope;

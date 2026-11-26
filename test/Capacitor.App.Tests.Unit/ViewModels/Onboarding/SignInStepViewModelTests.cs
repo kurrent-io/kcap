@@ -53,9 +53,9 @@ public class SignInStepViewModelTests {
         public readonly RecordingOpener         Opener  = new();
         public readonly FakeAppState            AppState = new();
         public readonly FakeTimeProvider        Time    = new();
-        public readonly ConsentFlipClaims       Claims;
+        readonly ConsentFlipClaims       Claims;
         public readonly UiAuthProgress          Progress;
-        public readonly WizardAuthService       Service;
+        readonly WizardAuthService       Service;
         public readonly SignInStepViewModel     Vm;
 
         public int Runs;
@@ -112,6 +112,44 @@ public class SignInStepViewModelTests {
         await Assert.That(isError).IsFalse();
         await Assert.That(detail).IsNull(); // what happens next is the host's to say
         await Assert.That(showPrimary).IsFalse();
+    }
+
+    /// The re-auth dialog was opened by a Sign in click, so entering it runs the attempt; the
+    /// wizard's plain enter must not, or the step would sign in before the user chose a path.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Entering_the_reauth_dialog_starts_sign_in_while_the_wizard_enter_waits() {
+        var (dialogRuns, dialogSatisfied, wizardRuns) = await AvaloniaSession.DispatchAsync(async () => {
+            using var dialog = new Harness();
+            dialog.Connect.Choice = ConnectChoice.Discover;
+            await dialog.Vm.EnterAndSignInAsync(CancellationToken.None);
+
+            using var wizard = new Harness();
+            wizard.Connect.Choice = ConnectChoice.Discover;
+            await wizard.Vm.OnEnterAsync(CancellationToken.None);
+
+            return (dialog.Runs, dialog.Vm.Satisfied, wizard.Runs);
+        });
+
+        await Assert.That(dialogRuns).IsEqualTo(1);
+        await Assert.That(dialogSatisfied).IsTrue();
+        await Assert.That(wizardRuns).IsEqualTo(0);
+    }
+
+    /// A dialog reopened over a committed sign-in has nothing left to start.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Entering_the_reauth_dialog_after_a_commit_does_not_sign_in_again() {
+        var runs = await AvaloniaSession.DispatchAsync(async () => {
+            using var h = new Harness();
+            h.Connect.Choice = ConnectChoice.Discover;
+            await h.SignIn();
+            await h.Vm.EnterAndSignInAsync(CancellationToken.None);
+
+            return h.Runs;
+        });
+
+        await Assert.That(runs).IsEqualTo(1);
     }
 
     /// Completed fires only for a committed sign-in. A cancel or a failure still has this page to answer.
@@ -232,9 +270,9 @@ public class SignInStepViewModelTests {
             using var h = new Harness();
             h.Connect.Choice = ConnectChoice.Discover;
             h.Operation = (_, _) => {
-                h.Progress.Error("Error: the auth service is unreachable.");
+                h.Progress.Error("System.Net.Http.HttpRequestException: the auth service is unreachable.\n   at Kcap.SignIn()");
 
-                return Task.FromResult<AuthResult>(new AuthResult.Failed("the auth service is unreachable"));
+                return Task.FromResult<AuthResult>(new AuthResult.Failed("the auth service is unreachable", AuthFailureReason.Unreachable));
             };
 
             await h.SignIn();
@@ -245,7 +283,7 @@ public class SignInStepViewModelTests {
         await Assert.That(status).IsEqualTo("Sign-in failed.");
         await Assert.That(isError).IsTrue();
         await Assert.That(satisfied).IsFalse();
-        await Assert.That(detail).IsEqualTo("The auth service is unreachable.");
+        await Assert.That(detail).IsEqualTo("Check your connection to the server and try again.");
         await Assert.That(log).IsEmpty();
     }
 
@@ -1063,7 +1101,6 @@ public class SignInStepViewModelTests {
 
         await Assert.That(workAccount).IsNotNull();
         await Assert.That(urlBox).IsNotNull();
-        await Assert.That(urlBox!.Classes.Contains("onboardingField")).IsTrue();
         await Assert.That(urlBoxShown).IsFalse(); // behind "I have a workspace URL"
         await Assert.That(statusShown).IsFalse(); // the ready line only restates the button
         await Assert.That(editionFooter).IsFalse();

@@ -92,12 +92,12 @@ public class HomeViewModelAccountTests {
         public FakeDaemonClientService Daemon { get; } = new();
         public FakeRemoteAgents Remote { get; } = new();
         public BehaviorSubject<AccountsSnapshotDto?> LocalAccounts { get; } = new(null);
-        public BehaviorSubject<ServerLaneStatus> Lane { get; } = new(new ServerLaneStatus(ServerLaneState.Connected));
+        BehaviorSubject<ServerLaneStatus> Lane { get; } = new(new ServerLaneStatus(ServerLaneState.Connected));
         public RecordingLaunchClient Launch { get; } = new();
         public AppStateStore Store { get; } = new(statePath);
         public BehaviorSubject<DateTimeOffset> Clock { get; } = new(Now);
         public Func<Task> OnRetry { get; set; } = () => Task.CompletedTask;
-        public HomeViewModel Vm { get; private set; } = null!;
+        HomeViewModel Vm { get; set; } = null!;
 
         public async Task<HomeViewModel> StartAsync(
                 (string Host, string Vendor, string Repo, string Id)[]? memory = null, IRemoteAgentsService? remote = null,

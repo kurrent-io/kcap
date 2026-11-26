@@ -31,7 +31,7 @@ public static class GeminiHooksParser {
     /// <summary>
     /// The event-array entry kcap installs: <c>{ "hooks": [ { kcap command } ] }</c>.
     /// No <c>matcher</c> — lifecycle events ignore it. Uses the JsonArray/JsonObject
-    /// constructors (collection expressions trip AOT — see CLI CLAUDE.md).
+    /// constructors (collection expressions trip AOT — see CLI AGENTS.md).
     /// </summary>
     public static JsonObject BuildKcapEntry() =>
         new() {

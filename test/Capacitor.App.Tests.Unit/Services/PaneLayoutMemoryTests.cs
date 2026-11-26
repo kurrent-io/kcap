@@ -183,10 +183,11 @@ public class PaneLayoutMemoryTests {
         });
     }
 
-    /// The header must clear the window controls only while the rail is collapsed, and give the space back after.
+    /// While the rail is collapsed the header starts below the window controls' row, keeping its leading edge,
+    /// and gives the height back once the rail shows again.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task A_session_header_clears_the_window_controls_while_the_rail_is_collapsed() {
+    public async Task A_session_header_starts_below_the_window_controls_while_the_rail_is_collapsed() {
         await AvaloniaSession.RunOnUiAsync(async () => {
             var window = new MainWindow { Width = 1400, Height = 800 };
             var view = new WorkspaceView();
@@ -195,17 +196,18 @@ public class PaneLayoutMemoryTests {
             window.UpdateLayout();
             var title = view.FindControl<SessionTitleEditor>("WorkspaceTitle")!;
             // Measured from the content pane, which the rail moves.
-            double TitleLeft() => title.TranslatePoint(default, window.ContentPane)!.Value.X;
-            var expandedLeft = TitleLeft();
+            Point TitleOrigin() => title.TranslatePoint(default, window.ContentPane)!.Value;
+            var expanded = TitleOrigin();
 
             window.Panes.RailCollapsed = true;
             window.UpdateLayout();
-            var controlsRight = window.ForwardButton.TranslatePoint(new Point(window.ForwardButton.Bounds.Width, 0), window.ContentPane)!.Value.X;
-            await Assert.That(TitleLeft()).IsGreaterThan(controlsRight);
+            var controlsBottom = window.RailToggleButton.TranslatePoint(new Point(0, window.RailToggleButton.Bounds.Height), window.ContentPane)!.Value.Y;
+            await Assert.That(TitleOrigin().Y).IsGreaterThan(controlsBottom);
+            await Assert.That(TitleOrigin().X).IsEqualTo(expanded.X);
 
             window.Panes.RailCollapsed = false;
             window.UpdateLayout();
-            await Assert.That(TitleLeft()).IsEqualTo(expandedLeft);
+            await Assert.That(TitleOrigin()).IsEqualTo(expanded);
             window.Close();
         });
     }

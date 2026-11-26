@@ -7,35 +7,17 @@ using Duende.IdentityModel.OidcClient.Browser;
 namespace Capacitor.Cli.Core.Auth;
 
 /// <summary>
-/// OidcClient <see cref="IBrowser"/> backed by a 127.0.0.1 loopback HttpListener.
-/// Opens the system browser to the authorize URL, waits for the redirect callback,
-/// and returns its raw query string. WorkOS documents the loopback exception as
-/// 127.0.0.1 (not localhost). The bind exception is intentionally NOT caught so the
-/// GitHub flow can fall back to device flow on a bind failure. A caller cancel throws
-/// <see cref="OperationCanceledException"/>; only the independent timeout returns Timeout.
-///
-/// <para>With an <see cref="ILoopbackJoin"/> the closing page additionally navigates the browser
-/// out through kcap-web and back to <c>/joined</c> on THIS SAME listener — which means the listener
-/// must OUTLIVE <see cref="InvokeAsync"/>. A <c>using var</c> cannot cover that, so ownership is
-/// explicit: exactly one owner stops and disposes, exactly
-/// once, decided by an <see cref="Interlocked"/> flip of <see cref="_tornDown"/>. Handoff happens at
-/// exactly ONE point — after a successful callback whose closing-page redirect was written cleanly.
-/// Every other exit (timeout, caller cancel, an auth-error callback, an injected <c>openBrowser</c>
-/// that throws, a closing-page write that throws) keeps ownership and disposes.</para>
-///
-/// <para>The redirect needs TWO things: the callback carried no <c>error=</c>, and it echoed the
-/// authorize URL's <c>state</c>. The second is a security control, not a success signal — this port
-/// is reachable by any local process, and without it a bare <c>/callback?code=junk</c> would be
-/// answered with a page containing the join key (see <see cref="StateEchoed"/>). It is still NOT an
-/// auth-success signal: the real CSRF validation and the token exchange both happen after this
-/// method returns, so a run that ends up failing authentication can still have emitted the redirect.
-/// Nothing here is on the critical path; the token exchange neither waits for the hops nor is
-/// affected by them.</para>
+/// OidcClient <see cref="IBrowser"/> backed by a 127.0.0.1 loopback listener (WorkOS's loopback
+/// exception is 127.0.0.1, not localhost). A bind failure is not caught, so the GitHub flow can fall
+/// back to device flow. Caller cancellation throws; only the independent timeout returns Timeout.
+/// <para>With an <see cref="ILoopbackJoin"/> the closing page sends the browser through kcap-web and back
+/// to <c>/joined</c> on this listener, so it must outlive <see cref="InvokeAsync"/>. Ownership passes
+/// only after a successful callback whose redirect was written cleanly; every other exit disposes it
+/// here. An <see cref="Interlocked"/> flip of <see cref="_tornDown"/> makes teardown happen once.</para>
+/// <para>The redirect also requires the callback to echo <c>state</c>: any local process can reach the
+/// port, and without it a bare <c>/callback?code=junk</c> would receive the join key. It is not an auth
+/// success signal; validation and token exchange happen later.</para>
 /// </summary>
-/// <param name="hint">
-/// An escape hatch offered while the wait runs, printed under the "visit:" line rather than before it:
-/// above, it reads as an alternative to signing in at all instead of an alternative to that URL.
-/// </param>
 public sealed class LoopbackBrowser(
         IBrowserLauncher    launcher,
         TimeProvider        time,
@@ -185,7 +167,7 @@ public sealed class LoopbackBrowser(
                 // browser arrived at a closed socket, which is exactly what the join's own refusal
                 // to consume itself on a mismatch exists to prevent.
                 if (ctx.Request.Url?.AbsolutePath == "/joined" && Accepted(ctx)) {
-                    try { await WritePageAsync(ctx, success: true, redirectTo: null, joined: true); } catch { }
+                    try { await WritePageAsync(ctx, success: true, redirectTo: null, joined: true); } catch { /* ignored */ }
 
                     return;
                 }
@@ -195,9 +177,9 @@ public sealed class LoopbackBrowser(
                 try {
                     ctx.Response.StatusCode = 404;
                     ctx.Response.Close();
-                } catch { }
+                } catch { /* ignored */ }
             }
-        } catch { } finally {
+        } catch { /* ignored */ } finally {
             TearDown();
         }
     }
@@ -213,9 +195,9 @@ public sealed class LoopbackBrowser(
     public void Dispose() {
         var drain = _drain;
 
-        try { drain?.Wait(DisposeWait); } catch { }
+        try { drain?.Wait(DisposeWait); } catch { /* ignored */ }
         TearDown();
-        try { drain?.Wait(DisposeWait); } catch { }
+        try { drain?.Wait(DisposeWait); } catch { /* ignored */ }
     }
 
     // The single teardown. Both the drain and Dispose attempt the transition; only the winner tears
@@ -223,8 +205,8 @@ public sealed class LoopbackBrowser(
     void TearDown() {
         if (Interlocked.Exchange(ref _tornDown, 1) != 0) return;
 
-        try { _listener?.Stop(); } catch { }
-        try { _listener?.Close(); } catch { }
+        try { _listener?.Stop(); } catch { /* ignored */ }
+        try { _listener?.Close(); } catch { /* ignored */ }
     }
 
     /// <summary>

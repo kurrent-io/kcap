@@ -1,12 +1,46 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Capacitor.App.Platform.Mac;
+using Capacitor.App.Services;
 using Capacitor.App.Views;
 
 namespace Capacitor.App.Tests.Unit.Views;
 
 public class InstallLocationWindowTests {
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_install_error_remains_readable_at_large_text_size() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var tmp = new TempDir();
+        var setting = await UiScaleSetting.LoadAsync(new AppStateStore(tmp.PathTo("app-state.json")));
+        await setting.SetAsync(1.5);
+        const string destination = "/Applications";
+        var error = string.Join("\n", Enumerable.Repeat("The destination is temporarily unavailable.", 100));
+        var window = new InstallLocationWindow("Choose an installation.",
+            () => Task.FromResult(new MoveOutcome(false, null, error)), () => { },
+            destinations: [destination], selectDestination: path => new(ApplicationsInstallAction.Install, path + "/kcap.app"));
+        SecondaryWindowScale.Attach(window, setting);
+        try {
+            window.Show();
+            window.FindControl<ComboBox>("DestinationPicker")!.SelectedIndex = 0;
+            window.FindControl<Button>("MoveButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+
+            var shown = window.FindControl<SelectableTextBlock>("ErrorText")!;
+            await Assert.That(shown.IsEffectivelyVisible).IsTrue();
+            await Assert.That(shown.Text).Contains("try again");
+            await Assert.That(shown.Text).DoesNotContain("The destination is temporarily unavailable");
+            foreach (var name in new[] { "QuitButton", "MoveButton" }) {
+                var button = window.FindControl<Button>(name)!;
+                await Assert.That(button is { IsEffectivelyVisible: true, IsEnabled: true }).IsTrue();
+                var bottom = button.TranslatePoint(new Point(button.Bounds.Width, button.Bounds.Height), window)!.Value;
+                await Assert.That(bottom.Y).IsLessThanOrEqualTo(window.ClientSize.Height);
+            }
+        } finally { window.Close(); }
+    });
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_denied_shared_install_offers_a_per_user_retry() {

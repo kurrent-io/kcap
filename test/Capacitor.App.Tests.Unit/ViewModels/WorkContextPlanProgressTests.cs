@@ -15,7 +15,7 @@ public class WorkContextPlanProgressTests {
     sealed class Harness : IAsyncDisposable {
         readonly Subject<AgentStatusDto?> _presence = new();
         readonly SessionRuns _runs;
-        public FakeTimeProvider Time { get; } = new();
+        FakeTimeProvider Time { get; } = new();
         public FakePlanSource Plans { get; } = new();
         public FakePullRequestSource PrSource { get; }
         public PullRequestContextViewModel Prs { get; }
@@ -44,7 +44,7 @@ public class WorkContextPlanProgressTests {
         }
 
         public async Task SettlePrAsync() {
-            await WaitUntilAsync(() => Prs.CanReveal && !Prs.IsReading, what: "PR overview");
+            await WaitUntilAsync(() => Prs is { CanReveal: true, IsReading: false }, what: "PR overview");
             Dispatcher.UIThread.RunJobs();
         }
 
@@ -81,7 +81,7 @@ public class WorkContextPlanProgressTests {
         await Assert.That(h.Prs.Selected!.Subject.Number).IsEqualTo(1);
         await Assert.That(h.Vm.PlanMergeNote).IsEqualTo("PR #2 merged with 2 tasks still open. Merges don’t update the plan.");
         await Assert.That(changes).Contains(nameof(WorkContextViewModel.ShowsPlanMergeNote));
-        await Assert.That(h.Vm.Plan.DoneCount).IsEqualTo(2);
+        await Assert.That(h.Vm.Plan.SettledCount).IsEqualTo(2);
         await Assert.That(h.Vm.Plan.Tasks[0].State).IsEqualTo(PlanTaskState.Pending);
         await h.Vm.Plan.ToggleCommand.Execute();
         await Assert.That(h.Vm.ShowsPlanMergeNote).IsTrue();

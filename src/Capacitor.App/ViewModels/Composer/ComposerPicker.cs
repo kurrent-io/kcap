@@ -10,7 +10,6 @@ public sealed class ComposerPicker : ReactiveObject, IDisposable {
     readonly IDisposable _contexts;
     ComposerContext? _context;
     int _generation;
-    IReadOnlyList<object> _rows = [];
 
     public ComposerPicker(IObservable<ComposerContext?> contexts, CommandCompletion commands, MentionCompletion mention) {
         _commands = commands;
@@ -19,9 +18,9 @@ public sealed class ComposerPicker : ReactiveObject, IDisposable {
     }
 
     public IReadOnlyList<object> Rows {
-        get => _rows;
-        private set => this.RaiseAndSetIfChanged(ref _rows, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = [];
 
     /// The command listing starts here rather than on the first "/", since a probe starts the harness.
     void Enter(ComposerContext? context) {

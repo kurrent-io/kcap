@@ -21,7 +21,7 @@ public sealed class SettingsProfileStore(ConfigRoot config, string profileName, 
 
     /// <param name="keepVisibility">Leaves the audience on disk as it is now, whatever this page last read.</param>
     public Task SaveCaptureAsync(Profile values, CancellationToken ct, bool keepVisibility = false) =>
-        ConfigMutator.MutateAsync(config, current => {
+        ConfigMutator.MutateStrictAsync(config, current => {
             var profile = Profile(current);
             return current with {
                 Profiles = new Dictionary<string, Profile>(current.Profiles) {
@@ -32,6 +32,16 @@ public sealed class SettingsProfileStore(ConfigRoot config, string profileName, 
                         AllowedPaths = values.AllowedPaths,
                         ExcludedPaths = values.ExcludedPaths,
                     }
+                }
+            };
+        }, ct);
+
+    public Task SaveGrokBotRecordAsync(bool record, CancellationToken ct) =>
+        ConfigMutator.MutateStrictAsync(config, current => {
+            var profile = Profile(current);
+            return current with {
+                Profiles = new Dictionary<string, Profile>(current.Profiles) {
+                    [profileName] = profile with { GrokBot = (profile.GrokBot ?? new GrokBotSettings()) with { Record = record } }
                 }
             };
         }, ct);
@@ -55,7 +65,7 @@ public sealed class SettingsProfileStore(ConfigRoot config, string profileName, 
         SaveAsync(settings => settings.Name == expected ? settings with { Name = previous } : settings, ct);
 
     Task SaveAsync(Func<DaemonSettings, DaemonSettings> update, CancellationToken ct) =>
-        ConfigMutator.MutateAsync(config, current => {
+        ConfigMutator.MutateStrictAsync(config, current => {
             var profile = Profile(current);
             return current with {
                 Profiles = new Dictionary<string, Profile>(current.Profiles) {
@@ -64,10 +74,19 @@ public sealed class SettingsProfileStore(ConfigRoot config, string profileName, 
             };
         }, ct);
 
+    internal const string ProfileChangedMessage = "The configured profile changed. Restart the app before editing settings.";
+
+    internal static string SaveFailureText(Exception error, string fallback) => error switch {
+        ConfigUnreadableException unreadable =>
+            $"kcap couldn’t read its settings at {unreadable.ConfigPath}. Check that you can open the file or restore a working copy, then try again.",
+        InvalidOperationException { Message: ProfileChangedMessage } => ProfileChangedMessage,
+        _ => fallback,
+    };
+
     Profile Profile(ProfileConfig current) {
         if (!current.Profiles.TryGetValue(profileName, out var profile) ||
             !ServerIdentity.Matches(profile.ServerUrl, serverUrl))
-            throw new InvalidOperationException("The configured profile changed. Restart the app before editing settings.");
+            throw new InvalidOperationException(ProfileChangedMessage);
         return profile;
     }
 }

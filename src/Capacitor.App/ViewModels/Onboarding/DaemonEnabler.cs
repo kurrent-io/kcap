@@ -69,13 +69,6 @@ public sealed class DaemonEnabler : ReactiveObject {
     ObservedEvidence? _evidence;
     string? _replacedName;
 
-    DaemonRow _row = DaemonRow.StatusUnknown;
-    DaemonAffordance _affordance;
-    bool _busy;
-    bool _satisfied;
-    string? _message;
-    string? _status;
-
     /// <param name="pickName">The name to save before enabling, or null to keep the configured one.</param>
     public DaemonEnabler(
             IKcapCli cli,
@@ -107,35 +100,35 @@ public sealed class DaemonEnabler : ReactiveObject {
     /// Set ONLY by the lane's own success outcome or the already-enabled row, and never cleared —
     /// a later re-classification must not re-derive (or revoke) a mutation's success from a snapshot.
     public bool Satisfied {
-        get => _satisfied;
-        private set => this.RaiseAndSetIfChanged(ref _satisfied, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public DaemonRow Row {
-        get => _row;
-        private set => this.RaiseAndSetIfChanged(ref _row, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = DaemonRow.StatusUnknown;
 
     public DaemonAffordance Affordance {
-        get => _affordance;
-        private set => this.RaiseAndSetIfChanged(ref _affordance, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool Busy {
-        get => _busy;
-        private set => this.RaiseAndSetIfChanged(ref _busy, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// What the current row found.
     public string? Message {
-        get => _message;
-        private set => this.RaiseAndSetIfChanged(ref _message, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The last action's result, mapped from the lane's own outcome — never a re-derived one.
     public string? Status {
-        get => _status;
-        private set => this.RaiseAndSetIfChanged(ref _status, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Completes once no <see cref="EnsureAsync"/> is in flight.
@@ -163,7 +156,7 @@ public sealed class DaemonEnabler : ReactiveObject {
         } catch (OperationCanceledException) {
             Status = DetachedMessage;
         } catch (Exception ex) {
-            Status = $"The daemon service operation failed unexpectedly: {ex.Message}";
+            Status = "Could not set up the daemon service. Try again.";
             Console.Error.WriteLine($"kcap: wizard daemon enable failed unexpectedly: {ex.Message}");
         } finally {
             Busy = false;
@@ -484,12 +477,13 @@ public sealed class DaemonEnabler : ReactiveObject {
     internal static string OutcomeStatus(MutationVerb verb, MutationOutcome outcome) => outcome switch {
         MutationOutcome.Succeeded or MutationOutcome.SucceededAfterTimeout => "The daemon service is enabled.",
         MutationOutcome.UnconfirmedNoAttach   => UnconfirmedStatus(verb),
-        MutationOutcome.AttentionSkew(var d)  => $"The daemon {VerbDisplay(verb)} needs attention ({d}) — kcap will follow up.",
-        MutationOutcome.AttentionRepair(var d) => $"The daemon {VerbDisplay(verb)} needs attention ({d}) — kcap will follow up.",
-        MutationOutcome.Refused(var reason, _) => $"kcap did not change the daemon service ({reason}).",
-        MutationOutcome.Failed(var exitCode, var reason, _) =>
-            $"The daemon {VerbDisplay(verb)} failed ({reason ?? VerifyExitCodes.Token(exitCode)}).",
-        _ => $"The daemon {VerbDisplay(verb)} did not complete.",
+        MutationOutcome.AttentionSkew or MutationOutcome.AttentionRepair => $"The daemon {VerbDisplay(verb)} needs attention. kcap will check again.",
+        MutationOutcome.Refused { Reason: "cli_below_floor" or "cli_version_unknown" } => "Update kcap before changing the daemon service.",
+        MutationOutcome.Refused => "kcap did not change the daemon service. Check its status before trying again.",
+        MutationOutcome.Failed { Reason: "verify_readiness_timeout" }
+            or MutationOutcome.Failed { Reason: null, ExitCode: VerifyExitCodes.ReadinessTimeout } =>
+                "The daemon took too long to start. Check its status before trying again.",
+        _ => $"The daemon {VerbDisplay(verb)} did not complete. Check its status and try again.",
     };
 
     /// <summary>The one line for a daemon change kcap could not confirm. The Done page shows it beside the main window's

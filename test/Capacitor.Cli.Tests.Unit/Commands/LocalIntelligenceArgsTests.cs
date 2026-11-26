@@ -2,14 +2,15 @@ using Capacitor.Cli.Commands;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
 
-/// <summary>One answer, its model for a provider, at most one outcome flag, and never a key on the command line</summary>
+/// <summary>One answer, its model for a provider, at most one outcome flag, and never a key on the command line; or
+/// status alone; or with no answer the preferences alone, the daily limit only there</summary>
 public class LocalIntelligenceArgsTests {
     [Test]
     public async Task An_answer_parses_with_its_options() {
         var (args, error) = LocalIntelligenceArgs.Parse(["openai", "--model", "gpt-5", "--no-import-outcomes", "--json"]);
 
         await Assert.That(error).IsNull();
-        await Assert.That(args!.Answer.Token).IsEqualTo("openai");
+        await Assert.That(args!.Answer!.Token).IsEqualTo("openai");
         await Assert.That(args.Model).IsEqualTo("gpt-5");
         await Assert.That(args.ImportOutcomes == false).IsTrue();
         await Assert.That(args.Json).IsTrue();
@@ -32,6 +33,17 @@ public class LocalIntelligenceArgsTests {
     [Arguments(new[] { "claude", "--verbose" }, "Unknown option")]
     [Arguments(new[] { "anthropic", "sk-ant-secret" }, "never from the command line")]
     [Arguments(new[] { "claude", "codex" }, "one answer")]
+    [Arguments(new[] { "claude", "--daily-limit", "500" }, "--daily-limit goes on its own")]
+    [Arguments(new[] { "--daily-limit", "0" }, "whole number from 1 to 100,000")]
+    [Arguments(new[] { "--daily-limit", "100001" }, "whole number from 1 to 100,000")]
+    [Arguments(new[] { "--daily-limit", "-5" }, "whole number from 1 to 100,000")]
+    [Arguments(new[] { "--daily-limit=1.5" }, "whole number from 1 to 100,000")]
+    [Arguments(new[] { "--daily-limit" }, "whole number from 1 to 100,000")]
+    [Arguments(new[] { "--daily-limit", "--no-import-outcomes", "--daily-limit=500" }, "whole number from 1 to 100,000")]
+    [Arguments(new[] { "--json" }, "Name who runs")]
+    [Arguments(new[] { "status", "--daily-limit", "5" }, "takes only --json")]
+    [Arguments(new[] { "status", "--import-outcomes" }, "takes only --json")]
+    [Arguments(new[] { "status", "claude" }, "takes only --json")]
     public async Task Anything_else_is_refused(string[] argv, string reason) {
         var (args, error) = LocalIntelligenceArgs.Parse(argv);
 
@@ -45,5 +57,28 @@ public class LocalIntelligenceArgsTests {
 
         await Assert.That(error).DoesNotContain("sk-ant-secret");
         await Assert.That(error).Contains("ANTHROPIC_API_KEY");
+    }
+
+    [Test]
+    public async Task Status_parses_on_its_own() {
+        var (args, error) = LocalIntelligenceArgs.Parse(["status", "--json"]);
+
+        await Assert.That(error).IsNull();
+        await Assert.That(args).IsEqualTo(new LocalIntelligenceArgs(null, null, null, true, Status: true));
+    }
+
+    [Test]
+    [Arguments(new[] { "--daily-limit", "100000" }, null, 100_000)]
+    [Arguments(new[] { "--daily-limit=1", "--json" }, null, 1)]
+    [Arguments(new[] { "--no-import-outcomes" }, false, null)]
+    [Arguments(new[] { "--import-outcomes", "--daily-limit", "500" }, true, 500)]
+    public async Task Preferences_parse_without_an_answer(string[] argv, bool? outcomes, int? limit) {
+        var (args, error) = LocalIntelligenceArgs.Parse(argv);
+
+        await Assert.That(error).IsNull();
+        await Assert.That(args!.Answer).IsNull();
+        await Assert.That(args.Status).IsFalse();
+        await Assert.That(args.ImportOutcomes).IsEqualTo(outcomes);
+        await Assert.That(args.DailyLimit).IsEqualTo(limit);
     }
 }

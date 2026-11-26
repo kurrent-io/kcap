@@ -28,8 +28,6 @@ public class ExperimentalSettingsStoreTests {
         await Assert.That(Store.Load("work").IsEnabled("codex-app-server")).IsFalse();
     }
 
-    /// <summary>The desktop switch saves from the UI thread, so waiting out another writer's lock must
-    /// happen after <c>SetAsync</c> has returned its task.</summary>
     [Test]
     public async Task Set_waits_for_the_lock_off_the_calling_thread() {
         Task<bool> set;
@@ -48,7 +46,7 @@ public class ExperimentalSettingsStoreTests {
     [Test]
     public async Task A_reader_holding_the_file_does_not_refuse_a_save() {
         await Store.SetAsync("default", "codex-app-server", false, CancellationToken.None);
-        using var reader = new FileStream(FilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        await using var reader = new FileStream(FilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
 
         await Assert.That(await Store.SetAsync("default", "codex-app-server", true, CancellationToken.None)).IsTrue();
         await Assert.That(Store.Load("default").IsEnabled("codex-app-server")).IsTrue();

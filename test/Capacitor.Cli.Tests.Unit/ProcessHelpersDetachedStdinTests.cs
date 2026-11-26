@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Capacitor.Cli.Core;
 using Microsoft.Win32.SafeHandles;
 
 namespace Capacitor.Cli.Tests.Unit;
@@ -38,7 +39,7 @@ public class ProcessHelpersDetachedStdinTests {
         var pid = child.Pid;
 
         try {
-            using (var writer = new StreamWriter(child.StandardInput)) {
+            await using (var writer = new StreamWriter(child.StandardInput)) {
                 writer.Write("""{"hook_event_name":"SessionEnd","session_id":"abc"}""");
             }
 
@@ -94,23 +95,26 @@ public class ProcessHelpersDetachedStdinTests {
             using var child = ProcessHelpers.StartDetachedWindowsWithStdin(psi);
             var       pid   = child.Pid;
 
-            try {
-                CloseHandle(probeWrite);
-                probeClosed = true;
+            CloseHandle(probeWrite);
+            probeClosed = true;
 
-                using var probe  = new FileStream(new SafeFileHandle(probeRead, ownsHandle: true), FileAccess.Read);
-                var       buffer = new byte[1];
-                var       read   = probe.ReadAsync(buffer).AsTask();
+            // Outlives the try, so the child is killed first: disposing waits on a read that a live
+            // child holding the write end never lets finish.
+            await using var probe = new FileStream(new SafeFileHandle(probeRead, ownsHandle: true), FileAccess.Read);
+
+            try {
+                var buffer = new byte[1];
+                var read   = probe.ReadAsync(buffer).AsTask();
 
                 // A read that never settles IS the failure: it means a child is still holding the
                 // write end, so the assertion is on completion first and EOF second.
-                var finished = await Task.WhenAny(read, Task.Delay(TimeSpan.FromSeconds(10)));
+                var finished = await read.FinishedWithinAsync(TimeSpan.FromSeconds(10), TimeProvider.System);
 
-                await Assert.That(finished == read).IsTrue();
+                await Assert.That(finished).IsTrue();
                 await Assert.That(await read).IsEqualTo(0);
 
                 // The payload pipe is the one handle that DID cross, so it still works.
-                using var writer = new StreamWriter(child.StandardInput);
+                await using var writer = new StreamWriter(child.StandardInput);
                 writer.Write("x");
             } finally {
                 Kill(pid);
@@ -124,7 +128,7 @@ public class ProcessHelpersDetachedStdinTests {
         try {
             using var child = Process.GetProcessById(pid);
             child.Kill(entireProcessTree: true);
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     [StructLayout(LayoutKind.Sequential)]

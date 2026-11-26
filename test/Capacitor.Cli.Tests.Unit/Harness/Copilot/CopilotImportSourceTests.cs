@@ -255,7 +255,7 @@ public class CopilotImportSourceTests {
         var paths     = Layout(tmp);
         WriteSession(paths.SessionStateDir, Sid1, cwd: "/work/a", createdAt: "2026-06-01T10:00:00Z");
         var prompts = Enumerable.Range(0, 9).Select(i =>
-            $$$"""{"type":"user.message","data":{"content":"p{{{i}}}"},"id":"{{{i}}}","timestamp":"2026-06-10T20:23:50Z","parentId":null}""" + "\n");
+            $$"""{"type":"user.message","data":{"content":"p{{i}}"},"id":"{{i}}","timestamp":"2026-06-10T20:23:50Z","parentId":null}""" + "\n");
         await File.AppendAllTextAsync(Path.Join(paths.SessionStateDir, Sid1, "events.jsonl"), string.Concat(prompts));
 
         using var server = WireMockServer.Start();

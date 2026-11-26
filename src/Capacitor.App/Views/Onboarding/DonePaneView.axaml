@@ -44,7 +44,7 @@
                         <views:AppIcon Kind="TriangleAlert" Size="14" VerticalAlignment="Top" Margin="0,2,0,0"
                                        Foreground="{StaticResource KcapDangerBrush}" />
                         <StackPanel Grid.Column="1" Spacing="5">
-                            <TextBlock x:Name="FailedTitleText" Classes="onboardingLabel" FontSize="12.5" Text="{Binding FailedTitle}" />
+                            <TextBlock x:Name="FailedTitleText" Classes="onboardingLabel" FontSize="{StaticResource KcapFontSizeSmall}" Text="{Binding FailedTitle}" />
                             <TextBlock Classes="onboardingDetail" Foreground="{StaticResource OnboardingMutedBrush}" Text="{Binding FailedBody}" />
                         </StackPanel>
                     </Grid>
@@ -54,13 +54,13 @@
 
         <Border x:Name="AgentsCard" Classes="onboardingCard">
             <StackPanel Spacing="12">
-                <TextBlock Classes="onboardingLabel" FontSize="15" Text="Connected agents" />
+                <TextBlock Classes="onboardingLabel" FontSize="{StaticResource KcapFontSizeLarge}" Text="Connected agents" />
                 <ItemsControl x:Name="CaptureItems" ItemsSource="{Binding Capture}" IsVisible="{Binding CaptureVisible}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate x:DataType="vm:CaptureItem">
                             <Border Classes="onboardingRowRule" Padding="0,8">
                                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                                    <TextBlock Text="{Binding Label}" FontSize="13" LineHeight="20" Foreground="{StaticResource OnboardingTextBrush}" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding Label}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="20" Foreground="{StaticResource OnboardingTextBrush}" VerticalAlignment="Center" />
                                     <Border Grid.Column="1" Classes="kcapBadge word" Classes.success="{Binding !NeedsYou}" Classes.attention="{Binding NeedsYou}">
                                         <StackPanel Orientation="Horizontal" Spacing="5">
                                             <views:AppIcon Kind="CircleCheck" Size="12" IsVisible="{Binding !NeedsYou}" />
@@ -96,7 +96,7 @@
                 <StackPanel Spacing="6" IsVisible="{Binding CodexNoteVisible}">
                     <Border Classes="onboardingDivider" Margin="0,6" />
                     <TextBlock Classes="onboardingLabel" Text="Codex may ask before it trusts a project" />
-                    <TextBlock Classes="onboardingBody" FontSize="13"
+                    <TextBlock Classes="onboardingBody" FontSize="{StaticResource KcapFontSizeBody}"
                                Text="The first run in a new folder puts up its own prompt. Answer it once, in the folder you work in" />
                 </StackPanel>
             </StackPanel>
@@ -105,7 +105,7 @@
         <Border x:Name="ServiceCard" Classes="onboardingCard">
             <StackPanel Spacing="10">
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                    <TextBlock Classes="onboardingLabel" FontSize="15" LineHeight="20" VerticalAlignment="Center"
+                    <TextBlock Classes="onboardingLabel" FontSize="{StaticResource KcapFontSizeLarge}" LineHeight="20" VerticalAlignment="Center"
                                Text="{x:Static vm:DoneStepViewModel.ServiceTitle}" />
                     <Border Grid.Column="1" Classes="kcapBadge word" Classes.inflight="{Binding ServiceInstalling}"
                             Classes.success="{Binding ServiceRunning}" Classes.danger="{Binding ServiceFailed}">
@@ -118,7 +118,7 @@
                         </StackPanel>
                     </Border>
                 </Grid>
-                <TextBlock x:Name="ServiceBodyText" Classes="onboardingBody" FontSize="13" Text="{Binding ServiceBody}" />
+                <TextBlock x:Name="ServiceBodyText" Classes="onboardingBody" FontSize="{StaticResource KcapFontSizeBody}" Text="{Binding ServiceBody}" />
                 <TextBlock x:Name="ServiceNoteText" Classes="onboardingNote" Text="{Binding ServiceNote}"
                            IsVisible="{Binding ServiceNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
@@ -127,7 +127,7 @@
                         <views:AppIcon Kind="TriangleAlert" Size="14" VerticalAlignment="Top" Margin="0,2,0,0"
                                        Foreground="{StaticResource KcapDangerBrush}" />
                         <StackPanel Grid.Column="1" Spacing="8">
-                            <TextBlock x:Name="ServiceProblemText" Classes="onboardingLabel" FontSize="12.5" TextWrapping="Wrap"
+                            <TextBlock x:Name="ServiceProblemText" Classes="onboardingLabel" FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
                                        Text="{Binding ServiceProblemTitle}" />
                             <StackPanel Orientation="Horizontal" Spacing="16">
                                 <Button x:Name="RetryServiceButton" Classes="onboardingSecondary onboardingCompact" Content="Retry"
@@ -135,7 +135,7 @@
                                 <Button x:Name="ServiceDetailsButton" Classes="onboardingLink" Content="{Binding DetailsLabel}"
                                         Command="{Binding ToggleDetailsCommand}" IsVisible="{Binding ServiceDetailsAvailable}" />
                             </StackPanel>
-                            <SelectableTextBlock x:Name="ServiceDetailsText" FontSize="11.5" LineHeight="17" TextWrapping="Wrap"
+                            <SelectableTextBlock x:Name="ServiceDetailsText" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="17" TextWrapping="Wrap"
                                                  Foreground="{StaticResource OnboardingMutedBrush}"
                                                  Text="{Binding ServiceDetails}" IsVisible="{Binding DetailsVisible}" />
                         </StackPanel>
@@ -150,7 +150,7 @@
                 <views:AppIcon Kind="TriangleAlert" Size="14" VerticalAlignment="Top" Margin="0,2,0,0"
                                Foreground="{StaticResource KcapDangerBrush}" />
                 <StackPanel Grid.Column="1" Spacing="5">
-                    <TextBlock x:Name="NotReadyTitleText" Classes="onboardingLabel" FontSize="12.5" Text="{Binding NotReadyTitle}" />
+                    <TextBlock x:Name="NotReadyTitleText" Classes="onboardingLabel" FontSize="{StaticResource KcapFontSizeSmall}" Text="{Binding NotReadyTitle}" />
                     <TextBlock Classes="onboardingDetail" Foreground="{StaticResource OnboardingMutedBrush}" Text="{Binding NotReadyBody}" />
                 </StackPanel>
                 <Button Grid.Column="2" x:Name="RetryButton" Classes="onboardingLink" Margin="15,0,0,0" VerticalAlignment="Center"

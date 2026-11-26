@@ -28,6 +28,9 @@ public interface IServerSessionsService {
     /// True after a successful read in the lane's current connection; false while the lane is down
     /// or after a failed read, when the caches are retained history.
     IObservable<bool> Current { get; }
+    /// True once a read in the lane's current connection has finished, whether or not it succeeded;
+    /// false while the lane is down. Until then an empty listing means not yet read, not no sessions.
+    IObservable<bool> Answered { get; }
     RailScope Scope { get; set; }
     IObservable<RailScope> ScopeChanges { get; }
     /// Asks for one more page of ended sessions; refused silently at the offset cap.

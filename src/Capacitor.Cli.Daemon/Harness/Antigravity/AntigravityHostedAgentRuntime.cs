@@ -34,46 +34,21 @@ namespace Capacitor.Cli.Daemon.Harness.Antigravity;
 internal sealed record AgyPidRecordCallbacks(Action<int> Record, Action Clear);
 
 /// <summary>
-/// <see cref="IHostedAgentRuntime"/> for Antigravity's CLI (<c>agy</c>) as an unattended review-flow
-/// reviewer.
-///
-/// <para>Every other runtime wraps ONE long-lived child for the whole session. Each <c>agy</c> turn is
-/// its own <c>agy -p …</c> invocation that exits when the turn ends, with NO PROCESS AT ALL between
-/// turns, so liveness needs an explicit phase machine. Five rules, each a real defect if broken:</para>
-///
-/// <para><b>(a) The phase machine.</b> <see cref="RuntimePhase.Starting"/> → <see cref="RuntimePhase.Executing"/>
-/// when turn 1 spawns; <see cref="RuntimePhase.Executing"/> → <see cref="RuntimePhase.Idle"/> ONLY when the
-/// child exits AFTER a terminal <c>result</c> event; <see cref="RuntimePhase.Idle"/> →
-/// <see cref="RuntimePhase.Executing"/> on the next turn; any phase → <see cref="RuntimePhase.Terminal"/> on a
-/// deadline, spawn/auth failure, explicit stop, or EOF WITHOUT a terminal <c>result</c>. Reading that EOF as
-/// Idle would park <see cref="ReadOutputAsync"/> forever and hang the session; Terminal is what lets flow
-/// semantics see the lost reviewer.</para>
-///
-/// <para><b>(b) <see cref="HasExited"/> reports LOGICAL liveness.</b> <see cref="RuntimePhase.Idle"/> reports
-/// <see langword="false"/>: "no live child ⇒ exited" would make <c>StopAgentCoreAsync</c> trivially succeed
-/// on a reviewer that is merely between turns.</para>
-///
-/// <para><b>(c) <see cref="ReadOutputAsync"/> parks on ONE signal, created once.</b> <see cref="_terminalTcs"/>
-/// is created in the constructor and completed exactly once, in <see cref="EnterTerminal"/>. A per-turn
-/// signal would end the session after turn 1, since the orchestrator finalizes when that stream ends.</para>
-///
-/// <para><b>(d) <see cref="TerminateAsync"/> must NEVER take <see cref="_turnGate"/>.</b> A turn holds the gate
-/// for its whole span. <see cref="TerminateAsync"/> takes <see cref="_stateLock"/>, flips to Terminal, and —
-/// outside that lock — cancels <see cref="_ownerCts"/>, which is what aborts the turn and releases the gate.
-/// Taking the gate first deadlocks against a long turn (<c>AntigravityRuntimeLifecycleTests</c> pins it).</para>
-///
-/// <para><b>(e) A factory that binds a transcript MUST <see langword="await"/>
-/// <see cref="WaitForConversationIdAsync"/> after sending the initial prompt and before returning.</b>
-/// <see cref="AcpSessionId"/> reads <c>""</c> until turn 1's <c>init</c> resolves it, the orchestrator reads it
-/// the moment a launch returns, and neither <see cref="SendUserInputAsync"/>,
-/// <see cref="SendUserInputAndWaitForWriteAsync"/> nor <see cref="WaitForTurnIdleAsync"/> orders after it — so
-/// skipping the barrier binds the transcript to <c>""</c> permanently. The barrier resolves on EVERY way a turn
-/// ends: <see cref="EnterTerminal"/> faults it on each route to Terminal, and
-/// <see cref="FaultConversationIdBarrierIfUnresolved"/> faults it when a turn settles to Idle without ever
-/// seeing a <c>conversation_id</c>.</para>
-///
-/// <para>No reconnect/resume, no terminal output (<see cref="EmitsTerminalOutput"/> is <see langword="false"/>;
-/// stdout is NDJSON), and no <c>session_ended</c> envelope — the server's <c>EndAgentSession</c> owns that.</para>
+/// <see cref="IHostedAgentRuntime"/> for Antigravity's CLI (<c>agy</c>). Each turn is its own
+/// <c>agy -p</c> process with nothing running between turns, so liveness is a phase machine:
+/// <para>(a) Executing becomes Idle only when the child exits after a terminal <c>result</c> event. EOF
+/// without one goes Terminal; reading it as Idle would park <see cref="ReadOutputAsync"/> forever.</para>
+/// <para>(b) <see cref="HasExited"/> is false while Idle, or <c>StopAgentCoreAsync</c> would trivially
+/// succeed between turns.</para>
+/// <para>(c) <see cref="ReadOutputAsync"/> parks on one constructor-owned signal; a per-turn one would
+/// end the session after turn 1.</para>
+/// <para>(d) <see cref="TerminateAsync"/> never takes <see cref="_turnGate"/>: a turn holds it
+/// throughout, and cancelling <see cref="_ownerCts"/> outside <see cref="_stateLock"/> is what releases
+/// it.</para>
+/// <para>(e) A factory must await <see cref="WaitForConversationIdAsync"/> before returning, or the
+/// transcript binds to <c>""</c> permanently. The barrier faults on every route to Terminal and when a
+/// turn settles without a <c>conversation_id</c>.</para>
+/// <para>No reconnect, no terminal output, and no <c>session_ended</c>.</para>
 /// </summary>
 internal sealed class AntigravityHostedAgentRuntime : IHostedAgentRuntime, IAcpTranscriptSource {
     /// <summary>

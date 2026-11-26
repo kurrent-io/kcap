@@ -38,7 +38,7 @@ public class LocalPermissionBridgeJudgeTests {
         public WireMockServer         Judge  { get; } = WireMockServer.Start();
         public PolicyServerConnection Server { get; } = new();
         public PermissionPromptBroker Broker { get; } = new();
-        public TempDir                Tmp    { get; } = new();
+        TempDir                Tmp    { get; } = new();
         public HttpClient             Client { get; } = new() { Timeout = TimeSpan.FromSeconds(30) };
         public LocalPermissionBridge  Bridge { get; }
 
@@ -83,7 +83,7 @@ public class LocalPermissionBridgeJudgeTests {
             r.GetProperty("turns").GetProperty("tool_use_id").GetString() == toolUseId);
 
         IEnumerable<JsonElement> JudgeRequests() =>
-            Judge.LogEntries.Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement);
+            Judge.LogEntries.Select(e => JsonElement.Parse(e.RequestMessage.Body!));
 
         public static async Task<string> BehaviorOf(HttpResponseMessage response) {
             using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
@@ -125,7 +125,7 @@ public class LocalPermissionBridgeJudgeTests {
         await Assert.That(evt.EffectiveOutcome).IsEqualTo(outcome);
         await Assert.That(evt.Judge!.ConsultationId).IsEqualTo("c-1");
 
-        var request = JsonDocument.Parse(h.Judge.LogEntries.Single().RequestMessage.Body!).RootElement;
+        var request = JsonElement.Parse(h.Judge.LogEntries.Single().RequestMessage.Body!);
         await Assert.That(request.GetProperty("agent_id").GetString()).IsEqualTo("agent-1");
         await Assert.That(request.GetProperty("turns").GetProperty("tool_use_id").GetString()).IsEqualTo("toolu_1");
     }
@@ -205,7 +205,7 @@ public class LocalPermissionBridgeJudgeTests {
         await h.PostAsync("make deploy", "toolu_2", vendor: "codex");
 
         var complete = h.Judge.LogEntries
-            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.GetProperty("refusals").GetProperty("complete").GetBoolean())
+            .Select(e => JsonElement.Parse(e.RequestMessage.Body!).GetProperty("refusals").GetProperty("complete").GetBoolean())
             .ToArray();
         await Assert.That(complete).IsEquivalentTo([true, false], CollectionOrdering.Matching);
     }

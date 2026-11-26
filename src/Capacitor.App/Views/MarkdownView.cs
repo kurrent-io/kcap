@@ -10,7 +10,9 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.GitHubHtml;
+using Capacitor.App.ProgressiveDisclosure;
 using Capacitor.App.Services;
+using Capacitor.App.ViewModels;
 using MarkView.Avalonia;
 using MarkView.Avalonia.Rendering.Inlines;
 using MarkView.Avalonia.SyntaxHighlighting;
@@ -38,6 +40,14 @@ public sealed class MarkdownView : ContentControl {
     public static readonly StyledProperty<MarkdownFlavor> FlavorProperty =
         AvaloniaProperty.Register<MarkdownView, MarkdownFlavor>(nameof(Flavor));
 
+    public static readonly StyledProperty<bool> UseMonospaceReadingProperty =
+        AvaloniaProperty.Register<MarkdownView, bool>(nameof(UseMonospaceReading));
+
+    public bool UseMonospaceReading {
+        get => GetValue(UseMonospaceReadingProperty);
+        set => SetValue(UseMonospaceReadingProperty, value);
+    }
+
     /// The repository a GitHub-flavoured body belongs to, as its `https://host/owner/repo` URL: its
     /// references in text link into it. Unset, they stay text.
     public static readonly StyledProperty<string?> ReferenceBaseProperty =
@@ -49,6 +59,13 @@ public sealed class MarkdownView : ContentControl {
         AvaloniaProperty.RegisterAttached<MarkdownView, Control, AgentLinkLabels?>("AgentLinks", inherits: true);
 
     public static void SetAgentLinks(Control control, AgentLinkLabels? value) => control.SetValue(AgentLinksProperty, value);
+
+    /// Where a GitHub link chip in chat reads its pull request's or issue's state. Inherited, so the
+    /// window sets it once; unset, a chip shows no state.
+    public static readonly AttachedProperty<GitHubLinkStatuses?> GitHubLinksProperty =
+        AvaloniaProperty.RegisterAttached<MarkdownView, Control, GitHubLinkStatuses?>("GitHubLinks", inherits: true);
+
+    public static void SetGitHubLinks(Control control, GitHubLinkStatuses? value) => control.SetValue(GitHubLinksProperty, value);
 
     /// Takes a code block's text. Left unset on a surface with nowhere to run it, which is what
     /// withdraws the offer from the block.
@@ -82,10 +99,16 @@ public sealed class MarkdownView : ContentControl {
     IDisposable? _titledWatch;
     readonly MarkdownLinkKeys _linkKeys;
     readonly FindHighlighter _find = new();
+    readonly ProgressiveDisclosureHover _hover = new();
+    bool _hasMarks;
     int _currentFind = -1;
     bool _nonLeftRelease;
+    ProgressiveDisclosureBasis? _renderedBasis;
+    IDisposable? _basisWatch;
 
     static MarkdownView() {
+        UseMonospaceReadingProperty.Changed.AddClassHandler<MarkdownView>((view, change) =>
+            view.Classes.Set("monospaceReading", change.NewValue is true));
         TextProperty.Changed.AddClassHandler<MarkdownView>((view, _) => {
             view._details.Clear();
             view._mermaidSources.Clear();
@@ -124,12 +147,18 @@ public sealed class MarkdownView : ContentControl {
         };
         AddHandler(ContextRequestedEvent, (_, e) => {
             ContextLinkUrl = LinkAt(e);
-            ContextImage = ImageUnder(e.Source as Visual) is { ShowsPicture: true } image ? image : null;
+            ContextListItems = ListAt(e);
+            ContextImage = Under<MarkdownImage>(e.Source as Visual) is { ShowsPicture: true } image ? image : null;
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
         MarkViewSelection.Attach(this, _viewer, CopySelectionAsync);
+        // The viewer swaps in new content at the end of every render, its selection index built by then.
+        _viewer.PropertyChanged += (_, e) => {
+            if (e.Property == ContentProperty) MarkViewSelection.AlignEmbedded(_viewer);
+        };
         // Bubble on the host runs after the viewer's own move, which has already chosen Hand or
         // the arrow. Prose takes the I-beam and a link the hand; a bare image stays on the arrow.
         AddHandler(PointerMovedEvent, OnPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
+        PointerExited += (_, _) => _hover.Clear();
         AddHandler(PointerPressedEvent, OnSelectionInput, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerMovedEvent, OnSelectionInput, RoutingStrategies.Bubble, handledEventsToo: true);
         AddHandler(PointerReleasedEvent, OnSelectionInput, RoutingStrategies.Bubble, handledEventsToo: true);
@@ -140,6 +169,14 @@ public sealed class MarkdownView : ContentControl {
     }
 
     internal bool IsSelecting => Content is MarkdownViewer && MarkViewSelection.IsSelecting(_viewer);
+
+    internal void ResetMessageState() {
+        ContextLinkUrl = null;
+        ContextListItems = null;
+        ContextImage = null;
+        _nonLeftRelease = false;
+        ClearSelection();
+    }
 
     internal bool TryStartSelectionFromLeft(PointerPressedEventArgs e) {
         if (Content is not MarkdownViewer) return false;
@@ -161,12 +198,20 @@ public sealed class MarkdownView : ContentControl {
         _selectionHost?.UpdateSelection(this);
         _attached = true;
         RelabelAgentLinks();
+        // Replays the current basis, so a view detached across a change catches up on return.
+        _basisWatch = ProgressiveDisclosureBasis.Changes.Subscribe(OnBasisChanged);
+    }
+
+    void OnBasisChanged(ProgressiveDisclosureBasis basis) {
+        if (_hasMarks && basis != _renderedBasis) Render();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e) {
         _selectionHost?.RemoveSelection(this);
         _selectionHost = null;
         _attached = false;
+        _basisWatch?.Dispose();
+        _basisWatch = null;
         WatchTitles();
         base.OnDetachedFromVisualTree(e);
     }
@@ -187,9 +232,10 @@ public sealed class MarkdownView : ContentControl {
     void OnSelectionInput(object? sender, RoutedEventArgs e) => _selectionHost?.UpdateSelection(this);
 
     void OnPointerMoved(object? sender, PointerEventArgs e) {
+        if (_hasMarks) _hover.Move(this, e);
         var link = FindHyperlinkAt(_viewer, e.GetPosition(_viewer));
-        var image = ImageUnder(e.Source as Visual);
-        var tip = link?.NavigateUri?.ToString() ?? image?.Target;
+        var image = Under<MarkdownImage>(e.Source as Visual);
+        var tip = link?.NavigateUri?.ToString() ?? image?.Target ?? Under<GitHubLinkChip>(e.Source as Visual)?.Url;
         if (!string.Equals(ToolTip.GetTip(_viewer) as string, tip, StringComparison.Ordinal))
             ToolTip.SetTip(_viewer, tip);
         // Cursor inherits, so the viewer's value is what a child with none of its own shows.
@@ -203,8 +249,55 @@ public sealed class MarkdownView : ContentControl {
 
     string? LinkAt(ContextRequestedEventArgs e) =>
         e.TryGetPosition(_viewer, out var point)
-            ? FindHyperlinkAt(_viewer, point)?.NavigateUri?.ToString() ?? ImageUnder(e.Source as Visual)?.Target
+            ? FindHyperlinkAt(_viewer, point)?.NavigateUri?.ToString() ?? Under<MarkdownImage>(e.Source as Visual)?.Target
+                ?? Under<GitHubLinkChip>(e.Source as Visual)?.Url
             : _linkKeys.CurrentUrl;
+
+    /// The items of the list a context menu was opened on, if it was opened on one.
+    internal IReadOnlyList<string>? ContextListItems { get; private set; }
+
+    IReadOnlyList<string>? ListAt(ContextRequestedEventArgs e) =>
+        Content is MarkdownViewer && e.TryGetPosition(_viewer, out var point) && MarkViewSelection.BlockAt(_viewer, point) is { } block
+            ? MarkdownLists.ItemsAround(Text, block.Text, block.Occurrence)
+            : null;
+
+    /// Where this text bookmarks to; null outside a chat that lists bookmarks.
+    internal ChatBookmarks? Bookmarks => _selectionHost?.BookmarksFor(this);
+
+    public void BookmarkSelection() {
+        var text = Content is SelectableTextBlock plain ? plain.SelectedText ?? "" : MarkViewSelection.SelectedText(_viewer);
+        if (Bookmarks is { } bookmarks && DataContext is ChatItemViewModel source) bookmarks.Add([text], source);
+    }
+
+    public void BookmarkListItems() {
+        if (Bookmarks is { } bookmarks && DataContext is ChatItemViewModel source && ContextListItems is { } items)
+            bookmarks.Add(items, source);
+    }
+
+    public void BookmarkMessage() {
+        if (Bookmarks is { } bookmarks && DataContext is ChatItemViewModel { Bookmark: null } source)
+            bookmarks.ToggleMessageCommand.Execute(source).Subscribe();
+    }
+
+    /// Selects the first run of text reading as <paramref name="quote"/>, with keyboard focus so Copy
+    /// takes it, and returns where it starts, in this view's coordinates; null when the view shows no
+    /// such text.
+    internal Rect? Highlight(string quote) {
+        Rect? found;
+        if (Content is SelectableTextBlock plain) {
+            var index = plain.Text?.IndexOf(quote, StringComparison.Ordinal) ?? -1;
+            if (index < 0) return null;
+            plain.SelectionStart = index;
+            plain.SelectionEnd = index + quote.Length;
+            plain.Focus();
+            found = new Rect(default, new Size(plain.Bounds.Width, 0));
+        } else if (MarkViewSelection.Select(_viewer, quote) is { } rect && _viewer.TranslatePoint(rect.Position, this) is { } at) {
+            _viewer.Focus();
+            found = new Rect(at, rect.Size);
+        } else return null;
+        _selectionHost?.UpdateSelection(this);
+        return found;
+    }
 
     /// The picture a context menu was opened on, once it has loaded.
     internal MarkdownImage? ContextImage { get; private set; }
@@ -216,9 +309,9 @@ public sealed class MarkdownView : ContentControl {
         await clipboard.SetTextAsync(url);
     }
 
-    static MarkdownImage? ImageUnder(Visual? visual) {
+    static T? Under<T>(Visual? visual) where T : Visual {
         for (; visual is not null && visual is not MarkdownViewer; visual = visual.GetVisualParent())
-            if (visual is MarkdownImage image) return image;
+            if (visual is T found) return found;
         return null;
     }
 
@@ -263,6 +356,7 @@ public sealed class MarkdownView : ContentControl {
         if (ToolTip.GetTip(_viewer) is not null) ToolTip.SetTip(_viewer, null);
         _find.Forget();
         if (_viewer.Markdown == Text) _viewer.Markdown = null;
+        ReadMarks();
         try {
             _viewer.Markdown = Text;
             Content = _viewer;
@@ -273,6 +367,12 @@ public sealed class MarkdownView : ContentControl {
         ApplyFind();
         _selectionHost?.UpdateSelection(this);
         WatchTitles();
+    }
+
+    void ReadMarks() {
+        _renderedBasis = ProgressiveDisclosureBasis.Current;
+        _hasMarks = Flavor == MarkdownFlavor.Chat && ProgressiveDisclosureMarks.HasMarks(Text);
+        _hover.Clear();
     }
 
     void ApplyFind() {
@@ -289,6 +389,8 @@ public sealed class MarkdownView : ContentControl {
     }
 
     /// Where a match's first line sits, in this view's coordinates.
+    internal int CurrentFindForTesting => _currentFind;
+
     internal Rect? FindMatchBounds(int index) =>
         _find.Bounds(index) is var (block, bounds) && block.TranslatePoint(bounds.Position, this) is { } at
             ? new Rect(at, bounds.Size)
@@ -384,6 +486,7 @@ public sealed class MarkdownView : ContentControl {
         _viewer.Extensions.Add(Highlighting);
         // After the highlighter, whose code block renderer this one wraps.
         _viewer.Extensions.Add(_codeActions);
+        ReadMarks();
         // Only the pipeline change re-renders, so it goes last.
         _viewer.Pipeline = Flavor switch {
             MarkdownFlavor.GitHub => GitHubPipeline.Instance,

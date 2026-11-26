@@ -262,9 +262,9 @@ public static class WorkOSDiscovery {
         };
 
         if (await CommitBoundary.SettleLegacyCredentialAsync(root, store, ct) is { } settleError) {
-            progress.Error(settleError);
+            progress.Error(settleError.Message);
 
-            return new AuthResult.Failed(settleError);
+            return settleError;
         }
 
         var result = await CommitBoundary.CommitNamedAsync(root, ready.Tenants, ready.Picked, (tenants, picked) => new CommitRequest(

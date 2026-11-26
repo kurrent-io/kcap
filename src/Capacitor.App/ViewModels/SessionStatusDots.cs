@@ -55,6 +55,10 @@ public static class SessionStatusDots {
             terminalDialog: row.TerminalDialog is not null, interruption: row.Interruption, agentId: row.Id,
             stale: row.IsStale);
 
+    /// The server flags only how long the session has been quiet, so the tip claims nothing about
+    /// whether the agent is still running: an agent killed without a session end stays stale.
+    public const string StaleNextStep = "No end has been recorded, so the agent may still be running. You can still open the session.";
+
     /// First match wins, so two surfaces cannot draw different marks for the same facts.
     /// <paramref name="usageLimitSummary"/> is set only for a question the user must answer.
     /// <paramref name="stale"/> is the server's idle flag, which outranks only the bare "Running" that
@@ -107,19 +111,20 @@ public static class SessionStatusDots {
             : kind == AgentStatusKind.Interrupted ? "Not resumed after a daemon restart"
             : kind == AgentStatusKind.Stale ? "No activity for over an hour"
             : label;
-        var facts = new List<AgentStatusFact> { new(sentence, "Status") };
+        var facts = new List<AgentStatusFact> { new(sentence, null) };
         Add(facts, harness, "Harness");
         Add(facts, model, "Model");
         Add(facts, usageLimitSummary, "Usage limit");
+        if (kind == AgentStatusKind.Stale) Add(facts, StaleNextStep);
         if (kind == AgentStatusKind.Interrupted) {
-            Add(facts, interruption, "Reason");
+            Add(facts, InterruptionReasons.Describe(interruption), "Reason");
             Add(facts, $"Retry with `kcap agent resume{(agentId is null ? "" : " " + agentId)}`, or stop it to discard it.");
         }
         if (terminalDialog) Add(facts, "Waiting for you in Terminal");
         if (pending && kind != AgentStatusKind.Answer) Add(facts, "Pending response");
         if (waitsOnUser && kind is not AgentStatusKind.Idle and not AgentStatusKind.Answer)
             Add(facts, "Waiting for input.");
-        if (liveSubagents is int live and > 0)
+        if (liveSubagents is { } live and > 0)
             Add(facts, $"{live} subagent{(live == 1 ? "" : "s")} running");
         if (liveCommands > 0)
             Add(facts, $"{liveCommands} command{(liveCommands == 1 ? "" : "s")} running");
@@ -136,19 +141,22 @@ public static class SessionStatusDots {
         if (!string.IsNullOrEmpty(text)) facts.Add(new(text, caption));
     }
 
-    /// Blank line between facts, caption under the value. The first line stays the sentence.
+    /// Blank line between facts, each caption above its value, as the status card draws them. The
+    /// first line is the status sentence, which accessible names read.
     static string FormatTip(IReadOnlyList<AgentStatusFact> facts) {
         var lines = new List<string>();
         foreach (var fact in facts) {
             if (lines.Count > 0) lines.Add("");
-            lines.Add(fact.Text);
             if (fact.HasCaption) lines.Add(fact.Caption!);
+            lines.Add(fact.Text);
+            if (fact.HasDetail) lines.Add(fact.Detail!);
         }
         return string.Join('\n', lines);
     }
 
     /// Dominant surfaced status for a collapsed session group. Null when every child is settled or
-    /// only carrying the daemon's own word. The accessible name counts the dominant kind.
+    /// only carrying the daemon's own word. The accessible name counts the dominant kind; the tip
+    /// lists only the sessions that surfaced, one line each, so a busy group's hover stays short.
     public static AgentStatusPresentation? Rollup(
             IEnumerable<AgentRow> rows, IReadOnlySet<string> pending, IReadOnlySet<string>? answering = null,
             IReadOnlyDictionary<string, RunningWork>? work = null) {
@@ -164,18 +172,17 @@ public static class SessionStatusDots {
         var dominant = surfaced[0].Status.Kind;
         var count = surfaced.Count(item => item.Status.Kind == dominant);
         var name = RollupName(dominant, count);
-        var facts = new List<AgentStatusFact> { new(name, "Status") };
-        foreach (var item in presented) {
+        var facts = new List<AgentStatusFact> { new(name, null) };
+        foreach (var item in surfaced.Take(RollupTipSessions)) {
             var who = string.IsNullOrEmpty(item.Row.Title) ? item.Row.Id : item.Row.Title;
             var sentence = item.Status.Facts.Count > 0 ? item.Status.Facts[0].Text : item.Status.Label;
-            string? detail = null;
-            if (item.Status.Facts.Count > 1)
-                detail = string.Join('\n', item.Status.Facts.Skip(1).Select(fact =>
-                    fact.HasCaption ? $"{fact.Caption}\n{fact.Text}" : fact.Text));
-            facts.Add(new($"{who} — {sentence}", detail));
+            facts.Add(new($"{who} — {sentence}", null));
         }
-        return surfaced[0].Status with { Tip = FormatTip(facts), Facts = facts };
+        if (surfaced.Count > RollupTipSessions) facts.Add(new($"and {surfaced.Count - RollupTipSessions} more", null));
+        return surfaced[0].Status with { Tip = string.Join('\n', facts.Select(fact => fact.Text)), Facts = facts };
     }
+
+    const int RollupTipSessions = 4;
 
     static string RollupName(AgentStatusKind kind, int count) {
         var sessions = count == 1 ? "session" : "sessions";

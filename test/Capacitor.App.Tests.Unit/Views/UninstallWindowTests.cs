@@ -38,7 +38,7 @@ public class UninstallWindowTests {
                 onLine(new StreamedLine(ProcessStreamKind.Stdout, "Removed daemon service 'kcap'."));
                 return Task.FromResult(new StreamingResult(0, false, []));
             } };
-            var run = new UninstallRunViewModel(cli, new SuccessfulRemoval(), false, () => quits++, action => action(), () => ready.Task);
+            var run = new UninstallRunViewModel(cli, new SuccessfulRemoval(), false, () => quits++, () => ready.Task);
             var main = new Window();
             var settings = new Window();
             main.Show();
@@ -80,6 +80,8 @@ public class UninstallWindowTests {
                 await Assert.That(progress.FindControl<Control>("ReceiptList")!.IsVisible).IsTrue();
                 await Assert.That(progress.FindControl<Control>("LinesScroll")!.IsVisible).IsFalse();
                 await Assert.That(run.DetailsLabel).IsEqualTo("Hide what was removed");
+                // Its content is a panel, which a screen reader would otherwise announce by type name.
+                await Assert.That(Avalonia.Automation.AutomationProperties.GetName(details)).IsEqualTo("Hide what was removed");
                 await SavePreviewAsync(progress, "-details");
 
                 var done = progress.FindControl<Button>("CloseButton")!;
@@ -104,7 +106,7 @@ public class UninstallWindowTests {
         AvaloniaSession.RunOnUiAsync(async () => {
             var cli = new FakeKcapCli { UninstallBehavior = _ => Task.FromResult(
                 new StreamingResult(1, false, [new StreamedLine(ProcessStreamKind.Stderr, "Could not stop the daemon.")])) };
-            var run = new UninstallRunViewModel(cli, new SuccessfulRemoval(), false, () => { }, action => action());
+            var run = new UninstallRunViewModel(cli, new SuccessfulRemoval(), false, () => { });
             var window = new UninstallWindow { DataContext = run };
             window.Show();
             try {

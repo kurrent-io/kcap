@@ -13,7 +13,6 @@ public sealed class StagedAttachmentViewModel : ReactiveObject, IDisposable {
 
     readonly CancellationTokenSource _decoding = new();
     readonly Func<ReadOnlyMemory<byte>, Bitmap> _decode;
-    Bitmap? _thumbnail;
     bool _disposed;
 
     public StagedAttachmentViewModel(StagedAttachment file, Action<StagedAttachment> remove)
@@ -50,8 +49,8 @@ public sealed class StagedAttachmentViewModel : ReactiveObject, IDisposable {
     }
 
     public Bitmap? Thumbnail {
-        get => _thumbnail;
-        private set => this.RaiseAndSetIfChanged(ref _thumbnail, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     async Task DecodeAsync() {

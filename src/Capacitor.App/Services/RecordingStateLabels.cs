@@ -25,11 +25,15 @@ public static class RecordingStateLabels {
     public static bool IsAttention(string vendor, string token) =>
         token == Broken || token == NotWired || (token == Installed && IsCodex(vendor));
 
-    public static string? Hint(string vendor, string token, string directory) =>
+    public static string? Hint(string vendor, string token) =>
         token == Installed && IsCodex(vendor)
             ? "Start Codex once with this account and approve kcap's hooks when it asks."
-            : token == Broken ? "kcap's hooks in this folder are missing or changed. Reconnect from the menu."
+            : token == Broken ? "kcap's hooks in this folder are missing or changed, so its sessions are not recorded."
+            : token == NotWired ? "kcap is not turned on in this folder, so its sessions are not recorded."
             : null;
+
+    /// Rewiring the folder is the whole fix: the hooks are absent or damaged.
+    public static bool NeedsReconnect(string token) => token == Broken || token == NotWired;
 
     /// The command that does what the hint asks, when there is one to run.
     public static string? Command(string vendor, string token, string directory) =>

@@ -9,7 +9,7 @@
             <StackPanel Classes="settingsHeader">
                 <TextBlock x:Name="ProfilesTitleText" Classes="kcapTitle" Text="Profiles" />
                 <TextBlock Classes="kcapSubtitle" TextWrapping="Wrap"
-                           Text="Each profile names a server and how this computer signs in to it, if that server needs a sign-in at all. Relaunch kcap to use a different profile." />
+                           Text="Each profile names a server and how this computer signs in to it, if that server needs a sign-in at all. Switching moves this app, its daemon and the kcap command line to another profile." />
             </StackPanel>
 
             <StackPanel Classes="settingsGroup">
@@ -17,7 +17,7 @@
                     <ItemsControl x:Name="ProfileRows" ItemsSource="{Binding ListedRows}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:ProfileRow">
-                                <Border Classes="profileRow settingsListRow">
+                                <Border Classes="settingsListRow">
                                     <Grid Classes="settingsRow" ColumnDefinitions="*,Auto">
                                         <StackPanel Classes="settingsRowText">
                                             <StackPanel Orientation="Horizontal" Spacing="8">
@@ -27,7 +27,7 @@
                                                     <TextBlock Classes="profileMark kcapStatusWord" Text="{Binding UsageLabel}" />
                                                 </Border>
                                             </StackPanel>
-                                            <SelectableTextBlock Text="{Binding ServerUrl}" TextWrapping="Wrap" FontSize="12.5" LineHeight="19"
+                                            <SelectableTextBlock Text="{Binding ServerUrl}" TextWrapping="Wrap" FontSize="{StaticResource KcapFontSizeSmall}" LineHeight="19"
                                                                  Foreground="{StaticResource KcapMutedBrush}"
                                                                  IsVisible="{Binding HasServer}" />
                                             <WrapPanel IsVisible="{Binding !HasServer}">
@@ -40,9 +40,16 @@
                                             <TextBlock Classes="kcapHint profileConnection" Classes.attention="{Binding ConnectionNeedsAttention}"
                                                        Text="{Binding Connection}" TextWrapping="Wrap"
                                                        IsVisible="{Binding Connection, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                            <TextBlock Classes="kcapHint" Text="{Binding SwitchHint}" TextWrapping="Wrap"
+                                                       IsVisible="{Binding ShowsSwitchHint}" />
                                         </StackPanel>
                                         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Top" Margin="0,-5,0,0">
-                                            <Button Classes="kcapChip settingsCompact profileSignIn" Content="{Binding SignInLabel}"
+                                            <Button Classes="kcapChip settingsCompact" Content="Switch"
+                                                    IsVisible="{Binding OffersSwitch}" IsEnabled="{Binding CanSwitch}"
+                                                    AutomationProperties.Name="{Binding Name, StringFormat='Switch to {0}'}"
+                                                    Command="{Binding $parent[ItemsControl].((vm:ProfilesSettingsViewModel)DataContext).SwitchCommand}"
+                                                    CommandParameter="{Binding}" />
+                                            <Button Classes="kcapChip settingsCompact" Content="{Binding SignInLabel}"
                                                     IsVisible="{Binding NeedsSignIn}"
                                                     Command="{Binding $parent[ItemsControl].((vm:ProfilesSettingsViewModel)DataContext).SignInCommand}"
                                                     CommandParameter="{Binding}" />
@@ -54,21 +61,21 @@
                                                     <Flyout Placement="BottomEdgeAlignedRight" VerticalOffset="6"
                                                             FlyoutPresenterClasses="kcapPanel" Opened="OnMenuOpened">
                                                         <StackPanel Spacing="2" Margin="6" MinWidth="200">
-                                                            <Button Classes="kcapGhost profileSignInAgain" Click="OnMenuItemClick"
+                                                            <Button Classes="kcapGhost" Click="OnMenuItemClick"
                                                                     IsVisible="{Binding CanSignInAgain}" CommandParameter="{Binding}"
                                                                     Command="{Binding $parent[views:ProfilesSettingsView].((vm:ProfilesSettingsViewModel)DataContext).SignInCommand}"
                                                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Padding="10,8">
                                                                 <StackPanel Spacing="2">
-                                                                    <TextBlock Text="Sign in again" FontSize="13.5" />
-                                                                    <TextBlock Text="Replace this profile's saved sign-in" FontSize="11.5"
+                                                                    <TextBlock Text="Sign in again" FontSize="{StaticResource KcapFontSizeBody}" />
+                                                                    <TextBlock Text="Replace this profile's saved sign-in" FontSize="{StaticResource KcapFontSizeSmall}"
                                                                                Foreground="{StaticResource KcapMutedBrush}" />
                                                                 </StackPanel>
                                                             </Button>
-                                                            <Button Classes="kcapGhost profileRemove" Content="Remove profile" Click="OnMenuItemClick"
+                                                            <Button Classes="kcapDanger profileRemove" Content="Remove profile" Click="OnMenuItemClick"
                                                                     IsVisible="{Binding CanRemove}" CommandParameter="{Binding}"
                                                                     Command="{Binding $parent[views:ProfilesSettingsView].((vm:ProfilesSettingsViewModel)DataContext).RemoveCommand}"
                                                                     HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
-                                                                    Padding="10,8" FontSize="13.5" />
+                                                                    Padding="10,8" FontSize="{StaticResource KcapFontSizeBody}" />
                                                         </StackPanel>
                                                     </Flyout>
                                                 </Button.Flyout>

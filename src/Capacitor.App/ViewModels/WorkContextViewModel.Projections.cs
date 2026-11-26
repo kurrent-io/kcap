@@ -15,7 +15,6 @@ public sealed partial class WorkContextViewModel {
     WorkContextCard _card = WorkContextCard.Empty(WorkContextPhase.WaitingForSession);
     readonly AvaloniaList<WorkContextPartViewModel> _parts = new();
     readonly AvaloniaList<WorkContextPartViewModel> _thisSessionParts = new();
-    IReadOnlyList<WorkContextPartCount> _partCounts = [];
     readonly AvaloniaList<string> _blockedBy = new();
     readonly AvaloniaList<WorkContextLinkViewModel> _links = new();
     readonly AvaloniaList<WorkContextLinkViewModel> _issues = new();
@@ -27,7 +26,7 @@ public sealed partial class WorkContextViewModel {
     /// What the collapsed section lists: the parts this session is attached to, in part order.
     public IAvaloniaReadOnlyList<WorkContextPartViewModel> ThisSessionParts => _thisSessionParts;
     /// Open, this session, done: one entry per mark some part carries, so the numbers add up to the list.
-    public IReadOnlyList<WorkContextPartCount> PartCounts => _partCounts;
+    public IReadOnlyList<WorkContextPartCount> PartCounts { get; private set; } = [];
     public IAvaloniaReadOnlyList<string> BlockedBy => _blockedBy;
     public IAvaloniaReadOnlyList<WorkContextLinkViewModel> Links => _links;
     public IAvaloniaReadOnlyList<WorkContextLinkViewModel> Issues => _issues;
@@ -62,8 +61,24 @@ public sealed partial class WorkContextViewModel {
         ? SeparateIssues.Count().ToString(CultureInfo.InvariantCulture)
         : SeparateIssue?.Key ?? "";
 
+    public KcapTip? WorkItemTip {
+        get {
+            var title = FirstNonBlank(DisplayTitle, Key);
+            if (title is null) return null;
+            var state = StateLabel?.ToLowerInvariant();
+            var status = string.IsNullOrEmpty(state) ? null : char.ToUpperInvariant(state[0]) + state[1..];
+            return new(title, status, IsClosed ? "danger" : state == "in flight" ? "active" : null,
+                KcapTipDetail.Present(string.Equals(title, Key, StringComparison.OrdinalIgnoreCase) ? null : KcapTipDetail.Note(Key)));
+        }
+    }
+
+    public KcapTip? IssueHeaderTip => HasMultipleIssues
+        ? new($"{IssueSectionMeta} linked issues")
+        : SeparateIssue?.LinkTip;
+
     void NotifyIdentity() {
         this.RaisePropertyChanged(nameof(DisplayTitle));
+        this.RaisePropertyChanged(nameof(WorkItemTip));
         this.RaisePropertyChanged(nameof(HasInlineIssue));
         this.RaisePropertyChanged(nameof(HasSeparateIssue));
         this.RaisePropertyChanged(nameof(SeparateIssue));
@@ -72,6 +87,7 @@ public sealed partial class WorkContextViewModel {
         this.RaisePropertyChanged(nameof(VisibleSeparateIssues));
         this.RaisePropertyChanged(nameof(IssueSectionEyebrow));
         this.RaisePropertyChanged(nameof(IssueSectionMeta));
+        this.RaisePropertyChanged(nameof(IssueHeaderTip));
         this.RaisePropertyChanged(nameof(SeparateIssues));
         RaiseRelated();
     }
@@ -87,12 +103,11 @@ public sealed partial class WorkContextViewModel {
         _               => null,
     };
 
-    WorkContextLinkViewModel? _issue;
     public WorkContextLinkViewModel? Issue {
-        get => _issue;
+        get;
         private set {
-            if (ReferenceEquals(_issue, value)) return;
-            this.RaiseAndSetIfChanged(ref _issue, value);
+            if (ReferenceEquals(field, value)) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             NotifyIdentity();
         }
     }
@@ -135,41 +150,36 @@ public sealed partial class WorkContextViewModel {
         var n => $"{n} sessions",
     };
 
-    string _requester = "You";
-    public string Requester { get => _requester; private set => this.RaiseAndSetIfChanged(ref _requester, value); }
-    string _requesterRole = "";
-    public string RequesterRole { get => _requesterRole; private set => this.RaiseAndSetIfChanged(ref _requesterRole, value); }
-    string _requesterInitial = "Y";
-    public string RequesterInitial { get => _requesterInitial; private set => this.RaiseAndSetIfChanged(ref _requesterInitial, value); }
+    public string Requester { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "You";
+    public string RequesterRole { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
+    public string RequesterInitial { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "Y";
     string? _requesterId;
     public ViewerIdentityDto? ViewerIdentity => _card.Viewer;
     string? _requesterAvatarUrl;
     public string? RequesterAvatarUrl { get => _requesterAvatarUrl; private set => this.RaiseAndSetIfChanged(ref _requesterAvatarUrl, value); }
 
-    bool _partsExpanded;
     public bool PartsExpanded {
-        get => _partsExpanded;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _partsExpanded, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(PartsAccessibleName));
         }
     }
     /// The folded counts are told apart only by their marks, so the header names them in words.
-    public string PartsAccessibleName => PartsExpanded || _partCounts.Count == 0
+    public string PartsAccessibleName => PartsExpanded || PartCounts.Count == 0
         ? $"Parts, {PartsHeader}"
-        : $"Parts, {string.Join(", ", _partCounts.Select(c => c.Label))}";
-    bool _peopleExpanded;
-    public bool PeopleExpanded { get => _peopleExpanded; private set => this.RaiseAndSetIfChanged(ref _peopleExpanded, value); }
-    bool _issuesExpanded;
+        : $"Parts, {string.Join(", ", PartCounts.Select(c => c.Label))}";
+    public bool PeopleExpanded { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public bool IssuesExpanded {
-        get => _issuesExpanded;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _issuesExpanded, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(VisibleSeparateIssues));
+            this.RaisePropertyChanged(nameof(IssueHeaderTip));
         }
     }
     readonly WorkContextLayout _layout;
-    // Usage, checkout and session folds are shared by every session's pane, so switching sessions
+    // Usage, checkout, session, topics and bookmarks folds are shared by every session's pane, so switching sessions
     // keeps what the reader opened.
     public bool UsageExpanded {
         get => _layout.UsageExpanded;
@@ -183,10 +193,22 @@ public sealed partial class WorkContextViewModel {
         get => _layout.SessionExpanded;
         private set => _layout.SessionExpanded = value;
     }
+    public bool OutlineExpanded {
+        get => _layout.OutlineExpanded;
+        private set => _layout.OutlineExpanded = value;
+    }
+
+    /// The chat's topics, listed with its bookmarks under the session's facts.
+    public ChatTopics? Topics { get; set => this.RaiseAndSetIfChanged(ref field, value); }
+
+    /// The chat's bookmarks, which also lay out the topics and bookmarks section.
+    public ChatBookmarks? Bookmarks { get; set => this.RaiseAndSetIfChanged(ref field, value); }
+
     /// A header button has no expand state of its own to announce, so its name carries it.
     public string UsageToggleName => FoldName("Usage", UsageExpanded);
     public string CheckoutToggleName => FoldName("Checkout", CheckoutExpanded);
     public string SessionToggleName => FoldName("Session", SessionExpanded);
+    public string OutlineToggleName => FoldName("Topics and bookmarks", OutlineExpanded);
     static string FoldName(string section, bool expanded) => $"{section}, {(expanded ? "expanded" : "collapsed")}";
 
     void OnLayoutChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) {
@@ -203,11 +225,14 @@ public sealed partial class WorkContextViewModel {
                 this.RaisePropertyChanged(nameof(SessionExpanded));
                 this.RaisePropertyChanged(nameof(SessionToggleName));
                 break;
+            case nameof(WorkContextLayout.OutlineExpanded):
+                this.RaisePropertyChanged(nameof(OutlineExpanded));
+                this.RaisePropertyChanged(nameof(OutlineToggleName));
+                break;
         }
     }
 
-    bool _subagentsExpanded;
-    public bool SubagentsExpanded { get => _subagentsExpanded; private set => this.RaiseAndSetIfChanged(ref _subagentsExpanded, value); }
+    public bool SubagentsExpanded { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     public ReactiveCommand<Unit, Unit> TogglePartsCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> TogglePeopleCommand { get; private set; } = null!;
@@ -215,6 +240,7 @@ public sealed partial class WorkContextViewModel {
     public ReactiveCommand<Unit, Unit> ToggleUsageCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleCheckoutCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleSessionCommand { get; private set; } = null!;
+    public ReactiveCommand<Unit, Unit> ToggleOutlineCommand { get; private set; } = null!;
     public ReactiveCommand<Unit, Unit> ToggleSubagentsCommand { get; private set; } = null!;
 
     void InitializeProjections() {
@@ -228,6 +254,7 @@ public sealed partial class WorkContextViewModel {
         ToggleUsageCommand    = Toggle(() => UsageExpanded = !UsageExpanded);
         ToggleCheckoutCommand = Toggle(() => CheckoutExpanded = !CheckoutExpanded);
         ToggleSessionCommand  = Toggle(() => SessionExpanded = !SessionExpanded);
+        ToggleOutlineCommand  = Toggle(() => OutlineExpanded = !OutlineExpanded);
         _layout.PropertyChanged += OnLayoutChanged;
         _disposables.Add(System.Reactive.Disposables.Disposable.Create(() => _layout.PropertyChanged -= OnLayoutChanged));
         ToggleSubagentsCommand = Toggle(() => SubagentsExpanded = !SubagentsExpanded);
@@ -283,9 +310,12 @@ public sealed partial class WorkContextViewModel {
         _card = card;
         if (!ReferenceEquals(was.Parts, card.Parts))
             Replace(_parts, [.. card.Parts.Select(p => new WorkContextPartViewModel(p.Title, p.Mark))], p => (p.Title, p.Mark));
-        if (!ReferenceEquals(was.Issues, card.Issues))
-            Replace(_issues, [.. card.Issues.Select(i => new WorkContextLinkViewModel("ISSUE", i.Key, i.Title, i.Url, _opener, identity: i.Identity))],
+        if (!ReferenceEquals(was.Issues, card.Issues)) {
+            Replace(_issues, [.. card.Issues.Select(i => new WorkContextLinkViewModel("ISSUE", i.Key, i.Title, i.Url, _opener, identity: i.Identity, state: i.State))],
                 i => (i.Key, i.Title, i.Url, i.Identity));
+            // A kept row still takes the issue's new state.
+            for (var i = 0; i < card.Issues.Count; i++) _issues[i].State = card.Issues[i].State;
+        }
         if (!ReferenceEquals(was.Contributors, card.Contributors)) {
             var now = _time.GetUtcNow();
             Replace(_contributors, [.. card.Contributors.Select(c => new WorkContextPersonViewModel(c.Name, c.AvatarUrl, c.LastActivityAt, now, c.UserId))],
@@ -304,6 +334,7 @@ public sealed partial class WorkContextViewModel {
             this.RaisePropertyChanged(nameof(IsReady));
             this.RaisePropertyChanged(nameof(ShowsSignIn));
             this.RaisePropertyChanged(nameof(ShowsRetry));
+            this.RaisePropertyChanged(nameof(ShowsReadProgress));
         }
         if (was.IsStale != card.IsStale) this.RaisePropertyChanged(nameof(IsStale));
         if (!Equals(was.Viewer, card.Viewer)) this.RaisePropertyChanged(nameof(ViewerIdentity));
@@ -344,8 +375,8 @@ public sealed partial class WorkContextViewModel {
             new(WorkContextPartMark.Settled, SettledCount),
         ];
         var present = counts.Where(c => c.Count > 0).ToArray();
-        if (present.SequenceEqual(_partCounts)) return;
-        _partCounts = present;
+        if (present.SequenceEqual(PartCounts)) return;
+        PartCounts = present;
         this.RaisePropertyChanged(nameof(PartCounts));
     }
 
@@ -381,7 +412,7 @@ public sealed partial class WorkContextViewModel {
     }
 
     void ApplyLinks(WorkContextRead read) {
-        if (!read.SummaryFailed && read.Summary is { } summary) {
+        if (read is { SummaryFailed: false, Summary: { } summary }) {
             var primaryRepositories = summary.Repositories.Where(repository => repository.IsPrimary).ToArray();
             if (primaryRepositories.Length == 1) {
                 var repo = primaryRepositories[0];

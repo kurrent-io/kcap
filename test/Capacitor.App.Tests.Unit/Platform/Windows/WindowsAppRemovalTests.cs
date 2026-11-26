@@ -43,7 +43,23 @@ public class WindowsAppRemovalTests {
             },
         };
         var removal = new WindowsAppRemoval(install, new WindowsUserPathInstaller(path, new FakeLoginShellProbe()), _started.Add);
-        return (new UninstallRunViewModel(cli, removal, purgeLocal: true, () => _calls.Add("quit"), action => action()), removal, cli);
+        return (new UninstallRunViewModel(cli, removal, purgeLocal: true, () => _calls.Add("quit")), removal, cli);
+    }
+
+    /// An install whose folder never went on the user PATH has no command to report as removed.
+    [Test]
+    public async Task The_receipt_names_the_command_only_when_the_folder_was_on_the_user_path() {
+        var install = Install();
+        var bin     = Path.GetDirectoryName(install.Cli)!;
+        var (onPath, _, _)  = Build(install, new MemoryUserPath(bin));
+        var (offPath, _, _) = Build(install, new MemoryUserPath(Tmp.CreateDir("tools").Path));
+
+        await onPath.RunAsync();
+        await offPath.RunAsync();
+
+        const string command = "Removed the kcap command the app installed";
+        await Assert.That(onPath.Receipt.Select(i => i.Text)).Contains(command);
+        await Assert.That(offPath.Receipt.Select(i => i.Text)).DoesNotContain(command);
     }
 
     [Test]

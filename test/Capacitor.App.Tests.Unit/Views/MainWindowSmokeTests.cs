@@ -63,7 +63,7 @@ public class MainWindowSmokeTests {
             await Assert.That(footerText).Contains("kurrent");
             await Assert.That(footerText).Contains("daemon-a");
             var help = rail.FindControl<Button>("RailHelpButton")!;
-            await Assert.That(help.IsEffectivelyVisible && help.IsEffectivelyEnabled).IsTrue();
+            await Assert.That(help is { IsEffectivelyVisible: true, IsEffectivelyEnabled: true }).IsTrue();
 
             var longName = "engineering-workstation-" + new string('a', 100);
             service.SnapshotsSubject.OnNext(Snap(daemon: longName, connection: "connected", active: 1, max: 5));
@@ -570,14 +570,15 @@ public class MainWindowSmokeTests {
             bool awaitingInput = false, int? liveSubagents = null, string? model = null, string? siblingWorktree = null,
             string? firstStatus = null, IReadOnlySet<string>? pendingIds = null, PendingLaunchDto? pending = null,
             IObservable<IReadOnlyDictionary<string, RailPullRequestSummary>>? pullRequestSummaries = null,
-            IPullRequestSource? pullRequests = null, DateTime? firstCreatedAt = null) {
+            IPullRequestSource? pullRequests = null, DateTime? firstCreatedAt = null,
+            string firstTitle = "Fix the flaky test", string firstPath = "/dev/alpha/wt/feature-x") {
         var service = new FakeDaemonClientService();
         service.SnapshotsSubject.OnNext(Snap());
         service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
         if (pending is not null) service.Pending.AddOrUpdate(pending);
         service.Agents.AddOrUpdate(new AgentStatusDto(
-            "a1", "agent", "claude", "/dev/alpha/wt/feature-x", firstStatus ?? "Running",
-            null, null, null, firstCreatedAt ?? DateTime.UtcNow, model, null, Title: "Fix the flaky test",
+            "a1", "agent", "claude", firstPath, firstStatus ?? "Running",
+            null, null, null, firstCreatedAt ?? DateTime.UtcNow, model, null, Title: firstTitle,
             AwaitingInput: awaitingInput ? true : null, LiveSubagents: liveSubagents, SessionId: "s1"));
         service.Agents.AddOrUpdate(new AgentStatusDto(
             "a2", "agent", "claude", "/dev/alpha/wt/feature-x", "Running",
@@ -864,21 +865,17 @@ public class MainWindowSmokeTests {
                 var label = header.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Classes.Contains("eyebrow"));
                 var count = header.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Classes.Contains("sectionMeta"));
                 var row = RailRow(window, repo.Sessions[0].Primary!);
-                var body = row.GetVisualAncestors().OfType<Border>().Single(b => b.Classes.Contains("sectionBody"));
+                _ = row.GetVisualAncestors().OfType<Border>().Single(b => b.Classes.Contains("sectionBody"));
                 var right = label.TranslatePoint(new Point(label.Bounds.Width, 0), header)!.Value.X;
                 var countLeft = count.TranslatePoint(default, header)!.Value.X;
                 await Assert.That(right).IsLessThan(countLeft);
                 await Assert.That(label.TextTrimming).IsEqualTo(TextTrimming.CharacterEllipsis);
-                await Assert.That(label.FontSize).IsEqualTo(11.5);
-                await Assert.That(count.Text).IsEqualTo("1 session");
+                await Assert.That(count.Text).IsEqualTo("1 live");
                 await Assert.That(header.Focusable).IsTrue();
-                await Assert.That(body.BorderThickness.Left).IsEqualTo(1);
                 await Assert.That(row.IsEffectivelyVisible).IsTrue();
                 var centre = header.TranslatePoint(new Point(header.Bounds.Width / 2, header.Bounds.Height / 2), window)!.Value;
                 window.MouseMove(centre);
                 Dispatcher.UIThread.RunJobs();
-                var presenter = header.GetVisualDescendants().OfType<ContentPresenter>().First();
-                await Assert.That((presenter.Background as ISolidColorBrush)!.Color).IsEqualTo(((ISolidColorBrush)window.FindResource("KcapSurfaceRaisedBrush")!).Color);
                 window.MouseDown(centre, MouseButton.Left);
                 window.MouseUp(centre, MouseButton.Left);
                 Dispatcher.UIThread.RunJobs();
@@ -921,7 +918,8 @@ public class MainWindowSmokeTests {
             Dispatcher.UIThread.RunJobs();
             window.UpdateLayout();
             await Assert.That(mark.IsEffectivelyVisible).IsTrue();
-            await Assert.That(mark.FindControl<TextBlock>("StatusWord")!.Text).IsEqualTo("Idle");
+            await Assert.That(mark.FindControl<TextBlock>("StatusWord")!.IsEffectivelyVisible).IsFalse();
+            await Assert.That(AutomationProperties.GetName(mark)).IsEqualTo("1 session idle");
             await Assert.That(ToolTip.GetTip(header) as string).Contains("Waiting session — Idle");
             await Assert.That(AutomationProperties.GetName(header)).Contains("1 session idle");
             pending.OnNext(new HashSet<string> { "a1" });
@@ -929,11 +927,11 @@ public class MainWindowSmokeTests {
             window.UpdateLayout();
             await Assert.That(rail.Groups[0].IsExpanded).IsFalse();
             await Assert.That(RailRow(window, "Waiting session").IsEffectivelyVisible).IsFalse();
-            await Assert.That(mark.FindControl<TextBlock>("StatusWord")!.Text).IsEqualTo("Needs you");
-            await Assert.That(ToolTip.GetTip(header) as string).Contains("Pending response");
+            await Assert.That(AutomationProperties.GetName(mark)).IsEqualTo("1 session needs you");
+            await Assert.That(ToolTip.GetTip(header) as string).Contains("Waiting session — Needs you");
             pending.OnNext(new HashSet<string>());
             Dispatcher.UIThread.RunJobs();
-            await Assert.That(mark.FindControl<TextBlock>("StatusWord")!.Text).IsEqualTo("Idle");
+            await Assert.That(AutomationProperties.GetName(mark)).IsEqualTo("1 session idle");
             header.Command.Execute(null);
             Dispatcher.UIThread.RunJobs();
             await Assert.That(mark.IsEffectivelyVisible).IsFalse();
@@ -1007,6 +1005,99 @@ public class MainWindowSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public Task Structured_rail_tips_follow_pointer_and_keyboard_and_keep_the_pr_picker() => AvaloniaSession.RunOnUiAsync(async () => {
+        const string title = "Investigate the mismatch between linked session titles and repository labels";
+        const string checkout = "/synthetic/source/wt/branch-with-a-long-path-for-testing-wrapped-checkout-metadata";
+        var link = FakePullRequestSource.Link(142) with { Title = "Preserve the full pull request title across a narrow session sidebar" };
+        var single = new RailPullRequestMenuItem(PullRequestWire.Subject(link), link.Title, "Merged");
+        using var summaries = new BehaviorSubject<IReadOnlyDictionary<string, RailPullRequestSummary>>(
+            new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([single]) });
+        var (vm, window) = RailWindow(firstStatus: "Completed", pullRequestSummaries: summaries,
+            firstTitle: title, firstPath: checkout);
+        using var appearance = new AppearanceScope();
+        try {
+            vm.Rail!.State = RailState.All;
+            AppearanceScope.Pump(window);
+            var row = RailRow(window, title);
+            var pr = row.GetVisualParent()!.GetVisualChildren().OfType<Button>().Single(button => button.Name == "SessionPullRequestLink");
+            pr.Focus(NavigationMethod.Directional);
+            AppearanceScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(AppearanceScope.Text(pr)).Contains("Merged");
+            AppearanceScope.Press(window, PhysicalKey.Escape);
+
+            appearance.Apply(DesktopTheme.Dark);
+            AppearanceScope.Pump(window);
+            ToolTip.SetShowDelay(row, 0);
+            ToolTip.SetShowDelay(pr, 0);
+            window.MouseMove(row.TranslatePoint(new Point(8, 8), window)!.Value);
+            await WorkspaceFixtures.WaitUntilAsync(() => ToolTip.GetIsOpen(row), what: "rail session hover tooltip");
+            AppearanceScope.Pump(window);
+            await Assert.That(AppearanceScope.Text(row)).IsEquivalentTo(
+                new[] { title, "Done", "Harness", "Claude Code", "Checkout", checkout },
+                CollectionOrdering.Matching);
+
+            window.MouseMove(new Point(window.Bounds.Width - 3, 3));
+            window.MouseMove(pr.TranslatePoint(new Point(pr.Bounds.Width / 2, pr.Bounds.Height / 2), window)!.Value);
+            await WorkspaceFixtures.WaitUntilAsync(() => ToolTip.GetIsOpen(pr), what: "nested pull request hover tooltip");
+            AppearanceScope.Pump(window);
+            await Assert.That(ToolTip.GetIsOpen(row)).IsFalse();
+            await Assert.That(AppearanceScope.Text(pr)).IsEquivalentTo(
+                new[] { link.Title!, "Merged", "Pull request", "example/repo #142", "Linked session", title },
+                CollectionOrdering.Matching);
+            await Assert.That(AutomationProperties.GetHelpText(pr)).Contains("Merged").And.Contains($"Linked session · {title}");
+
+            window.MouseMove(new Point(window.Bounds.Width - 3, 3));
+            row.Focus(NavigationMethod.Directional);
+            AppearanceScope.Press(window, PhysicalKey.ArrowRight);
+            await Assert.That(pr.IsFocused).IsTrue();
+            AppearanceScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(ToolTip.GetIsOpen(pr)).IsTrue();
+            AppearanceScope.Press(window, PhysicalKey.Escape);
+            await Assert.That(ToolTip.GetIsOpen(pr)).IsFalse();
+            await Assert.That(pr.IsFocused).IsTrue();
+
+            summaries.OnNext(new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([single with { Title = null }]) });
+            AppearanceScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(AppearanceScope.Text(pr)).IsEquivalentTo(
+                new[] { "Pull request #142", "Merged", "Repository", "example/repo", "Linked session", title },
+                CollectionOrdering.Matching);
+            AppearanceScope.Press(window, PhysicalKey.Escape);
+
+            summaries.OnNext(new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([
+                single, new(PullRequestWire.Subject(FakePullRequestSource.Link(143)), null, "Open"),
+            ]) });
+            appearance.Apply(DesktopTheme.Light);
+            AppearanceScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(AppearanceScope.Text(pr)).IsEquivalentTo(
+                new[] { "2 pull requests", "Linked session", title }, CollectionOrdering.Matching);
+            AppearanceScope.Press(window, PhysicalKey.Escape);
+            AppearanceScope.Press(window, PhysicalKey.Enter);
+            await Assert.That(window.FocusManager.GetFocusedElement()).IsTypeOf<Button>();
+            var choice = (Button)window.FocusManager.GetFocusedElement()!;
+            await Assert.That(AutomationProperties.GetName(choice)).Contains("#142");
+            AppearanceScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(AppearanceScope.Text(choice)).Contains("Merged");
+            AppearanceScope.Press(window, PhysicalKey.Escape);
+            AppearanceScope.Press(window, PhysicalKey.Escape);
+
+            pr.Focus(NavigationMethod.Directional);
+            AppearanceScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(ToolTip.GetIsOpen(pr)).IsTrue();
+            appearance.Apply(DesktopTheme.Dark);
+            AppearanceScope.Pump(window);
+            await Assert.That(pr.IsFocused).IsTrue();
+            AppearanceScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(AppearanceScope.Text(pr)).Contains("2 pull requests");
+            await Assert.That(AutomationProperties.GetHelpText(pr)).Contains($"Linked session · {title}");
+            AppearanceScope.Press(window, PhysicalKey.Escape);
+        } finally {
+            window.Close();
+            AppearanceScope.Pump(window);
+        }
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public async Task Pr_link_is_a_separate_focusable_control_and_opens_the_native_reader() {
         await AvaloniaSession.RunOnUiAsync(async () => {
             var time = new FakeTimeProvider();
@@ -1026,10 +1117,9 @@ public class MainWindowSmokeTests {
                 await Assert.That(pr.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "PR #142")).IsTrue();
                 var mark = pr.GetVisualDescendants().OfType<PullRequestStatusLabel>().Single();
                 await Assert.That(mark.ShowText).IsFalse();
-                await Assert.That(pr.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Open" && t.IsEffectivelyVisible)).IsFalse();
+                await Assert.That(pr.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: "Open", IsEffectivelyVisible: true })).IsFalse();
                 await Assert.That((mark.DataContext as PullRequestStatus)!.Kind).IsEqualTo("open");
-                await Assert.That(ToolTip.GetTip(pr) as string).Contains("Open");
-                await Assert.That((pr.Background as ISolidColorBrush)!.Color.A).IsEqualTo((byte)0);
+                await Assert.That(AutomationProperties.GetHelpText(pr)).Contains("Open");
                 await Assert.That(pr.Bounds.Width).IsLessThan(card.Bounds.Width / 2);
                 var age = session.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "SessionMeta");
                 var prLabel = pr.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "PR #142");
@@ -1040,7 +1130,7 @@ public class MainWindowSmokeTests {
                 var ageRight = age.TranslatePoint(new Point(age.Bounds.Width, 0), card)!.Value.X;
                 var prLeft = pr.TranslatePoint(default, card)!.Value.X;
                 await Assert.That(ageRight).IsLessThan(prLeft);
-                await Assert.That(ToolTip.GetTip(pr) as string).Contains("Linked to this session: Fix the flaky test");
+                await Assert.That(AutomationProperties.GetHelpText(pr)).Contains("Linked session · Fix the flaky test");
                 await Assert.That(AutomationProperties.GetName(pr)).Contains("Fix the flaky test");
                 pr.Command!.Execute(null);
                 var workspace = (WorkspaceViewModel)vm.CurrentWorkspace!;
@@ -1063,11 +1153,8 @@ public class MainWindowSmokeTests {
                     await Assert.That(mark.IsEffectivelyVisible).IsTrue();
                     await Assert.That((mark.DataContext as PullRequestStatus)!.Kind).IsEqualTo(lifecycle.ToLowerInvariant());
                     await Assert.That(pr.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == lifecycle && t.IsEffectivelyVisible)).IsFalse();
-                    await Assert.That(ToolTip.GetTip(pr) as string).Contains(lifecycle);
+                    await Assert.That(AutomationProperties.GetHelpText(pr)).Contains(lifecycle);
                     await Assert.That(AutomationProperties.GetName(pr)).Contains(lifecycle);
-                    var stateText = mark.FindControl<TextBlock>("StatusText")!;
-                    var brush = lifecycle == "Merged" ? "KcapSuccessBrush" : lifecycle == "Closed" ? "KcapDangerBrush" : "KcapMutedBrush";
-                    await Assert.That((stateText.Foreground as ISolidColorBrush)!.Color).IsEqualTo(((ISolidColorBrush)window.FindResource(brush)!).Color);
                 }
                 summaries.OnNext(new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([
                     new(PullRequestWire.Subject(FakePullRequestSource.Link(1)), null, "Open"),
@@ -1116,22 +1203,15 @@ public class MainWindowSmokeTests {
             await Assert.That(row.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "SessionMeta").IsEffectivelyVisible).IsFalse();
             await Assert.That(badge.IsEffectivelyVisible).IsTrue();
             await Assert.That(badge.Bounds.Width).IsGreaterThan(0);
-            await Assert.That(badge.BorderThickness).IsEqualTo(new Thickness(0));
-            await Assert.That((label.Foreground as ISolidColorBrush)!.Color).IsEqualTo(((ISolidColorBrush)window.FindResource("KcapMutedBrush")!).Color);
             await Assert.That(ToolTip.GetTip(badge) as string).Contains(machine);
             await Assert.That(ToolTip.GetTip(badge) as string).Contains("remote daemon");
-            var restingColor = (label.Foreground as ISolidColorBrush)!.Color;
             ToolTip.SetIsOpen(row, true);
-            Dispatcher.UIThread.RunJobs();
-            var tip = (StackPanel)ToolTip.GetTip(row)!;
-            var machineLines = tip.Children.OfType<StackPanel>().SelectMany(p => p.Children.OfType<TextBlock>()).Select(t => t.Text).ToArray();
-            await Assert.That(machineLines).Contains(machine);
-            await Assert.That(machineLines).Contains("Machine · remote daemon");
+            AppearanceScope.Pump(window);
+            await Assert.That(AppearanceScope.Text(row)).Contains("Remote daemon").And.Contains(machine);
             ToolTip.SetIsOpen(row, false);
             rail.SelectedSessionKey = "remote:r1";
             Dispatcher.UIThread.RunJobs();
             await Assert.That(badge.IsEffectivelyVisible).IsTrue();
-            await Assert.That((label.Foreground as ISolidColorBrush)!.Color).IsEqualTo(restingColor);
         } finally {
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -1194,44 +1274,6 @@ public class MainWindowSmokeTests {
         });
     }
 
-    /// A selected row must read as selected next to a hovered one: hover paints the raised surface
-    /// brush, so the selection needs its own background and a heavier title, not a leading edge
-    /// that would inset that row past its siblings.
-    [Test]
-    [NotInParallel("AvaloniaSession")]
-    public async Task Selected_row_is_distinct_from_a_hovered_row() {
-        await AvaloniaSession.WithImmediateRxScheduler(async () => {
-            var seen = await AvaloniaSession.DispatchAsync(() => {
-                var (_, window) = RailWindow();
-                RailRow(window, "Fix the flaky test").Command!.Execute(null);
-                Dispatcher.UIThread.RunJobs();
-
-                var selected = RailRow(window, "Fix the flaky test");
-                var sibling = RailRow(window, "Leave this one alone");
-                var hover = ((ISolidColorBrush)Application.Current!.FindResource("KcapSurfaceRaisedBrush")!).Color;
-                static TextBlock Title(Button row) => row.GetVisualDescendants().OfType<TextBlock>().First(t => t.Classes.Contains("rowTitle"));
-                var result = (
-                    SelectedBackground: (selected.Background as ISolidColorBrush)?.Color,
-                    Hover: hover,
-                    SelectedEdge: selected.BorderThickness.Left,
-                    SiblingEdge: sibling.BorderThickness.Left,
-                    SelectedWeight: Title(selected).FontWeight,
-                    SiblingWeight: Title(sibling).FontWeight,
-                    TitleTip: ToolTip.GetTip(Title(selected)));
-                window.Close();
-                Dispatcher.UIThread.RunJobs();
-                return result;
-            });
-            await Assert.That(seen.SelectedBackground).IsNotNull();
-            await Assert.That(seen.SelectedBackground).IsNotEqualTo(seen.Hover);
-            await Assert.That(seen.SelectedEdge).IsEqualTo(0);
-            await Assert.That(seen.SiblingEdge).IsEqualTo(0);
-            await Assert.That(seen.SelectedWeight).IsEqualTo(FontWeight.SemiBold);
-            await Assert.That(seen.SiblingWeight).IsEqualTo(FontWeight.Normal);
-            await Assert.That(seen.TitleTip).IsNull();
-        });
-    }
-
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Sessions_from_different_checkouts_share_the_same_indent_without_headers() {
@@ -1246,9 +1288,7 @@ public class MainWindowSmokeTests {
                 var result = (
                     Offset: Math.Abs(first.TranslatePoint(default, window)!.Value.X - other.TranslatePoint(default, window)!.Value.X),
                     HasHeader: window.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text is "feature-x" or "x"),
-                    Tip: ToolTip.GetTip(first) is StackPanel panel
-                        ? panel.Children.OfType<StackPanel>().SelectMany(p => p.Children.OfType<TextBlock>()).First(t => t.Text == "/dev/alpha/wt/feature-x").Text
-                        : null);
+                    Tip: AppearanceScope.Text(first));
                 window.Close();
                 Dispatcher.UIThread.RunJobs();
                 return result;
@@ -1295,10 +1335,9 @@ public class MainWindowSmokeTests {
                     MarkLeft: Left(mark),
                     MarkRight: Right(mark),
                     MetaLeft: Left(meta),
-                    ModelInRow: row.GetVisualDescendants().OfType<TextBlock>().Any(t => t.IsEffectivelyVisible && t.Text == "opus"),
-                    ChildTips: row.GetVisualDescendants().Count(v => v is Control c && c.IsEffectivelyVisible && ToolTip.GetTip(c) is not null),
-                    RowTipIsStatus: ToolTip.GetTip(row) is StackPanel tip && tip.Children.OfType<AgentStatusTip>().Any(),
-                    RowTip: ((RailSessionViewModel)row.DataContext!).Tooltip,
+                    ModelInRow: row.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { IsEffectivelyVisible: true, Text: "opus" }),
+                    ChildTips: row.GetVisualDescendants().Count(v => v is Control { IsEffectivelyVisible: true } c && ToolTip.GetTip(c) is not null),
+                    RowTip: AutomationProperties.GetHelpText(row),
                     HasMark: vendor.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>().Any(),
                     MetaAlign: meta.VerticalAlignment);
                 window.Close();
@@ -1308,9 +1347,8 @@ public class MainWindowSmokeTests {
             await Assert.That(seen.VendorName).IsEqualTo("Claude Code");
             await Assert.That(seen.VendorPeer).IsEqualTo("Claude Code");
             await Assert.That(seen.ChildTips).IsEqualTo(0);
-            await Assert.That(seen.RowTipIsStatus).IsTrue();
-            await Assert.That(seen.RowTip).Contains("Claude Code\nHarness");
-            await Assert.That(seen.RowTip).Contains("opus\nModel");
+                await Assert.That(seen.RowTip).Contains("Harness · Claude Code");
+            await Assert.That(seen.RowTip).Contains("Model · opus");
             await Assert.That(seen.VendorLeft).IsLessThan(seen.MarkLeft);
             await Assert.That(seen.MarkRight).IsLessThan(seen.MetaLeft);
             await Assert.That(seen.ModelInRow).IsFalse();
@@ -1701,18 +1739,57 @@ public class MainWindowSmokeTests {
             var docs = rail.FindControl<Button>("RailHelpDocsButton")!;
             var bug = rail.FindControl<Button>("RailHelpBugButton")!;
             var feedback = rail.FindControl<Button>("RailHelpFeedbackButton")!;
-            await Assert.That(docs.Content).IsEqualTo("Documentation");
+            await Assert.That(AutomationProperties.GetName(docs)).IsEqualTo("Documentation");
             await Assert.That(bug.Content).IsEqualTo("Report a bug…");
             await Assert.That(feedback.Content).IsEqualTo("Send feedback…");
             await Assert.That(docs.IsEffectivelyEnabled).IsTrue();
             await Assert.That(bug.IsEffectivelyEnabled).IsFalse();
             await Assert.That(feedback.IsEffectivelyEnabled).IsFalse();
 
-            var presenter = docs.FindAncestorOfType<FlyoutPresenter>()!;
-            await Assert.That(presenter.Classes.Contains("kcapPanel")).IsTrue();
-            await Assert.That(presenter.CornerRadius).IsEqualTo(new CornerRadius(12));
-            await Assert.That(docs.Classes.Contains("kcapGhost")).IsTrue();
+            flyout.Hide();
+            Dispatcher.UIThread.RunJobs();
+        } finally {
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+        }
+    });
 
+    /// Opened with a key, the menu's first item shows the focus ring; opened with the pointer it takes focus without one.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_help_menu_shows_its_focus_ring_only_when_a_key_opened_it() => AvaloniaSession.RunOnUiAsync(async () => {
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap());
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System, openFeedback: null);
+        var window = new MainWindow { DataContext = vm };
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            var rail = window.FindDescendantOfType<SessionRailView>()!;
+            var help = rail.FindControl<Button>("RailHelpButton")!;
+            var flyout = (Flyout)help.Flyout!;
+            Button? Focused() => window.FocusManager.GetFocusedElement() as Button
+                ?? TopLevel.GetTopLevel(rail.FindControl<Button>("RailHelpDocsButton"))?.FocusManager.GetFocusedElement() as Button;
+
+            var centre = help.TranslatePoint(new Point(help.Bounds.Width / 2, help.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(centre, MouseButton.Left);
+            window.MouseUp(centre, MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(flyout.IsOpen).IsTrue();
+            var pointed = Focused();
+            await Assert.That(pointed?.FindAncestorOfType<FlyoutPresenter>()).IsNotNull();
+            await Assert.That(pointed!.Classes.Contains(":focus-visible")).IsFalse();
+            flyout.Hide();
+            Dispatcher.UIThread.RunJobs();
+
+            help.Focus(NavigationMethod.Tab);
+            window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            window.KeyReleaseQwerty(PhysicalKey.Enter, RawInputModifiers.None);
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(flyout.IsOpen).IsTrue();
+            var keyed = Focused();
+            await Assert.That(keyed?.FindAncestorOfType<FlyoutPresenter>()).IsNotNull();
+            await Assert.That(keyed!.Classes.Contains(":focus-visible")).IsTrue();
             flyout.Hide();
             Dispatcher.UIThread.RunJobs();
         } finally {
@@ -1990,11 +2067,35 @@ public class MainWindowSmokeTests {
             ClickFlyoutButton(window.FindDescendantOfType<SessionRailView>()!.FindControl<Button>("RailAlertLink")!);
             await vm.OpenRailAlertCommand.IsExecuting.Where(executing => !executing).FirstAsync();
             Dispatcher.UIThread.RunJobs();
-            await Assert.That(home.RemoteMachineSelected).IsEqualTo(remoteSelected && !offered);
-            var action = window.FindDescendantOfType<LauncherPaneView>()!.FindControl<Button>("HomeSignInButton")!;
-            await Assert.That(action.IsEffectivelyVisible).IsEqualTo(offered);
-            if (offered) ClickFlyoutButton(action);
+            // An offered sign-in opens straight from the alert, without a stop at the launcher.
             await Assert.That(signIns).IsEqualTo(offered ? 1 : 0);
+            await Assert.That(home.RemoteMachineSelected).IsEqualTo(remoteSelected);
+        } finally { window.Close(); }
+        return true;
+    });
+
+    /// The app's own expired sign-in: the alert opens sign-in itself instead of the launcher,
+    /// whose Sign in would be one more click on the way to the same dialog.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Rail_alert_opens_sign_in_directly_when_the_app_is_signed_out() => AvaloniaSession.DispatchAsync(async () => {
+        var service = new FakeDaemonClientService();
+        service.SnapshotsSubject.OnNext(Snap(daemon: "nortonandreev", version: "1.1.0", connection: "connected", active: 2, max: 5));
+        service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+        var lane = new FakeServerLane();
+        lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut));
+        var signIns = 0;
+        var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+            tenantName: "kurrent", laneStatus: lane.Status, requestSignIn: () => signIns++);
+        var window = new MainWindow { DataContext = vm };
+        try {
+            window.Show();
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(vm.Alert?.Text).IsEqualTo(MainWindowViewModel.SignInRequiredText);
+            ClickFlyoutButton(window.FindDescendantOfType<SessionRailView>()!.FindControl<Button>("RailAlertLink")!);
+            await vm.OpenRailAlertCommand.IsExecuting.Where(executing => !executing).FirstAsync();
+            Dispatcher.UIThread.RunJobs();
+            await Assert.That(signIns).IsEqualTo(1);
         } finally { window.Close(); }
         return true;
     });
@@ -2027,7 +2128,7 @@ public class MainWindowSmokeTests {
             flyout.ShowAt(help);
             Dispatcher.UIThread.RunJobs();
             var signIn = rail.FindControl<Button>("RailHelpSignInButton")!;
-            var whileOut = signIn.IsVisible && signIn.IsEffectivelyEnabled && signIn.Classes.Contains("kcapGhost");
+            var whileOut = signIn is { IsVisible: true, IsEffectivelyEnabled: true };
             ClickFlyoutButton(signIn);
             var closedOnClick = !flyout.IsOpen;
 
@@ -2102,8 +2203,7 @@ public class MainWindowSmokeTests {
             var button  = rail.FindControl<Button>("RailReloadButton")!;
             var failure = rail.FindControl<TextBlock>("RailReloadFailureText")!;
 
-            var withFailureOnly = (Block: block.IsVisible, Line: line.IsVisible, Button: button.IsEffectivelyEnabled, Failure: failure.IsVisible, FailureText: failure.Text,
-                Warning: ReferenceEquals(failure.Foreground, window.FindResource("KcapWarningBrush")));
+            var withFailureOnly = (Block: block.IsVisible, Line: line.IsVisible, Button: button.IsEffectivelyEnabled, Failure: failure.IsVisible, FailureText: failure.Text);
 
             background.OnNext(true);
             reloading.OnNext(true);
@@ -2126,7 +2226,6 @@ public class MainWindowSmokeTests {
         await Assert.That(shown.withFailureOnly.Button).IsTrue();
         await Assert.That(shown.withFailureOnly.Failure).IsTrue();
         await Assert.That(shown.withFailureOnly.FailureText).Contains("No service unit is installed for daemon-a");
-        await Assert.That(shown.withFailureOnly.Warning).IsTrue();
         await Assert.That(shown.whileReloading.Line).IsTrue();
         await Assert.That(shown.whileReloading.LineText).IsEqualTo(MainWindowViewModel.BackgroundPriorityMessage);
         await Assert.That(shown.whileReloading.Button).IsFalse();
@@ -2172,31 +2271,66 @@ public class MainWindowSmokeTests {
         await Assert.That(filter.Classes.Contains("active")).IsFalse();
     });
 
+    /// The harness button's list unchecks a harness out of the rail.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Custom_list_settings_stay_highlighted_when_controls_close() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task Harness_filter_list_narrows_the_rail() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        host.Directory.Rows.AddOrUpdate([
+            AgentRow.FromLocal(new("c1", "agent", "claude", "/repo", "Running", null, null, null, DateTime.UtcNow, null, null), new RepoIdentity("path:/repo", "repo")),
+            AgentRow.FromLocal(new("x1", "agent", "codex", "/repo", "Running", null, null, null, DateTime.UtcNow, null, null), new RepoIdentity("path:/repo", "repo")),
+        ]);
+        host.Present();
+        Click(host, host.Named<Button>("RailFilterButton"));
+        host.Present();
+        var harness = host.Named<Button>("RailHarnessButton");
+        await Assert.That(host.Named<TextBlock>("RailHarnessLabel").Text).IsEqualTo("All");
+
+        Click(host, harness);
+        host.Present();
+        var codex = host.Window.GetVisualDescendants().OfType<CheckBox>()
+            .Single(c => AutomationProperties.GetName(c) == "Codex");
+        Click(host, codex);
+
+        await Assert.That(host.Rail.Harnesses.Single(h => h.Vendor == "codex").IsChecked).IsFalse();
+        await Assert.That(host.Rail.Groups.SelectMany(g => g.Sessions).Select(s => s.Id)).IsEquivalentTo(["c1"]);
+        await Assert.That(host.Window.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Name == "RailHarnessAllCheck").IsChecked).IsNull();
+        await Assert.That(host.Named<TextBlock>("RailHarnessLabel").Text).IsEqualTo((host.Rail.Harnesses.Count - 1).ToString(CultureInfo.InvariantCulture));
+    });
+
+    /// A rail the harness filter leaves empty offers to show every harness again.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task An_empty_narrowed_rail_offers_to_show_all_harnesses() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var host = new SearchWindowHost();
+        host.Directory.Rows.AddOrUpdate(
+            AgentRow.FromLocal(new("c1", "agent", "claude", "/repo", "Running", null, null, null, DateTime.UtcNow, null, null), new RepoIdentity("path:/repo", "repo")));
+        host.Settle();
+        var reset = host.Named<Button>("RailShowAllHarnessesButton");
+        var shownWhileAll = reset.IsEffectivelyVisible;
+
+        host.Rail.SetAllHarnessesShown(false);
+        host.Present();
+        var shownWhileEmpty = reset.IsEffectivelyVisible;
+        Click(host, reset);
+
+        await Assert.That(shownWhileAll).IsFalse();
+        await Assert.That(shownWhileEmpty).IsTrue();
+        await Assert.That(host.Rail.AllHarnessesChecked).IsTrue();
+        await Assert.That(host.Rail.Groups.SelectMany(g => g.Sessions).Select(s => s.Id)).IsEquivalentTo(["c1"]);
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Custom_list_settings_stay_announced_when_controls_close() => AvaloniaSession.RunOnUiAsync(async () => {
         using var host = new SearchWindowHost();
         var filter = host.Named<Button>("RailFilterButton");
-        var icon = filter.GetVisualDescendants().OfType<AppIcon>().Single();
-        var presenter = filter.GetVisualDescendants().OfType<ContentPresenter>()
-            .Single(p => p.Name == "PART_ContentPresenter");
-        var app = Application.Current!;
-        var muted = app.FindResource("KcapMutedBrush");
-        var blue = app.FindResource("KcapInfoBrush");
-        var collapsedBackground = presenter.Background;
-
-        await Assert.That(icon.Foreground).IsSameReferenceAs(muted);
         await Assert.That(AutomationProperties.GetHelpText(filter)).Contains("Default list settings");
         Click(host, filter);
         await Assert.That(host.Rail.FiltersOpen).IsTrue();
-        await Assert.That(icon.Foreground).IsSameReferenceAs(muted);
-        var expandedBackground = presenter.Background;
-        await Assert.That(expandedBackground).IsNotSameReferenceAs(collapsedBackground);
 
         host.Rail.Sort = RailSort.Title;
         host.Settle();
-        await Assert.That(icon.Foreground).IsSameReferenceAs(blue);
-        await Assert.That(presenter.Background).IsSameReferenceAs(expandedBackground);
         await Assert.That(ToolTip.GetTip(filter) as string).Contains("Custom list settings applied");
         await Assert.That(AutomationProperties.GetHelpText(filter)).Contains("Custom list settings applied");
 
@@ -2204,13 +2338,9 @@ public class MainWindowSmokeTests {
         host.Window.MouseMove(new Point(0, 0));
         host.Settle();
         await Assert.That(host.Rail.FiltersOpen).IsFalse();
-        await Assert.That(icon.Foreground).IsSameReferenceAs(blue);
-        await Assert.That(presenter.Background).IsSameReferenceAs(collapsedBackground);
 
         host.Rail.Sort = RailSort.LastUpdated;
         host.Settle();
-        await Assert.That(icon.Foreground).IsSameReferenceAs(muted);
-        await Assert.That(presenter.Background).IsSameReferenceAs(collapsedBackground);
         await Assert.That(ToolTip.GetTip(filter) as string).Contains("Default list settings");
         await Assert.That(AutomationProperties.GetHelpText(filter)).Contains("Default list settings");
     });
@@ -2262,7 +2392,7 @@ public class MainWindowSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Rail_field_click_while_open_selects_the_query_text() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task Rail_field_click_while_open_selects_the_query_text_and_keeps_its_placeholder() => AvaloniaSession.RunOnUiAsync(async () => {
         using var host = new SearchWindowHost();
         var field = host.Named<Button>("RailSearchButton");
         Click(host, field);
@@ -2274,7 +2404,7 @@ public class MainWindowSmokeTests {
 
         Click(host, field);
 
-        await Assert.That(label).IsEqualTo("auth");
+        await Assert.That(label).IsEqualTo("Search…").Because("the query shows in one input, the palette's");
         await Assert.That(host.Vm.Search!.Query).IsEqualTo("auth");
         await Assert.That(host.Focused).IsSameReferenceAs(query);
         await Assert.That(query.SelectedText).IsEqualTo("auth");
@@ -2386,7 +2516,7 @@ public class MainWindowSmokeTests {
     public Task Command_left_steps_back_from_an_empty_text_box_but_not_from_one_holding_text_or_a_composition() => AvaloniaSession.RunOnUiAsync(async () => {
         Skip.Unless(ShortcutLabels.UsesCommandKey, "⌘← steps back only on macOS");
         using var host = new SearchWindowHost();
-        var box = host.Window.GetVisualDescendants().OfType<TextBox>().First(t => t.IsEffectivelyVisible && t.IsEffectivelyEnabled);
+        var box = host.Window.GetVisualDescendants().OfType<TextBox>().First(t => t is { IsEffectivelyVisible: true, IsEffectivelyEnabled: true });
         box.Focus();
         host.Vm.History.Left(NavigationEntry.Launcher);
 

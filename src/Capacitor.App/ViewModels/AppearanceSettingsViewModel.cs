@@ -5,13 +5,18 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// Settings' Appearance tab: the UI scale, which the main window's shortcuts can also change while
-/// the tab is open.
+/// Settings' Appearance tab: the color scheme, the reading and accessibility preferences, and the UI
+/// scale, which the main window's shortcuts can also change while the tab is open.
 public sealed class AppearanceSettingsViewModel : ReactiveObject, IDisposable {
     readonly IDisposable _subscription;
     double _scale;
 
-    public AppearanceSettingsViewModel(UiScaleSetting setting) {
+    public DesktopColorSchemeSettings? ColorScheme { get; }
+    public DesktopAppearanceSettings? Reading { get; }
+
+    public AppearanceSettingsViewModel(UiScaleSetting setting, DesktopColorSchemeSettings? colorScheme = null, DesktopAppearanceSettings? reading = null) {
+        ColorScheme = colorScheme;
+        Reading = reading;
         _scale = setting.Current;
         var scale = this.WhenAnyValue(x => x.Scale);
         SmallerCommand = ReactiveCommand.CreateFromTask(() => setting.SetAsync(UiScale.Smaller(Scale)), scale.Select(s => s > UiScale.Min));

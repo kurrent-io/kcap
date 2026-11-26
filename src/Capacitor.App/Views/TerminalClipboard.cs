@@ -16,7 +16,7 @@ static class TerminalClipboard {
         host.AddHandler(InputElement.KeyDownEvent, (_, e) => OnKeyDown(terminal, e), RoutingStrategies.Tunnel);
 
     static void OnKeyDown(TerminalControl terminal, KeyEventArgs e) {
-        if (e.Handled || terminal.Model is not { } || !terminal.IsKeyboardFocusWithin || !IsPaste(e)) return;
+        if (e.Handled || terminal.Model is null || !terminal.IsKeyboardFocusWithin || !IsPaste(e)) return;
         e.Handled = true;
         _ = PasteAsync(terminal);
     }

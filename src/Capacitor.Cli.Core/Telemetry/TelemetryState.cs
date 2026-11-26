@@ -158,7 +158,7 @@ public static class TelemetryState {
         } catch (Exception e) when (e is IOException or UnauthorizedAccessException) {
             // Best effort. Clean up the temp file so a failed write doesn't leave debris behind —
             // itself best-effort, since we're already in the never-throw fallback path.
-            try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+            try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { /* ignored */ }
             return false;
         }
     }

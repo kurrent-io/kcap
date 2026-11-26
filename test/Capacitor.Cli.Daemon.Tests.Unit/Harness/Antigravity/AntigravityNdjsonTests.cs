@@ -1,14 +1,15 @@
+using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Harness.Antigravity;
+using TUnit.Assertions.Enums;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Harness.Antigravity;
 
 /// <summary>
 /// Pure unit tests for <see cref="AntigravityNdjson"/> and
 /// <see cref="AntigravityStepAccumulator"/> — no process/runtime involved. Every non-obvious
-/// fixture below is a VERBATIM line captured from a live <c>agy 1.1.10 -p … --output-format
-/// stream-json</c> run (see the task brief), not invented, so a shape this test locks in is a shape
-/// actually observed on the wire.
+/// fixture below is a line captured from a live <c>agy -p … --output-format stream-json</c> run, not
+/// invented, so a shape this test locks in is a shape actually observed on the wire.
 /// </summary>
 public class AntigravityNdjsonTests {
     const string InitLine =
@@ -88,7 +89,7 @@ public class AntigravityNdjsonTests {
             """{"event":"step_update","step_update":{"step_index":2,"state":"DONE","step_type":"agent_response","text_delta":"_OK"}}""")!);
         var done = acc.Flush(model: null);
 
-        await Assert.That(done.Any(e => e.Kind == AcpEventKind.AssistantText && e.Text == "PROBE_OK")).IsTrue();
+        await Assert.That(done.Any(e => e is { Kind: AcpEventKind.AssistantText, Text: "PROBE_OK" })).IsTrue();
     }
 
     [Test]
@@ -164,33 +165,39 @@ public class AntigravityNdjsonTests {
         acc.Add(AntigravityNdjson.TryParseLine(
             """{"event":"step_update","step_update":{"step_index":2,"state":"DONE","step_type":"agent_response","text_delta":"!"}}""")!);
         var later = acc.Flush(model: null);
-        await Assert.That(later.Any(e => e.Kind == AcpEventKind.AssistantText && e.Text == "still going!")).IsTrue();
+        await Assert.That(later.Any(e => e is { Kind: AcpEventKind.AssistantText, Text: "still going!" })).IsTrue();
     }
 
-    // Verbatim fixtures captured live from agy 1.1.10: a "tool" step moves through ACTIVE (the
-    // call), then either DONE (a string output) or ERROR (an object error) — never a parse failure.
+    // Captured from agy 1.5.16 (local paths scrubbed to /w): a "tool" step moves through ACTIVE (the
+    // call), then DONE (an output, or none at all) or ERROR (an object error).
 
-    const string ToolActiveLine =
-        """{"event":"step_update","step_update":{"step_index":3,"state":"ACTIVE","step_type":"tool","tool_name":"list_dir","tool_info":{"name":"list_dir","parameters":{"DirectoryPath":"/Users/tony/.gemini/antigravity-cli"}}}}""";
+    const string ReadActiveLine =
+        """{"event":"step_update","step_update":{"conversation_id":"f9647d5e-af22-4821-adff-cda42be4ddd4","step_index":3,"state":"ACTIVE","step_type":"tool","tool_name":"read_file","tool_info":{"name":"read_file","parameters":{"Path":"/w/notes.txt"}}}}""";
 
-    const string ToolDoneLine =
-        """{"event":"step_update","step_update":{"step_index":6,"state":"DONE","step_type":"tool","tool_name":"list_dir","duration_seconds":0.264916,"tool_info":{"name":"list_dir","parameters":{"DirectoryPath":"/Users/tony/.gemini/antigravity-cli"},"output":".system_generated/\n.user_uploaded/\nscratch/"}}}""";
+    const string ReadDoneLine =
+        """{"event":"step_update","step_update":{"conversation_id":"f9647d5e-af22-4821-adff-cda42be4ddd4","step_index":3,"state":"DONE","step_type":"tool","tool_name":"read_file","duration_seconds":0.242563,"tool_info":{"name":"read_file","parameters":{"Path":"/w/notes.txt"},"output":"2 lines, 12 bytes"}}}""";
+
+    const string EditDoneLine =
+        """{"event":"step_update","step_update":{"conversation_id":"f9647d5e-af22-4821-adff-cda42be4ddd4","step_index":6,"state":"DONE","step_type":"tool","tool_name":"edit_file","duration_seconds":0.202708,"tool_info":{"name":"edit_file","parameters":{"Path":"/w/notes.txt"}}}}""";
 
     const string ToolErrorLine =
-        """{"event":"step_update","step_update":{"step_index":3,"state":"ERROR","step_type":"tool","tool_name":"list_dir","duration_seconds":0.198566,"tool_info":{"name":"list_dir","parameters":{"DirectoryPath":"/Users/tony/.gemini/antigravity-cli"},"error":{"type":"TOOL_ERROR","message":"Permission denied for read_file(...). Matches hardcoded system protection boundary rule."}}}}""";
+        """{"event":"step_update","step_update":{"step_index":3,"state":"ERROR","step_type":"tool","tool_name":"list_dir","duration_seconds":0.198566,"tool_info":{"name":"list_dir","parameters":{"DirectoryPath":"/w/.gemini"},"error":{"type":"TOOL_ERROR","message":"Permission denied for read_file(...). Matches hardcoded system protection boundary rule."}}}}""";
+
+    static string RunCommandDoneLine(string output) =>
+        """{"event":"step_update","step_update":{"conversation_id":"f9647d5e-af22-4821-adff-cda42be4ddd4","step_index":11,"state":"DONE","step_type":"tool","tool_name":"run_command","duration_seconds":0.597878,"tool_info":{"name":"run_command","parameters":{"CommandLine":"false"},"output":"""
+      + "\"" + JsonEncodedText.Encode(output) + "\"}}}";
 
     [Test]
-    public async Task An_active_tool_step_flushes_a_tool_call_immediately_not_deferred_to_terminal() {
+    public async Task An_active_tool_step_flushes_a_translated_tool_call_immediately_not_deferred_to_terminal() {
         var acc = new AntigravityStepAccumulator();
-        acc.Add(AntigravityNdjson.TryParseLine(ToolActiveLine)!);
+        acc.Add(AntigravityNdjson.TryParseLine(ReadActiveLine)!);
 
         var envelopes = acc.Flush(model: null);
 
         var call = envelopes.Single(e => e.Kind == AcpEventKind.ToolCall);
         await Assert.That(call.ToolCallId).IsEqualTo("3");
-        await Assert.That(call.ToolName).IsEqualTo("list_dir");
-        await Assert.That(call.ToolInputJson).Contains("DirectoryPath");
-        await Assert.That(call.ToolInputJson).Contains("/Users/tony/.gemini/antigravity-cli");
+        await Assert.That(call.ToolName).IsEqualTo("Read");
+        await Assert.That(call.ToolInputJson).IsEqualTo("""{"file_path":"/w/notes.txt"}""");
 
         // No result yet — the step is still ACTIVE — and flushing again must not repeat the call.
         await Assert.That(envelopes.Any(e => e.Kind == AcpEventKind.ToolResult)).IsFalse();
@@ -200,18 +207,32 @@ public class AntigravityNdjsonTests {
     [Test]
     public async Task A_done_tool_step_flushes_a_successful_tool_result() {
         // Observed alone (no preceding ACTIVE reached this accumulator) — both the call and the
-        // result must still flush together, call first, since agy did send tool_info.name here too.
+        // result must still flush together, call first.
         var acc = new AntigravityStepAccumulator();
-        acc.Add(AntigravityNdjson.TryParseLine(ToolDoneLine)!);
+        acc.Add(AntigravityNdjson.TryParseLine(ReadDoneLine)!);
 
         var envelopes = acc.Flush(model: null);
 
-        await Assert.That(envelopes.Any(e => e.Kind == AcpEventKind.ToolCall && e.ToolName == "list_dir")).IsTrue();
+        await Assert.That(envelopes.Select(e => e.Kind)).IsEquivalentTo(
+            new[] { AcpEventKind.ToolCall, AcpEventKind.ToolResult }, CollectionOrdering.Matching);
+        var result = envelopes[1];
+        await Assert.That(result.ToolCallId).IsEqualTo("3");
+        await Assert.That(result.ToolIsError).IsFalse();
+        await Assert.That(result.ToolResult).IsEqualTo("2 lines, 12 bytes");
+    }
 
-        var result = envelopes.Single(e => e.Kind == AcpEventKind.ToolResult);
+    /// <summary>agy finishes an <c>edit_file</c> with no output at all; without a result the call reads as
+    /// running for the rest of the session.</summary>
+    [Test]
+    public async Task A_done_tool_step_with_no_output_still_settles_its_call() {
+        var acc = new AntigravityStepAccumulator();
+        acc.Add(AntigravityNdjson.TryParseLine(EditDoneLine)!);
+
+        var result = acc.Flush(model: null).Single(e => e.Kind == AcpEventKind.ToolResult);
+
         await Assert.That(result.ToolCallId).IsEqualTo("6");
         await Assert.That(result.ToolIsError).IsFalse();
-        await Assert.That(result.ToolResult).IsEqualTo(".system_generated/\n.user_uploaded/\nscratch/");
+        await Assert.That(result.ToolResult).IsEqualTo("");
     }
 
     [Test]
@@ -225,26 +246,44 @@ public class AntigravityNdjsonTests {
         var result = envelopes.Single(e => e.Kind == AcpEventKind.ToolResult);
         await Assert.That(result.ToolCallId).IsEqualTo("3");
         await Assert.That(result.ToolIsError).IsTrue();
-        await Assert.That(result.ToolResult).Contains("TOOL_ERROR");
-        await Assert.That(result.ToolResult).Contains("Permission denied");
+        await Assert.That(result.ToolResult).IsEqualTo(
+            "TOOL_ERROR: Permission denied for read_file(...). Matches hardcoded system protection boundary rule.");
+    }
+
+    /// <summary>A command's outcome is in its output's status line, under agy's timestamp header, which the
+    /// result drops. The status line counts only where it leads the body.</summary>
+    [Test]
+    [Arguments("Created At: 2026-11-24T17:29:00-05:00\nCompleted At: 2026-11-24T17:29:01-05:00\nCommand exited with code 1.\n\nNo output from the command.",
+        true, "Command exited with code 1.\n\nNo output from the command.")]
+    [Arguments("Created At: 2026-11-24T17:35:01-05:00\nCompleted At: 2026-11-24T17:35:02-05:00\nCreated At: 2026-11-24T17:35:01-05:00\nCompleted At: 2026-11-24T17:35:01-05:00\nCommand failed to run: /w/missing: no such directory.\n\nNo output from the command.",
+        true, "Command failed to run: /w/missing: no such directory.\n\nNo output from the command.")]
+    [Arguments("Created At: 2026-11-24T17:35:57-05:00\nCompleted At: 2026-11-24T17:35:57-05:00\nCommand exited with code 0.\n\nCommand output:\nCommand exited with code 2.\r\n",
+        false, "Command exited with code 0.\n\nCommand output:\nCommand exited with code 2.\r\n")]
+    public async Task A_command_result_is_an_error_when_it_exited_non_zero_or_failed_to_run(string output, bool isError, string shown) {
+        var acc = new AntigravityStepAccumulator();
+        acc.Add(AntigravityNdjson.TryParseLine(RunCommandDoneLine(output))!);
+
+        var result = acc.Flush(model: null).Single(e => e.Kind == AcpEventKind.ToolResult);
+
+        await Assert.That(result.ToolIsError).IsEqualTo(isError);
+        await Assert.That(result.ToolResult).IsEqualTo(shown);
     }
 
     [Test]
     public async Task A_tool_steps_call_and_result_flush_across_separate_flush_calls_for_the_same_step() {
         // The realistic lifecycle: ACTIVE flushes the call on its own Flush call; the step survives
-        // in the accumulator; a later ERROR on the SAME step index then flushes the result.
+        // in the accumulator; a later terminal state on the SAME step index then flushes the result.
         var acc = new AntigravityStepAccumulator();
-        acc.Add(AntigravityNdjson.TryParseLine(ToolActiveLine)!);
+        acc.Add(AntigravityNdjson.TryParseLine(ReadActiveLine)!);
         var afterActive = acc.Flush(model: null);
         await Assert.That(afterActive.Count(e => e.Kind == AcpEventKind.ToolCall)).IsEqualTo(1);
 
-        acc.Add(AntigravityNdjson.TryParseLine(ToolErrorLine)!);
-        var afterError = acc.Flush(model: null);
+        acc.Add(AntigravityNdjson.TryParseLine(ReadDoneLine)!);
+        var afterDone = acc.Flush(model: null);
 
         // The call must not repeat; only the result is new.
-        await Assert.That(afterError.Count).IsEqualTo(1);
-        await Assert.That(afterError[0].Kind).IsEqualTo(AcpEventKind.ToolResult);
-        await Assert.That(afterError[0].ToolIsError).IsTrue();
+        await Assert.That(afterDone.Count).IsEqualTo(1);
+        await Assert.That(afterDone[0].Kind).IsEqualTo(AcpEventKind.ToolResult);
     }
 
     [Test]
@@ -257,7 +296,7 @@ public class AntigravityNdjsonTests {
             """{"event":"step_update","step_update":{"step_index":1,"state":"DONE","step_type":"unknown"}}""")!);
         acc.Add(AntigravityNdjson.TryParseLine(
             """{"event":"step_update","step_update":{"step_index":4,"state":"DONE","step_type":"checkpoint","usage":{"input_tokens":10,"output_tokens":1,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":11}}}""")!);
-        acc.Add(AntigravityNdjson.TryParseLine(ToolDoneLine)!);
+        acc.Add(AntigravityNdjson.TryParseLine(ReadDoneLine)!);
 
         var envelopes = acc.Flush(model: null);
 

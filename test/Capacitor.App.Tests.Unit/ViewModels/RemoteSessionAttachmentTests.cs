@@ -24,7 +24,7 @@ public class RemoteSessionAttachmentTests {
     public async Task A_remote_session_accepts_attachments_only_on_the_signed_in_accounts_capable_daemon(
             string? viewer, string daemonOwner, string version, bool? ownerIsViewer, bool expected) {
         var row = AgentRow.FromRemote(Remote("t")) with { OwnerIsViewer = ownerIsViewer };
-        IReadOnlyList<DaemonInfo> daemons = [new DaemonInfo { Name = "d", OwnerUserId = daemonOwner, Version = version }];
+        IReadOnlyList<DaemonInfo> daemons = [new() { Name = "d", OwnerUserId = daemonOwner, Version = version }];
 
         await Assert.That(RemoteSessionViewModel.AcceptsAttachments(row, daemons, viewer)).IsEqualTo(expected);
     }
@@ -33,9 +33,24 @@ public class RemoteSessionAttachmentTests {
     [Test]
     public async Task An_attached_session_never_accepts_attachments() {
         var row = AgentRow.FromRemote(Remote("t")) with { OwnerIsViewer = true, Kind = AgentActionService.AttachedKind };
-        IReadOnlyList<DaemonInfo> daemons = [new DaemonInfo { Name = "d", OwnerUserId = "u7", Version = "1.0.3" }];
+        IReadOnlyList<DaemonInfo> daemons = [new() { Name = "d", OwnerUserId = "u7", Version = "1.0.3" }];
 
         await Assert.That(row.IsAttached).IsTrue();
         await Assert.That(RemoteSessionViewModel.AcceptsAttachments(row, daemons, "u7")).IsFalse();
+    }
+
+    /// A review participant's daemon drops files after the hub has accepted them. A missing kind is an older
+    /// server, which still offers the button.
+    [Test]
+    [Arguments(null, true)]
+    [Arguments("Default", true)]
+    [Arguments("Review", false)]
+    [Arguments("ReviewFlow", false)]
+    public async Task A_review_participant_does_not_accept_attachments(string? kind, bool expected) {
+        var row = AgentRow.FromRemote(Remote("t") with { LaunchKind = kind });
+        IReadOnlyList<DaemonInfo> daemons = [new() { Name = "d", OwnerUserId = "u7", Version = "1.0.3" }];
+
+        await Assert.That(row.LaunchKind).IsEqualTo(kind);
+        await Assert.That(RemoteSessionViewModel.AcceptsAttachments(row, daemons, "u7")).IsEqualTo(expected);
     }
 }

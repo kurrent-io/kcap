@@ -28,7 +28,7 @@ public sealed class WebWorkspaceViewModel : ReactiveObject, IDisposable {
         _disposables.Add(changes.Subscribe(_ => this.RaisePropertyChanged(nameof(Label))));
         OpenCommand = ReactiveCommand.CreateFromTask(OpenAsync,
             changes.Select(_ => _url is not null && !(_local?.IsStarting ?? false)
-                && !(_local is { ServerDown: true, StartOffered: false }))
+                && _local is not { ServerDown: true, StartOffered: false })
                 .ObserveOn(RxSchedulers.MainThreadScheduler));
         _disposables.Add(OpenCommand);
     }
@@ -51,7 +51,10 @@ public sealed class WebWorkspaceViewModel : ReactiveObject, IDisposable {
         }
         if (_shutdown.IsCancellationRequested) return;
         try { _opener.Open(_url); }
-        catch (Exception ex) { _notify($"Couldn't open the browser: {ex.Message}"); }
+        catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: could not open the browser: {ex.Message}");
+            _notify("Couldn’t open the browser. Try again.");
+        }
     }
 
     public void Dispose() => _disposables.Dispose();

@@ -16,11 +16,11 @@ namespace Capacitor.Cli.Daemon.Tests.Unit.Acp;
 public class AcpTranscriptAggregationTests {
     static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(5);
 
-    static readonly JsonElement EndTurnResult = JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone();
+    static readonly JsonElement EndTurnResult = JsonElement.Parse("""{"stopReason":"end_turn"}""");
 
     /// <summary>Minimal <see cref="IAcpProcess"/> stand-in — these tests never exercise process exit/terminate.</summary>
     sealed class FakeAcpProcess : IAcpProcess {
-        public int  Pid       { get; init; } = 4242;
+        public int  Pid       { get; } = 4242;
         public bool HasExited { get; private set; }
         public int? ExitCode  { get; private set; }
 
@@ -38,8 +38,8 @@ public class AcpTranscriptAggregationTests {
 
     sealed class Harness : IAsyncDisposable {
         public FakeAcpAgent          Fake    { get; }
-        public AcpConnection         Conn    { get; }
-        public FakeAcpProcess        Process { get; }
+        AcpConnection         Conn    { get; }
+        FakeAcpProcess        Process { get; }
         public AcpHostedAgentRuntime Runtime { get; }
         public CancellationTokenSource Cts   { get; } = new();
 
@@ -323,7 +323,7 @@ public class AcpTranscriptAggregationTests {
         await using var h = new Harness();
 
         var chunk1 = FakeAcpAgent.BuildSessionUpdateNotification(FakeAcpAgent.FixedSessionId, FakeAcpAgent.BuildAgentThoughtChunkUpdate("The user wants"));
-        var usage  = Update(JsonDocument.Parse("""{"sessionUpdate":"usage_update","used":0,"size":209715}""").RootElement);
+        var usage  = Update(JsonElement.Parse("""{"sessionUpdate":"usage_update","used":0,"size":209715}"""));
         var chunk2 = FakeAcpAgent.BuildSessionUpdateNotification(FakeAcpAgent.FixedSessionId, FakeAcpAgent.BuildAgentThoughtChunkUpdate(" me to run curl"));
         h.Fake.EnqueuePromptScript(new[] { chunk1, usage, chunk2 }, EndTurnResult);
 

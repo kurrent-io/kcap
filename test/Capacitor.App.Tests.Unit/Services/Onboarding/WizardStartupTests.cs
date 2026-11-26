@@ -749,7 +749,7 @@ public class WizardStartupTests {
                     graph.ViewModel.RequestClose();
                 } else {
                     buildsWhenReopened = builds;
-                    reopenedMessage = graph.Steps.OfType<InstallStepViewModel>().Single().FailureDetail;
+                    reopenedMessage = graph.Steps.OfType<InstallStepViewModel>().Single().FailureMessage;
                     shutdown.Cancel(); // ends the test's loop; a quit builds nothing either
                 }
 
@@ -769,7 +769,7 @@ public class WizardStartupTests {
         await Assert.That(builds).IsEqualTo(0);
         // The reopened wizard shows the settled failure; it does not start a second child unasked.
         await Assert.That(harness.Cli.SetupLocalCallCount).IsEqualTo(1);
-        await Assert.That(reopenedMessage).IsEqualTo(message);
+        await Assert.That(reopenedMessage).IsEqualTo("The download didn't finish. Check your connection and try again.");
     }
 
     /// A journal the CLI cannot read settles Permanent: no Try again and no Back, so reopening the
@@ -1317,7 +1317,7 @@ public class WizardStartupTests {
 
         // A quit mid-probe must not go on to build a wizard window — same rule as the gate's.
         await Assert.ThrowsAsync<OperationCanceledException>(() => AppUnderTest.ResolveShimApplicableAsync(
-            true, "/opt/kcap/bin/kcap", ct => Task.FromCanceled<bool?>(ct), cts.Token));
+            true, "/opt/kcap/bin/kcap", Task.FromCanceled<bool?>, cts.Token));
     }
 
     // ── the sign-in step's committed answer ───────────────────────────────────
@@ -1469,7 +1469,7 @@ public class WizardStartupTests {
             cts.Cancel(); // the wizard closing must never strand the dialog
             Dispatcher.UIThread.RunJobs();
 
-            var resolvedFalse = answer.IsCompletedSuccessfully && !answer.Result;
+            var resolvedFalse = answer is { IsCompletedSuccessfully: true, Result: false };
 
             window.Close();
             Dispatcher.UIThread.RunJobs();

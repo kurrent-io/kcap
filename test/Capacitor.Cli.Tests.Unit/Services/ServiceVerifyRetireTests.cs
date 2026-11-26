@@ -45,7 +45,7 @@ public class ServiceVerifyRetireTests {
         public bool OldLabelLoaded = true;
         public int? OldJobPid = 1111;
         public bool Bootstrapped;
-        public int? RunningPid = 4242;
+        readonly int? RunningPid = 4242;
 
         /// <summary>When set (and the new id isn't bootstrapped yet), the new id's own Query answers
         /// Loaded at this pid — a daemon that claimed the new name ahead of this install's own write.</summary>
@@ -59,7 +59,7 @@ public class ServiceVerifyRetireTests {
 
         public bool NewProbeUnknown;
 
-        public IReadOnlyList<GeneratedFile> GenerateFiles(ServiceSpec spec) => [new GeneratedFile("/fake/new.plist", OwnPlistContent)];
+        public IReadOnlyList<GeneratedFile> GenerateFiles(ServiceSpec spec) => [new("/fake/new.plist", OwnPlistContent)];
 
         public ServiceQuery Query(string serviceId, TimeSpan timeout) {
             Calls.Add($"query:{serviceId}");

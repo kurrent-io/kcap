@@ -7,9 +7,7 @@ public sealed record HeldMessageDecisionOutcome(HeldMessageDecisionKind Kind, st
     public string? Refusal => Kind switch {
         HeldMessageDecisionKind.Decided => null,
         HeldMessageDecisionKind.AlreadyDecided => "That message was already decided",
-        HeldMessageDecisionKind.QuestionPending => Message is { Length: > 0 } message
-            ? message
-            : "The agent is waiting on a question its sender can't answer",
+        HeldMessageDecisionKind.QuestionPending => "The agent is waiting on a question its sender can't answer.",
         HeldMessageDecisionKind.NotFound => "That message is no longer waiting",
         HeldMessageDecisionKind.NotOwner => "Only the agent's owner can do that",
         HeldMessageDecisionKind.Unauthorized => "Sign in to decide held messages",

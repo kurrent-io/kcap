@@ -37,15 +37,10 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
     readonly CancellationToken _shutdownToken;
     readonly Func<bool>? _onLocalPath;
     readonly Func<CancellationToken, Task<VisibilityOptionsResponse?>>? _visibilityOptions;
+    readonly bool _signedInAtStart;
 
     bool _detected;
     bool _installed;
-    bool _busy;
-    bool _satisfied;
-    string? _visibility;
-    bool _useProviderApiKey;
-    string? _providerKeyNotice;
-    string? _message;
     Task? _inFlight;
 
     public HarnessesStepViewModel(
@@ -59,9 +54,11 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
             string machineName,
             Func<string?>? resolveProfileName = null, CancellationToken shutdownToken = default,
             Func<bool>? onLocalPath = null,
-            Func<CancellationToken, Task<VisibilityOptionsResponse?>>? visibilityOptions = null) {
+            Func<CancellationToken, Task<VisibilityOptionsResponse?>>? visibilityOptions = null,
+            bool signedInAtStart = false) {
         _onLocalPath = onLocalPath;
         _visibilityOptions = visibilityOptions;
+        _signedInAtStart = signedInAtStart;
         _cli = cli;
         _detect = detect;
         _declined = declined;
@@ -140,13 +137,20 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
     public IReadOnlyList<VisibilityOption> VisibilityOptions { get; private set; } = AllVisibilityOptions;
 
     public string? Visibility {
-        get => _visibility;
+        get;
         set {
-            this.RaiseAndSetIfChanged(ref _visibility, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(CanContinue));
             this.RaisePropertyChanged(nameof(CanSkip));
             if (HasVisibilityChoice && Message == PrivacyRequiredMessage) Message = null;
         }
+    }
+
+    /// The server a profile was signed in to before setup opened, which setup keeps; null on a first sign-in. No
+    /// other page shows it, because that sign-in is not asked for again.
+    public string? KeptConnection {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     bool Local => _onLocalPath?.Invoke() == true;
@@ -171,19 +175,19 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
     /// Set when the terminal exports a provider key a recording harness would otherwise have kcap scrub.
     public string? ProviderKeyNotice {
-        get => _providerKeyNotice;
-        private set => this.RaiseAndSetIfChanged(ref _providerKeyNotice, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool UseProviderApiKey {
-        get => _useProviderApiKey;
-        set => this.RaiseAndSetIfChanged(ref _useProviderApiKey, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool Busy {
-        get => _busy;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _busy, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Idle));
             this.RaisePropertyChanged(nameof(ChoicesEditable));
             this.RaisePropertyChanged(nameof(CanContinue));
@@ -199,19 +203,19 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
     public bool CanSkip => CanContinue;
 
     public bool Satisfied {
-        get => _satisfied;
-        private set => this.RaiseAndSetIfChanged(ref _satisfied, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Why the page did not move on: a missing CLI, or a profile that could not be saved.
     public string? Message {
-        get => _message;
-        private set => this.RaiseAndSetIfChanged(ref _message, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public int SelectedCount => Rows.Count(r => r.Selected);
 
-    public IReadOnlyList<HarnessId> Recording => [.. Rows.Where(r => r.Record && r.Succeeded).Select(r => r.Id)];
+    public IReadOnlyList<HarnessId> Recording => [.. Rows.Where(r => r is { Record: true, Succeeded: true }).Select(r => r.Id)];
 
     public string? NextLabel =>
         _installed ? "Continue"
@@ -238,21 +242,34 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
             IReadOnlyDictionary<HarnessId, DetectedAgent> detected;
             try { detected = await _detect(ct).ConfigureAwait(true); } catch (OperationCanceledException) { return; } catch (Exception ex) {
-                Message = $"Could not check your harnesses: {ex.Message}. Go back and try again, or continue setup later.";
+                Console.Error.WriteLine($"kcap: could not check coding tools: {ex.Message}");
+                Message = "Could not check your coding tools. Go back and try again, or continue setup later.";
                 return;
             }
 
+            string? keptVisibility = null;
             try {
                 var config = await AppConfig.LoadProfileConfig(_config, ct).ConfigureAwait(true);
                 var profileName = _resolveProfileName?.Invoke() ?? config.ActiveProfile;
-                if (config.Profiles.GetValueOrDefault(profileName ?? ProfileConfig.DefaultName) is { } profile)
+                if (config.Profiles.GetValueOrDefault(profileName ?? ProfileConfig.DefaultName) is { } profile) {
                     UseProviderApiKey = profile.UseProviderApiKey;
+                    // A profile's privacy setting has a default, so only one that was signed in before setup
+                    // opened holds an answer somebody gave.
+                    if (_signedInAtStart) {
+                        keptVisibility = profile.DefaultVisibility;
+                        KeptConnection = profile.ServerUrl is { Length: > 0 } server
+                            ? $"This machine is connected to {server}. Setup keeps that connection, its sign-in and the settings saved with it, for you to confirm or change here."
+                            : null;
+                    }
+                }
             } catch (Exception ex) {
-                Message = $"Could not read your settings: {ex.Message}. Go back and try again.";
+                Console.Error.WriteLine($"kcap: could not read setup settings: {ex.Message}");
+                Message = "Could not read your settings. Go back and try again.";
                 return;
             }
 
             if (offered is not null) await OfferAsync(offered).ConfigureAwait(true);
+            if (Visibility is null && VisibilityOptions.Any(o => o.Value == keptVisibility)) Visibility = keptVisibility;
 
             var declined = _declined();
             var idle = this.WhenAnyValue(x => x.Busy, busy => !busy);
@@ -266,7 +283,7 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
             var missing = AgentVendors.All.Where(v => !detected.ContainsKey(v.Id)).Select(v => v.Label).ToList();
             NotFoundLine = missing.Count == 0 ? null : "Not found: " + string.Join(", ", missing);
-            SettingsOnlyNote = SettingsOnlyNoteFor([.. Rows.Where(r => r.SettingsOnly && !r.Declined).Select(r => r.Label)]);
+            SettingsOnlyNote = SettingsOnlyNoteFor([.. Rows.Where(r => r is { SettingsOnly: true, Declined: false }).Select(r => r.Label)]);
             _detected = true;
 
             this.RaisePropertyChanged(nameof(Rows));
@@ -363,7 +380,8 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
                 return c with { Profiles = new Dictionary<string, Profile>(c.Profiles) { [activeName] = profile } };
             }, ct).ConfigureAwait(true);
         } catch (Exception ex) when (ex is not OperationCanceledException) {
-            Message = $"We could not save that: {ex.Message}";
+            Console.Error.WriteLine($"kcap: could not save harness setup: {ex.Message}");
+            Message = "Could not save your choices. Try again.";
 
             return false;
         }
@@ -402,15 +420,17 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
         try {
             var result = await _cli.PluginInstallAsync(row.Flag, _shutdownToken, row.InstallOptions).ConfigureAwait(true);
-            if (result.ExitCode == 0 && !result.TimedOut) {
+            if (result is { ExitCode: 0, TimedOut: false }) {
                 row.Status = AgentInstallStatus.Succeeded;
             } else {
                 row.Status = AgentInstallStatus.Failed;
-                row.Message = string.IsNullOrWhiteSpace(result.Stderr) ? $"Install failed (exit {result.ExitCode})." : result.Stderr.Trim();
+                Console.Error.WriteLine($"kcap: harness installation failed ({result.ExitCode}): {result.Stderr}");
+                row.Message = "Could not finish setting up this tool. Try again.";
             }
         } catch (Exception ex) {
             row.Status = AgentInstallStatus.Failed;
-            row.Message = ex.Message;
+            Console.Error.WriteLine($"kcap: harness setup failed: {ex.Message}");
+            row.Message = "Could not set up this tool. Try again.";
         }
 
         var selected = Rows.Where(r => r.Selected).ToList();

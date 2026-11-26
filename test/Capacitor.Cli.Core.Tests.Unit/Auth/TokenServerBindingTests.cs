@@ -243,7 +243,7 @@ public class TokenServerBindingTests {
 
         Task<StoredTokens?> forced;
 
-        using (new FileStream(Config.PathTo("tokens", "default.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
+        await using (new FileStream(Config.PathTo("tokens", "default.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
             forced = AuthFixtures.NewTokenStore(Config.Root, endpoint)
                 .ForceRefreshAsync(ProfileConfig.DefaultName, "stale-rejected-token", Server);
             await Task.Delay(500);
@@ -266,7 +266,7 @@ public class TokenServerBindingTests {
 
         StoredTokens? forced, recovered;
 
-        using (new FileStream(Config.PathTo("tokens", "default.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
+        await using (new FileStream(Config.PathTo("tokens", "default.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
             forced    = await store.ForceRefreshAsync(ProfileConfig.DefaultName, "stale-rejected-token", Server);
             recovered = await store.RecoverForServerAsync(ProfileConfig.DefaultName, Server, "stale-rejected-token");
         }

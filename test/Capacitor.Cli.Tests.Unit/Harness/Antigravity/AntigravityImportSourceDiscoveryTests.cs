@@ -15,7 +15,7 @@ public class AntigravityImportSourceDiscoveryTests {
 
     async Task<(int Discovered, string Stderr)> Discover() {
         var source = new AntigravityImportSource(new(new(Tmp.Path), ""), TimeProvider.System);
-        using var stderr = new StringWriter();
+        await using var stderr = new StringWriter();
 
         var discovered = await source.DiscoverAsync(
             new DiscoveryFilters(FilterCwd: null, FilterSession: null, Since: null, MinLines: 0) { Stderr = stderr },

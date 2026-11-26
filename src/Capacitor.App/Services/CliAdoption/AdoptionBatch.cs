@@ -156,7 +156,7 @@ internal sealed class AdoptionBatch(
 
         await OfferReleasedAsync(record.CutoverUtc, ct).ConfigureAwait(false);
         var due = record.Installs
-            .Where(i => i.State == InstallState.Pending && i.HeldBy is not null && !StillHeld(i) && !RootOwned(i.Install))
+            .Where(i => i is { State: InstallState.Pending, HeldBy: not null } && !StillHeld(i) && !RootOwned(i.Install))
             .Select(i => i.Install).ToList();
         if (due.Count == 0) return true;
 

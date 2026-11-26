@@ -42,6 +42,16 @@ public sealed class WindowsAppRemoval : IAppRemoval {
 
     public bool RemovedOnExit => true;
 
+    public bool CommandInstalled {
+        get {
+            try {
+                return _path.Preflight(_install.Cli) == ShimPreflight.AlreadyInstalled;
+            } catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or SecurityException) {
+                return true;
+            }
+        }
+    }
+
     string CliFolder => Path.GetDirectoryName(_install.Cli) ?? _install.Cli;
 
     /// The CLI's folder while it is still on the user PATH; Windows has no command links to remove.

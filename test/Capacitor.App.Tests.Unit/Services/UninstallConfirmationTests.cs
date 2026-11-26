@@ -25,12 +25,28 @@ public class UninstallConfirmationTests {
     }
 
     [Test]
-    public async Task Local_server_sets_the_warning_and_purge_consent() {
+    public async Task Settings_are_kept_unless_the_choice_is_taken() {
+        var r = UninstallConfirmation.Build(Facts());
+
+        await Assert.That(r.Prompt.Disclosure).Contains("settings and sign-in are kept");
+        await Assert.That(r.Prompt.Choice!.Label).IsEqualTo(UninstallConfirmation.RemoveSettingsLabel);
+        await Assert.That(r.Prompt.Choice.Disclosure).Contains("your kcap settings and sign-in, and then the kcap app");
+        await Assert.That(r.Mode(removeSettings: false)).IsEqualTo(new UninstallMode(PurgeLocal: false, KeepConfig: true));
+        await Assert.That(r.Mode(removeSettings: true)).IsEqualTo(new UninstallMode(PurgeLocal: false));
+    }
+
+    /// The warning belongs to the answer that deletes; the prompt opens on the one that keeps the sessions.
+    [Test]
+    public async Task Local_server_warns_and_takes_purge_consent_only_when_the_settings_go() {
         var r = UninstallConfirmation.Build(Facts(local: "http://localhost:7000"));
 
-        await Assert.That(r.Prompt.Warning).Contains("http://localhost:7000");
-        await Assert.That(r.Prompt.Warning).Contains("permanently deleted");
-        await Assert.That(r.PurgeLocal).IsTrue();
+        await Assert.That(r.Prompt.Warning).IsNull();
+        await Assert.That(r.Prompt.Disclosure).Contains("The sessions it recorded are kept");
+        await Assert.That(r.Prompt.Choice!.Warning).Contains("http://localhost:7000");
+        await Assert.That(r.Prompt.Choice.Warning).Contains("permanently deleted");
+        await Assert.That(r.Prompt.Choice.Disclosure).DoesNotContain("The sessions it recorded are kept");
+        await Assert.That(r.Mode(removeSettings: true)).IsEqualTo(new UninstallMode(PurgeLocal: true));
+        await Assert.That(r.Mode(removeSettings: false)).IsEqualTo(new UninstallMode(PurgeLocal: false, KeepConfig: true));
         await Assert.That(r.Prompt.Kind).IsEqualTo(LifecyclePrompt.KindUninstall);
     }
 
@@ -39,7 +55,7 @@ public class UninstallConfirmationTests {
         var r = UninstallConfirmation.Build(Facts());
 
         await Assert.That(r.Prompt.Warning).IsNull();
-        await Assert.That(r.PurgeLocal).IsFalse();
+        await Assert.That(r.Prompt.Choice!.Warning).IsNull();
     }
 
     [Test]

@@ -207,6 +207,67 @@ public class KcapCliTests {
         await Assert.That(runner.SeenFileName).IsNull();
     }
 
+    const string SwitchHelp = "--retire ID [--retire-profile P]] [--activate]";
+
+    [Test]
+    public async Task A_same_id_switch_adds_activate_and_no_retire_flags_with_the_activation_budget() {
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(0, SwitchHelp, "", false)) };
+
+        await MakeCli(runner).ServiceInstallVerifiedAsync(true, CancellationToken.None, activate: true);
+
+        await Assert.That(runner.SeenArgs).IsEquivalentTo(
+            ["daemon", "service", "install", "--name", "daemon-a", "--profile", "work", "--verify", "--replace", "--activate"],
+            CollectionOrdering.Matching);
+        // The rename's own budget, plus the 30 s the CLI may wait on the outgoing profile's token lock first.
+        await Assert.That(runner.SeenOptions!.Timeout).IsEqualTo(TimeSpan.FromSeconds(180) + BootExtension);
+    }
+
+    [Test]
+    public async Task A_cross_id_switch_forwards_all_three_flags() {
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(0, SwitchHelp, "", false)) };
+
+        await MakeCli(runner).ServiceInstallVerifiedAsync(true, CancellationToken.None, "old-name", "previous", activate: true);
+
+        await Assert.That(runner.SeenArgs).IsEquivalentTo(
+            ["daemon", "service", "install", "--name", "daemon-a", "--profile", "work", "--verify", "--replace",
+             "--retire", "old-name", "--retire-profile", "previous", "--activate"],
+            CollectionOrdering.Matching);
+        await Assert.That(runner.SeenOptions!.Timeout).IsEqualTo(TimeSpan.FromSeconds(180) + BootExtension);
+    }
+
+    /// A CLI downgraded or repointed since the preflight is caught at dispatch: each flag the request
+    /// emits must be in that executable's own help, or nothing is installed.
+    [Test]
+    [Arguments("--retire ID [--retire-profile P]]", false)]
+    [Arguments("--retire ID [--activate]", true)]
+    public async Task A_cli_missing_a_switch_flag_at_dispatch_is_refused_without_installing(string help, bool crossId) {
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(0, help, "", false)) };
+
+        var result = crossId
+            ? await MakeCli(runner).ServiceInstallVerifiedAsync(true, CancellationToken.None, "old-name", "previous", activate: true)
+            : await MakeCli(runner).ServiceInstallVerifiedAsync(true, CancellationToken.None, activate: true);
+
+        await Assert.That(runner.SeenArgs).IsEquivalentTo(["daemon", "--help", "--no-update-check"], CollectionOrdering.Matching);
+        await Assert.That(result.ExitCode).IsEqualTo(VerifyExitCodes.RetireRefused);
+        await Assert.That(result.Stderr).IsEqualTo("retire_reason=cli_unsupported");
+    }
+
+    [Test]
+    [Arguments("  install [--retire ID [--retire-profile P]] [--activate]", "--retire", true)]
+    [Arguments("  install [--retire-profile P] [--activate]", "--retire", false)]
+    [Arguments("  install [--retire-profile P]", "--retire-profile", true)]
+    [Arguments("  install [--activated]", "--activate", false)]
+    public async Task A_help_flag_check_matches_whole_options_only(string help, string flag, bool names) {
+        await Assert.That(KcapCli.NamesOption(help, flag)).IsEqualTo(names);
+    }
+
+    [Test]
+    public async Task Activate_without_replace_never_spawns() {
+        var runner = new FakeProcessRunner();
+        await Assert.ThrowsAsync<ArgumentException>(() => MakeCli(runner).ServiceInstallVerifiedAsync(false, CancellationToken.None, activate: true));
+        await Assert.That(runner.SeenFileName).IsNull();
+    }
+
     [Test]
     public async Task ServiceInstallVerifiedAsync_without_replace_omits_the_flag() {
         var runner = new FakeProcessRunner();
@@ -843,14 +904,16 @@ public class KcapCliTests {
     }
 
     [Test]
-    [Arguments(false, new[] { "uninstall", "--yes", "--force", "--keep-path-links" })]
-    [Arguments(true, new[] { "uninstall", "--yes", "--force", "--keep-path-links", "--purge-local" })]
-    public async Task UninstallAsync_builds_argv_env_with_no_timeout(bool purgeLocal, string[] expected) {
+    [Arguments(false, false, new[] { "uninstall", "--yes", "--force", "--keep-path-links" })]
+    [Arguments(true, false, new[] { "uninstall", "--yes", "--force", "--keep-path-links", "--purge-local" })]
+    [Arguments(false, true, new[] { "uninstall", "--yes", "--force", "--keep-path-links", "--keep-config" })]
+    [Arguments(true, true, new[] { "uninstall", "--yes", "--force", "--keep-path-links", "--keep-config" })]
+    public async Task UninstallAsync_builds_argv_env_with_no_timeout(bool purgeLocal, bool keepConfig, string[] expected) {
         var runner = new FakeProcessRunner();
         var cli = MakeCli(runner);
         using var caller = new CancellationTokenSource();
 
-        await cli.UninstallAsync(purgeLocal, _ => { }, caller.Token);
+        await cli.UninstallAsync(purgeLocal, keepConfig, _ => { }, caller.Token);
 
         await Assert.That(runner.SeenArgs).IsEquivalentTo(expected, CollectionOrdering.Matching);
         await Assert.That(runner.SeenOptions!.EnvOverlay!["KCAP_PROFILE"]).IsEqualTo("work");
@@ -992,5 +1055,41 @@ public class KcapCliTests {
         await Assert.That(await MakeCli(garbled).LocalIntelligenceAsync(none, null, null, null, CancellationToken.None))
             .IsTypeOf<Cli.Core.Setup.Intelligence.IntelligenceSetupOutcome.Failed>();
         await Assert.That(refused.SeenArgs!).DoesNotContain("--model");
+    }
+
+    /// <summary>The settings travel as the command writes them, through the same serializer, into the outcome the tab
+    /// reads; an applied answer's line still reads as applied.</summary>
+    [Test]
+    public async Task Local_intelligence_status_reads_the_settings_the_command_writes() {
+        var settings = new Cli.Core.Setup.Intelligence.IntelligenceSettings(
+            "provider", null, "openai", "gpt-5-mini", false, true, 500, false, ["titles"]);
+        var line = System.Text.Json.JsonSerializer.Serialize(Cli.Core.Setup.Intelligence.IntelligenceCliLine.From(settings),
+            Cli.Core.Setup.Intelligence.IntelligenceCliJsonContext.Default.IntelligenceCliLine);
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(0, line + "\n", "", false)) };
+
+        var outcome = await MakeCli(runner).LocalIntelligenceStatusAsync(CancellationToken.None);
+
+        await Assert.That(runner.SeenArgs!).IsEquivalentTo(
+            ["local", "intelligence", "status", "--json", "--no-update-check"], CollectionOrdering.Matching);
+        var read = ((Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome.Read)outcome).Settings;
+        await Assert.That(read with { Resolving = settings.Resolving }).IsEqualTo(settings);
+        await Assert.That(read.Resolving).IsEquivalentTo(["titles"]);
+
+        var applied = Cli.Core.Setup.Intelligence.IntelligenceCliLine.From(new Cli.Core.Setup.Intelligence.IntelligenceSetupResponse(
+            "none", null, null, true, 300, []));
+        await Assert.That(applied.ReadSettings).IsNull();
+        await Assert.That(applied.Applied).IsNotNull();
+    }
+
+    [Test]
+    public async Task Local_intelligence_preferences_pass_only_what_was_given_and_read_a_refusal() {
+        var runner = new FakeProcessRunner { Behavior = _ => Task.FromResult(new ProcessResult(2, """{"ok":false,"error":"needs_update"}""", "", false)) };
+
+        var outcome = await MakeCli(runner).LocalIntelligencePreferencesAsync(null, 750, CancellationToken.None);
+
+        await Assert.That(runner.SeenArgs!).IsEquivalentTo(
+            ["local", "intelligence", "--daily-limit", "750", "--json", "--no-update-check"], CollectionOrdering.Matching);
+        await Assert.That(outcome).IsEqualTo<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome>(
+            new Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome.Refused("needs_update"));
     }
 }

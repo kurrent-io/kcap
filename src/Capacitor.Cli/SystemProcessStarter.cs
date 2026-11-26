@@ -65,7 +65,7 @@ public sealed class SystemProcessStarter : IProcessStarter {
             // Failing here is the one case the caller cannot clean up after: it never receives the
             // pid, so the child would outlive the failure and double-post alongside the inline
             // fallback that follows.
-            try { process.Kill(entireProcessTree: true); } catch { }
+            try { process.Kill(entireProcessTree: true); } catch { /* ignored */ }
 
             process.Dispose();
 

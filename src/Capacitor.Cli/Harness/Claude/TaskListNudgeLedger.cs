@@ -39,7 +39,7 @@ sealed class TaskListNudgeLedger(ConfigRoot config) {
                 File.WriteAllText(temp, task.ToJson().ToJsonString());
                 File.Move(temp, Path.Combine(dir, task.TaskId), overwrite: true);
             }
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     public IReadOnlyList<PlanTaskState> LoadTasks(string sessionId) {
@@ -68,11 +68,11 @@ sealed class TaskListNudgeLedger(ConfigRoot config) {
     }
 
     void Release(string sessionId, string name) {
-        try { File.Delete(Path.Combine(SessionDir(sessionId), name)); } catch { }
+        try { File.Delete(Path.Combine(SessionDir(sessionId), name)); } catch { /* ignored */ }
     }
 
     public void Evict(string sessionId) {
-        try { Directory.Delete(SessionDir(sessionId), recursive: true); } catch { }
+        try { Directory.Delete(SessionDir(sessionId), recursive: true); } catch { /* ignored */ }
     }
 
     bool Has(string sessionId, string name) {
@@ -84,7 +84,7 @@ sealed class TaskListNudgeLedger(ConfigRoot config) {
             var dir = SessionDir(sessionId);
             Directory.CreateDirectory(dir);
             File.WriteAllText(Path.Combine(dir, name), "");
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     static string PairingName(PlanTaskState task, string status) => $"pair-{task.TaskId}-{status}";

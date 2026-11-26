@@ -11,55 +11,26 @@ namespace Capacitor.Cli.Daemon.Harness.Antigravity;
 
 /// <summary>
 /// The per-launch isolated <c>HOME</c> for an unattended Antigravity (<c>agy</c>) reviewer.
-///
-/// <para><b>Four load-bearing jobs, not tidiness.</b></para>
-/// <para>1. <b>Capture stays single-lane.</b> A probe confirmed <c>agy -p</c> really does load and
-/// fire the kcap capture hooks it finds at <c>{HOME}/.gemini/config/plugins/kcap/hooks.json</c> — so
-/// pointing a reviewer at the operator's real <c>HOME</c> would spawn a second watcher against the
-/// SAME conversation the daemon is already recording, double-capturing it. This home never writes
-/// that plugin directory, so the hook has nothing to load.</para>
-/// <para>2. <b>No nested review flows.</b> Without a global <c>{HOME}/.gemini/config/mcp_config.json</c>,
-/// the operator's <c>kcap-flows</c> server is absent, so a reviewer cannot start its own review flow —
-/// the same reasoning <see cref="KiroReviewerHome"/> documents for Kiro's global <c>mcp.json</c>.</para>
-/// <para>3. <b>Isolation.</b> The reviewer's own conversation state — <c>brain/</c>, <c>conversations/*.db</c>,
-/// settings — lands under this HOME rather than the operator's real agy state.</para>
-/// <para>4. <b>No hook ⇒ no watcher ⇒ nothing to leak.</b> A fired capture hook spawns a <c>kcap watch</c>
-/// child; on an unfixed build that child inherits pipe descriptors and keeps the agent's OWN STDOUT
-/// open after the agent process exits — measured at 5s to files versus still hung at 10 minutes to a
-/// pipe. This runtime parses <c>agy</c>'s NDJSON from stdout once per turn, so that hang would block
-/// every turn forever. This is why "just reuse the operator's real HOME" is not an available
-/// simplification: an empty-of-hooks HOME is what keeps that failure mode structurally unreachable,
-/// not something a code fix in the descriptor-leak path alone would close for a reviewer launch.</para>
-///
-/// <para><b>Where this differs from Kiro's home.</b> <see cref="KiroReviewerHome"/> stays literally
-/// empty — Kiro reads its injected result-channel server off <c>session/new</c> directly. Antigravity
-/// does not: this home carries a WRITTEN <c>mcp_config.json</c> holding only the injected servers
-/// (in practice, the single <c>kcap-flow-result</c> submission channel) — job 2 above is what makes
-/// writing that file safe: it replaces the operator's global file rather than merging into it, so the
-/// reviewer's MCP surface is exactly the injected list, never the operator's own servers plus it. The
-/// plugin directory job 1 depends on must still never exist, and creation verifies that rather than
-/// assuming it.</para>
-///
-/// <para><b>And a review home carries a second file, for the same reason.</b> Kiro trusts its injected
-/// tools through launch argv (<see cref="KiroReviewerTrustList"/>); <c>agy</c> has no such flag, and
-/// <c>agy -p</c> auto-denies every tool confirmation it cannot prompt a human for — so a home that
-/// injects the result channel and grants nothing produces a reviewer that reads, reasons, and can never
-/// report. The <c>settings.json</c> written into <c>.gemini/antigravity-cli/</c> (a DIFFERENT file from
-/// the <c>mcp_config.json</c> above) carries the <c>permissions.allow</c> rules that close it; see
-/// <see cref="WriteSettings"/> and <see cref="AntigravityReviewerPermissions"/>.</para>
-///
-/// <para><b>Why disposal is a security requirement, not hygiene.</b> The reviewer's own conversation
-/// JSONL (<c>brain/&lt;id&gt;/.system_generated/logs/transcript_full.jsonl</c>, see
-/// <see cref="AntigravityPaths"/>) carries the caller's diff, source excerpts and findings. The home
-/// is read-EMPTY-of-operator-config but write-SENSITIVE, on a host that may serve several callers.</para>
-///
-/// <para><b>The root is per daemon, and that is load-bearing</b> — same reasoning as
-/// <see cref="KiroReviewerHome"/>: a shared root's "delete every home whose epoch is not mine" rule
-/// would delete a peer daemon's CURRENT, LIVE home, because a peer's epoch is never this daemon's.
-/// Per-daemon roots remove the question instead of adjudicating it.</para>
+/// <para>It never holds the kcap capture plugin, which <c>agy -p</c> loads from
+/// <c>{HOME}/.gemini/config/plugins/kcap/</c>: a fired hook would capture the conversation twice, and
+/// its watcher child can hold <c>agy</c>'s stdout open after exit, hanging every turn. Creation
+/// verifies the plugin directory is absent.</para>
+/// <para>Its written <c>mcp_config.json</c> holds only the injected servers and replaces the operator's
+/// global file, so <c>kcap-flows</c> is absent and a reviewer cannot start nested flows. Its
+/// <c>.gemini/antigravity-cli/settings.json</c> pins Default mode, which auto-denies every
+/// confirmation, and grants those tools so the reviewer can still report (see
+/// <see cref="WriteSettings"/>).</para>
+/// <para>Disposal is a security requirement: the reviewer's transcript under <c>brain/</c> carries the
+/// caller's diff and findings. The root is per daemon, because a shared root's "delete every home not of
+/// my epoch" rule would delete a peer daemon's live home.</para>
 /// </summary>
 internal static class AntigravityReviewerHome {
     const string Prefix = "kcap-antigravity-reviewer-";
+
+    internal const string AgentModeKey = "agentMode";
+
+    /// <summary>agy's spelling of Default mode; see <see cref="WriteSettings"/>.</summary>
+    internal const string DefaultAgentMode = "";
 
     /// <summary>This daemon's own reviewer-home root. Never shared with a peer daemon.</summary>
     internal static string RootFor(string stateDir) => Path.Combine(stateDir, "antigravity-reviewers");
@@ -72,7 +43,7 @@ internal static class AntigravityReviewerHome {
     /// <summary>
     /// Creates an owner-only home carrying a fresh <c>mcp_config.json</c> for
     /// <paramref name="injected"/>, and — for an unattended review — the <c>settings.json</c> that
-    /// grants those servers' tools. Never seeds the kcap plugin directory — that absence is what job
+    /// pins Default mode and grants those servers' tools. Never seeds the kcap plugin directory — that absence is what job
     /// 1 above depends on, so it is verified after writing rather than assumed.
     /// </summary>
     /// <param name="grantInjectedMcpTools">Whether this launch's injected MCP tools need
@@ -153,7 +124,7 @@ internal static class AntigravityReviewerHome {
     /// <summary>This home's Antigravity layout, derived from the home directory alone. The null
     /// override is load-bearing: <c>GEMINI_CLI_HOME</c> REPLACES the Gemini root, so honouring it
     /// here would resolve every file below outside the isolated home.</summary>
-    static AntigravityPaths LayoutFor(string home) => new AntigravityPaths(new(home), null);
+    static AntigravityPaths LayoutFor(string home) => new(new(home), null);
 
     /// <summary>Writes <c>{home}/.gemini/config/mcp_config.json</c> — the plain, trust-less
     /// <c>mcpServers</c> shape (<c>McpConfigShape.Standard</c>) — holding only <paramref name="injected"/>.
@@ -190,16 +161,19 @@ internal static class AntigravityReviewerHome {
 
     /// <summary>
     /// Writes <c>{home}/.gemini/antigravity-cli/settings.json</c> — the <c>agy</c> CLI's OWN settings
-    /// file, a different file from the <c>mcp_config.json</c> above — carrying nothing but the
-    /// <c>permissions.allow</c> rules for <paramref name="injected"/>.
+    /// file, a different file from the <c>mcp_config.json</c> above — carrying the reviewer's agent
+    /// mode and the <c>permissions.allow</c> rules for <paramref name="injected"/>.
     ///
-    /// <para><b>Injecting a server is only half of a usable reviewer.</b> <c>agy -p</c> has no human to
-    /// answer a tool confirmation, so it auto-denies every one it raises — and the reviewer's result
-    /// channel IS an MCP tool, which made the one call each round depends on the one call print mode
-    /// refused. Measured: the conversation stopped at <c>PLANNER_RESPONSE</c> with no <c>TOOL_CALL</c>,
-    /// agy logged <c>user denied permission for mcp</c>, and every round hung to the flow's timeout. See
-    /// <see cref="AntigravityReviewerPermissions"/> for the rule form and why not
-    /// <c>--dangerously-skip-permissions</c>.</para>
+    /// <para><b><c>"agentMode": ""</c> is the reviewer's containment.</b> With no saved mode agy starts
+    /// headless runs in Auto, which edits files, runs shell commands, and reads and creates files
+    /// outside the workspace without asking. The empty string selects Default, where every confirmation
+    /// is auto-denied: in-workspace reads and the allow-listed tools below still go through, an
+    /// out-of-workspace read is refused. <c>--mode</c> offers no Default value, so it is set here.</para>
+    ///
+    /// <para><b>Injecting a server is only half of a usable reviewer.</b> Default mode auto-denies the
+    /// reviewer's result channel too, since it IS an MCP tool, so a round would hang to the flow
+    /// timeout without the allow-rules. See <see cref="AntigravityReviewerPermissions"/> for the rule
+    /// form.</para>
     ///
     /// <para>Same fresh-write-into-a-fresh-directory shape as <see cref="WriteMcpConfig"/>: the whole
     /// file is this launch's content, so there is no operator config to merge with — which is also what
@@ -216,7 +190,10 @@ internal static class AntigravityReviewerHome {
         // half-written grant would be worse than one carrying none.
         foreach (var rule in AntigravityReviewerPermissions.AllowRulesFor(injected)) allow.Add((JsonNode?)rule);
 
-        var root = new JsonObject { ["permissions"] = new JsonObject { ["allow"] = allow } };
+        var root = new JsonObject {
+            [AgentModeKey] = (JsonNode?)DefaultAgentMode,
+            ["permissions"] = new JsonObject { ["allow"] = allow },
+        };
         File.WriteAllText(pathFull, root.ToJsonString());
     }
 

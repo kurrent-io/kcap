@@ -18,7 +18,7 @@ internal sealed class LaunchConsentIpc(
             // otherwise prompt-mode launches would wait the full timeout for nobody.
             _ = Task.Run(async () => {
                 try { while (await FrameCodec.ReadAsync(stream, cts.Token) is not null) { } }
-                catch { }
+                catch { /* ignored */ }
                 // The enclosing `using` can dispose this CTS (method already returned via the
                 // ReadAllAsync loop completing some other way) before this fire-and-forget task
                 // gets here — Cancel() on an already-disposed CTS throws ObjectDisposedException,
@@ -46,7 +46,7 @@ internal sealed class LaunchConsentIpc(
             // explicitly so a malformed-but-parseable payload acks false instead of throwing
             // (an uncaught exception here drops the connection with no ConsentAck at all).
             if (dto is null || string.IsNullOrEmpty(dto.RequestId) || dto.Decision is not ("allow" or "deny")
-                    || (dto.SaveRule is { } saveRuleShape && saveRuleShape.Action is null)) {
+                    || dto.SaveRule is { Action: null }) {
                 ack = new ConsentAckDto(false, "invalid resolve payload (decision must be allow|deny)", null);
             } else if (requireEcho && string.IsNullOrEmpty(dto.PromptId)) {
                 // V2 contract: the identity echo is mandatory — an id-only resolve is exactly the

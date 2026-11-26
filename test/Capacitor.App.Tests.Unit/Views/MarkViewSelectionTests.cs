@@ -113,6 +113,48 @@ public class MarkViewSelectionTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public async Task Copying_across_a_link_chip_copies_its_address_and_the_rest_of_the_block() {
+        await RunOnUiAsync(async () => {
+            var (window, view, _) = Show("- see https://github.com/kurrent-io/kcap/issues/7 too\n\nThen https://github.com/kurrent-io/kcap/pull/2625 now.");
+            try {
+                view.SelectAll();
+                await Assert.That(await Copied(view)).IsEqualTo(
+                    "• see https://github.com/kurrent-io/kcap/issues/7 too\nThen https://github.com/kurrent-io/kcap/pull/2625 now.");
+            } finally { window.Close(); }
+        });
+    }
+
+    /// An object replacement character the writer typed is text, not a stand-in for a chip.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_typed_object_replacement_character_copies_as_itself() {
+        await RunOnUiAsync(async () => {
+            var (window, view, _) = Show("odd \uFFFC then https://github.com/kurrent-io/kcap/pull/2625 now");
+            try {
+                view.SelectAll();
+                await Assert.That(await Copied(view)).IsEqualTo("odd \uFFFC then https://github.com/kurrent-io/kcap/pull/2625 now");
+            } finally { window.Close(); }
+        });
+    }
+
+    /// The chip is one character of its block's layout, so the text after it is where the pointer puts it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Text_after_a_link_chip_copies_from_where_the_drag_starts() {
+        await RunOnUiAsync(async () => {
+            var (window, view, _) = Show("See https://github.com/kurrent-io/kcap/pull/2625 now and later");
+            try {
+                var block = Paragraphs(view).Single();
+                var from = block.TextLayout.HitTestTextPosition(6).X + 0.5;
+                var end = block.TextLayout.HitTestTextPosition(19).X;
+                Drag(window, At(window, block, from), At(window, block, end - 2), At(window, block, end + 0.5));
+                await Assert.That(await Copied(view)).IsEqualTo("now and later");
+            } finally { window.Close(); }
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public async Task A_double_click_selects_the_line_under_the_pointer() {
         await RunOnUiAsync(async () => {
             var (window, view, _) = Show("First paragraph here.\n\nSecond one, clicked.\n\nThird.");
@@ -253,6 +295,24 @@ public class MarkViewSelectionTests {
                 window.MouseMove(At(window, BlockReading(view, "Nearby text"), 30), RawInputModifiers.LeftMouseButton);
                 await Assert.That(MarkViewSelection.HasSelection(Viewer(view))).IsFalse();
                 window.MouseUp(start, MouseButton.Left);
+            } finally { window.Close(); }
+        });
+    }
+
+    /// The viewer and the markdown count blocks reading the same alike, code blocks included, so a
+    /// right-click on a list item finds the list it was made on.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_block_counts_the_blocks_before_it_that_read_the_same_as_the_markdown_does() {
+        await RunOnUiAsync(async () => {
+            var (window, view, _) = Show(MarkdownListsTests.CodeThenTwoLists);
+            try {
+                var viewer = Viewer(view);
+                var firstList = All<TextBlock>(view).Where(t => Reads(t) == "Retry").SkipLast(1).Last();
+                var block = MarkViewSelection.BlockAt(viewer, firstList.TranslatePoint(new Point(2, 2), viewer)!.Value);
+                await Assert.That(block).IsNotNull();
+                await Assert.That(MarkdownLists.ItemsAround(MarkdownListsTests.CodeThenTwoLists, block!.Value.Text, block.Value.Occurrence))
+                    .IsEquivalentTo(["Retry", "Lock order"]);
             } finally { window.Close(); }
         });
     }

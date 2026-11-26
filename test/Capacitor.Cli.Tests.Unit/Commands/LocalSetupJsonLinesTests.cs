@@ -75,11 +75,11 @@ internal sealed class LocalSetupJsonLinesTests {
         yield return () => (new LocalInstallEvent.EmbeddingBuiltinConfigured("mxbai-embed-large"),
             """{"v":1,"event":"embeddings_configured","provider":"builtin","replaced_model":"mxbai-embed-large"}""");
         yield return () => (new LocalInstallEvent.EmbeddingBuiltinRemoved("/r/models", 2_097_152, 0),
-            """{"v":1,"event":"embeddings_builtin_removed","bytes":2097152,"path":"/r/models","message":"Removed the built-in search model from /r/models, freeing 2 MB."}""");
+            """{"v":1,"event":"embeddings_builtin_removed","bytes":2097152,"bytes_left":0,"path":"/r/models","message":"Removed the built-in search model from /r/models, freeing 2 MB."}""");
         yield return () => (new LocalInstallEvent.EmbeddingBuiltinRemoved("/r/models", 1_048_576, 2_097_152),
-            """{"v":1,"event":"embeddings_builtin_removed","bytes":1048576,"path":"/r/models","message":"The built-in search model in /r/models was only partly removed, freeing 1 MB and leaving 2 MB; kcap setup --local removes the rest once nothing holds it open."}""");
+            """{"v":1,"event":"embeddings_builtin_removed","bytes":1048576,"bytes_left":2097152,"path":"/r/models","message":"The built-in search model in /r/models was only partly removed, freeing 1 MB and leaving 2 MB; kcap setup --local removes the rest once nothing holds it open."}""");
         yield return () => (new LocalInstallEvent.EmbeddingBuiltinRemoved("/r/models", 0, 3_145_728),
-            """{"v":1,"event":"embeddings_builtin_removed","bytes":0,"path":"/r/models","message":"The built-in search model in /r/models (3 MB) could not be removed; kcap setup --local removes it once nothing holds it open."}""");
+            """{"v":1,"event":"embeddings_builtin_removed","bytes":0,"bytes_left":3145728,"path":"/r/models","message":"The built-in search model in /r/models (3 MB) could not be removed; kcap setup --local removes it once nothing holds it open."}""");
         yield return () => (new LocalInstallEvent.EmbeddingsSkipped(LocalEmbeddingSkipCode.BuiltinUnavailable, "No model."),
             """{"v":1,"event":"embeddings_skipped","code":"builtin_unavailable","message":"No model."}""");
         yield return () => (new LocalInstallEvent.EmbeddingsSkipped(LocalEmbeddingSkipCode.ModelDownloadFailed, "Failed."),
@@ -106,6 +106,16 @@ internal sealed class LocalSetupJsonLinesTests {
     public async Task An_upgrade_failure_says_whether_the_new_version_is_selected() =>
         await Assert.That(LocalSetupJsonLines.Failed(LocalInstallFailureCode.StartFailed, "It did not start.", switched: true))
                     .IsEqualTo("""{"v":1,"event":"failed","code":"start_failed","message":"It did not start.","switched":true}""");
+
+    [Test]
+    public async Task A_client_refusal_sends_the_blocking_copy_as_structured_fields() {
+        var copy = new ClientCopy(ClientCopyKind.DesktopApp, "/Applications/kcap.app/Contents/MacOS/kcap", "1.2.0");
+        var line = LocalSetupJsonLines.Failed(LocalInstallFailureCode.ClientBelowFloor, "Update kcap.", blockingClient: copy);
+        using var document = System.Text.Json.JsonDocument.Parse(line);
+
+        await Assert.That(document.RootElement.GetProperty("path").GetString()).IsEqualTo(copy.Path);
+        await Assert.That(document.RootElement.GetProperty("client_is_desktop_app").GetBoolean()).IsTrue();
+    }
 
     public static IEnumerable<Func<(Exception Error, LocalInstallFailureCode Code)>> Failures() {
         yield return () => (new LocalInstallFailure(LocalInstallFailureCode.NotOurServer, "x"), LocalInstallFailureCode.NotOurServer);

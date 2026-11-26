@@ -15,15 +15,13 @@ public class PluginCommandSharedSkillsTests {
     [TempHome] public required TempHome Home   { get; init; }
     [TempDir]  public required TempDir  BinDir { get; init; }
 
-    PluginEnvironment? _env;
-
     PluginEnvironment Env {
         get {
-            if (_env is not null) return _env;
+            if (field is not null) return field;
 
             var binaries = TestBinaries.Searching(BinDir, "kcap");
 
-            return _env = new PluginEnvironment(
+            return field = new PluginEnvironment(
                 Home:              new(Home.Path),
                 Profiles:          new ProfileConfig(),
                 ResolvePluginPath: RepoTree.KcapDir,

@@ -93,37 +93,32 @@ public sealed class ConsentPromptViewModel : ReactiveObject, IActivatableViewMod
     /// ViewModel owns no window.
     public IObservable<Unit> CloseRequested => _closeRequested.AsObservable();
 
-    PendingConsent? _current;
     /// The pinned request — the ONLY thing rendered. Null when the queue is empty.
     public PendingConsent? Current {
-        get => _current;
-        private set => this.RaiseAndSetIfChanged(ref _current, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    ConsentPromptPhase _phase;
     public ConsentPromptPhase Phase {
-        get => _phase;
-        private set => this.RaiseAndSetIfChanged(ref _phase, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    string? _phaseText;
     /// Terminal-state line: "Already decided" with its rule-side-effect disclosure, or a
     /// rule-not-saved warning being held on screen. Null while the request is still answerable.
     public string? PhaseText {
-        get => _phaseText;
-        private set => this.RaiseAndSetIfChanged(ref _phaseText, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    string _positionText = "";
     public string PositionText {
-        get => _positionText;
-        private set => this.RaiseAndSetIfChanged(ref _positionText, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
-    bool _positionVisible;
     public bool PositionVisible {
-        get => _positionVisible;
-        private set => this.RaiseAndSetIfChanged(ref _positionVisible, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     readonly ObservableAsPropertyHelper<string> _requesterText;
@@ -414,10 +409,7 @@ public sealed class ConsentPromptViewModel : ReactiveObject, IActivatableViewMod
     static string? RuleWarning(ConsentResolveOutcome outcome) =>
         outcome.Kind is not (ConsentResolveKind.AppliedRuleRejected or ConsentResolveKind.RuleSkippedNoRequester) ? null
         : outcome.RuleOutcome == ConsentRuleOutcome.Unknown ? UnknownRuleCopy
-        : $"Decision applied — rule not saved: {RuleFailureReason(outcome)}";
-
-    static string RuleFailureReason(ConsentResolveOutcome outcome) =>
-        !string.IsNullOrEmpty(outcome.Error)                                ? outcome.Error
-        : outcome.RuleOutcome == ConsentRuleOutcome.SkippedNoRequester      ? "the request had no requester identity"
-        : "the daemon didn't say why";
+        : outcome.RuleOutcome == ConsentRuleOutcome.SkippedNoRequester
+            ? "Decision applied. The rule couldn’t be saved because the request didn’t identify who made it."
+            : "Decision applied, but the rule couldn’t be saved. Open Launch Approvals to check your rules.";
 }

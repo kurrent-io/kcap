@@ -220,7 +220,7 @@ public sealed class GitHubCliReaderProvider(GitHubCliRunner cli, TimeProvider ti
         if (page is null) return Invalid<PullRequestPageDto<PullRequestCommentDto>>(subject);
         if (!page.Found) return new(PullRequestReadKind.Unavailable, Subject: subject, Reason: "not_found", AccessFailure: "invalid");
         cursor ??= _cursors.Mint(entry);
-        var more = page.HasNext && page.EndCursor is not null && page.Comments.Length > 0;
+        var more = page is { HasNext: true, EndCursor: not null, Comments.Length: > 0 };
         var data = new PullRequestPageDto<PullRequestCommentDto> {
             SnapshotId = entry.SnapshotId, SnapshotStartedAt = entry.StartedAt, SnapshotCompletedAt = Now, Coverage = "complete",
             Total = new() { Kind = "exact", Value = page.Total }, ExcludedByFilter = new() { Kind = "exact", Value = 0 },

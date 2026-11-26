@@ -2,11 +2,13 @@ using System.Text.Json;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Recording;
+using Microsoft.Extensions.Time.Testing;
 using TUnit.Core.Enums;
 
 namespace Capacitor.Cli.Tests.Unit;
 
 [ExcludeOn(OS.Windows)] // Unix-domain socket path
+[Timeout(120_000)]
 public class LocalDaemonRecordingTests {
     const string DaemonName = "daemon-a";
 
@@ -20,7 +22,7 @@ public class LocalDaemonRecordingTests {
 
     TerminalHandOff Terminal(ProcessIncarnation? process = null, string daemonName = DaemonName) => new(
         daemonName, "work", "https://kcap.example", "/config", "/config/watchers",
-        transcript => {
+        _ => {
             _reads++;
 
             return "/home/claude";
@@ -31,8 +33,11 @@ public class LocalDaemonRecordingTests {
             return follows is { } pid ? new ProcessIncarnation(pid, "test:followed") : process;
         });
 
+    /// <summary>The terminal hello wait runs on a clock nothing advances, so however a loaded host stalls a fake daemon's
+    /// hello still counts; the class's test timeout fails one that never answers. The wait's own length is pinned in
+    /// RecordingIpcTests.</summary>
     LocalDaemonRecording Client(HostedAgent? hosted = null, string? daemonName = DaemonName, TerminalHandOff? terminal = null) =>
-        new(Daemons.Store, hosted ?? Hosted, daemonName, terminal);
+        new(Daemons.Store, hosted ?? Hosted, daemonName, terminal, new FakeTimeProvider());
 
     /// <summary>A daemon on its socket with its recording marker written, as one with recording on leaves it.</summary>
     FakeRecordingDaemon Daemon(params string[] capabilities) {
@@ -42,10 +47,10 @@ public class LocalDaemonRecordingTests {
     }
 
     [Test]
-    public async Task A_hosted_hook_names_its_agent_and_the_source() {
+    public async Task A_hosted_hook_names_its_agent_and_the_source(CancellationToken ct) {
         await using var daemon = Daemon();
 
-        await Assert.That(await Client().TryRecordAsync(Source, skipTitle: true, follows: null, CancellationToken.None)).IsEqualTo(RecordingHandOver.Taken);
+        await Assert.That(await Client().TryRecordAsync(Source, skipTitle: true, follows: null, ct)).IsEqualTo(RecordingHandOver.Taken);
 
         var sent = JsonSerializer.Deserialize(daemon.Received[^1].Text, RecordingIpcJsonContext.Default.RecordSourceDto);
         await Assert.That(sent).IsEqualTo(new RecordSourceDto("agent-7", "session-1", "sub-1", "/t.jsonl", "claude", "/repo", true));
@@ -53,10 +58,10 @@ public class LocalDaemonRecordingTests {
 
     /// <summary>The daemon holds every one of these against its own, since a terminal session has no agent to tie it to.</summary>
     [Test]
-    public async Task A_terminal_hook_names_what_it_resolved_to_the_daemon_of_its_profile() {
+    public async Task A_terminal_hook_names_what_it_resolved_to_the_daemon_of_its_profile(CancellationToken ct) {
         await using var daemon = Daemon(RecordingIpc.TerminalCapability);
 
-        var handOver = await Client(HostedAgent.Terminal, daemonName: null, Terminal(Claude)).TryRecordAsync(Source, skipTitle: true, follows: null, CancellationToken.None);
+        var handOver = await Client(HostedAgent.Terminal, daemonName: null, Terminal(Claude)).TryRecordAsync(Source, skipTitle: true, follows: null, ct);
 
         await Assert.That(handOver).IsEqualTo(RecordingHandOver.Taken);
         await Assert.That(daemon.ReceivedTypes).IsEquivalentTo([FrameType.Hello, FrameType.RecordTerminalSource]);
@@ -68,10 +73,10 @@ public class LocalDaemonRecordingTests {
 
     /// <summary>A successor armed for a resumed session follows the process the session moved to, not the hook's own.</summary>
     [Test]
-    public async Task A_terminal_source_follows_the_process_its_caller_names() {
+    public async Task A_terminal_source_follows_the_process_its_caller_names(CancellationToken ct) {
         await using var daemon = Daemon(RecordingIpc.TerminalCapability);
 
-        await Client(HostedAgent.Terminal, daemonName: null, Terminal(Claude)).TryRecordAsync(Source, false, follows: 777, CancellationToken.None);
+        await Client(HostedAgent.Terminal, daemonName: null, Terminal(Claude)).TryRecordAsync(Source, false, follows: 777, ct);
 
         var sent = JsonSerializer.Deserialize(daemon.Received[^1].Text, RecordingIpcJsonContext.Default.RecordTerminalSourceDto)!;
         await Assert.That((sent.ProcessId, sent.ProcessToken)).IsEqualTo((777, "test:followed"));
@@ -82,10 +87,10 @@ public class LocalDaemonRecordingTests {
     [Test]
     [Arguments("status/1")]
     [Arguments(RecordingIpc.Capability)]
-    public async Task A_daemon_that_takes_no_terminal_session_costs_the_hook_its_hello(string capability) {
+    public async Task A_daemon_that_takes_no_terminal_session_costs_the_hook_its_hello(string capability, CancellationToken ct) {
         await using var daemon = Daemon(capability);
 
-        var handOver = await Client(HostedAgent.Terminal, daemonName: null, Terminal(Claude)).TryRecordAsync(Source, false, null, CancellationToken.None);
+        var handOver = await Client(HostedAgent.Terminal, daemonName: null, Terminal(Claude)).TryRecordAsync(Source, false, null, ct);
 
         await Assert.That(handOver).IsEqualTo(RecordingHandOver.Declined);
         await Assert.That(daemon.ReceivedTypes).IsEquivalentTo([FrameType.Hello]);
@@ -94,11 +99,11 @@ public class LocalDaemonRecordingTests {
 
     /// <summary>No marker is a daemon with recording off, which a terminal hook never opens a socket to.</summary>
     [Test]
-    public async Task A_terminal_hook_asks_no_daemon_that_left_no_recording_marker() {
+    public async Task A_terminal_hook_asks_no_daemon_that_left_no_recording_marker(CancellationToken ct) {
         await using var daemon = Daemon(RecordingIpc.TerminalCapability);
         DaemonRecordingMarker.Delete(Daemons.Store, DaemonName);
 
-        var handOver = await Client(HostedAgent.Terminal, daemonName: null, Terminal(Claude)).TryRecordAsync(Source, false, null, CancellationToken.None);
+        var handOver = await Client(HostedAgent.Terminal, daemonName: null, Terminal(Claude)).TryRecordAsync(Source, false, null, ct);
 
         await Assert.That(handOver).IsEqualTo(RecordingHandOver.Declined);
         await Assert.That(daemon.Received).IsEmpty();
@@ -108,20 +113,20 @@ public class LocalDaemonRecordingTests {
     /// <summary>Nothing would end a source with no process behind it, so the hook keeps its watcher, whose parent monitor
     /// has the same blind spot it always had.</summary>
     [Test]
-    public async Task A_terminal_hook_with_no_process_to_follow_hands_nothing_over() {
+    public async Task A_terminal_hook_with_no_process_to_follow_hands_nothing_over(CancellationToken ct) {
         await using var daemon = Daemon(RecordingIpc.TerminalCapability);
 
-        var handOver = await Client(HostedAgent.Terminal, daemonName: null, Terminal(process: null)).TryRecordAsync(Source, false, null, CancellationToken.None);
+        var handOver = await Client(HostedAgent.Terminal, daemonName: null, Terminal(process: null)).TryRecordAsync(Source, false, null, ct);
 
         await Assert.That(handOver).IsEqualTo(RecordingHandOver.Declined);
         await Assert.That(daemon.ReceivedTypes).IsEquivalentTo([FrameType.Hello]);
     }
 
     [Test]
-    public async Task A_terminal_hook_asks_only_the_daemon_its_profile_names() {
+    public async Task A_terminal_hook_asks_only_the_daemon_its_profile_names(CancellationToken ct) {
         await using var daemon = Daemon(RecordingIpc.TerminalCapability);
 
-        var handOver = await Client(HostedAgent.Terminal, daemonName: null, Terminal(Claude, daemonName: "daemon-b")).TryRecordAsync(Source, false, null, CancellationToken.None);
+        var handOver = await Client(HostedAgent.Terminal, daemonName: null, Terminal(Claude, daemonName: "daemon-b")).TryRecordAsync(Source, false, null, ct);
 
         await Assert.That(handOver).IsNotEqualTo(RecordingHandOver.Taken);
         await Assert.That(daemon.Received).IsEmpty();
@@ -129,87 +134,87 @@ public class LocalDaemonRecordingTests {
 
     /// <summary>A hosted run that names no agent isn't a terminal session.</summary>
     [Test]
-    public async Task A_hosted_run_with_no_agent_id_asks_no_daemon() {
+    public async Task A_hosted_run_with_no_agent_id_asks_no_daemon(CancellationToken ct) {
         await using var daemon = Daemon(RecordingIpc.TerminalCapability);
         var unnamed = HostedAgent.Terminal with { Kind = HostedSessionKind.HostedAgent };
 
-        await Assert.That(await Client(unnamed, daemonName: null, Terminal(Claude)).TryRecordAsync(Source, false, null, CancellationToken.None)).IsEqualTo(RecordingHandOver.Unanswered);
+        await Assert.That(await Client(unnamed, daemonName: null, Terminal(Claude)).TryRecordAsync(Source, false, null, ct)).IsEqualTo(RecordingHandOver.Unanswered);
         await Assert.That(daemon.Received).IsEmpty();
     }
 
     [Test]
-    public async Task Only_Claude_goes_to_the_daemon() {
+    public async Task Only_Claude_goes_to_the_daemon(CancellationToken ct) {
         await using var daemon = Daemon(RecordingIpc.Capability, RecordingIpc.TerminalCapability);
 
-        await Assert.That(await Client().TryRecordAsync(Source with { Vendor = "codex" }, false, null, CancellationToken.None)).IsEqualTo(RecordingHandOver.Unanswered);
-        await Assert.That(await Client(HostedAgent.Terminal, null, Terminal(Claude)).TryRecordAsync(Source with { Vendor = "codex" }, false, null, CancellationToken.None))
+        await Assert.That(await Client().TryRecordAsync(Source with { Vendor = "codex" }, false, null, ct)).IsEqualTo(RecordingHandOver.Unanswered);
+        await Assert.That(await Client(HostedAgent.Terminal, null, Terminal(Claude)).TryRecordAsync(Source with { Vendor = "codex" }, false, null, ct))
             .IsEqualTo(RecordingHandOver.Unanswered);
         await Assert.That(daemon.Received).IsEmpty();
     }
 
     [Test]
-    public async Task A_hook_that_names_no_daemon_asks_none() {
+    public async Task A_hook_that_names_no_daemon_asks_none(CancellationToken ct) {
         await using var daemon = Daemon();
 
-        await Assert.That(await Client(daemonName: null).TryRecordAsync(Source, false, null, CancellationToken.None)).IsEqualTo(RecordingHandOver.Unanswered);
-        await Assert.That(await Client(daemonName: null).FinishSourceAsync("session-1", holder: null, from: null, CancellationToken.None)).IsEqualTo(RecordingFinish.Unanswered);
+        await Assert.That(await Client(daemonName: null).TryRecordAsync(Source, false, null, ct)).IsEqualTo(RecordingHandOver.Unanswered);
+        await Assert.That(await Client(daemonName: null).FinishSourceAsync("session-1", holder: null, from: null, ct)).IsEqualTo(RecordingFinish.Unanswered);
         await Assert.That(daemon.Received).IsEmpty();
     }
 
     /// <summary>A claim says which daemon holds the source, whatever the hook's own environment names.</summary>
     [Test]
-    public async Task A_finish_asks_the_daemon_the_claim_names() {
+    public async Task A_finish_asks_the_daemon_the_claim_names(CancellationToken ct) {
         await using var daemon = Daemon();
         daemon.Answer = RecordingIpc.Finished;
 
-        await Assert.That(await Client(HostedAgent.Terminal, daemonName: null).FinishSourceAsync("session-1", DaemonName, from: null, CancellationToken.None)).IsEqualTo(RecordingFinish.Finished);
+        await Assert.That(await Client(HostedAgent.Terminal, daemonName: null).FinishSourceAsync("session-1", DaemonName, from: null, ct)).IsEqualTo(RecordingFinish.Finished);
     }
 
     [Test]
-    public async Task A_finish_with_no_holder_asks_the_hooks_own_daemon() {
+    public async Task A_finish_with_no_holder_asks_the_hooks_own_daemon(CancellationToken ct) {
         await using var daemon = Daemon();
         daemon.Answer = RecordingIpc.Finished;
 
-        await Assert.That(await Client().FinishSourceAsync("session-1", holder: null, from: null, CancellationToken.None)).IsEqualTo(RecordingFinish.Finished);
-        await Assert.That(await Client(HostedAgent.Terminal, null, Terminal(Claude)).FinishSourceAsync("session-1", holder: null, from: null, CancellationToken.None))
+        await Assert.That(await Client().FinishSourceAsync("session-1", holder: null, from: null, ct)).IsEqualTo(RecordingFinish.Finished);
+        await Assert.That(await Client(HostedAgent.Terminal, null, Terminal(Claude)).FinishSourceAsync("session-1", holder: null, from: null, ct))
             .IsEqualTo(RecordingFinish.Finished);
     }
 
     /// <summary><c>kcap disable</c> runs in a terminal as often as not, so the claim says who to ask, not the environment.</summary>
     [Test]
-    public async Task A_disable_asks_the_daemon_it_is_told_to_from_outside_an_agent() {
+    public async Task A_disable_asks_the_daemon_it_is_told_to_from_outside_an_agent(CancellationToken ct) {
         await using var daemon = new FakeRecordingDaemon(Daemons.Store.SocketPath(DaemonName), RecordingIpc.DisableCapability) {
             Answer = JsonSerializer.Serialize(new DisableSessionAckDto(RecordingIpc.Stopped, false, null), RecordingIpcJsonContext.Default.DisableSessionAckDto),
         };
 
-        var answer = await Client(HostedAgent.Terminal, daemonName: null).DisableSessionAsync(DaemonName, "session-1", CancellationToken.None);
+        var answer = await Client(HostedAgent.Terminal, daemonName: null).DisableSessionAsync(DaemonName, "session-1", ct);
 
         await Assert.That(answer.Outcome).IsEqualTo(RecordingDisable.Stopped);
     }
 
-    Task<RecordingDisableAnswer> DisableAsync() =>
-        Client(HostedAgent.Terminal, daemonName: null).DisableSessionAsync(DaemonName, "session-1", CancellationToken.None);
+    Task<RecordingDisableAnswer> DisableAsync(CancellationToken ct) =>
+        Client(HostedAgent.Terminal, daemonName: null).DisableSessionAsync(DaemonName, "session-1", ct);
 
     /// <summary>A pid file naming a live daemon, with nothing on its socket, is that daemon starting up: it may restore
     /// the session once it binds, so the stop can't be called confirmed.</summary>
     [Test]
-    public async Task A_live_daemon_with_nothing_on_its_socket_is_silent_to_a_disable() {
+    public async Task A_live_daemon_with_nothing_on_its_socket_is_silent_to_a_disable(CancellationToken ct) {
         Daemons.Store.EnsureDirectory();
-        await File.WriteAllTextAsync(Daemons.Store.PidPath(DaemonName), $"{Environment.ProcessId}\n{PidIdentity.Capture(Environment.ProcessId)}");
+        await File.WriteAllTextAsync(Daemons.Store.PidPath(DaemonName), $"{Environment.ProcessId}\n{PidIdentity.Capture(Environment.ProcessId)}", ct);
 
-        await Assert.That((await DisableAsync()).Outcome).IsEqualTo(RecordingDisable.Silent);
+        await Assert.That((await DisableAsync(ct)).Outcome).IsEqualTo(RecordingDisable.Silent);
     }
 
     /// <summary>Between the old process and its successor there is no live pid, and the queued restart says one is coming.</summary>
     [Test]
-    public async Task A_daemon_with_a_restart_queued_and_nothing_on_its_socket_is_silent_to_a_disable() {
+    public async Task A_daemon_with_a_restart_queued_and_nothing_on_its_socket_is_silent_to_a_disable(CancellationToken ct) {
         DaemonRestartMarker.Write(Daemons.Store, DaemonName, new DaemonRestartMarker("1.0.0", DaemonRestartMarker.SelfDetected, DateTimeOffset.UnixEpoch));
 
-        await Assert.That((await DisableAsync()).Outcome).IsEqualTo(RecordingDisable.Silent);
+        await Assert.That((await DisableAsync(ct)).Outcome).IsEqualTo(RecordingDisable.Silent);
     }
 
     /// <summary>No daemon at all is the common case, and it leaves nothing to doubt.</summary>
     [Test]
-    public async Task No_daemon_at_all_is_no_socket_to_a_disable() =>
-        await Assert.That((await DisableAsync()).Outcome).IsEqualTo(RecordingDisable.NoSocket);
+    public async Task No_daemon_at_all_is_no_socket_to_a_disable(CancellationToken ct) =>
+        await Assert.That((await DisableAsync(ct)).Outcome).IsEqualTo(RecordingDisable.NoSocket);
 }

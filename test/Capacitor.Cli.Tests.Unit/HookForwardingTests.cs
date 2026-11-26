@@ -62,8 +62,7 @@ public class PostWithRetryTests : IDisposable {
 public class InlineDrainTests : IDisposable {
     [TempConfigRoot] public required TempConfigRoot Config { get; init; }
 
-    WatcherManager? _watchers;
-    WatcherManager  Watchers => _watchers ??= TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient());
+    WatcherManager  Watchers => field ??= TestWatchers.For(Config.Root, Resolutions.At(_server.Url!, Config.Root), new FixedCapacitorHttpClient());
 
     readonly WireMockServer _server = WireMockServer.Start();
 
@@ -99,11 +98,57 @@ public class InlineDrainTests : IDisposable {
 
         await Assert.That(requests.Count).IsEqualTo(1);
 
-        var root = JsonDocument.Parse(requests[0].RequestMessage.Body!).RootElement;
+        var root = JsonElement.Parse(requests[0].RequestMessage.Body!);
         await Assert.That(root.GetProperty("session_id").GetString()).IsEqualTo(sessionId);
         await Assert.That(root.GetProperty("lines").GetArrayLength()).IsEqualTo(2);
         await Assert.That(root.GetProperty("line_numbers")[0].GetInt32()).IsEqualTo(0);
         await Assert.That(root.GetProperty("line_numbers")[1].GetInt32()).IsEqualTo(1);
+    }
+
+    /// <summary>A watcher stopped before its first batch leaves the session holding no line, and the drain is then the
+    /// only thing that can send the transcript.</summary>
+    [Test]
+    [Arguments(204)]
+    [Arguments(404)]
+    public async Task A_drain_sends_every_line_when_the_server_holds_none(int status) {
+        const string sessionId = "test-session-drain-empty";
+
+        _server.Given(Request.Create().WithPath($"/api/sessions/{sessionId}/last-line").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(status));
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200));
+
+        using var tmp      = new TempDir();
+        var transcriptPath = tmp.CreateFile("transcript.jsonl", [Line, Line, Line]);
+
+        await Watchers.InlineDrainAsync(sessionId, transcriptPath, null);
+
+        var requests = _server.FindLogEntries(Request.Create().WithPath("/hooks/transcript").UsingPost());
+        await Assert.That(requests.Count).IsEqualTo(1);
+
+        var numbers = JsonElement.Parse(requests[0].RequestMessage.Body!).GetProperty("line_numbers")
+            .EnumerateArray().Select(n => n.GetInt32()).ToArray();
+        await Assert.That(numbers).IsEquivalentTo([0, 1, 2]);
+    }
+
+    /// <summary>A deleted session or a refused probe says nothing about which lines the server holds.</summary>
+    [Test]
+    [Arguments(403)]
+    [Arguments(410)]
+    public async Task A_drain_sends_no_line_when_the_server_does_not_say_where_it_is(int status) {
+        const string sessionId = "test-session-drain-unknown";
+
+        _server.Given(Request.Create().WithPath($"/api/sessions/{sessionId}/last-line").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(status));
+        _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200));
+
+        using var tmp      = new TempDir();
+        var transcriptPath = tmp.CreateFile("transcript.jsonl", [Line, Line]);
+
+        await Watchers.InlineDrainAsync(sessionId, transcriptPath, null);
+
+        await Assert.That(_server.FindLogEntries(Request.Create().WithPath("/hooks/transcript").UsingPost())).IsEmpty();
     }
 
     [Test]
@@ -135,7 +180,7 @@ public class InlineDrainTests : IDisposable {
 
         await Assert.That(requests.Count).IsEqualTo(1);
 
-        var root = JsonDocument.Parse(requests[0].RequestMessage.Body!).RootElement;
+        var root = JsonElement.Parse(requests[0].RequestMessage.Body!);
         await Assert.That(root.GetProperty("vendor").GetString()).IsEqualTo("codex");
     }
 
@@ -185,7 +230,7 @@ public class InlineDrainTests : IDisposable {
         await Assert.That(Posts()).IsEquivalentTo([CanonicalRoute.HttpPath]);
 
         var sent   = _server.LogEntries.Single(e => e.RequestMessage.Method == "POST").RequestMessage.Body!;
-        var events = JsonDocument.Parse(sent).RootElement.GetProperty("events");
+        var events = JsonElement.Parse(sent).GetProperty("events");
         await Assert.That(events.EnumerateArray().Select(e => e.GetProperty("event_id").GetGuid())).IsEquivalentTo(expected.Events.Select(e => e.EventId));
         await Assert.That(events.GetRawText()).IsEqualTo(JsonSerializer.Serialize(expected.Events, CapacitorJsonContext.Default.CanonicalBatchEventArray));
     }
@@ -349,7 +394,7 @@ public class InlineDrainTests : IDisposable {
         await watchers.InlineDrainAsync(sessionId, transcriptPath, agentId: null);
 
         return _server.FindLogEntries(Request.Create().WithPath("/hooks/transcript").UsingPost())
-            .Select(request => JsonDocument.Parse(request.RequestMessage.Body!).RootElement)
+            .Select(request => JsonElement.Parse(request.RequestMessage.Body!))
             .ToList();
     }
 }

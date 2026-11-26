@@ -18,6 +18,7 @@ using Capacitor.Cli.Core.Policy;
 using Capacitor.Cli.Daemon.Harness.Antigravity;
 using Capacitor.Cli.Daemon.Harness.Claude;
 using Capacitor.Cli.Daemon.Harness.Codex;
+using Capacitor.Cli.Daemon.Harness.GrokBot;
 using Capacitor.Cli.Daemon.Harness.Kiro;
 using Capacitor.Cli.Daemon.Harness.OpenCode;
 using Capacitor.Cli.Daemon.Harness.Pi;
@@ -26,6 +27,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Capacitor.Cli.Core.Setup;
+using Capacitor.Cli.Recording.Harness.GrokBot;
 
 namespace Capacitor.Cli.Daemon;
 
@@ -48,7 +50,7 @@ public static partial class DaemonRunner {
     /// Answers `--version` before any config, environment or profile work, so a signed binary can
     /// be smoke-run on a machine with no daemon setup.
     internal static bool TryHandleVersionFlag(string[] args, TextWriter stdout) {
-        if (args.Length != 1 || args[0] != "--version") return false;
+        if (args is not ["--version"]) return false;
         stdout.WriteLine($"kcap-daemon {ResolveDaemonVersion()}");
         return true;
     }
@@ -74,6 +76,12 @@ public static partial class DaemonRunner {
 
         // And the same for the home directory, which the two above fall back to.
         var userHome = UserHome.FromEnvironment();
+
+        // Before the snapshot below, and before any agent inherits this process's environment.
+        if (OperatingSystem.IsWindows()
+         && Path.GetDirectoryName(Core.Mcp.KcapBinaryCommand.ResolveCliSibling()) is { } cliDirectory
+         && CliDirectoryOnPath.Appended(Environment.GetEnvironmentVariable("PATH"), cliDirectory) is { } withCli)
+            Environment.SetEnvironmentVariable("PATH", withCli);
 
         // launchd may carry a restricted PATH captured during setup. A live probe shares the
         // refreshed environment with child processes; other platforms keep their startup snapshot.
@@ -679,6 +687,17 @@ public static partial class DaemonRunner {
             isLive: sp.GetRequiredService<AgentOrchestrator>().IsLiveJournalStem));
         builder.Services.AddHostedService(sp => sp.GetRequiredService<TranscriptJournalSweep>());
 
+        builder.Services.AddSingleton<GrokBotWatcher>();
+        builder.Services.AddSingleton(sp => new GrokBotWatcherService(
+            record: async ct => {
+                var (outcome, snapshot) = await AppConfig.TryLoadProfileConfig(configRoot, ct);
+
+                return GrokBotWatcherService.Records(outcome, snapshot, config.Profiles);
+            },
+            watch: (log, ct) => sp.GetRequiredService<GrokBotWatcher>().RunAsync(new GrokBotWatchOptions(), log, ct),
+            time, sp.GetRequiredService<ILogger<GrokBotWatcherService>>()));
+        builder.Services.AddHostedService(sp => sp.GetRequiredService<GrokBotWatcherService>());
+
         var host   = builder.Build();
         var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("kcap.Daemon");
         LogStartupPhase(logger, "host built");
@@ -1086,42 +1105,19 @@ public static partial class DaemonRunner {
         => RunTeardownAsync(logger, BuildDaemonTeardownSteps(daemonLock, orchestrator, connection, host));
 
     /// <summary>
-    /// Builds the production teardown step list. Do NOT reorder: the explicit-dispose-before-
-    /// host-stop sequence is load-bearing (spawner-thread retirement, pinned by
-    /// <c>DaemonHostDisposalTests</c>). <paramref name="orchestrator"/> is nullable because
-    /// cooperative shutdown can land before it was ever resolved (mid <c>host.StartAsync</c>);
-    /// host disposal still releases whatever WAS partially resolved.
+    /// Builds the production teardown steps. Do not reorder: disposing explicitly before host stop retires
+    /// the spawner thread (<c>DaemonHostDisposalTests</c>). <paramref name="orchestrator"/> is null when
+    /// shutdown lands before it was resolved.
     ///
-    /// LIMITATION: <see cref="RunTeardownAsync"/> contains a throw from each STEP, but it cannot
-    /// make the DI container's own dispose walk (inside <see cref="DisposeHostAsync"/>) resilient
-    /// — a tracked singleton whose Dispose/DisposeAsync throws still aborts the container's
-    /// INTERNAL walk partway, silently skipping the remaining singletons. The helper prevents the
-    /// process abort, not partial DI disposal; each disposable must still contain its own
-    /// failures (ServerConnection and AgentOrchestrator now do). The one skip that could strand
-    /// the process — <see cref="UnixSpawnerThread"/>, whose Dispose retires the FOREGROUND thread
-    /// that otherwise keeps a "shut down" daemon alive forever — is closed by the dedicated
-    /// spawner-retire step below, which runs BEFORE host disposal.
+    /// <see cref="RunTeardownAsync"/> contains a throw from each step but not from inside the DI
+    /// container's dispose walk, where one throwing singleton skips the rest; each disposable must contain
+    /// its own failures. <see cref="UnixSpawnerThread"/> is retired in its own step before host disposal
+    /// because its foreground thread would otherwise keep the daemon alive.
     ///
-    /// Structural double-teardown sweep (explicit dispose here + a framework-driven dispose of
-    /// the SAME instance) and why each shape is safe today:
-    ///   • ServerConnection / AgentOrchestrator / UnixSpawnerThread: run-once dispose guards.
-    ///   • DaemonLock: disposed explicitly here AND DI-tracked; its Dispose is idempotent
-    ///     (releases the handle once, subsequent calls no-op).
-    ///   • RestartCoordinator / LocalControlServer / LocalPermissionBridge: registered through
-    ///     TWO singleton descriptors each (<c>AddSingleton&lt;T&gt;()</c> + an
-    ///     <c>AddHostedService</c> factory resolving the same instance). Microsoft DI tracks
-    ///     disposables per DESCRIPTOR and does not de-duplicate by reference, so the container's
-    ///     dispose walk visits each such instance TWICE (LocalPermissionBridge's own
-    ///     <c>_disposed</c> doc documents exactly this). LocalPermissionBridge carries its own
-    ///     run-once guard; RestartCoordinator and LocalControlServer inherit
-    ///     <c>BackgroundService.Dispose</c>, which is safe to re-enter under the current
-    ///     Microsoft.Extensions.Hosting behavior (it only cancels its stopping CTS) — a
-    ///     framework-version assumption.
-    ///
-    /// host-stop/host-dispose stay split because <c>host.StopAsync()</c> only STOPS
-    /// IHostedServices — it does NOT dispose the ServiceProvider, so a plain
-    /// <c>AddSingleton&lt;T&gt;()</c> IDisposable is never released by StopAsync alone; disposing
-    /// the host is what disposes the ServiceProvider and therefore every registered singleton.
+    /// Instances disposed here are disposed again by the container, and RestartCoordinator,
+    /// LocalControlServer and LocalPermissionBridge twice more, since DI tracks disposables per descriptor.
+    /// Each relies on a run-once guard, an idempotent Dispose, or <c>BackgroundService.Dispose</c> being
+    /// safe to re-enter. Host stop does not dispose the ServiceProvider; host dispose does.
     /// </summary>
     internal static (string Name, Func<ValueTask> Action)[] BuildDaemonTeardownSteps(
             IDisposable       daemonLock,
@@ -1827,11 +1823,11 @@ public static partial class DaemonRunner {
             try { drained = Task.WaitAll([stdout, stderr], DrainGraceMs); }
             catch { /* a faulted drain is a miss, same as a timeout */ }
             if (!drained) {
-                try { ProcessTree.Kill(process); } catch { }
+                try { ProcessTree.Kill(process); } catch { /* ignored */ }
                 // Ask the drains to return what they already read. Closing the readers here deadlocks:
                 // a blocked read holds the reader lock that dispose needs.
                 stop.Cancel();
-                try { Task.WaitAll([stdout, stderr], DrainGraceMs); } catch { }
+                try { Task.WaitAll([stdout, stderr], DrainGraceMs); } catch { /* ignored */ }
             }
 
             var output = ResultOrEmpty(stdout).Trim();
@@ -1843,7 +1839,7 @@ public static partial class DaemonRunner {
         } catch {
             return null;
         } finally {
-            try { process?.Dispose(); } catch { }
+            try { process?.Dispose(); } catch { /* ignored */ }
         }
     }
 

@@ -19,6 +19,46 @@ internal sealed class DaemonCommandsServiceInstallTests {
         yield return () => (["--verify", "--retire", "old"], "install --retire requires --replace --verify.");
         yield return () => (["--replace", "--verify", "--retire", "Test-ID"], "--retire names the service being installed; nothing to retire.");
         yield return () => (["--replace", "--verify", "--retire", "***"], "--retire value '***' is not a service id.");
+        yield return () => (["--replace", "--verify", "--retire-profile", "p"], "--retire-profile requires --retire.");
+        yield return () => (["--replace", "--verify", "--retire", "old", "--retire-profile"], "--retire-profile requires a value");
+        yield return () => (["--verify", "--activate"], "install --activate requires --replace --verify.");
+        yield return () => (["--replace", "--activate"], "install --replace requires --verify.");
+    }
+
+    /// <summary>The Windows service's elevated step runs before the install verb, so the activation preflight is
+    /// shared: it refuses there too, before the machine is changed.</summary>
+    [Test, NotInParallel]
+    public async Task The_activation_preflight_refuses_what_the_install_would_refuse() {
+        using (EnvScope.Exclusive(ExpectedServer.Var, "https://acme.example")) {
+            await Assert.That(DaemonServiceCommands.ActivationRefusal(["--replace", "--verify"])).IsNull();
+            await Assert.That(DaemonServiceCommands.ActivationRefusal(["--replace", "--verify", "--activate"])).IsNull();
+            await Assert.That(DaemonServiceCommands.ActivationRefusal(["--verify", "--activate"])!)
+                .IsEquivalentTo(["install --activate requires --replace --verify."]);
+        }
+        using (EnvScope.Exclusive(ExpectedServer.Var, null)) {
+            await Assert.That(DaemonServiceCommands.ActivationRefusal(["--replace", "--verify", "--activate"])!).Contains("expect_server_required");
+        }
+        await Assert.That(DaemonServiceCommands.ActivationRefusal(["--replace", "--verify", "--retire-profile", "p"])!)
+            .IsEquivalentTo(["--retire-profile requires --retire."]);
+    }
+
+    /// <summary>The app names the server it expects; without it an activation could select a profile
+    /// repointed since the app looked, so the command refuses before touching anything.</summary>
+    [Test, NotInParallel]
+    [Arguments(null)]
+    [Arguments("")]
+    public async Task Activate_without_an_expected_server_is_refused_before_touching_the_service(string? expected) {
+        using var env = EnvScope.Exclusive(ExpectedServer.Var, expected);
+        using var err = ConsoleOutput.StartErrorCapture();
+        var manager = new CountingManager();
+
+        var exit = await new DaemonServiceCommands(Daemons.Store, Config.Root, Resolutions.None(Config.Root), manager, "test-id", Home, TimeProvider.System) {
+            MigrateLegacy = _ => Task.CompletedTask,
+        }.Install(["--replace", "--verify", "--activate", "--profile", "work"], startNow: true);
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(err.GetCapturedError().Split(Environment.NewLine)).Contains("expect_server_required");
+        await Assert.That(manager.InstallCalls).IsEqualTo(0);
     }
 
     /// <summary>Each refusal lands before any transaction: the manager is never asked anything. The

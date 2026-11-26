@@ -144,7 +144,7 @@ public class DaemonStoreTests {
         var held  = daemons.CreateFile(lockFile, "x");
 
         bool gone;
-        using (new FileStream(held, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        await using (new FileStream(held, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             gone = daemons.Store.DeleteAll();
 
         await Assert.That(gone).IsFalse();
@@ -163,7 +163,7 @@ public class DaemonStoreTests {
         var busyLock = daemons.CreateFile("zzz.lock", "x");
 
         bool gone;
-        using (new FileStream(busyLock, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        await using (new FileStream(busyLock, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             gone = daemons.Store.DeleteAll();
 
         await Assert.That(gone).IsFalse();

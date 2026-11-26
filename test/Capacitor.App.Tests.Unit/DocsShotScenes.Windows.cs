@@ -120,7 +120,7 @@ static partial class DocsShotScenes {
             [HarnessId.Cursor] = new(true, true),
         };
         var harnesses = new HarnessesSettingsViewModel(store, new FakeKcapCli(), _ => Task.FromResult(found),
-            isWired: id => id == HarnessId.Claude || id == HarnessId.Codex);
+            isWired: id => id is HarnessId.Claude or HarnessId.Codex);
         await harnesses.RescanAsync();
         if (harnesses.Rows.Count != 3)
             throw new InvalidOperationException($"desktop-settings-harnesses found {harnesses.Rows.Count} tools, not 3: {harnesses.Message}");

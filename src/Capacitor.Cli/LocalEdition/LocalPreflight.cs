@@ -77,7 +77,7 @@ sealed class LocalPreflight(
         if (platform.SupportsLocalEdition) return;
         if (platform.IsMacOS) throw Refuse(LocalInstallFailureCode.UnsupportedPlatform, "There is no Intel Mac build of the local edition; it needs an Apple silicon Mac.");
         if (platform.IsWindows) throw Refuse(LocalInstallFailureCode.UnsupportedPlatform, "There is no Arm build of the local edition for Windows; it needs an x64 PC.");
-        if (platform.IsLinux && platform.IsMusl) throw Refuse(LocalInstallFailureCode.MuslUnsupported, "The musl builds of kcap do not support a local installation.");
+        if (platform is { IsLinux: true, IsMusl: true }) throw Refuse(LocalInstallFailureCode.MuslUnsupported, "The musl builds of kcap do not support a local installation.");
 
         throw Refuse(LocalInstallFailureCode.UnsupportedPlatform, "The local edition runs on Apple silicon Macs and x64 Windows for now.");
     }
@@ -89,8 +89,8 @@ sealed class LocalPreflight(
         var found = old.Version is { } v ? $"is {v}" : "did not report its version";
         var fix   = old.Kind == ClientCopyKind.DesktopApp ? "Update the desktop app" : "Update or remove it";
 
-        throw Refuse(LocalInstallFailureCode.ClientBelowFloor,
-            $"{which} {found}, and a local installation needs a kcap newer than {LocalClientFloor.NewestRefusedOn(platform.IsWindows)}. {fix} before setting up a local installation.");
+        throw new LocalInstallFailure(LocalInstallFailureCode.ClientBelowFloor,
+            $"{which} {found}, and a local installation needs a kcap newer than {LocalClientFloor.NewestRefusedOn(platform.IsWindows)}. {fix} before setting up a local installation.") { BlockingClient = old };
     }
 
     void CheckSockets() {

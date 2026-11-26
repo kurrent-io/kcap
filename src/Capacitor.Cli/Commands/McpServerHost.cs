@@ -14,7 +14,7 @@ static class McpServerHost {
         // Best-effort, and recorded even when the read throws: a stale token on disk must never block the server
         // from starting, and "could not tell" belongs with "not logged in".
         var loggedIn = false;
-        try { loggedIn = await tokens.LoadForProfileAsync(profiles.Name) is not null; } catch { }
+        try { loggedIn = await tokens.LoadForProfileAsync(profiles.Name) is not null; } catch { /* ignored */ }
 
         // The top-level "mcp" command is denylisted; the reportable "mcp-server" is what lets per-call events leave.
         var telemetry = CliTelemetry.Start(startup with { Command = "mcp-server" }, config, time);

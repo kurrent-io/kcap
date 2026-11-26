@@ -13,7 +13,6 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Capacitor.App.Services;
-using Capacitor.Cli.Core;
 using Capacitor.App.ViewModels;
 using Lucide.Avalonia;
 
@@ -50,6 +49,26 @@ public partial class LauncherPaneView : UserControl {
     public void FocusComposer() => GoalInput.Focus();
 
     void OnHistoryImportDismissClick(object? sender, RoutedEventArgs e) => FocusComposer();
+
+    IDisposable? _cancelHandoff;
+
+    /// Cancel import disables while a cancel settles and disappears once the run stops, pressed or not, and
+    /// either drops keyboard focus; keep focus in the banner, on the action that takes its place.
+    void OnHistoryImportCancelLostFocus(object? sender, FocusChangedEventArgs e) => Dispatcher.UIThread.Post(HandOffCancelFocus);
+
+    void HandOffCancelFocus() {
+        _cancelHandoff?.Dispose();
+        _cancelHandoff = null;
+        if (!HistoryImportBanner.IsEffectivelyVisible || TopLevel.GetTopLevel(this)?.FocusManager?.GetFocusedElement() is not null) return;
+        if (HistoryImportCancelButton.IsEffectivelyVisible) {
+            if (!HistoryImportCancelButton.IsEffectivelyEnabled)
+                _cancelHandoff = HistoryImportCancelButton.GetObservable(IsVisibleProperty).Where(visible => !visible).Take(1)
+                    .Subscribe(_ => Dispatcher.UIThread.Post(HandOffCancelFocus));
+            return;
+        }
+        if (HistoryImportSetupButton.IsEffectivelyVisible) HistoryImportSetupButton.Focus(NavigationMethod.Tab);
+        else HistoryImportDismissButton.Focus(NavigationMethod.Tab);
+    }
 
     /// New session pressed while this pane is already showing: focus the goal and ring the card
     /// briefly, so the press does not read as a dead button.
@@ -110,6 +129,8 @@ public partial class LauncherPaneView : UserControl {
         _historyAttached = false;
         _historyLease?.Dispose();
         _historyLease = null;
+        _cancelHandoff?.Dispose();
+        _cancelHandoff = null;
         base.OnDetachedFromVisualTree(e);
     }
 
@@ -165,7 +186,7 @@ public partial class LauncherPaneView : UserControl {
         var isScratch = option.RepoPath.Length == 0;
         var title = new TextBlock {
             Text = isScratch ? "No repository" : RepoLabel.Leaf(option.RepoPath),
-            FontSize = 13.5,
+            FontSize = TypeScale.Body,
             Foreground = this.Brush("KcapTextBrush"),
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
         };
@@ -195,7 +216,7 @@ public partial class LauncherPaneView : UserControl {
 
         if (!isScratch) {
             var path = new TextBlock {
-                Text = option.RepoPath, FontSize = 10.5, Foreground = muted,
+                Text = option.RepoPath, FontSize = TypeScale.Caption, Foreground = muted,
                 Margin = new Thickness(0, 2, 0, 0),
             };
             Grid.SetRow(path, 1);
@@ -240,7 +261,7 @@ public partial class LauncherPaneView : UserControl {
     Button MachineRow(HomeViewModel vm, MachineOption option, IBrush muted, Flyout flyout) {
         var title = new TextBlock {
             Text = option.DaemonName,
-            FontSize = 13.5,
+            FontSize = TypeScale.Body,
             Foreground = option.Connected ? this.Brush("KcapTextBrush") : muted,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
         };
@@ -249,7 +270,7 @@ public partial class LauncherPaneView : UserControl {
 
         var subtitle = new TextBlock {
             Text = option.IsLocal ? "This machine" : option.Connected ? "Connected" : "Offline",
-            FontSize = 10.5, Foreground = muted, Margin = new Thickness(0, 2, 0, 0),
+            FontSize = TypeScale.Caption, Foreground = muted, Margin = new Thickness(0, 2, 0, 0),
         };
 
         var grid = new Grid {
@@ -302,46 +323,21 @@ public partial class LauncherPaneView : UserControl {
         await vm.SelectRepositoryAsync(path);
     }
 
-    async void OnRequestRepositoryAccessClick(object? sender, RoutedEventArgs e) {
-        if (DataContext is not HomeViewModel vm ||
-            TopLevel.GetTopLevel(this)?.StorageProvider is not { } storage) return;
-        if (sender is Control button) button.IsEnabled = false;
-        try {
-            await vm.RequestRepositoryAccessAsync(async path => {
-                var folders = await storage.OpenFolderPickerAsync(new FolderPickerOpenOptions {
-                    Title = "Allow access to " + RepoLabel.Leaf(path),
-                    AllowMultiple = false,
-                    SuggestedStartLocation = await storage.TryGetFolderFromPathAsync(path),
-                });
-                if (folders is not [{ } folder]) return false;
-                using (folder) {
-                    return folder.TryGetLocalPath() is { } selected
-                        && await Task.Run(() => IsSameRepositoryFolder(selected, path));
-                }
-            });
-        } catch (Exception ex) {
-            Console.Error.WriteLine($"kcap: request repository access failed: {ex}");
-        } finally {
-            if (sender is Control control) control.IsEnabled = true;
-        }
+    void OnRequestRepositoryAccessClick(object? sender, RoutedEventArgs e) {
+        if (DataContext is HomeViewModel vm) vm.RequestRepositoryAccess();
     }
-
-    // NSOpenPanel can return /tmp for a repository selected through /private/tmp (or a
-    // resolved target for another symlink). Compare physical folders without changing the draft.
-    internal static bool IsSameRepositoryFolder(string selected, string repository) =>
-        PlatformPaths.Comparer.Equals(CanonicalPath.Resolve(selected), CanonicalPath.Resolve(repository));
 
     void ShowRemotePathEntry(HomeViewModel vm, Control anchor) {
         var input = new TextBox { PlaceholderText = "/path/to/repository", MinWidth = 320 };
         input.Classes.Add("kcapField");
         AutomationProperties.SetName(input, $"Repository path on {vm.SelectedMachine}");
         var error = new TextBlock {
-            FontSize = 11.5, Foreground = this.Brush("KcapDangerBrush"), IsVisible = false,
+            FontSize = TypeScale.Small, Foreground = this.Brush("KcapDangerBrush"), IsVisible = false,
             TextWrapping = TextWrapping.Wrap, MaxWidth = 320,
         };
         var hint = new TextBlock {
             Text = "Checked on that machine when the session starts.",
-            FontSize = 11.5, Foreground = this.Brush("KcapMutedBrush"),
+            FontSize = TypeScale.Small, Foreground = this.Brush("KcapMutedBrush"),
         };
 
         var body = new StackPanel { Spacing = 6, Margin = new Thickness(10) };
@@ -385,7 +381,7 @@ public partial class LauncherPaneView : UserControl {
         // Typing while the lists load must still narrow them, so this is the text before any await.
         var initial = input.Text;
         var error = new TextBlock {
-            FontSize = 11.5, Foreground = this.Brush("KcapDangerBrush"), IsVisible = false,
+            FontSize = TypeScale.Small, Foreground = this.Brush("KcapDangerBrush"), IsVisible = false,
             TextWrapping = TextWrapping.Wrap, MaxWidth = 280,
         };
 
@@ -480,7 +476,7 @@ public partial class LauncherPaneView : UserControl {
     }
 
     TextBlock BranchNote(string text) => new() {
-        Text = text, FontSize = 11.5, Foreground = this.Brush("KcapMutedBrush"), Margin = new Thickness(10, 4),
+        Text = text, FontSize = TypeScale.Small, Foreground = this.Brush("KcapMutedBrush"), Margin = new Thickness(10, 4),
     };
 
     Control BranchRow(HomeViewModel vm, string branch, bool isDefault, Action choose) {
@@ -490,7 +486,7 @@ public partial class LauncherPaneView : UserControl {
             HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch,
         };
         grid.Children.Add(new TextBlock {
-            Text = branch, FontSize = 13.5, Foreground = this.Brush("KcapTextBrush"),
+            Text = branch, FontSize = TypeScale.Body, Foreground = this.Brush("KcapTextBrush"),
             TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
         });
         if (isDefault) {
@@ -510,7 +506,7 @@ public partial class LauncherPaneView : UserControl {
     Control RecentBaseRefRow(HomeViewModel vm, string baseRef, Panel section, Action choose) {
         var selected = vm.SelectedBaseRef == baseRef;
         var title = new TextBlock {
-            Text = baseRef, FontSize = 13.5, Foreground = this.Brush("KcapTextBrush"),
+            Text = baseRef, FontSize = TypeScale.Body, Foreground = this.Brush("KcapTextBrush"),
             TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
         };
         var grid = new Grid {

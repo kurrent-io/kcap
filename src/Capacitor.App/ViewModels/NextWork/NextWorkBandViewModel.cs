@@ -47,7 +47,6 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     bool _unavailable;
     bool _loaded;
     bool _failed;
-    bool _mutating;
     IReadOnlyList<NextWorkCardViewModel> _cards = [];
     IReadOnlyList<NextWorkCardViewModel> _moreCards = [];
     bool _moreExpanded;
@@ -89,8 +88,8 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
     public bool IsLoading => IsAvailable && !_loaded && !_failed;
 
     public bool Mutating {
-        get => _mutating;
-        private set => this.RaiseAndSetIfChanged(ref _mutating, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// <summary>Why the list may be short, for the header's status icon.</summary>
@@ -315,7 +314,8 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
         } catch (Exception ex) when (ex is not OperationCanceledException) {
             // Reading the known repositories or switching the launcher can fail; the command has no other handler.
             Console.Error.WriteLine($"kcap: picking next-work task {row.TargetKey} failed: {ex}");
-            _notify?.Invoke($"Couldn't pick this task: {ex.Message}");
+            Console.Error.WriteLine($"kcap: could not pick the task: {ex.Message}");
+            _notify?.Invoke("Couldn’t pick this task. Try again.");
         } finally {
             card.Busy = false;
         }
@@ -363,7 +363,7 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
                     _launched?.Invoke(agentId);
                     _ = RefreshAsync();
                     break;
-                case { Kind: NextWorkReadKind.Ready, Value: { Outcome: "pending" } }:
+                case { Kind: NextWorkReadKind.Ready, Value.Outcome: "pending" }:
                     _notify?.Invoke("The work is reserved but the launch was not confirmed. Check the sidebar before starting another agent.");
                     break;
                 case { Kind: NextWorkReadKind.Ready, Value: { } result }:

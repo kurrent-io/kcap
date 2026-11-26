@@ -289,7 +289,7 @@ public sealed class ClaudeHookCommand(
             var budget = clock.Budget(Ceiling(evt.Command));
             if (await ShouldSuppressCaptureAsync(evt.SessionId, body, evt.Command, profiles.Effective, budget)) return 0;
             // A worktree the turn moved into is gated on its own path, which the payload's cwd may not name.
-            if (evt.Open == WorkspaceOpen.Join && evt.Dir is { } destination
+            if (evt is { Open: WorkspaceOpen.Join, Dir: { } destination }
              && await IsSessionExcludedAsync(profiles.Effective, CwdBody(destination), budget)) return 0;
 
             // An open blocks the prompt or the agent's next tool, so it never waits on the server; the
@@ -454,7 +454,7 @@ public sealed class ClaudeHookCommand(
                 resumed["started_at"] = clock.Time.GetUtcNow().ToString("O");
                 body = resumed.ToJsonString();
             }
-        } catch { }
+        } catch { /* ignored */ }
 
         if (command == "session-end" && SessionEndFence.ShouldHold(hosted, sessionId)) return 0;
 
@@ -560,7 +560,7 @@ public sealed class ClaudeHookCommand(
                 try {
                     await watchers.EnsureWatcherRunning(sessionId, transcriptPath,
                         agentId: null, cwd: cwd, skipTitle: isResumeOrCompact, handOffWithin: budget.Remaining);
-                } catch { }
+                } catch { /* ignored */ }
             }
 
             // The freeze is a local file write that needs no client, so it belongs on this arm too:
@@ -656,8 +656,8 @@ public sealed class ClaudeHookCommand(
             _ = enrichment.ContinueWith(static t => { _ = t.Exception; }, TaskScheduler.Default);
             return fallbackBody;
         }
-        var winner = await Task.WhenAny(enrichment, Task.Delay(budget, time));
-        if (winner != enrichment) {
+        var enriched = await enrichment.FinishedWithinAsync(budget, time);
+        if (!enriched) {
             _ = enrichment.ContinueWith(static t => { _ = t.Exception; }, TaskScheduler.Default); // observe if it later faults
             return fallbackBody;
         }
@@ -779,7 +779,7 @@ public sealed class ClaudeHookCommand(
             var parsed = JsonNode.Parse(body);
             nativeSessionId = parsed?["session_id"]?.GetValue<string>();
             payloadCwd      = parsed?["cwd"]?.GetValue<string>();
-        } catch { }
+        } catch { /* ignored */ }
 
         // An entry point of its own, so it holds the same line HandleWithDeps does: kcap's own
         // headless runs are never captured.
@@ -1336,7 +1336,7 @@ public sealed class ClaudeHookCommand(
                     node["ended_at"] = clock.Time.GetUtcNow().ToString("O");
                     body             = node.ToJsonString();
                 }
-            } catch { }
+            } catch { /* ignored */ }
 
             // The session is over and the server holds the uploaded snapshot, so nothing here is
             // read again — and session-end is the only thing that evicts these directories.
@@ -1401,7 +1401,7 @@ public sealed class ClaudeHookCommand(
                 var node = JsonNode.Parse(await resp.Content.ReadAsStringAsync());
                 if (node?["generate_whats_done"]?.GetValue<bool>() == true && sessionId is not null)
                     watchers.SpawnWhatsDoneGenerator(sessionId);
-            } catch { }
+            } catch { /* ignored */ }
             resp.Dispose();
             return 0;
         }
@@ -1416,7 +1416,7 @@ public sealed class ClaudeHookCommand(
                 var node  = JsonNode.Parse(body);
                 sessionId = node?["session_id"]?.GetValue<string>();
                 agentId   = node?["agent_id"]?.GetValue<string>();
-            } catch { }
+            } catch { /* ignored */ }
 
             if (sessionId is not null && agentId is not null) {
                 // Ordering guard: if this session's backlog couldn't fully drain, spool the fresh
@@ -1509,14 +1509,14 @@ public sealed class ClaudeHookCommand(
 
         if (command == "stop" && response is not null) {
             string? ack = null;
-            try { ack = await response.Content.ReadAsStringAsync(); } catch { }
+            try { ack = await response.Content.ReadAsStringAsync(); } catch { /* ignored */ }
 
             // The block's reason names kcap-workitems tools, so without them it is never sent.
             var audience         = Audience;
             var nextWorkDisabled = activeProfile?.DisableNextWorkNudge is true
                                 || !WorkItemsNudgeEmitter.ToolsRegisteredFor(HarnessId.Claude, harnesses, audience: audience);
             JsonNode? payload = null;
-            try { payload = JsonNode.Parse(body); } catch { }
+            try { payload = JsonNode.Parse(body); } catch { /* ignored */ }
 
             if (ClaudeCompletionNudge.ShouldBlock(ack, nextWorkDisabled, payload, audience))
                 writer.WriteLine(ClaudeCompletionNudge.BlockDecision);
@@ -1565,7 +1565,7 @@ public sealed class ClaudeHookCommand(
         try {
             var snapshot = new PolicySnapshotStore(config).LoadOrBuild(sessionId, repoRoot);
 
-            return snapshot.Degraded && snapshot.Degradations.Count > 0
+            return snapshot is { Degraded: true, Degradations.Count: > 0 }
                 ? $"[kcap] approval policy degraded: {snapshot.Degradations[0]}"
                 : null;
         } catch {
@@ -1617,7 +1617,7 @@ public sealed class ClaudeHookCommand(
         try {
             var count = new PolicyDecisionJournal(config).TakePassThroughCount(sessionId);
             if (count > 0) node["policy_pass_through_count"] = count;
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     /// <summary>Drops the session's snapshot, journal, judge scan state and snapshot-upload markers. Best effort
@@ -1639,10 +1639,10 @@ public sealed class ClaudeHookCommand(
                     if (Path.GetFileName(marker).StartsWith($"{key}-", StringComparison.Ordinal)) TryDelete(marker);
                 }
             }
-        } catch { }
+        } catch { /* ignored */ }
 
         static void TryDelete(string path) {
-            try { File.Delete(path); } catch { }
+            try { File.Delete(path); } catch { /* ignored */ }
         }
     }
 
@@ -1773,7 +1773,7 @@ public sealed class ClaudeHookCommand(
                         var sid  = JsonNode.Parse(body)?["session_id"]?.GetValue<string>();
                         if (node?["generate_whats_done"]?.GetValue<bool>() == true && sid is not null)
                             watchers.SpawnWhatsDoneGenerator(sid);
-                    } catch { }
+                    } catch { /* ignored */ }
                 }
                 return DrainOutcome.Delivered;
             } catch (Exception ex) when (!UnansweredPosts.Sent(ex)) {
@@ -1791,7 +1791,7 @@ public sealed class ClaudeHookCommand(
     void ClearTurnJournal(string body) {
         try {
             if (SessionIdOf(body) is { } sid) new PolicyDecisionJournal(config).ClearTurn(sid);
-        } catch { }
+        } catch { /* ignored */ }
     }
 
     /// <summary>

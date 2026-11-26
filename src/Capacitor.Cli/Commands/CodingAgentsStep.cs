@@ -424,7 +424,7 @@ internal static class CodingAgentsStep {
         // Both flags → nothing will be written (no agent clone, no MCP), so short-circuit with the
         // accurate message BEFORE the PATH precheck — that check only matters when we'd write a
         // config that invokes `kcap`.
-        if (options.SkipKiro && options.SkipKiroMcp) {
+        if (options is { SkipKiro: true, SkipKiroMcp: true }) {
             writeLine("  [dim]· Kiro CLI skipped by flags (hooks + MCP)[/]");
 
             return false;

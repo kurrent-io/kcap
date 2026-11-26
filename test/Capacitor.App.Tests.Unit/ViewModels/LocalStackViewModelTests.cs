@@ -105,7 +105,7 @@ public class LocalStackViewModelTests {
 
             await Assert.That(h.Vm.BannerVisible).IsTrue();
             await Assert.That(h.Vm.IsNote).IsTrue();
-            await Assert.That(h.Vm.Detail).Contains("keyword").And.Contains("Settings → Search");
+            await Assert.That(h.Vm.Detail).Contains("Keyword search is still available").And.Contains("Search settings");
 
             h.Cli.SetupLocalBehavior = LocalSetupScript.Prints(0,
                 """{"v":1,"event":"embeddings_configured","provider":"builtin"}""", LocalSetupScript.Committed);
@@ -245,8 +245,10 @@ public class LocalStackViewModelTests {
             await Assert.That(h.Vm.BannerVisible).IsTrue();
             await Assert.That(h.Vm.Attention).IsTrue();
             await Assert.That(h.Vm.Headline).IsEqualTo("kcap local could not be updated to 1.3.0");
-            await Assert.That(h.Vm.Detail).IsEqualTo("The download was interrupted. kcap local 1.2.0 was left as it was.");
+            await Assert.That(h.Vm.Detail).IsEqualTo("The download didn't finish. Check your connection and try again. This update attempt left kcap local 1.2.0 in place.");
             await Assert.That(h.Vm.TryAgainVisible).IsTrue();
+            await Assert.That(h.Vm.TryAgainIsPrimary).IsTrue();
+            await Assert.That(h.Vm.DismissIsPrimary).IsFalse().Because("Try again is the fix; Dismiss beside it is tertiary");
             await Assert.That(h.Vm.StateText).IsEqualTo("update failed");
             await Assert.That(h.Vm.Version).IsEqualTo("1.2.0");
             foreach (var text in ShownText(h.Vm)) await Assert.That(text ?? "").DoesNotContain("kcap local upgrade");
@@ -388,7 +390,7 @@ public class LocalStackViewModelTests {
             await Assert.That(settings.CanApply).IsEqualTo(warning);
             if (warning) {
                 await Assert.That(h.Vm.Headline).IsEqualTo("Search needs attention");
-                await Assert.That(h.Vm.Detail).Contains("keyword").And.Contains("Settings → Search");
+                await Assert.That(h.Vm.Detail).Contains("Keyword search is still available").And.Contains("Search settings");
                 await settings.ApplyCommand.Execute().ToTask();
                 await h.Search.SettleAsync().WaitAsync(TimeSpan.FromSeconds(5));
                 await Assert.That(h.Vm.BannerVisible).IsFalse();
@@ -451,7 +453,7 @@ public class LocalStackViewModelTests {
 
             await Assert.That(h.Vm.BannerVisible).IsTrue();
             await Assert.That(h.Vm.StartVisible).IsTrue();
-            await Assert.That(h.Vm.StartMessage).IsEqualTo("kcap local 1.3.0 did not become ready.");
+            await Assert.That(h.Vm.StartMessage).IsEqualTo("Could not start the local server. Try again.");
             await Assert.That(h.Reconnects).IsEqualTo(0);
         });
     }
@@ -552,19 +554,21 @@ public class LocalStackViewModelTests {
         });
     }
 
-    /// A service removed over intact files is what a start restores, so the card offers Start, and the update runs again
-    /// once the server is up.
     [Test]
-    public async Task A_missing_service_offers_start_then_runs_the_update_again() {
+    [Arguments(LocalInstallFailureCode.ServiceMissing, "Your files and data are still there.")]
+    [Arguments(LocalInstallFailureCode.RecoveryRestartFailed, "Start the server to bring the installed version back online")]
+    public async Task A_stopped_server_offers_start_then_runs_the_update_again(LocalInstallFailureCode code, string guidance) {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var h = new Harness();
 
             await h.RunAsync(1, UpgradeScript.Planned("1.2.0", "1.3.0"),
-                UpgradeScript.Failed(LocalInstallFailureCode.ServiceMissing.Wire(), "The local server's fake unit is not installed.", false));
+                UpgradeScript.Failed(code.Wire(), "background service diagnostic", false));
 
+            await Assert.That(h.Vm.Guidance).Contains(guidance);
             await Assert.That(h.Vm.TryAgainVisible).IsFalse();
             await Assert.That(h.Vm.StartVisible).IsTrue();
             await Assert.That(h.Vm.DismissVisible).IsTrue();
+            await Assert.That(h.Vm.DismissIsPrimary).IsFalse().Because("Start is the fix");
 
             var upgrades = 0;
             var upgraded = UpgradeScript.Prints(0, UpgradeScript.Planned("1.2.0", "1.3.0"), UpgradeScript.Upgraded("1.2.0", "1.3.0"));

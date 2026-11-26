@@ -85,7 +85,7 @@ public class PermissionIpcTests {
     [Arguments("""{"request_id":"nope","decision":"allow","apply_permissions":null,"updated_input":null}""", false, "no pending permission request with that id")]
     [Arguments("""{"request_id":"r1","decision":"maybe","apply_permissions":null,"updated_input":null}""", false, "invalid resolve payload (decision must be allow|deny|withdraw)")]
     [Arguments("""{"decision":"allow"}""", false, "invalid resolve payload (decision must be allow|deny|withdraw)")]
-    [Arguments("""{ not json""", false, "malformed resolve payload")]
+    [Arguments("{ not json", false, "malformed resolve payload")]
     public async Task Resolve_acks(string payload, bool ok, string? error) {
         var broker = new PermissionPromptBroker();
         var settlement = broker.Register(Dto("r1"));
@@ -112,7 +112,7 @@ public class PermissionIpcTests {
     [Test]
     public async Task Resolve_withdraw_settles_as_withdrawn_by_tool_settled_and_pushes_resolved() {
         var broker = new PermissionPromptBroker();
-        var settlement = broker.Register(Dto("r1") with { ToolInput = JsonDocument.Parse("""{"command":"ls"}""").RootElement.Clone() });
+        var settlement = broker.Register(Dto("r1") with { ToolInput = JsonElement.Parse("""{"command":"ls"}""") });
         var (_, reader) = broker.Subscribe();
         _ = await reader.ReadAsync(new CancellationTokenSource(5000).Token); // Pending
         var ipc = new PermissionIpc(broker, NullLogger<PermissionIpc>.Instance);

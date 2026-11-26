@@ -437,7 +437,7 @@ public class WorktreeManagerTests {
         var removal = await WorktreeManager.RemoveAsync(
             new WorktreeInfo(path, "", repo.Path) { OwnsBranch = false }, TimeProvider.System);
 
-        await Assert.That(removal.KeptBecause).IsNotNull();
+        await Assert.That((removal.KeptBecause is not null, removal.TreeRemoved)).IsEqualTo((true, false));
         await Assert.That(Directory.Exists(path)).IsTrue();
     }
 
@@ -1078,7 +1078,7 @@ public class WorktreeManagerTests {
             await Assert.That(File.ReadAllText(Path.Combine(externalChild, "sentinel.txt")))
                 .IsEqualTo("keep-me");
         } finally {
-            try { if (Path.Exists(borrowedSnapshots)) File.Delete(borrowedSnapshots); } catch { }
+            try { if (Path.Exists(borrowedSnapshots)) File.Delete(borrowedSnapshots); } catch { /* ignored */ }
         }
     }
 

@@ -63,7 +63,7 @@ public static class MuseModelCatalog {
                 if (row.Str("model_id") is not { Length: > 0 } id) continue;
                 if (row.Str("visibility") != "visible") continue;
 
-                var order = row.Num("display_order") is { } n && n is >= int.MinValue and <= int.MaxValue ? (int?)n : null;
+                var order = row.Num("display_order") is { } n and >= int.MinValue and <= int.MaxValue ? (int?)n : null;
                 rows.Add(new Row(id, row.Str("display_label") is { Length: > 0 } label ? label : id, row.Str("release_date"), order));
             }
         }

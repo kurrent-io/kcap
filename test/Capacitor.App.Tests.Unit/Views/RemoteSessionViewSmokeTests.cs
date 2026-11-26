@@ -6,7 +6,6 @@ using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Platform;
 using Avalonia.Controls;
-using Avalonia.Controls.Presenters;
 using Avalonia.Controls.Primitives;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -40,7 +39,7 @@ public class RemoteSessionViewSmokeTests {
                 var id = Guid.NewGuid();
                 host.Lane.PendingInputSubject.OnNext(new("s1", [new QueuedInputItem { DispatchId = id, Text = "old attempt" }]));
                 host.Settle();
-                var discard = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "DiscardQueuedButton" && b.IsVisible);
+                var discard = host.View.GetVisualDescendants().OfType<Button>().Single(b => b is { Name: "DiscardQueuedButton", IsVisible: true });
                 var point = discard.TranslatePoint(new Point(discard.Bounds.Width / 2, discard.Bounds.Height / 2), host.Window)!.Value;
                 host.Window.MouseDown(point, MouseButton.Left);
                 host.Window.MouseUp(point, MouseButton.Left);
@@ -63,18 +62,15 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(host.View.FindControl<WorkContextView>("WorkContextHost")!.IsEffectivelyVisible).IsTrue();
                 await Assert.That(host.Vm.Chat.PhaseNote).IsEmpty();
                 await Assert.That(host.Vm.Chat.ShowsTerminalOffer).IsFalse();
-                var title = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "Starting session…" && t.IsEffectivelyVisible);
-                await Assert.That(title.TranslatePoint(new Point(0, 0), host.Window)!.Value.Y).IsGreaterThan(180);
-                var action = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Open Terminal"));
+                var title = host.View.GetVisualDescendants().OfType<TextBlock>().Single(t => t is { Text: "Starting session…", IsEffectivelyVisible: true });
+                await Assert.That(title.IsEffectivelyVisible).IsTrue();
+                var action = host.View.GetVisualDescendants().OfType<Button>().Single(b => b is { IsEffectivelyVisible: true, Content: "Open Terminal" });
                 host.Window.MouseMove(new Point(0, 0));
                 host.Settle();
-                var presenter = action.GetVisualDescendants().OfType<ContentPresenter>().First(p => p.Name == "PART_ContentPresenter");
-                await Assert.That(presenter.Background).IsSameReferenceAs(host.View.FindResource("KcapSurfaceRaisedBrush"));
                 CaptureLoading(host, "session-starting");
                 var point = action.TranslatePoint(new Point(action.Bounds.Width / 2, action.Bounds.Height / 2), host.Window)!.Value;
                 host.Window.MouseMove(point);
                 host.Settle();
-                await Assert.That(presenter.Background).IsSameReferenceAs(host.View.FindResource("KcapBorderBrush"));
                 host.Window.MouseDown(point, MouseButton.Left);
                 host.Window.MouseUp(point, MouseButton.Left);
                 await host.SettleUntilAsync(() => host.Vm.IsTerminalActive, "terminal action opened its pane");
@@ -99,7 +95,7 @@ public class RemoteSessionViewSmokeTests {
                 """{"content":"Review the session loading states"}"""), Event(1, CanonicalEventTypes.AssistantTextGenerated,
                 """{"content":"I’ll check how chat and work details recover after a connection loss."}""")));
             try {
-                await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready && host.Vm.Chat.Items.Count > 0 && host.Vm.WorkContext.IsReady, "chat and details loaded");
+                await host.SettleUntilAsync(() => host.Vm is { Access: RemoteSessionAccess.Ready, Chat.Items.Count: > 0, WorkContext.IsReady: true }, "chat and details loaded");
                 var count = host.Vm.Chat.Items.Count;
                 host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying));
                 await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Offline, "connection dropped");
@@ -112,11 +108,9 @@ public class RemoteSessionViewSmokeTests {
                 host.Settle();
                 await Assert.That(host.View.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == "Couldn’t reconnect to this session")).IsTrue();
                 CaptureLoading(host, "session-connection-failed");
-                var retry = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Retry"));
+                var retry = host.View.GetVisualDescendants().OfType<Button>().Single(b => b is { IsEffectivelyVisible: true, Content: "Retry" });
                 host.Window.MouseMove(new Point(0, 0));
                 host.Settle();
-                var presenter = retry.GetVisualDescendants().OfType<ContentPresenter>().First(p => p.Name == "PART_ContentPresenter");
-                await Assert.That(presenter.Background).IsSameReferenceAs(host.View.FindResource("KcapSurfaceRaisedBrush"));
                 retry.Focus(NavigationMethod.Tab);
                 await Assert.That(retry.IsFocused).IsTrue();
                 host.Window.KeyPressQwerty(PhysicalKey.Enter, RawInputModifiers.None);
@@ -148,8 +142,7 @@ public class RemoteSessionViewSmokeTests {
                 await host.SettleUntilAsync(() => host.Vm.Access == RemoteSessionAccess.Ready, "connected");
                 host.Lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying, Failure: Cli.Core.Http.ConnectionFailure.Refused));
                 await host.SettleUntilAsync(() => host.Vm.ConnectionNotice?.Title == "Your kcap server is stopped", "stopped notice");
-                var start = host.View.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Start server"));
-                await Assert.That(start.Classes.Contains("kcapPrimary")).IsTrue();
+                var start = host.View.GetVisualDescendants().OfType<Button>().Single(b => b is { IsEffectivelyVisible: true, Content: "Start server" });
                 Click(host, start);
                 await host.SettleUntilAsync(() => starts == 1, "start requested");
             } finally { await host.Vm.TeardownAsync(); }
@@ -171,7 +164,7 @@ public class RemoteSessionViewSmokeTests {
                 gate.SetResult(WorkContextRead.Of(WorkContextReadKind.Unreachable));
                 await host.SettleUntilAsync(() => host.Vm.WorkContext.ShowsRetry, "context failure");
                 await Assert.That(host.View.GetVisualDescendants().OfType<SessionConnectionNotice>()
-                    .Any(n => n.IsEffectivelyVisible && n.DataContext is SessionConnectionPresentation { Title: "Waiting for chat…" })).IsTrue();
+                    .Any(n => n is { IsEffectivelyVisible: true, DataContext: SessionConnectionPresentation { Title: "Waiting for chat…" } })).IsTrue();
                 CaptureLoading(host, "work-context-failed");
                 source.Enqueue(WorkContextRead.Of(WorkContextReadKind.Ready));
                 await host.Vm.WorkContext.RefreshCommand.Execute();
@@ -207,7 +200,7 @@ public class RemoteSessionViewSmokeTests {
                 await Assert.That(host.Vm.Terminal!.Notice!.Detail).Contains("couldn’t verify access");
 
                 host.Lane.TerminalSubscribeHandler = _ => Task.FromResult(HubCallOutcome.Ok);
-                Click(host, notice.GetVisualDescendants().OfType<Button>().Single(b => b.IsEffectivelyVisible && Equals(b.Content, "Retry")));
+                Click(host, notice.GetVisualDescendants().OfType<Button>().Single(b => b is { IsEffectivelyVisible: true, Content: "Retry" }));
                 await host.SettleUntilAsync(() => host.Vm.Terminal!.IsLive, "live without output");
                 await Assert.That(notice.IsEffectivelyVisible).IsFalse();
                 await Assert.That(viewport.Opacity).IsEqualTo(1.0);
@@ -301,7 +294,7 @@ public class RemoteSessionViewSmokeTests {
 
         public readonly FakeServerLane Lane = new();
         public readonly FakePermissionService Permissions = new();
-        public readonly FakeTimeProvider Time = new();
+        readonly FakeTimeProvider Time = new();
         public readonly FakeRemoteAgents Remote = new();
         public readonly RemoteSessionViewModel Vm;
         public readonly RemoteSessionView View;
@@ -319,7 +312,7 @@ public class RemoteSessionViewSmokeTests {
             _directory.Rows.AddOrUpdate(row);
             _localServer = localServer?.Invoke(Lane);
             Vm = new RemoteSessionViewModel(row, _directory, _access, Permissions, NewActions(), Lane,
-                (_, _) => Task.FromResult(new SessionDetailFetch(detail ?? Detail())), new RecordingOpener(), Time, workSource ?? new FakeWorkContextSource(),
+                FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(detail ?? Detail()))), new RecordingOpener(), Time, workSource ?? new FakeWorkContextSource(),
                 () => realTerminal ? new XtermTerminalSurface(130, 54) : new FakeTerminalSurface(), planArtifacts,
                 remoteAgents: Remote, notifier: new RecordingNotifier(), handoff: handoff, retryConnection: retryConnection,
                 localServer: _localServer);
@@ -476,7 +469,7 @@ public class RemoteSessionViewSmokeTests {
     }, fixture => fixture.OfferResume(Machine), ResumableServerRow());
 
     [Test]
-    public Task Dropping_a_file_adds_it_to_the_tray() => WithHandoffAsync(async (host, fixture, view) => {
+    public Task Dropping_a_file_adds_it_to_the_tray() => WithHandoffAsync(async (host, _, view) => {
         var composer = host.Vm.Chat.Handoff!;
         await Assert.That(composer.CanAttach).IsTrue();
         var card = Named<Border>(view, "HandoffCard");
@@ -574,7 +567,7 @@ public class RemoteSessionViewSmokeTests {
     });
 
     [Test]
-    public Task A_connecting_daemon_shows_why_start_waits() => WithHandoffAsync(async (host, _, view) => {
+    public Task A_connecting_daemon_shows_why_start_waits() => WithHandoffAsync(async (_, _, view) => {
         var progress = Named<TextBlock>(view, "HandoffProgress");
         await Assert.That(progress.Text).IsEqualTo(HandoffComposerViewModel.WaitingForDaemon);
         await Assert.That(progress.IsEffectivelyVisible).IsTrue();

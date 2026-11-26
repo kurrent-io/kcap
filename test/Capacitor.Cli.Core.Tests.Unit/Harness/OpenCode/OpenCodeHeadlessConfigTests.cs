@@ -173,7 +173,7 @@ public class OpenCodeHeadlessConfigTests {
     /// list goes red here.</summary>
     [Test]
     public async Task The_permission_denies_everything_and_each_forbidden_tool_by_name() {
-        var permission = JsonDocument.Parse(Build().Permission).RootElement;
+        var permission = JsonElement.Parse(Build().Permission);
 
         await Assert.That(permission.EnumerateObject().Select(p => p.Name)).IsEquivalentTo(
             ["*", "write", "edit", "patch", "bash", "webfetch", "websearch", "task", "skill", "todowrite"]);

@@ -20,7 +20,7 @@ public sealed class PageBridge : IAsyncDisposable {
     public static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(5000);
     public static readonly FrozenSet<string> InboundTypes = new[] { "ready", "submit", "refresh" }.ToFrozenSet(StringComparer.Ordinal);
     static readonly string[] ResultsFields = ["mode", "version", "closed", "revealed"];
-    static readonly JsonElement EmptyObject = JsonDocument.Parse("{}").RootElement.Clone();
+    static readonly JsonElement EmptyObject = JsonElement.Parse("{}");
 
     // The host script's own cap on the page's message, plus room for the nonce wrapper.
     const int MaxRawLength = 256 * 1024 + 256;
@@ -122,7 +122,7 @@ public sealed class PageBridge : IAsyncDisposable {
 
     Task HandleAsync(JsonElement data, CancellationToken ct) => data.Str("type") switch {
         "ready"   => ReadyAsync(ct),
-        "submit"  => SubmitAsync(data.Prop("payload") is { } payload && !payload.IsNull ? payload : EmptyObject, ct),
+        "submit"  => SubmitAsync(data.Prop("payload") is { IsNull: false } payload ? payload : EmptyObject, ct),
         "refresh" => CanReadResults ? PushResultsAsync(ct) : Task.CompletedTask,
         _         => Task.CompletedTask,
     };
@@ -199,7 +199,7 @@ public sealed class PageBridge : IAsyncDisposable {
             StopPolling();
             return;
         }
-        if (reply.Status is < 200 or >= 300 || reply.Body is not { } body || !body.IsObject) return;
+        if (reply.Status is < 200 or >= 300 || reply.Body is not { IsObject: true } body) return;
 
         var etag = body.Prop("etag")?.GetRawText();
         // No etag says nothing about whether the results moved, so every such answer is delivered.
@@ -259,7 +259,7 @@ public sealed class PageBridge : IAsyncDisposable {
     async Task PostAsync(Action<Utf8JsonWriter> write) {
         if (_disposed.IsCancellationRequested) return;
         var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer)) {
+        await using (var writer = new Utf8JsonWriter(buffer)) {
             writer.WriteStartObject();
             write(writer);
             writer.WriteEndObject();

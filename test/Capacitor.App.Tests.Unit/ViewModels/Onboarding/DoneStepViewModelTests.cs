@@ -389,7 +389,7 @@ public class DoneStepViewModelTests {
             vm.OpenInBrowserCommand.Execute().Subscribe();
             Dispatcher.UIThread.RunJobs();
 
-            return (preparingVisible, linkVisible, before, vm.OpenInBrowserVisible && !vm.PreparingVisible, opener.Opened.ToList(), calls);
+            return (preparingVisible, linkVisible, before, vm is { OpenInBrowserVisible: true, PreparingVisible: false }, opener.Opened.ToList(), calls);
         });
 
         await Assert.That(preparing).IsTrue();

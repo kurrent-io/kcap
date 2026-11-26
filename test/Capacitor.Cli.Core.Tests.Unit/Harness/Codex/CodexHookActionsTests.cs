@@ -8,7 +8,7 @@ namespace Capacitor.Cli.Core.Tests.Unit.Harness.Codex;
 /// headers name, so a path rule binds an edit Codex makes unasked.</summary>
 public class CodexHookActionsTests {
     static JsonElement Input(string command) =>
-        JsonDocument.Parse(JsonSerializer.Serialize(new Dictionary<string, string> { ["command"] = command })).RootElement.Clone();
+        JsonElement.Parse(JsonSerializer.Serialize(new Dictionary<string, string> { ["command"] = command }));
 
     [Test]
     public async Task A_shell_call_is_a_codex_shell_action() {

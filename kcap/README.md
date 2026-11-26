@@ -129,6 +129,7 @@ Each hook pipes its JSON payload through the `kcap` CLI, which enriches it with 
 - `disable` / `kcap-disable` — Stop recording and delete all server data for the current session
 - `hide` / `kcap-hide` — Hide the current session (owner-only visibility)
 - `pages` / `kcap-pages` — Make the artifact, page or report the user asked for as a kcap page: publish it, hand back the link, open it in the harness's browser tool
+- `progressive-disclosure` / `kcap-progressive-disclosure` — Grade chat replies with progressive-disclosure marks when the user asks for it, so the desktop app can fade the detail and footnotes
 - `review-flows` / `kcap-review-flows` — Run structured, iterative spec/code review loops; the reviewer vendor is chosen independently of the driver (pass a lowercase token like `claude`/`codex`/`cursor`)
 - `agent-flows` / `kcap-agent-flows` — Run structured multi-participant agent flows (catalog `definition_id` or an inline `definition_yaml`), each participant declaring its own vendor/model
 - `work-items` / `kcap-work-items` — Declare a work item's breakdown (parent and parts) and its blocks / blocked-by dependencies, so Home renders its topology, and record the loose ends a session leaves unfinished

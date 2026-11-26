@@ -7,7 +7,6 @@ namespace Capacitor.App.ViewModels;
 /// OptionId, not Label: two options may carry the same label and must stay distinct.
 public sealed class AcpOptionViewModel : ReactiveObject {
     readonly Action _selectionChanged;
-    bool _isSelected;
 
     public string OptionId { get; }
     public string Label { get; }
@@ -15,10 +14,10 @@ public sealed class AcpOptionViewModel : ReactiveObject {
     public ReactiveCommand<Unit, Unit> PickCommand { get; }
 
     public bool IsSelected {
-        get => _isSelected;
+        get;
         set {
-            if (_isSelected == value) return;
-            this.RaiseAndSetIfChanged(ref _isSelected, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             _selectionChanged();
         }
     }

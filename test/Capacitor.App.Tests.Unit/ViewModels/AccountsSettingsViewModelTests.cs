@@ -227,7 +227,7 @@ public class AccountsSettingsViewModelTests {
 
         rig.Outcome = _ => Task.FromResult<MutationOutcome>(new MutationOutcome.Failed(1, "plugin: hooks.json is read-only", RecoverySurface.Attention));
         await vm.RewireCommand.Execute(work).ToTask();
-        await Assert.That(vm.Notice).IsEqualTo(new AccountsNotice("Could not re-wire work", "plugin: hooks.json is read-only"));
+        await Assert.That(vm.Notice).IsEqualTo(new AccountsNotice("Could not re-wire work", "Check the account settings and try again."));
         await Assert.That(vm.Groups.Single(g => g.Vendor == "claude").Notice).IsEqualTo(vm.Notice);
         await Assert.That(vm.Groups.Single(g => g.Vendor == "codex").Notice).IsNull();
 
@@ -247,7 +247,7 @@ public class AccountsSettingsViewModelTests {
     public async Task Refresh_outcome_notices() {
         await Assert.That(AccountsSettingsViewModel.OutcomeNotice(MutationVerb.AccountRefresh, "work", new MutationOutcome.Succeeded())).IsNull();
         await Assert.That(AccountsSettingsViewModel.OutcomeNotice(MutationVerb.AccountRefresh, "work", new MutationOutcome.Failed(2, null, RecoverySurface.Attention)))
-            .IsEqualTo(new AccountsNotice("Could not refresh work", "kcap's command line stopped with an error (code 2)."));
+            .IsEqualTo(new AccountsNotice("Could not refresh work", "Check the account settings and try again."));
     }
 
     [Test]
@@ -280,10 +280,27 @@ public class AccountsSettingsViewModelTests {
 
         var work = rig.Row("work");
         await Assert.That(work.Email).IsEqualTo("w@x.io");
-        await Assert.That(work.Plan).IsEqualTo("Max");
+        await Assert.That(work.PlanLabel).IsEqualTo("MAX");
         await Assert.That(work.ErrorText).IsEqualTo("limits down");
         await Assert.That(rig.Row("home").ErrorText).IsEqualTo("refresh failed");
         await Assert.That(work.Usage.View).IsNotNull();
+    });
+
+    [Test]
+    public Task A_registered_account_kcap_is_off_in_says_so_and_offers_reconnect() => AvaloniaSession.RunOnUiAsync(async () => {
+        var off = Account("a1", "claude", "/u/.claude", "me@x.io", "not_wired") with { Email = "me@x.io" };
+        using var rig = new Rig(new AccountsSnapshotDto("host-1", 1, [off], [new("claude", "/u/.claude", "/u/.claude"), new("codex", "/u/.codex", "/u/.codex")]));
+
+        var row = rig.Row("me@x.io");
+        await Assert.That(row.StateHint).IsNotNull();
+        await Assert.That(row.ShowsStateBadge).IsFalse();
+        await Assert.That(row.CanReconnect).IsTrue();
+        await Assert.That(row.ShowsEmail).IsFalse();
+
+        var fallback = rig.Vm.Groups[1].Rows.Single();
+        await Assert.That(fallback.StateHint).IsNull();
+        await Assert.That(fallback.ShowsStateBadge).IsTrue();
+        await Assert.That(fallback.CanReconnect).IsFalse();
     });
 
     [Test]
@@ -321,48 +338,10 @@ public class AccountsSettingsViewModelTests {
     });
 
     [Test]
-    public Task Cards_count_registered_accounts_only() => AvaloniaSession.RunOnUiAsync(async () => {
-        var signedIn = Account("a2", "claude", "/u/.claude-work", "work") with { SignIn = SignInStates.SignedIn };
-        using var rig = new Rig(new AccountsSnapshotDto("host-1", 1, [signedIn], [new("codex", "/u/.codex", "/u/.codex")]));
-
-        await Assert.That(rig.Vm.Groups[1].Rows.Single().IsUnregisteredDefault).IsTrue();
-        await Assert.That(rig.Vm.NeedsFixCard).IsEqualTo(new AccountSummaryCard("0", null, false));
-        await Assert.That(rig.Vm.ReadyCard.Value).IsEqualTo("0 of 1");
-    });
-
-    [Test]
-    public Task Ready_card_lists_ready_labels() => AvaloniaSession.RunOnUiAsync(async () => {
-        using var rig = new Rig(UsageSnapshot());
-
-        await Assert.That(rig.Vm.ReadyCard).IsEqualTo(new AccountSummaryCard("1 of 3", "work", false));
-    });
-
-    [Test]
-    public Task Next_reset_card_names_account_and_window() => AvaloniaSession.RunOnUiAsync(async () => {
-        using var rig = new Rig(UsageSnapshot());
-
-        await Assert.That(rig.Vm.NextResetCard).IsEqualTo(new AccountSummaryCard("resets in 30m", "home · 5h", false));
-    });
-
-    [Test]
-    public Task Next_reset_card_is_a_dash_when_nothing_resets() => AvaloniaSession.RunOnUiAsync(async () => {
-        using var rig = new Rig(Snapshot);
-
-        await Assert.That(rig.Vm.NextResetCard).IsEqualTo(new AccountSummaryCard("—", null, false));
-    });
-
-    [Test]
-    public Task Need_a_fix_card_counts_signed_out_and_needs_trust() => AvaloniaSession.RunOnUiAsync(async () => {
-        using var rig = new Rig(UsageSnapshot());
-
-        await Assert.That(rig.Vm.NeedsFixCard).IsEqualTo(new AccountSummaryCard("2", "home · Needs sign-in", true));
-    });
-
-    [Test]
     public async Task Outcome_notices_name_the_action_and_never_read_an_unconfirmed_outcome_as_done() {
         await Assert.That(AccountsSettingsViewModel.OutcomeNotice(MutationVerb.AccountAdd, "work", new MutationOutcome.Succeeded())).IsNull();
         await Assert.That(AccountsSettingsViewModel.OutcomeNotice(MutationVerb.AccountRemove, "work", new MutationOutcome.Failed(2, null, RecoverySurface.Attention)))
-            .IsEqualTo(new AccountsNotice("Could not remove work", "kcap's command line stopped with an error (code 2)."));
+            .IsEqualTo(new AccountsNotice("Could not remove work", "Check the account settings and try again."));
         await Assert.That(AccountsSettingsViewModel.OutcomeNotice(MutationVerb.AccountRemove, "work", new MutationOutcome.UnconfirmedNoAttach()))
             .IsEqualTo(new AccountsNotice("Removing work could not be confirmed", "The list shows the current state.", IsWarning: true));
     }
@@ -373,8 +352,8 @@ public class AccountsSettingsViewModelTests {
     [Arguments("cli_override_missing", "Update kcap on this machine to manage accounts.")]
     [Arguments("cli_not_found", "Reinstall kcap to manage accounts.")]
     [Arguments("daemon_renamed_restart_app", "Restart the app to manage accounts.")]
-    [Arguments("some_new_refusal", "some_new_refusal")]
-    public async Task A_refusal_reads_as_what_to_do_and_an_unknown_one_keeps_its_reason(string reason, string expected) =>
+    [Arguments("some_new_refusal", "Check the account settings and try again.")]
+    public async Task A_refusal_reads_as_what_to_do_including_for_unknown_reasons(string reason, string expected) =>
         await Assert.That(AccountsSettingsViewModel.OutcomeNotice(
             MutationVerb.AccountAdd, "work", new MutationOutcome.Refused(reason, RecoverySurface.Attention)))
             .IsEqualTo(new AccountsNotice("Could not add work", expected));
@@ -460,6 +439,6 @@ public class AccountsSettingsViewModelTests {
         pending.SetResult(new MutationOutcome.Failed(1, "daemon went away", RecoverySurface.Attention));
         await removing;
 
-        await Assert.That(vm.UnplacedNotice).IsEqualTo(new AccountsNotice("Could not remove work", "daemon went away"));
+        await Assert.That(vm.UnplacedNotice).IsEqualTo(new AccountsNotice("Could not remove work", "Check the account settings and try again."));
     });
 }

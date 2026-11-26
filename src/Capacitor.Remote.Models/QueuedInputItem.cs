@@ -9,8 +9,8 @@ public sealed record QueuedInputItem {
     [JsonPropertyName("sender_user_id")]  public string? SenderUserId { get; init; }
     [JsonPropertyName("text")]            public string Text { get; init; } = "";
     [JsonPropertyName("dispatched_at")]   public DateTimeOffset DispatchedAt { get; init; }
-    /// Where a message to an attached agent stands: held, with_mod, delivered, rejected or unconfirmed. Absent for a
-    /// hosted agent's message and from an older server.
+    /// Where the message stands: held, with_mod, delivered, rejected or unconfirmed. Absent while a hosted
+    /// send is still in flight, and from an older server; a hosted refusal carries <c>rejected</c>.
     [JsonPropertyName("delivery_state")]  public string? DeliveryState { get; init; }
     /// Why a rejected message was rejected; absent otherwise.
     [JsonPropertyName("delivery_reason")] public string? DeliveryReason { get; init; }

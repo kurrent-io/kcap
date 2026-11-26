@@ -9,22 +9,15 @@ namespace Capacitor.App.ViewModels;
 /// One coding tool as Settings shows it. What kcap set up for it is the computer's, not a profile's:
 /// the hooks it installs carry no profile, and each session picks one when it starts.
 public sealed class HarnessSettingsRow : ReactiveObject {
-    string? _message;
-    string? _errorTitle;
-    string? _details;
-    bool _isWarning;
-    bool? _wired;
     bool _tools;
-    bool _setupUnverified;
     bool _untrusted;
-    int? _earlierChats;
     int _importLookup;
 
     internal HarnessSettingsRow(HarnessIdentity identity, DetectedAgent detected, bool? wired, bool tools, bool setupUnverified = false,
             bool untrusted = false) {
-        _wired = wired;
+        Wired = wired;
         _tools = tools;
-        _setupUnverified = setupUnverified;
+        SetupUnverified = setupUnverified;
         _untrusted = untrusted;
         Id = identity.Id;
         Label = identity.Label;
@@ -47,23 +40,23 @@ public sealed class HarnessSettingsRow : ReactiveObject {
     public bool OffersTools => !ToolsBundled && Id != HarnessId.Grok;
     public bool RecordOnly => !ToolsBundled && !OffersTools;
 
-    internal bool? Wired => _wired;
-    public bool IsConfigured => _wired == true;
-    public bool ConnectionUnknown => _wired is null;
-    public bool SetupUnverified => _setupUnverified;
+    internal bool? Wired { get; private set; }
+    public bool IsConfigured => Wired == true;
+    public bool ConnectionUnknown => Wired is null;
+    public bool SetupUnverified { get; private set; }
     /// Hooks in place that the tool refuses to run until the user trusts them, so nothing records.
     public bool AwaitingTrust => IsConfigured && !SetupUnverified && _untrusted;
     public bool NeedsAttention => ConnectionUnknown || SetupUnverified || AwaitingTrust;
     public bool ShowRecordingStatus => IsConfigured && !SetupUnverified && !AwaitingTrust;
     /// Tools installed for a tool kcap does not record.
-    public bool ToolsOnly => !SetupUnverified && _wired == false && _tools && OffersTools;
+    public bool ToolsOnly => !SetupUnverified && Wired == false && _tools && OffersTools;
     public bool HasStatus => IsConfigured || NeedsAttention || ToolsOnly;
 
     /// Whether kcap's tools are installed, as far as Settings last set them.
     public bool Tools => ToolsBundled ? IsConfigured : _tools;
     public bool? ToolsSelection => SetupUnverified ? null : Tools;
 
-    public string? ConnectionLabel => SetupUnverified ? "Setup unverified" : AwaitingTrust ? $"Needs approval in {Label}" : _wired switch {
+    public string? ConnectionLabel => SetupUnverified ? "Setup unverified" : AwaitingTrust ? $"Needs approval in {Label}" : Wired switch {
         true => "Recording", null => "Could not check", _ => ToolsOnly ? "Tools only" : null,
     };
     public string? ConnectionTip => SetupUnverified
@@ -71,7 +64,7 @@ public sealed class HarnessSettingsRow : ReactiveObject {
         : AwaitingTrust
         ? $"{Label} runs kcap's hooks only once you trust them, so nothing is recorded yet. Run codex once in a terminal and approve them, "
           + "or use Settings → Hooks in the Codex app. codex exec never asks."
-        : _wired switch {
+        : Wired switch {
         true => "kcap records this tool's sessions. Each one goes to the profile set for its repository",
         null => "kcap could not read this tool's settings to tell whether it records",
         _ => ToolsOnly ? "The agent has kcap's tools, but its sessions are not recorded" : null,
@@ -88,7 +81,7 @@ public sealed class HarnessSettingsRow : ReactiveObject {
         "kcap's MCP servers and skills. They let the agent search your recorded sessions and use kcap from its chat.";
 
     internal void SetWired(bool? wired) {
-        _wired = wired;
+        Wired = wired;
         Raise();
     }
 
@@ -98,7 +91,7 @@ public sealed class HarnessSettingsRow : ReactiveObject {
     }
 
     internal void SetSetupUnverified(bool unverified) {
-        _setupUnverified = unverified;
+        SetupUnverified = unverified;
         Raise();
     }
 
@@ -122,20 +115,20 @@ public sealed class HarnessSettingsRow : ReactiveObject {
         this.RaisePropertyChanged(nameof(ConnectionTip));
     }
 
-    public string? Message { get => _message; private set => this.RaiseAndSetIfChanged(ref _message, value); }
+    public string? Message { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// Set when Message reports a failure, which then reads as that failure's detail.
-    public string? ErrorTitle { get => _errorTitle; private set => this.RaiseAndSetIfChanged(ref _errorTitle, value); }
+    public string? ErrorTitle { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     /// The command line's own output, kept behind Show details: it names files and errors a reader rarely needs.
-    public string? Details { get => _details; private set => this.RaiseAndSetIfChanged(ref _details, value); }
+    public string? Details { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// The callout reports a change that finished with warnings rather than one that failed.
-    public bool IsWarning { get => _isWarning; private set => this.RaiseAndSetIfChanged(ref _isWarning, value); }
+    public bool IsWarning { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     /// Sessions this tool wrote before recording was turned on, which the row offers to import; null when it offers none.
     public int? EarlierChats {
-        get => _earlierChats;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _earlierChats, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(OffersImport));
             this.RaisePropertyChanged(nameof(ImportOffer));
         }

@@ -17,7 +17,7 @@ public sealed class ConPtyProcess : IPtyProcess {
     bool                             _disposed;
     int                              _pcClosed;
 
-    public int  Pid       { get; private set; }
+    public int  Pid       { get; private init; }
     public bool HasExited { get; private set; }
     public int? ExitCode  { get; private set; }
 
@@ -601,9 +601,9 @@ public sealed class ConPtyProcess : IPtyProcess {
             await TerminateAsync();
         }
 
-        try { await _outputStream.DisposeAsync(); } catch { }
+        try { await _outputStream.DisposeAsync(); } catch { /* ignored */ }
 
-        try { await _inputStream.DisposeAsync(); } catch { }
+        try { await _inputStream.DisposeAsync(); } catch { /* ignored */ }
 
         if (Interlocked.Exchange(ref _pcClosed, 1) == 0) {
             ClosePseudoConsole(_hPC);

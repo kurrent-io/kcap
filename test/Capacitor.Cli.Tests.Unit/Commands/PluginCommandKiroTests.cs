@@ -55,8 +55,8 @@ public class PluginCommandKiroTests {
     /// even though the marker carries the previous default on its second line.</summary>
     [Test]
     public async Task install_kiro_if_installed_at_current_version_is_a_noop() {
-        using var home   = new TempHome();
-        using var stdout = new StringWriter();
+        using var home         = new TempHome();
+        await using var stdout = new StringWriter();
         var env   = TestEnv(home.Path) with { Stdout = stdout };
         var paths = env.Harnesses.Of<KiroHarness>().Paths;
         SeedAgent(env);
@@ -166,9 +166,9 @@ public class PluginCommandKiroTests {
     /// said, the MCP servers still register, and the explicit install still fails because nothing will be recorded.</summary>
     [Test]
     public async Task install_kiro_without_kiro_cli_says_why_and_still_registers_mcp() {
-        using var home   = new TempHome();
-        using var bin    = new TempDir();
-        using var stderr = new StringWriter();
+        using var home         = new TempHome();
+        using var bin          = new TempDir();
+        await using var stderr = new StringWriter();
         var binaries = TestBinaries.Searching(bin, "kcap");
         var env      = TestEnv(home.Path) with { Stderr = stderr, Binaries = binaries, FindStaleAgents = _ => [] };
 
@@ -183,9 +183,9 @@ public class PluginCommandKiroTests {
     /// <summary>Under <c>--skip-kiro-skills</c> the missing-kiro-cli warning names only the MCP servers it still registers.</summary>
     [Test]
     public async Task install_kiro_without_kiro_cli_under_skip_kiro_skills_does_not_promise_skills() {
-        using var home   = new TempHome();
-        using var bin    = new TempDir();
-        using var stderr = new StringWriter();
+        using var home         = new TempHome();
+        using var bin          = new TempDir();
+        await using var stderr = new StringWriter();
         var binaries = TestBinaries.Searching(bin, "kcap");
         var env      = TestEnv(home.Path) with { Stderr = stderr, Binaries = binaries, FindStaleAgents = _ => [] };
 

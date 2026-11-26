@@ -54,9 +54,13 @@ internal sealed class SteeringRoutes(ModAttachments attachments) {
             outstanding = id;
         }
 
-        return await attachments.NextAsync(agentId, process, body.Idle, outstanding) is { } reply
-            ? Json(reply, SteeringJsonContext.Default.SteeringNextReply)
-            : new SteeringHttpResponse(204, []);
+        if (await attachments.NextAsync(agentId, process, body.Idle, outstanding) is not { } reply) return new SteeringHttpResponse(204, []);
+
+        var answer = Json(reply, SteeringJsonContext.Default.SteeringNextReply);
+
+        return reply.DispatchId is { } handedOver
+            ? answer with { Written = () => attachments.HandoverWritten(Guid.Parse(handedOver)) }
+            : answer;
     }
 
     Task<SteeringHttpResponse> LinkAsync(SteeringHttpRequest request, CancellationToken ct) {

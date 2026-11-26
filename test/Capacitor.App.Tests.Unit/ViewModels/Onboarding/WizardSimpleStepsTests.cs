@@ -54,7 +54,9 @@ public class WizardSimpleStepsTests {
         await Assert.That(disclosure).Contains("No administrator rights are needed");
         await Assert.That(store.Updates).IsEqualTo(1);
         if (!verified) {
-            await Assert.That(message).Contains("was added to your user PATH");
+            await Assert.That(message).Contains("is on your user PATH");
+            await Assert.That(message).Contains(Path.GetDirectoryName(target)!);
+            await Assert.That(message).Contains("Open a new terminal");
             await Assert.That(message).DoesNotContain("nothing changed");
         }
     }
@@ -69,7 +71,7 @@ public class WizardSimpleStepsTests {
     // ── Shim: install / claim / outcome mapping ─────────────────────────────
 
     sealed class FakeAppStateStore : IAppStateStore {
-        public AppState State = new();
+        AppState State = new();
         public int Updates;
 
         public Task<AppState> LoadAsync() => Task.FromResult(State);
@@ -122,7 +124,9 @@ public class WizardSimpleStepsTests {
 
     static readonly ShimResult[] UnfinishedShims = [
         new(ShimOutcome.InstalledButNotOnPath, null),
-        new(ShimOutcome.InstalledButNotOnPath, "Add: export PATH=\"/Users/a/.local/bin:$PATH\""),
+        new(ShimOutcome.InstalledButNotOnPath, "Add: export PATH=\"/Users/a/.local/bin:$PATH\"") {
+            PathIssue = ShimPathIssue.FolderMissingFromPath, Folder = "/Users/a/.local/bin",
+        },
         new(ShimOutcome.Failed, "Permission denied."),
     ];
 
@@ -145,7 +149,7 @@ public class WizardSimpleStepsTests {
 
         foreach (var message in messages) {
             await Assert.That(message).IsNotNull();
-            await Assert.That(message!).DoesNotContain("kcap ");
+            await Assert.That(message!).DoesNotContain("run kcap");
             await Assert.That(message).DoesNotContain("export PATH");
         }
     }
@@ -155,19 +159,20 @@ public class WizardSimpleStepsTests {
     public async Task The_path_fix_on_the_cloud_path_keeps_its_terminal_recovery() {
         var messages = await PathFixMessagesAsync(onLocalPath: false);
 
-        await Assert.That(messages[0]).Contains("run kcap --version");
-        await Assert.That(messages[1]).Contains("export PATH");
-        await Assert.That(messages[2]).Contains("Permission denied.");
+        await Assert.That(messages[0]).Contains("open a new terminal");
+        await Assert.That(messages[1]).Contains("/Users/a/.local/bin");
+        await Assert.That(messages[1]).Contains("Add it to your shell’s PATH");
+        await Assert.That(messages[2]).Contains("Could not finish installing the terminal command");
     }
 
     sealed class ShimHarness : IDisposable {
         readonly TempDir _tmp = new();
-        public string TempDir => _tmp.Path;
+        string TempDir => _tmp.Path;
         public readonly FakeLoginShellProbe Probe = new();
         public readonly FakeAppStateStore  Store  = new();
         public readonly PathShimInstaller  Installer;
-        public readonly string             Destination;
-        public readonly string             Target;
+        readonly string             Destination;
+        readonly string             Target;
         public readonly PathFixViewModel   Vm;
 
         public ShimHarness() {
@@ -241,7 +246,7 @@ public class WizardSimpleStepsTests {
             return (await failing.UnfinishedAsync(), await idle.UnfinishedAsync());
         });
 
-        await Assert.That(failed).Contains("Permission denied.");
+        await Assert.That(failed).Contains("Could not finish installing the terminal command");
         await Assert.That(none).IsNull();
     }
 
@@ -275,7 +280,7 @@ public class WizardSimpleStepsTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task InstalledButNotOnPath_outcome_is_not_fixed_and_carries_the_installer_detail() {
+    public async Task An_installed_command_that_is_missing_from_PATH_offers_a_check() {
         var (satisfied, message) = await AvaloniaSession.DispatchAsync(async () => {
             using var h = new ShimHarness();
             h.Probe.KcapOnPathBehavior = _ => Task.FromResult<bool?>(false);
@@ -292,7 +297,7 @@ public class WizardSimpleStepsTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Failed_outcome_is_not_fixed_and_carries_the_installer_detail() {
+    public async Task Failed_outcome_is_not_fixed_and_offers_retry() {
         var (satisfied, message) = await AvaloniaSession.DispatchAsync(async () => {
             using var h = new ShimHarness();
             h.DenyLinking();
@@ -304,8 +309,8 @@ public class WizardSimpleStepsTests {
 
         await Assert.That(satisfied).IsFalse();
         await Assert.That(message).IsNotNull();
-        await Assert.That(message).StartsWith("Could not finish installing the terminal command.");
-        await Assert.That(message).Contains(".local");
+        await Assert.That(message).StartsWith("kcap couldn’t create the terminal command");
+        await Assert.That(message).Contains("is a file. Move the file, then try again.");
     }
 
     [Test]

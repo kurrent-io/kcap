@@ -100,7 +100,7 @@ public class UpdateWindowTests {
         try {
             window.Show();
             Render(window);
-            var details = window.GetVisualDescendants().OfType<Button>().Single(b => b.IsVisible && Equals(b.Content, "Details"));
+            var details = window.GetVisualDescendants().OfType<Button>().Single(b => b is { IsVisible: true, Content: "Details" });
             details.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Render(window);
 
@@ -110,7 +110,7 @@ public class UpdateWindowTests {
             await Assert.That(scroll.Extent.Height).IsGreaterThan(scroll.Viewport.Height);
             var open = window.FindControl<Button>("OpenButton")!;
             var bottom = open.TranslatePoint(new Point(open.Bounds.Width, open.Bounds.Height), window)!.Value;
-            await Assert.That(open.IsVisible && open.IsEnabled).IsTrue();
+            await Assert.That(open is { IsVisible: true, IsEnabled: true }).IsTrue();
             await Assert.That(bottom.Y).IsLessThanOrEqualTo(window.ClientSize.Height);
 
             var opened = false;

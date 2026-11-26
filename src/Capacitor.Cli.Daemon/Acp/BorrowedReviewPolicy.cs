@@ -4,23 +4,15 @@ using System.Runtime.InteropServices;
 namespace Capacitor.Cli.Daemon.Acp;
 
 /// <summary>
-/// One vendor's borrowed-review capability, resolved for the platform this daemon is running on.
-///
-/// <para>Every consumer of borrowed-review capability reads THIS, never the static descriptor:
-/// the advertised <c>SupportsBorrowedReviewFlow</c>, the containment token, the
-/// snapshot-materialization requirement, the pre-spawn validation, and the launch argv. Splitting
-/// them is how advertisement and spawn drift apart — a daemon that advertises "no borrowed review"
-/// while the descriptor still says yes leaves the readable argv reachable on a stale borrowed
-/// command, which is the shape of the bug this whole area exists to close.</para>
+/// One vendor's borrowed-review capability, resolved for this platform. Every consumer (advertisement,
+/// containment token, snapshot requirement, pre-spawn validation, argv) reads this, never the static
+/// descriptor, so advertisement and spawn cannot disagree.
 /// </summary>
 /// <param name="ExtraBorrowedToolIds">Tool ids added to the exclusive <c>--available-tools</c>
-/// allowlist for a BORROWED-SNAPSHOT review launch only. Empty for every other launch, which keeps
-/// the flow-result-only clamp — see <see cref="CopilotBorrowedReviewPolicy"/>.</param>
-/// <param name="RequiresProcessSandbox">Whether a borrowed-snapshot launch under this entry must be
-/// wrapped in an OS filesystem sandbox. Set wherever the readable allowlist is granted: widening the
-/// tool surface without an independent read boundary would leave confidentiality resting on the
-/// vendor continuing to ask permission for out-of-bounds paths. See
-/// <see cref="BorrowedReviewSandbox"/>.</param>
+/// allowlist for a borrowed-snapshot launch only.</param>
+/// <param name="RequiresProcessSandbox">Set wherever the readable allowlist is granted: without an OS
+/// read boundary, confidentiality would rest on the vendor asking permission for out-of-bounds paths.
+/// See <see cref="BorrowedReviewSandbox"/>.</param>
 internal sealed record ResolvedBorrowedReviewPolicy(
     bool                         Supported,
     AcpBorrowedReviewContainment Containment,
@@ -38,59 +30,28 @@ internal sealed record ResolvedBorrowedReviewPolicy(
 }
 
 /// <summary>
-/// Which platforms Copilot's borrowed-review tool surface has actually been verified on, and the
-/// read tools that surface consists of.
-///
-/// <para><b>Why an exclusive allowlist rather than a deny-list.</b> Live probing of Copilot 1.0.75
-/// found that <c>--deny-tool=write</c> does NOT cover its file-create/edit tool. A direct write to an
-/// absolute path outside the snapshot was not denied — it raised an inbound
-/// <c>session/request_permission</c> ("Access paths outside trusted directories"), and this daemon's
-/// unattended interaction policy auto-approves exactly that shape. A deny-list therefore leaves the
-/// write path open while looking closed.</para>
-///
-/// <para>Keeping <c>--available-tools</c> EXCLUSIVE and widening it to the read tools makes WRITE
-/// containment structural instead: no write or exec tool is representable at all, so there is no
-/// permission request for anything to grant. READ containment is a separate problem and is NOT
-/// solved by the allowlist — see <see cref="BorrowedReviewSandbox"/>, which is why a supported entry
-/// requires an OS sandbox and a host that cannot provide one is unsupported. Verified live — with this allowlist Copilot reports
-/// <c>bash</c>, <c>create</c> and <c>edit</c> among its disabled tools, raises no permission request,
-/// and states plainly that it has no tool capable of writing.</para>
-///
-/// <para><b>Why the platform key.</b> The verification above was performed on one platform. Tool
-/// identifiers and path-trust semantics are the security boundary here, and nothing establishes they
-/// are identical elsewhere, so an unverified platform gets no entry and advertises no borrowed
-/// review. This is NOT a version-keyed certification — a vendor build auto-updates underneath a user,
-/// so such a gate withdraws the capability silently; an OS and architecture do not
-/// change under a running daemon, and this encodes a fact nobody has measured rather than
-/// re-deriving one that was deliberately trusted.</para>
+/// The platforms where Copilot's borrowed-review tool surface is verified, and its read tools.
+/// <para>An exclusive allowlist, not a deny-list: <c>--deny-tool=write</c> does not cover Copilot's
+/// create/edit tool, whose out-of-tree write raises a permission request the unattended policy would
+/// approve. With only read tools available, no write or exec tool exists to ask for. Read containment
+/// is the sandbox's job (<see cref="BorrowedReviewSandbox"/>).</para>
+/// <para>Keyed on OS and architecture, since tool ids and path-trust semantics were verified on one
+/// platform. Never keyed on vendor version, which auto-updates under a running daemon.</para>
 /// </summary>
 internal static class CopilotBorrowedReviewPolicy {
-    /// <summary>The read/search tools a borrowed Copilot reviewer may use, on top of the flow-result
-    /// channel. Deliberately excludes <c>bash</c>, <c>create</c> and <c>edit</c> — the exclusive
-    /// allowlist is what makes those unrepresentable.
-    ///
-    /// <para><see cref="ImmutableArray{T}"/> rather than <c>string[]</c> because this IS the tool
-    /// allowlist: a shared mutable array reaches the argv builder by reference, so any code holding
-    /// it could write <c>ReadToolIds[0] = "bash"</c> and silently hand every subsequent borrowed
-    /// reviewer a shell. A security boundary should not be a writable static.</para></summary>
+    /// <summary>The read tools a borrowed Copilot reviewer may use besides the flow-result channel.
+    /// Immutable because it is the allowlist: a writable static could hand every later reviewer a
+    /// shell.</summary>
     internal static readonly ImmutableArray<string> ReadToolIds = ["glob", "grep", "view"];
 
-    /// <summary>Platform entries whose tool surface has been verified. Absent, unknown, or
-    /// unverified ⇒ unsupported and fail closed. Pure and keyed only on OS + architecture: no
-    /// probing, no vendor call, no version input — a compiled record of what was measured.</summary>
-    /// <param name="sandboxAvailable">Whether this host can actually enforce the read boundary. A
-    /// host that cannot is UNSUPPORTED, not "supported without the sandbox" — the readable allowlist
-    /// and the OS boundary ship as one thing, and an entry that granted the first without the second
-    /// would be the exact confidentiality gap this design exists to close.</param>
-    /// <param name="authBrokerAvailable">Whether this daemon can broker the reviewer's credential
-    /// (<see cref="BorrowedReviewAuthBroker"/>). A thunk, not a bool: answering it may run an
-    /// operator-configured command, and <c>&amp;&amp;</c> short-circuiting is what keeps that from
-    /// happening on a platform where borrowed review is impossible and the answer unused. Gated HERE, at
-    /// advertisement, rather than checked at spawn: a daemon that cannot authenticate a contained
-    /// reviewer has no borrowed capability to offer, and saying so up front lets the server reject the
-    /// start with a coded reason plus the <c>context-only</c> remedy instead of the flow dying
-    /// mid-launch. The alternative — advertise, then fail on spawn — is strictly worse UX for exactly
-    /// the same security posture.</param>
+    /// <summary>Pure: keyed on OS and architecture plus two host facts; anything unverified fails
+    /// closed.</summary>
+    /// <param name="sandboxAvailable">A host that cannot enforce the read boundary is unsupported; the
+    /// readable allowlist and the sandbox ship together.</param>
+    /// <param name="authBrokerAvailable">A thunk, because answering may run an operator-configured command,
+    /// which short-circuiting skips on platforms that cannot support borrowed review. Checked at
+    /// advertisement so the server can reject the start with the <c>context-only</c> remedy instead of the
+    /// flow dying at spawn.</param>
     internal static ResolvedBorrowedReviewPolicy Resolve(
             OSPlatform os, Architecture arch, bool sandboxAvailable, Func<bool> authBrokerAvailable) =>
         os == OSPlatform.OSX && arch == Architecture.Arm64 && sandboxAvailable && authBrokerAvailable()
@@ -99,25 +60,12 @@ internal static class CopilotBorrowedReviewPolicy {
             : ResolvedBorrowedReviewPolicy.Unsupported;
 
     /// <summary>
-    /// This machine's entry — now resolved from <see cref="Resolve"/> rather than pinned unsupported.
-    ///
-    /// <para>The gap that kept this disabled was the sandbox profile's own grants: it had to admit
-    /// recursive reads of <c>~/.copilot</c>, <c>~/Library/Keychains</c>, <c>/Library</c> and
-    /// <c>/opt/homebrew</c> so the vendor could start and authenticate. All four are data-bearing and
-    /// none is reachable through an ACP interaction frame, so the <c>Fail</c> policy never fired and
-    /// the OS boundary permitted the read — vendor-independent for arbitrary paths, but not for those
-    /// four. All four are now closed: a per-launch <c>HOME</c>/<c>TMPDIR</c> state directory,
-    /// <see cref="BorrowedReviewAuthBroker">brokered authentication</see> in place of the keychain
-    /// grant, and <see cref="BorrowedReviewRuntimeRoots">runtime roots derived from the vendor
-    /// binary</see> in place of the whole-prefix grants. Each is asserted unreadable by an enforcement
-    /// test that runs a real process — one that never asks permission, so it models the drifted build
-    /// rather than the cooperative one.</para>
-    ///
-    /// <para>Support is now conjunctive across three host facts — verified platform, an enforceable
-    /// sandbox, and a brokerable credential — and any one of them missing yields
-    /// <see cref="ResolvedBorrowedReviewPolicy.Unsupported"/>, so the server answers with
-    /// <c>vendor_containment_unreadable</c> plus the <c>context-only</c> remedy. That remains the
-    /// honest fallback; it is simply no longer the only outcome.</para>
+    /// This machine's entry. The sandbox grants no read of <c>~/.copilot</c>, <c>~/Library/Keychains</c>,
+    /// <c>/Library</c> or <c>/opt/homebrew</c>: the launch uses a per-launch <c>HOME</c>/<c>TMPDIR</c>,
+    /// <see cref="BorrowedReviewAuthBroker">brokered authentication</see> and
+    /// <see cref="BorrowedReviewRuntimeRoots">runtime roots derived from the binary</see>, each pinned by an
+    /// enforcement test running a real process that never asks permission. When unsupported, the server
+    /// answers <c>vendor_containment_unreadable</c> with the <c>context-only</c> remedy.
     /// </summary>
     internal static ResolvedBorrowedReviewPolicy Current { get; } =
         Resolve(CurrentOs(), RuntimeInformation.ProcessArchitecture,

@@ -45,6 +45,7 @@ using Profile = Capacitor.Cli.Core.Config.Profile;
 
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Capacitor.Cli.Core.Harness.GrokBot;
 using Capacitor.Cli.Recording.PrDetection;
 using Capacitor.Cli.Recording;
 
@@ -1242,6 +1243,18 @@ sealed class SetupCommand(
         new AccountSetupStep(accounts, pluginEnv, time).Run(
             stepOptions, AnsiConsole.Profile.Capabilities.Interactive, PromptYesNo, WriteLine);
 
+        // Only where a daemon will run to do the recording. The default answer is no: this one starts
+        // sending chats that were never recorded before.
+        var grokBotRecord = museAssistant || machineSignedIn
+            ? null
+            : GrokBotSetupStep.Run(
+                detected:    GrokBotDesktopPaths.HasChatStore(home),
+                recorded:    (await AppConfig.LoadProfileConfig(config)).Profiles.GetValueOrDefault(activeProfile)?.GrokBot?.Record,
+                noPrompt:    stepOptions.NoPrompt,
+                interactive: AnsiConsole.Profile.Capabilities.Interactive,
+                promptYesNo: text => AnsiConsole.Prompt(new ConfirmationPrompt(text) { DefaultValue = false }),
+                writeLine:   WriteLine);
+
         _json?.Completed(harnesses: InstalledHarnesses(installResult));
 
         var installedPaths = CodingAgentsStep.InstalledPaths(installResult, stepPaths).ToList();
@@ -1387,6 +1400,10 @@ sealed class SetupCommand(
                 ServerUrl          = serverUrl,
                 DefaultVisibility  = defaultVisibility,
                 UseProviderApiKey  = useProviderApiKey,
+                // Asked of activeProfile: if another profile has become active since, the answer is not its own.
+                GrokBot            = grokBotRecord is { } record && activeName == activeProfile
+                                         ? (defaultProfile.GrokBot ?? new GrokBotSettings()) with { Record = record }
+                                         : defaultProfile.GrokBot,
                 Daemon             = (defaultProfile.Daemon ?? new DaemonSettings()) with { Name = daemonName }
             };
 
@@ -1611,7 +1628,7 @@ sealed class SetupCommand(
             // No standard handle is a console; CONOUT$ may still be one.
         }
 
-        return OperatingSystem.IsWindows() && WindowsConsoleWidth.Measure() is int width and > 1 ? width : null;
+        return OperatingSystem.IsWindows() && WindowsConsoleWidth.Measure() is { } width and > 1 ? width : null;
     }
 
     /// <summary>The closing "Next steps" box: a question per item, its answer indented beneath.</summary>
@@ -1936,7 +1953,7 @@ sealed class SetupCommand(
 
         // Discovery only earns its scan when the decision below would otherwise prompt: a skip or an
         // unattended --no-prompt run has no use for figures nobody sees.
-        if (inputs.AuthSatisfied && !inputs.SkipImport && !inputs.NoPrompt) {
+        if (inputs is { AuthSatisfied: true, SkipImport: false, NoPrompt: false }) {
             var discovery = await imports.DiscoverAsync(inputs.Profiles);
 
             if (discovery.Fault is { } fault) {
@@ -3100,7 +3117,7 @@ sealed class SetupCommand(
             return 0;
         } catch (Exception ex) {
             var failure = LocalSetupJsonLines.Classify(ex);
-            WriteJsonLine(LocalSetupJsonLines.Failed(failure.Code, failure.Message));
+            WriteJsonLine(LocalSetupJsonLines.Failed(failure.Code, failure.Message, blockingClient: failure.BlockingClient));
 
             return LocalSetupJsonLines.Exit(failure.Code);
         }

@@ -57,9 +57,13 @@ public static class SkillsReconciler {
     /// <summary>Whether this row already satisfies publication here: ours, verified, at this
     /// anchor, and holding on disk exactly the bytes it confirmed writing.</summary>
     public static bool Serves(OwnedSkillRow row, SkillSnapshotItem item, string anchor) =>
-        row is { State: OwnedSkillState.Published, Origin: SkillOrigin.Repository, Confirmed: { } confirmed }
-        && row.Prepared is null
-        && row.Anchor is { } recorded
+        row is {
+            State: OwnedSkillState.Published,
+            Origin: SkillOrigin.Repository,
+            Confirmed: { } confirmed,
+            Prepared: null,
+            Anchor: { } recorded
+        }
         && PathComparison.Equal(CanonicalPath.Resolve(recorded), CanonicalPath.Resolve(anchor))
         && confirmed.Document.Serves(item)
         && SkillsMaterializer.Inspect(row.Path) is (SkillFileProbe.Present, { } hash)

@@ -80,6 +80,12 @@ public static class VerifyExit {
     /// <c>retire_reason=&lt;reason&gt;</c> names which.</summary>
     public const int RetireRefused = 30;
     public const string RetireRefusedToken = "verify_retire_refused";
+
+    /// <summary><c>--activate</c> stopped the transaction; the stderr line <c>activation_reason=&lt;reason&gt;</c>
+    /// names why. No unit is written for the new id, and <c>active_profile</c> still names the previous
+    /// selection, though a refusal after the replace matrix leaves the old owner stopped.</summary>
+    public const int ActivationRefused = 31;
+    public const string ActivationRefusedToken = "verify_activation_refused";
 }
 
 /// <summary>Why <see cref="ServiceVerify.EvaluateStartGate"/> refused a gated start. Reported on
@@ -726,7 +732,17 @@ sealed class ServiceVerify(
     /// (<see cref="VerifyExit.Contended"/>), while <c>--replace</c> clears/takes it over first.</summary>
     /// <param name="retireServiceId">When set, removes this other unit inside the same transaction
     /// before installing — the one a daemon rename leaves behind.</param>
-    public async Task<int> InstallVerifiedAsync(ServiceSpec spec, bool replace, string? expectedVersion, string? retireServiceId = null) {
+    /// <param name="activation">With <c>--activate</c>: sets the pinned profile active once every owner is
+    /// confirmed stopped, before the new unit is written.</param>
+    /// <param name="retireProfile">The profile the retired unit must be pinned to; the installed one when null.</param>
+    public async Task<int> InstallVerifiedAsync(
+            ServiceSpec spec, bool replace, string? expectedVersion, string? retireServiceId = null,
+            ProfileActivation? activation = null, string? retireProfile = null) {
+        if (activation is not null && !replace)
+            throw new ArgumentException("Activation requires replacement.", nameof(activation));
+        if (retireProfile is not null && retireServiceId is null)
+            throw new ArgumentException("A retired profile requires a retired service.", nameof(retireProfile));
+
         // Entry reset: see StartVerifiedAsync — the in-process evidence properties describe THIS
         // operation only.
         LastGateReason       = null;
@@ -794,20 +810,26 @@ sealed class ServiceVerify(
         }
         var fingerprint = ServiceTxnMarker.Fingerprint(generated.Content);
 
+        if (retireServiceId == spec.ServiceId)
+            throw new ArgumentException("retireServiceId must differ from the service being installed");
+
+        if (activation is not null) {
+            if (activation.Viability() is { } unviable) return ProfileActivation.Refusal(unviable);
+            if (await activation.PrepareAsync() is { } unprepared) return ProfileActivation.Refusal(unprepared);
+        }
+
         // A rename locks and fences the old daemon before anything below can change either id, so every
-        // refusal it can produce leaves both exactly as they were.
+        // refusal it can produce leaves both exactly as they were. The lock is held until the transaction
+        // ends, so nothing reinstalls or restarts the old id before activation is written.
         RetireTicket? retire = null;
         if (retireServiceId is not null) {
-            if (retireServiceId == spec.ServiceId)
-                throw new ArgumentException("retireServiceId must differ from the service being installed");
-
-            var (prepareExit, ticket) = await PrepareRetireAsync(retireServiceId, spec);
+            var (prepareExit, ticket) = await PrepareRetireAsync(retireServiceId, spec, retireProfile, requireStoppedWithoutUnit: activation is not null);
             if (prepareExit is { } refused) return refused;
             retire = ticket;
         }
 
         try {
-            return await InstallAfterRetirePreparedAsync(spec, replace, expectedVersion, retireServiceId, retire,
+            return await InstallAfterRetirePreparedAsync(spec, replace, expectedVersion, retireServiceId, retire, activation,
                 serviceId, op, gated, unitExpectation, observedJobPids, generated, fingerprint);
         } finally {
             if (retire is not null) await retire.DisposeAsync();
@@ -816,7 +838,7 @@ sealed class ServiceVerify(
 
     async Task<int> InstallAfterRetirePreparedAsync(
             ServiceSpec spec, bool replace, string? expectedVersion, string? retireServiceId, RetireTicket? retire,
-            string serviceId, string op, bool gated, string? unitExpectation, HashSet<int> observedJobPids,
+            ProfileActivation? activation, string serviceId, string op, bool gated, string? unitExpectation, HashSet<int> observedJobPids,
             GeneratedFile generated, string fingerprint) {
         // A leftover marker means a prior attempt never reached a terminal state. "committed" is just a
         // crash between writing that phase and deleting the marker — self-heal. Any other phase may
@@ -872,7 +894,7 @@ sealed class ServiceVerify(
         var preState = DescribeQuery(pre);
 
         if (!replace) {
-            if (pre.Probe == LabelProbe.Loaded || (pre.Probe == LabelProbe.Absent && pre.UnitPresent)) {
+            if (pre.Probe == LabelProbe.Loaded || (pre is { Probe: LabelProbe.Absent, UnitPresent: true })) {
                 // Loaded, or stopped-but-installed (`service stop` retains the plist). A fresh install
                 // must not overwrite or clear an existing unit — that's --replace's job.
                 Say(VerifyExit.ContendedToken);
@@ -884,6 +906,9 @@ sealed class ServiceVerify(
             if (await ApplyReplaceMatrixAsync(serviceId, pre, preState, op, forward, retireServiceId is not null) is { } stopExit) {
                 return stopExit;
             }
+
+            if (activation is not null && await ActivateAsync(activation, serviceId, retireServiceId, forward) is { } activationExit)
+                return activationExit;
         }
 
         ServiceTxnMarker.Write(store, serviceId, new TxnMarker(1, op, "written", preState, "no-unit", fingerprint));
@@ -1055,12 +1080,28 @@ sealed class ServiceVerify(
     }
 
     /// <summary>
+    /// Writes the activation once no owner answers under the target or the retired label, judged by the
+    /// same predicate the matrix stops on, immediately before the new unit is written.
+    /// </summary>
+    async Task<int?> ActivateAsync(ProfileActivation activation, string serviceId, string? retireServiceId, DateTimeOffset deadline) {
+        if (!await IsStoppedAsync(serviceId, Remaining(deadline))
+            || retireServiceId is not null && !await IsStoppedAsync(retireServiceId, Remaining(deadline)))
+            return ProfileActivation.Refusal("activation_owner_alive");
+
+        return await activation.ActivateAsync() is { } refused ? ProfileActivation.Refusal(refused) : null;
+    }
+
+    /// <summary>
     /// Locks the unit a rename leaves behind and, when a service-run daemon is live under it, takes that
     /// daemon's admission fence — before anything is changed for either id. A unit not provably pinned to
-    /// the profile being installed is refused untouched; a live daemon that cannot be fenced is refused
+    /// the expected profile is refused untouched; a live daemon that cannot be fenced is refused
     /// rather than booted out with work it may have admitted.
     /// </summary>
-    async Task<(int? Exit, RetireTicket? Ticket)> PrepareRetireAsync(string retireId, ServiceSpec spec) {
+    /// <param name="retireProfile">The profile the unit must be pinned to; the installed one when null.</param>
+    /// <param name="requireStoppedWithoutUnit">An absent unit must also have no daemon answering for it: one
+    /// started by hand has no unit to retire and would keep running beside the new one.</param>
+    async Task<(int? Exit, RetireTicket? Ticket)> PrepareRetireAsync(
+            string retireId, ServiceSpec spec, string? retireProfile, bool requireStoppedWithoutUnit) {
         // The lock must be held BEFORE reading the plist and deciding "same profile, mine to
         // destroy" — reading first would let a concurrent install/verify on this same id replace
         // the unit in the window between that read and acquiring the lock.
@@ -1076,6 +1117,7 @@ sealed class ServiceVerify(
             var orphan = manager.Query(retireId, TargetProbeWait);
             if (orphan.Probe == LabelProbe.Unknown) return Refuse("fence_unavailable");
             if (orphan.Probe == LabelProbe.Loaded) return Refuse("unit_unreadable");
+            if (requireStoppedWithoutUnit && !await IsStoppedAsync(retireId, TargetProbeWait)) return Refuse("live_owner_without_unit");
             return (null, new RetireTicket(retireTxn, null, unitPresent: false));
         }
 
@@ -1087,7 +1129,7 @@ sealed class ServiceVerify(
         }
         if (!readable) return Refuse("unit_unreadable");
 
-        spec.Environment.TryGetValue(ProfileVar, out var pinnedProfile);
+        var pinnedProfile = retireProfile ?? spec.Environment.GetValueOrDefault(ProfileVar);
         if (string.IsNullOrEmpty(pinnedProfile) || !string.Equals(retiredProfile, pinnedProfile, StringComparison.Ordinal))
             return Refuse("foreign_profile");
 
@@ -1179,7 +1221,7 @@ sealed class ServiceVerify(
     /// <param name="refuseLiveOwner">A rename never takes over a daemon that owns the new name.</param>
     async Task<int?> ApplyReplaceMatrixAsync(string serviceId, ServiceQuery pre, string preState, string op, DateTimeOffset deadline, bool refuseLiveOwner) {
         var validatedPid = validatedDaemonPid(serviceId);
-        var owning       = pre.Probe == LabelProbe.Loaded && pre.JobPid is not null && pre.JobPid == validatedPid;
+        var owning       = pre is { Probe: LabelProbe.Loaded, JobPid: not null } && pre.JobPid == validatedPid;
 
         if (owning) {
             if (refuseLiveOwner) {
@@ -1323,7 +1365,7 @@ sealed class ServiceVerify(
         ServiceQuery last;
         while (true) {
             last = manager.Query(serviceId, Remaining(deadline));
-            if (last.Probe == LabelProbe.Absent && !last.UnitPresent) {
+            if (last is { Probe: LabelProbe.Absent, UnitPresent: false }) {
                 ServiceTxnMarker.Delete(store, serviceId);
                 Say(reasonToken);
                 return reasonExit;

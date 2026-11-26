@@ -25,22 +25,13 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
     AccountsSnapshotDto? _snapshot;
     bool _supported;
     bool _lacksCapability;
-    bool _canManage;
-    IReadOnlyList<AccountVendorGroup> _groups = [];
-    IReadOnlyList<AccountCandidate> _candidates = [];
     AccountsNotice? _notice;
     string? _noticeVendor;
-    bool _isBusy;
-    AccountSettingsRow? _renaming;
-    string _renameDraft = "";
     int _candidateReads;
     readonly Dictionary<string, AccountUsageSlot> _slots = new(StringComparer.Ordinal);
     readonly AccountUsageSlot _defaultSlot = new();
     readonly TimeZoneInfo _zone = TimeZoneInfo.Local;
     DateTimeOffset? _now;
-    AccountSummaryCard _readyCard = new("0 of 0", null, false);
-    AccountSummaryCard _nextResetCard = new("—", null, false);
-    AccountSummaryCard _needsFixCard = new("0", null, false);
 
     public AccountsSettingsViewModel(
             IAccountsService accounts, Func<MutationRequest, CancellationToken, Task<MutationOutcome>> runMutation,
@@ -91,31 +82,16 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
     }
 
     public IReadOnlyList<AccountVendorGroup> Groups {
-        get => _groups;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _groups, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(UnplacedNotice));
         }
-    }
-
-    public AccountSummaryCard ReadyCard {
-        get => _readyCard;
-        private set => this.RaiseAndSetIfChanged(ref _readyCard, value);
-    }
-
-    public AccountSummaryCard NextResetCard {
-        get => _nextResetCard;
-        private set => this.RaiseAndSetIfChanged(ref _nextResetCard, value);
-    }
-
-    public AccountSummaryCard NeedsFixCard {
-        get => _needsFixCard;
-        private set => this.RaiseAndSetIfChanged(ref _needsFixCard, value);
-    }
+    } = [];
 
     public bool CanManage {
-        get => _canManage;
-        private set => this.RaiseAndSetIfChanged(ref _canManage, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? ReadOnlyNotice =>
@@ -143,24 +119,24 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
         [.. groups.Select(g => g with { Notice = g.Vendor == _noticeVendor ? _notice : null })];
 
     public bool IsBusy {
-        get => _isBusy;
-        private set => this.RaiseAndSetIfChanged(ref _isBusy, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public IReadOnlyList<AccountCandidate> Candidates {
-        get => _candidates;
-        private set => this.RaiseAndSetIfChanged(ref _candidates, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = [];
 
     public AccountSettingsRow? Renaming {
-        get => _renaming;
-        private set => this.RaiseAndSetIfChanged(ref _renaming, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string RenameDraft {
-        get => _renameDraft;
-        set => this.RaiseAndSetIfChanged(ref _renameDraft, value);
-    }
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
     public ReactiveCommand<AccountCandidate, Unit> AddCandidateCommand { get; }
     public ReactiveCommand<string, Unit> AddFromPickerCommand { get; }
@@ -197,9 +173,8 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
         var failed = $"Could not {infinitive} {label}";
         return outcome switch {
             MutationOutcome.Succeeded                   => null,
-            MutationOutcome.Failed { Reason: { } why }  => new(failed, why),
-            MutationOutcome.Failed exit                 => new(failed, $"kcap's command line stopped with an error (code {exit.ExitCode})."),
-            MutationOutcome.Refused { Reason: var why } => new(failed, RefusalRemedy(why) is { } remedy ? $"{remedy}." : why),
+            MutationOutcome.Failed                      => new(failed, "Check the account settings and try again."),
+            MutationOutcome.Refused { Reason: var why } => new(failed, RefusalRemedy(why) is { } remedy ? $"{remedy}." : "Check the account settings and try again."),
             // Unconfirmed, and every case the lane never produces for an account verb: none reads as done.
             _                                           => new($"{doing} {label} could not be confirmed", "The list shows the current state.", IsWarning: true),
         };
@@ -210,6 +185,7 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
         "cli_below_floor" or "cli_version_unknown" or "cli_override_missing" => UpdateKcap,
         "cli_not_found"                                                        => "Reinstall kcap to manage accounts",
         "daemon_renamed_restart_app"                                           => "Restart the app to manage accounts",
+        "profile_switched_restart_app"                                         => "Restart the app to manage accounts",
         _                                                                      => null,
     };
 
@@ -251,7 +227,8 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
             } catch (OperationCanceledException) when (_token.IsCancellationRequested) {
                 return;
             } catch (Exception ex) {
-                Report(vendor, new("Could not open the folder picker", ex.Message));
+                Console.Error.WriteLine($"kcap: could not open the account folder picker: {ex.Message}");
+                Report(vendor, new("Could not open the folder picker", "Try again."));
                 return;
             }
             if (directory is not { Length: > 0 }) return;
@@ -290,7 +267,8 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
             Report(vendor, OutcomeNotice(verb, label, await _runMutation(request, _token)));
         } catch (OperationCanceledException) when (_token.IsCancellationRequested) {
         } catch (Exception ex) {
-            Report(vendor, new($"Could not {Words(verb).Infinitive} {label}", ex.Message));
+            Console.Error.WriteLine($"kcap: account change failed: {ex.Message}");
+            Report(vendor, new($"Could not {Words(verb).Infinitive} {label}", "Try again."));
         }
     }
 
@@ -306,44 +284,17 @@ public sealed class AccountsSettingsViewModel : ReactiveObject, IDisposable {
             .. Vendors.Select(vendor => new AccountVendorGroup(vendor.VendorId, HarnessRegistry.LabelOf(vendor), [
                 .. AccountRows.For(snapshot, vendor.VendorId).Select(r => r.Id is { } id && accounts.TryGetValue(id, out var account)
                     ? new AccountSettingsRow(id, r.Vendor, r.Directory, r.Label, r.RecordingState,
-                        account.Email, account.Plan, account.RefreshError ?? account.LimitsError, SlotFor(id), r.IsDefault)
+                        account.Email, account.Plan, account.RefreshError ?? account.LimitsError, SlotFor(id), r.IsDefault, account.SignIn)
                     : new AccountSettingsRow(r.Id, r.Vendor, r.Directory, r.Label, r.RecordingState, null, null, null, _defaultSlot, r.IsDefault)),
             ])),
         ];
     }
 
     void UpdateUsage() {
-        var accounts = _snapshot?.Accounts ?? [];
-        if (_now is not { } now) {
-            SetCards(accounts, null);
-            return;
-        }
+        if (_now is not { } now) return;
 
-        foreach (var account in accounts)
+        foreach (var account in _snapshot?.Accounts ?? [])
             if (_slots.TryGetValue(account.Id, out var slot)) slot.View = AccountUsage.Project(account, now, _zone);
-
-        SetCards(accounts, now);
-    }
-
-    void SetCards(AccountViewDto[] accounts, DateTimeOffset? now) {
-        var ordered = accounts.OrderBy(a => a.Label, StringComparer.Ordinal).ThenBy(a => a.Directory, StringComparer.Ordinal).ToArray();
-
-        var ready = now is { } at
-            ? ordered.Where(a => AccountUsage.Project(a, at, _zone).Ready).Select(a => a.Label).ToArray()
-            : [];
-        ReadyCard = new($"{ready.Length} of {ordered.Length}", ready.Length == 0 ? null : string.Join(", ", ready), false);
-
-        var next = now is { } n
-            ? ordered.Select(a => (Account: a, Window: AccountUsage.NextResetWindow(a, n))).Where(x => x.Window is not null)
-                .OrderBy(x => x.Window!.ResetsAt).FirstOrDefault()
-            : default;
-        NextResetCard = next.Window is { ResetsAt: { } resets } window
-            ? new(UsageText.Reset(resets, now!.Value, _zone), $"{next.Account.Label} · {UsageText.WindowLabel(window.WindowMinutes)}", false)
-            : new("—", null, false);
-
-        var fixes = ordered.Select(a => (Account: a, Reason: AccountUsage.NeedsFix(a))).Where(x => x.Reason is not null).ToArray();
-        NeedsFixCard = new(fixes.Length.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            fixes.Length == 0 ? null : $"{fixes[0].Account.Label} · {fixes[0].Reason}", fixes.Length > 0);
     }
 
     // A resent snapshot listing the same rows leaves the list alone, so an open menu or a rename in

@@ -17,7 +17,7 @@ public class SessionSearchSidebarTests {
         public List<SearchRequest> Requests { get; } = [];
         public HistoricalScheduler Scheduler { get; } = new();
         public BehaviorSubject<string?> Viewer { get; } = new(null);
-        public SessionRailViewModel Rail { get; }
+        SessionRailViewModel Rail { get; }
         public SessionSearchViewModel Vm { get; }
         public int Closed { get; private set; }
 
@@ -175,6 +175,7 @@ public class SessionSearchSidebarTests {
             await Assert.That(server.OwnerName).IsEqualTo("Alexey");
             await Assert.That(server.OwnerInitials).IsNotNull();
             await Assert.That(local.OwnerAvatarUrl).IsEqualTo("https://avatars.githubusercontent.com/u/42?v=4&s=64");
+            await Assert.That(local.Vendor).IsEqualTo("claude").Because("a sidebar hit leads with the same mark as its rail row");
         });
     }
 

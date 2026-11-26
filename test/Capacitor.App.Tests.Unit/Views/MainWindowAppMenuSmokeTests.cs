@@ -12,7 +12,7 @@ namespace Capacitor.App.Tests.Unit.Views;
 public class MainWindowAppMenuSmokeTests {
     sealed class Host : IDisposable {
         public MainWindow Window { get; }
-        public MainWindowViewModel Vm { get; }
+        MainWindowViewModel Vm { get; }
 
         public Host(bool inWindow, RecordingOpener? opener = null) {
             var service = new FakeDaemonClientService();

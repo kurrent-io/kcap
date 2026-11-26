@@ -28,7 +28,7 @@ public class UpdateCoordinatorDaemonStopTests {
 
     sealed class Harness {
         public readonly FakeAppUpdater Updater = new() { NextCheck = Beta3 };
-        public readonly FakeLifecycleSurface Surface = new();
+        readonly FakeLifecycleSurface Surface = new();
         public readonly FakeDaemonStop Stop = new();
         public int Quits;
         public readonly UpdateCoordinator Coordinator;

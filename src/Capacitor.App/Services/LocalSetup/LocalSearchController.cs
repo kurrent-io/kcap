@@ -10,25 +10,22 @@ namespace Capacitor.App.Services.LocalSetup;
 /// </summary>
 /// <param name="held">True while another app-owned change to the installation runs; a start then does nothing.</param>
 public sealed class LocalSearchController(Func<IKcapCli> cli, Action<Action> post, Func<bool>? held = null) : ReactiveObject {
-    LocalSetupProgress       _progress = new();
-    bool                     _running;
-    LocalInstallOutcome?     _outcome;
     CancellationTokenSource? _interrupt;
     TaskCompletionSource     _exited = CompletedSource();
 
     public LocalSetupProgress Progress {
-        get => _progress;
-        private set => this.RaiseAndSetIfChanged(ref _progress, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = new();
 
     public bool Running {
-        get => _running;
-        private set => this.RaiseAndSetIfChanged(ref _running, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public LocalInstallOutcome? Outcome {
-        get => _outcome;
-        private set => this.RaiseAndSetIfChanged(ref _outcome, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Raised once per run, through <c>post</c>, after <see cref="Outcome"/> is set.
@@ -79,7 +76,9 @@ public sealed class LocalSearchController(Func<IKcapCli> cli, Action<Action> pos
         var outcome = LocalInstallOutcome.Settle(progress, result.ExitCode, lockedToLocal: true);
         if (outcome is LocalInstallOutcome.Failed failed) {
             if (progress is { FailedCode: null, FailedMessage: null } && StderrTail.Text(result) is { } stderr)
-                outcome = failed with { Message = stderr };
+                failed = failed with { Message = stderr };
+            Console.Error.WriteLine($"kcap: search setup failed ({failed.Code}): {failed.Message}");
+            outcome = failed;
             progress.Halt();
         }
 

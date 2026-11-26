@@ -69,6 +69,9 @@ public interface IKcapCli {
 
     Task<bool> SupportsServiceRetireAsync(CancellationToken ct);
 
+    /// Whether <c>daemon --help</c> names every one of <paramref name="flags"/>.
+    Task<bool> SupportsServiceInstallFlagsAsync(IReadOnlyList<string> flags, CancellationToken ct);
+
     Task<ProcessResult> ServiceStartVerifiedAsync(CancellationToken ct);
 
     /// <c>daemon service refresh --name &lt;name&gt; --force</c>: reloads this daemon's launchd job to Standard, ending
@@ -80,7 +83,10 @@ public interface IKcapCli {
     /// not stop in time, left on its old binary for a later run.
     Task<ProcessResult> RepointFromAsync(string dir, CancellationToken ct);
 
-    Task<ProcessResult> ServiceInstallVerifiedAsync(bool replace, CancellationToken ct, string? retireServiceId = null);
+    /// <paramref name="activate"/> also makes this instance's profile the active one; <paramref name="retireProfile"/>
+    /// names the profile the retired unit must be pinned to.
+    Task<ProcessResult> ServiceInstallVerifiedAsync(
+        bool replace, CancellationToken ct, string? retireServiceId = null, string? retireProfile = null, bool activate = false);
 
     /// `daemon service install --system --verify`: installs or updates the machine's Windows service behind the
     /// UAC prompt, then hands this daemon to it. Bounded by the time a person may take to answer the prompt.
@@ -120,9 +126,11 @@ public interface IKcapCli {
     /// contract as <see cref="SetupLocalAsync"/>.
     Task<StreamingResult> LocalUpgradeAsync(Action<StreamedLine> onLine, CancellationToken interrupt, CancellationToken ct);
 
-    /// `uninstall --yes --force --keep-path-links` (and `--purge-local`), streamed live via onLine. No internal
-    /// timeout; <paramref name="ct"/> bounds only the work before the spawn, so a running uninstall is never killed.
-    Task<StreamingResult> UninstallAsync(bool purgeLocal, Action<StreamedLine> onLine, CancellationToken ct);
+    /// `uninstall --yes --force --keep-path-links` (and `--keep-config` or `--purge-local`), streamed live via onLine.
+    /// No internal timeout; <paramref name="ct"/> bounds only the work before the spawn, so a running uninstall is never killed.
+    /// <param name="keepConfig">Leaves the settings and sign-in, and a local server's data with them, so it outranks
+    /// <paramref name="purgeLocal"/>.</param>
+    Task<StreamingResult> UninstallAsync(bool purgeLocal, bool keepConfig, Action<StreamedLine> onLine, CancellationToken ct);
 
     /// `local start`, bounded above the CLI's own readiness budget.
     Task<ProcessResult> LocalStartAsync(CancellationToken ct);
@@ -147,6 +155,13 @@ public interface IKcapCli {
     /// <paramref name="importOutcomes"/> null leaves the server's choice as it is.</summary>
     Task<IntelligenceSetupOutcome> LocalIntelligenceAsync(
         IntelligenceAnswer answer, string? model, string? apiKey, bool? importOutcomes, CancellationToken ct);
+
+    /// <summary><c>local intelligence status --json</c>: the local server's background intelligence settings.</summary>
+    Task<IntelligenceSettingsOutcome> LocalIntelligenceStatusAsync(CancellationToken ct);
+
+    /// <summary><c>local intelligence</c> with no answer: changes only the preferences given, leaving a null one as it
+    /// is, and answers the settings the server then has.</summary>
+    Task<IntelligenceSettingsOutcome> LocalIntelligencePreferencesAsync(bool? importOutcomes, int? dailyLimit, CancellationToken ct);
 }
 
 public sealed class KcapCli : IKcapCli {
@@ -174,6 +189,8 @@ public sealed class KcapCli : IKcapCli {
     // acquire, then a 3s commit or abort), the old daemon's 10s end-agents wait and the retire's own 20s
     // forward budget — about 128s in all, plus the boot extension.
     static readonly TimeSpan RenameTimeout = TimeSpan.FromSeconds(150) + BootExtension;
+    // An activation first settles the outgoing profile's legacy credential, waiting up to the token lock's 30 s.
+    static readonly TimeSpan ActivateTimeout = RenameTimeout + TimeSpan.FromSeconds(30);
     static readonly TimeSpan VersionTimeout = TimeSpan.FromSeconds(10);
     // Same tier as VersionTimeout — also a read-only query — so a hung `launchctl print` can
     // never block the per-mutation gate forever once the lifecycle controller polls this.
@@ -230,7 +247,7 @@ public sealed class KcapCli : IKcapCli {
                 new RunOptions(EnvOverlay: await SpawnEnvAsync(ct).ConfigureAwait(false), Timeout: VersionTimeout), ct)
             .ConfigureAwait(false);
 
-        return result.ExitCode == 0 && !result.TimedOut ? CliResolver.ParseVersion(result.Stdout) : null;
+        return result is { ExitCode: 0, TimedOut: false } ? CliResolver.ParseVersion(result.Stdout) : null;
     }
 
     public Task<ServiceSnapshot?> ServiceStatusAsync(CancellationToken ct) => ServiceStatusAsync(_daemonName, ct);
@@ -253,12 +270,36 @@ public sealed class KcapCli : IKcapCli {
     }
 
     // Older CLIs ignore unknown install flags, so their ordinary version floor is insufficient.
-    public async Task<bool> SupportsServiceRetireAsync(CancellationToken ct) {
+    public Task<bool> SupportsServiceRetireAsync(CancellationToken ct) => SupportsServiceInstallFlagsAsync(["--retire"], ct);
+
+    public async Task<bool> SupportsServiceInstallFlagsAsync(IReadOnlyList<string> flags, CancellationToken ct) {
         if (CliPath is not { } cliPath) return false;
         var help = await Run(cliPath, ["daemon", "--help", "--no-update-check"],
             new RunOptions(EnvOverlay: await SpawnEnvAsync(ct).ConfigureAwait(false), Timeout: VersionTimeout), ct).ConfigureAwait(false);
-        return !help.TimedOut && help.ExitCode == 0 &&
-            (help.Stdout.Contains("--retire", StringComparison.Ordinal) || help.Stderr.Contains("--retire", StringComparison.Ordinal));
+        return help is { TimedOut: false, ExitCode: 0 } &&
+            flags.All(flag => NamesOption(help.Stdout, flag) || NamesOption(help.Stderr, flag));
+    }
+
+    /// <summary>Whether <paramref name="help"/> names <paramref name="flag"/> as a whole option, not as the start of a
+    /// longer one: <c>--retire</c> must not be read from <c>--retire-profile</c>.</summary>
+    internal static bool NamesOption(string help, string flag) {
+        for (var at = help.IndexOf(flag, StringComparison.Ordinal); at >= 0; at = help.IndexOf(flag, at + 1, StringComparison.Ordinal)) {
+            var end = at + flag.Length;
+            var startsToken = at == 0 || !IsOptionChar(help[at - 1]);
+            if (startsToken && (end == help.Length || !IsOptionChar(help[end]))) return true;
+        }
+        return false;
+
+        static bool IsOptionChar(char c) => char.IsAsciiLetterOrDigit(c) || c is '-' or '_';
+    }
+
+    /// The install flags a request emits beyond the base install, each of which the CLI must name.
+    internal static IReadOnlyList<string> InstallFlags(string? retireServiceId, string? retireProfile, bool activate) {
+        List<string> flags = [];
+        if (retireServiceId is not null) flags.Add("--retire");
+        if (retireProfile is not null) flags.Add("--retire-profile");
+        if (activate) flags.Add("--activate");
+        return flags;
     }
 
     public async Task<ProcessResult> ServiceStartVerifiedAsync(CancellationToken ct) {
@@ -283,23 +324,33 @@ public sealed class KcapCli : IKcapCli {
     }
 
     // The profile flag and environment overlay must agree with the identity the lane verifies.
-    public async Task<ProcessResult> ServiceInstallVerifiedAsync(bool replace, CancellationToken ct, string? retireServiceId = null) {
-        if (retireServiceId is not null && !replace)
-            throw new ArgumentException("Retiring a service requires replacement.", nameof(retireServiceId));
+    public async Task<ProcessResult> ServiceInstallVerifiedAsync(
+            bool replace, CancellationToken ct, string? retireServiceId = null, string? retireProfile = null, bool activate = false) {
+        if ((retireServiceId is not null || activate) && !replace)
+            throw new ArgumentException("Retiring a service or activating a profile requires replacement.", nameof(replace));
+        if (retireProfile is not null && retireServiceId is null)
+            throw new ArgumentException("A retired profile requires a retired service.", nameof(retireProfile));
         var mutation = MutationEnv(); // throws before any spawn if the instance carries no server
         if (CliPath is not { } cliPath) return await NoCliResult().ConfigureAwait(false);
 
-        if (retireServiceId is not null && !await SupportsServiceRetireAsync(ct).ConfigureAwait(false))
-            return new ProcessResult(VerifyExitCodes.RetireRefused, "", "retire_reason=cli_unsupported", false);
+        // Rechecked on the executable about to run, which can differ from the one the caller probed.
+        var flags = InstallFlags(retireServiceId, retireProfile, activate);
+        if (flags.Count > 0 && !await SupportsServiceInstallFlagsAsync(flags, ct).ConfigureAwait(false))
+            return new ProcessResult(VerifyExitCodes.RetireRefused, "", CliUnsupportedLine, false);
 
         List<string> args = ["daemon", "service", "install", "--name", _daemonName, "--profile", _profileName, "--verify"];
         if (replace) args.Add("--replace");
         if (retireServiceId is not null) args.AddRange(["--retire", retireServiceId]);
+        if (retireProfile is not null) args.AddRange(["--retire-profile", retireProfile]);
+        if (activate) args.Add("--activate");
 
         var env = await EnvWithTerminalPathAsync(mutation, ct).ConfigureAwait(false);
         return await Run(cliPath, args.ToArray(), new RunOptions(EnvOverlay: env,
-            Timeout: retireServiceId is null ? ServiceVerifyTimeout : RenameTimeout), ct).ConfigureAwait(false);
+            Timeout: activate ? ActivateTimeout : retireServiceId is null ? ServiceVerifyTimeout : RenameTimeout), ct).ConfigureAwait(false);
     }
+
+    /// The executor's own refusal when the CLI lacks a flag; the CLI never prints this reason itself.
+    internal const string CliUnsupportedLine = "retire_reason=cli_unsupported";
 
     public async Task<ProcessResult> ServiceInstallWindowsServiceAsync(CancellationToken ct) {
         var mutation = MutationEnv();
@@ -428,13 +479,15 @@ public sealed class KcapCli : IKcapCli {
             onLine, CancellationToken.None).ConfigureAwait(false);
     }
 
-    public async Task<StreamingResult> UninstallAsync(bool purgeLocal, Action<StreamedLine> onLine, CancellationToken ct) {
+    public async Task<StreamingResult> UninstallAsync(bool purgeLocal, bool keepConfig, Action<StreamedLine> onLine, CancellationToken ct) {
         if (CliPath is not { } cliPath)
             return new StreamingResult(-1, false, [new StreamedLine(ProcessStreamKind.Stderr, "kcap CLI not found")]);
 
-        string[] args = purgeLocal
-            ? ["uninstall", "--yes", "--force", "--keep-path-links", "--purge-local"]
-            : ["uninstall", "--yes", "--force", "--keep-path-links"];
+        string[] args = keepConfig
+            ? ["uninstall", "--yes", "--force", "--keep-path-links", "--keep-config"]
+            : purgeLocal
+                ? ["uninstall", "--yes", "--force", "--keep-path-links", "--purge-local"]
+                : ["uninstall", "--yes", "--force", "--keep-path-links"];
 
         return await _runner.RunStreamingAsync(cliPath, args,
             new RunOptions(EnvOverlay: await SpawnEnvAsync(ct).ConfigureAwait(false)), onLine, CancellationToken.None).ConfigureAwait(false);
@@ -479,19 +532,51 @@ public sealed class KcapCli : IKcapCli {
 
         var result = await Run(cliPath, [.. args], new RunOptions(EnvOverlay: env, Timeout: IntelligenceTimeout), ct).ConfigureAwait(false);
 
-        IntelligenceCliLine? line = null;
-        try {
-            var last = result.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
-            if (last is not null) line = JsonSerializer.Deserialize(last, IntelligenceCliJsonContext.Default.IntelligenceCliLine);
-        } catch (JsonException) { }
-
-        return line switch {
+        return IntelligenceLine(result) switch {
             { Applied: { } applied }            => new IntelligenceSetupOutcome.Applied(applied),
             { Ok: false, Error: { } error } when result.ExitCode == 2 => new IntelligenceSetupOutcome.Refused(error),
             { Ok: false, Error: { } error }     => new IntelligenceSetupOutcome.Failed(error),
-            _ => new IntelligenceSetupOutcome.Failed(result.TimedOut ? "kcap did not answer in time" : $"kcap exited {result.ExitCode}: {result.Stderr.Trim()}"),
+            _                                   => new IntelligenceSetupOutcome.Failed(Unanswered(result)),
         };
     }
+
+    public Task<IntelligenceSettingsOutcome> LocalIntelligenceStatusAsync(CancellationToken ct) =>
+        LocalIntelligenceSettingsAsync(["local", "intelligence", "status", "--json", "--no-update-check"], ct);
+
+    public Task<IntelligenceSettingsOutcome> LocalIntelligencePreferencesAsync(bool? importOutcomes, int? dailyLimit, CancellationToken ct) {
+        List<string> args = ["local", "intelligence"];
+        if (importOutcomes is { } outcomes) args.Add(outcomes ? "--import-outcomes" : "--no-import-outcomes");
+        if (dailyLimit is { } limit) args.AddRange(["--daily-limit", limit.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
+        args.AddRange(["--json", "--no-update-check"]);
+
+        return LocalIntelligenceSettingsAsync(args, ct);
+    }
+
+    async Task<IntelligenceSettingsOutcome> LocalIntelligenceSettingsAsync(IReadOnlyList<string> args, CancellationToken ct) {
+        if (CliPath is not { } cliPath) return new IntelligenceSettingsOutcome.Failed("kcap CLI not found");
+
+        var env    = await SpawnEnvAsync(ct).ConfigureAwait(false);
+        var result = await Run(cliPath, [.. args], new RunOptions(EnvOverlay: env, Timeout: IntelligenceTimeout), ct).ConfigureAwait(false);
+
+        return IntelligenceLine(result) switch {
+            { ReadSettings: { } settings }      => new IntelligenceSettingsOutcome.Read(settings),
+            { Ok: false, Error: { } error } when result.ExitCode == 2 => new IntelligenceSettingsOutcome.Refused(error),
+            { Ok: false, Error: { } error }     => new IntelligenceSettingsOutcome.Failed(error),
+            _                                   => new IntelligenceSettingsOutcome.Failed(Unanswered(result)),
+        };
+    }
+
+    static IntelligenceCliLine? IntelligenceLine(ProcessResult result) {
+        try {
+            var last = result.Stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).LastOrDefault();
+            return last is null ? null : JsonSerializer.Deserialize(last, IntelligenceCliJsonContext.Default.IntelligenceCliLine);
+        } catch (JsonException) {
+            return null;
+        }
+    }
+
+    static string Unanswered(ProcessResult result) =>
+        result.TimedOut ? "kcap did not answer in time" : $"kcap exited {result.ExitCode}: {result.Stderr.Trim()}";
 
     // Exits 1 whenever the server is not ready, so stdout, not the exit code, carries the answer.
     public async Task<LocalServerReading?> LocalStatusAsync(CancellationToken ct) {

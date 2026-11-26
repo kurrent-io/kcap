@@ -3,6 +3,7 @@ using System.Reactive;
 using Capacitor.App.Services.LocalSetup;
 using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.LocalEdition;
+using Capacitor.Cli.Recording;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels.Onboarding;
@@ -57,18 +58,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     readonly Func<bool>?            _bundleUnpublished;
     bool                            _titleNotPublished;
     readonly List<string>           _startFailures = [];
-    bool                            _serviceOffered;
-    bool                            _runAsService;
-    bool                            _autoRetrying;
     CancellationTokenSource?        _retryGap;
-    string?                         _supportNote;
     CancellationToken               _lifetime;
-    string?                         _refusal;
-    string?                         _clientProblem;
-    bool                            _repairing;
     bool                            _installPressed;
-    bool                            _choosing;
-    IReadOnlyList<InstallStepRow>   _rows = [];
     LocalSetupProgress?             _watched;
 
     /// <param name="builtinOffer">The built-in model set the stack setup will run offers, or null; asked before the choice shows.</param>
@@ -149,9 +141,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
 
     /// The page asks about search by meaning before the run starts.
     public bool ChoiceVisible {
-        get => _choosing;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _choosing, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Title));
             this.RaisePropertyChanged(nameof(ProgressVisible));
             this.RaisePropertyChanged(nameof(OwnsPrimaryAction));
@@ -163,9 +155,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
 
     /// The choice offers the Windows service; the install asks for it only while this is on.
     public bool WindowsServiceOffered {
-        get => _serviceOffered;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _serviceOffered, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(WindowsServiceVisible));
         }
     }
@@ -173,8 +165,8 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     public bool WindowsServiceVisible => ChoiceVisible && WindowsServiceOffered;
 
     public bool RunAsWindowsService {
-        get => _runAsService;
-        set => this.RaiseAndSetIfChanged(ref _runAsService, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Why kcap runs only while the user is signed in, once the run went ahead without the service.
@@ -186,9 +178,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     public bool WindowsServiceNoteVisible => WindowsServiceNote is not null;
 
     public IReadOnlyList<InstallStepRow> Rows {
-        get => _rows;
-        private set => this.RaiseAndSetIfChanged(ref _rows, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = [];
 
     public bool Running => _controller.Running;
 
@@ -215,18 +207,20 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
         _ when NotPublished                          => NotPublishedText,
         _ when GaveUp                                => GaveUpText,
         { Affordance: LocalInstallAffordance.Busy }  => BusyText,
-        // Trying again cannot help where the app has no repair: the installer's own words say what to update.
-        { Code: "client_below_floor" } when !_canRepair => TerminalAdvice.Strip(Failure.Message) ?? OldClientText,
-        { Affordance: LocalInstallAffordance.Retry } => RetryGuidance(Failure.Code),
+        { Code: "client_below_floor" } failed when !_canRepair => OldClientRefusal(failed),
+        { Code: "client_below_floor" }                => OldClientText,
+        { Affordance: LocalInstallAffordance.Retry } failed => LocalFailureText.For(failed.Code, RetryGuidance(failed.Code)),
         { Code: "answer_required" }                  => AnswerRequiredText,
-        var failed                                   => TerminalAdvice.Strip(failed.Message) ?? LockedText,
+        var failed                                   => LocalFailureText.For(failed.Code, "Could not finish setting up the local server."),
     };
 
-    /// The CLI's own words behind a retryable failure, with its terminal commands dropped.
-    public string? FailureDetail =>
-        Failure is { Affordance: LocalInstallAffordance.Retry } failed ? TerminalAdvice.Strip(failed.Message) : null;
-
-    public bool FailureDetailVisible => FailureDetail is not null && !Running;
+    static string OldClientRefusal(LocalInstallOutcome.Failed failure) => failure switch {
+        { ClientPath: { Length: > 0 } path, ClientIsDesktopApp: true } =>
+            $"The kcap desktop app at {path} is too old for local setup. Update the desktop app and try again.",
+        { ClientPath: { Length: > 0 } path, ClientIsDesktopApp: false } =>
+            $"The kcap command at {path} is too old for local setup. Update or remove that copy and try again.",
+        _ => "An older kcap is blocking setup. Update kcap and try again.",
+    };
 
     public bool LockedVisible   => Failure is { LockedToLocal: true } && !Running && !RefusalVisible;
     public bool TryAgainVisible => Failure is { Affordance: LocalInstallAffordance.Retry } && !Running && !GaveUp;
@@ -234,9 +228,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
 
     /// Between a failed start and the next attempt; the page shows progress, not the failure.
     public bool AutoRetrying {
-        get => _autoRetrying;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _autoRetrying, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(RetryStatus));
             RestateOutcome();
         }
@@ -246,8 +240,8 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
 
     /// What became of the support email: where it went, and where the full report is if the draft was cut.
     public string? SupportNote {
-        get => _supportNote;
-        private set => this.RaiseAndSetIfChanged(ref _supportNote, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
     public bool CancelVisible   => Running || AutoRetrying;
     public bool BackVisible     => !Running && !AutoRetrying && !Repairing && Failure is not { LockedToLocal: true };
@@ -256,9 +250,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
 
     /// Another kcap is being brought up to date; nothing has been asked or installed yet.
     public bool Repairing {
-        get => _repairing;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _repairing, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ProgressVisible));
             this.RaisePropertyChanged(nameof(BackVisible));
         }
@@ -266,9 +260,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
 
     /// Why another kcap could not be brought up to date; the page offers to try again.
     public string? ClientProblem {
-        get => _clientProblem;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _clientProblem, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ClientProblemVisible));
             this.RaisePropertyChanged(nameof(ProgressVisible));
         }
@@ -277,9 +271,9 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     public bool ClientProblemVisible => ClientProblem is not null;
 
     public string? RefusalMessage {
-        get => _refusal;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _refusal, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(RefusalVisible));
             this.RaisePropertyChanged(nameof(ProgressVisible));
             this.RaisePropertyChanged(nameof(FailureVisible));
@@ -405,6 +399,8 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
         } finally {
             Repairing = false;
         }
+        if (repair is ClientRepairOutcome.Failed failed)
+            Console.Error.WriteLine($"kcap app: could not update the older copy at {failed.Path}: {SecretRedactor.RedactLine(failed.Reason)}");
         if (!repair.Ready) ClientProblem = ProblemText(repair, OperatingSystem.IsWindows());
 
         return repair.Ready;
@@ -423,7 +419,7 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
         ClientRepairOutcome.StillOld s =>
             $"npm updated the kcap at {s.Path}{(s.Version is { } v ? $" to {v.Split('+')[0]}" : "")}, but that version can't run the local edition on Windows yet. Remove it, or take its folder off PATH, then try again.",
         ClientRepairOutcome.Failed f =>
-            $"kcap couldn't update the older kcap at {f.Path}: {f.Reason} Try again to update it.",
+            $"kcap couldn’t update the older copy at {f.Path}. Check that you can modify it, then try again.",
         _ => OldClientText,
     };
 
@@ -463,10 +459,6 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
     }
 
     static string RetryGuidance(string? code) => code switch {
-        "download_failed"     => "The download didn't finish. Check your connection and try again.",
-        "verification_failed" => "The download didn't pass its signature check. Try again to download it again.",
-        "cancelled"           => "The install was cancelled.",
-        "client_below_floor"  => OldClientText,
         null                  => "The install stopped before it finished. Try again.",
         _                     => NotStartedText,
     };
@@ -562,8 +554,6 @@ public sealed class InstallStepViewModel : ReactiveObject, IWizardStep {
         this.RaisePropertyChanged(nameof(Satisfied));
         this.RaisePropertyChanged(nameof(FailureVisible));
         this.RaisePropertyChanged(nameof(FailureMessage));
-        this.RaisePropertyChanged(nameof(FailureDetail));
-        this.RaisePropertyChanged(nameof(FailureDetailVisible));
         this.RaisePropertyChanged(nameof(LockedVisible));
         this.RaisePropertyChanged(nameof(TryAgainVisible));
         this.RaisePropertyChanged(nameof(EmailSupportVisible));

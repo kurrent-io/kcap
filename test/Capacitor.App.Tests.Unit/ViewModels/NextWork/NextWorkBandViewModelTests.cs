@@ -279,7 +279,7 @@ public class NextWorkBandViewModelTests {
 
         await card.FillCommand.Execute().ToTask();
 
-        await Assert.That(said).IsEqualTo("Couldn't pick this task: repos.json is unreadable");
+        await Assert.That(said).IsEqualTo("Couldn’t pick this task. Try again.");
         await Assert.That(card.Busy).IsFalse();
     }
 }

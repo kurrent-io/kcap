@@ -14,6 +14,10 @@
         <!-- The exe's own icon: Explorer, the taskbar pin and the Start-menu shortcut read it. -->
         <ApplicationIcon>Assets\kcap-icon.ico</ApplicationIcon>
         <ApplicationManifest>app.manifest</ApplicationManifest>
+        <!-- Off: a mostly idle UI's periodic work keeps sending methods back through the instrumented tier. On a
+             4-core macOS VM, off used about 20 MB less memory and less CPU idle, scrolling and streaming, at about
+             3% more CPU scrolling a long transcript once tiering had settled. -->
+        <TieredPGO>false</TieredPGO>
     </PropertyGroup>
     <ItemGroup>
         <!-- Only a gen2 sweeps the large-object heap, and a mostly idle UI rarely reaches one, so
@@ -22,6 +26,7 @@
     </ItemGroup>
     <ItemGroup>
         <ProjectReference Include="..\Capacitor.Cli.Core\Capacitor.Cli.Core.csproj" />
+        <ProjectReference Include="..\Capacitor.Cli.Recording\Capacitor.Cli.Recording.csproj" />
         <ProjectReference Include="..\Capacitor.Client\Capacitor.Client.csproj" />
         <ProjectReference Include="..\Capacitor.Remote.Models\Capacitor.Remote.Models.csproj" />
         <PackageReference Include="Avalonia" />
@@ -51,6 +56,7 @@
         <AvaloniaResource Include="Assets\kcap-tray-icon.png" />
         <AvaloniaResource Include="Assets\kcap-logo-on-dark.png" />
         <AvaloniaResource Include="Assets\ouro.svg" />
+        <AvaloniaResource Include="Assets\SplineSansMono\*" />
         <!-- Embed icon licenses so they also travel with the single-file macOS bundle. -->
         <AvaloniaResource Include="Assets\Lucide*-LICENSE.txt" />
         <AvaloniaResource Include="Assets\LobeHub-Icons-LICENSE.txt" />

@@ -18,19 +18,23 @@
         <Style Selector="Button.artefactRow /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="Transparent" />
         </Style>
-        <Style Selector="Button.artefactRow:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+        <Style Selector="Button.artefactRow:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.artefactRow:pressed /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
         </Style>
         <!-- Selection is info blue, as the rail row and the segment are. -->
         <Style Selector="Button.artefactRow.selected /template/ ContentPresenter#PART_ContentPresenter">
             <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
         </Style>
+        <Style Selector="Button.artefactRow.selected TextBlock.rowTitle">
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
     </UserControl.Styles>
     <Grid ColumnDefinitions="Auto,*">
         <Border x:Name="DocumentListPane" Grid.Column="0" Width="240" IsVisible="{Binding HasItems}" Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,1,0">
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="10,14,10,14" Spacing="4">
-                    <TextBlock Text="PAGES" FontSize="11.5" FontWeight="Bold" LetterSpacing="1.2"
+                    <TextBlock Text="PAGES" FontSize="{StaticResource KcapFontSizeSmall}" FontWeight="Bold" LetterSpacing="1.2"
                                Foreground="{StaticResource KcapMutedBrush}" Margin="10,0,0,6" />
                     <ItemsControl x:Name="DocumentList" ItemsSource="{Binding Items}">
                         <ItemsControl.ItemsPanel>
@@ -44,10 +48,10 @@
                                         Command="{Binding $parent[ItemsControl].((vm:ArtefactsTabViewModel)DataContext).OpenPageCommand}"
                                         CommandParameter="{Binding}" ToolTip.Tip="{Binding Title}" AutomationProperties.Name="{Binding Title}">
                                     <StackPanel Spacing="2">
-                                        <TextBlock Text="{Binding Title}" FontSize="13" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Classes="rowTitle" Text="{Binding Title}" FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
                                         <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <TextBlock Text="Page" FontSize="11" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
-                                            <TextBlock Text="{Binding UpdatedLabel}" FontSize="11" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="Page" FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding UpdatedLabel}" FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
                                         </StackPanel>
                                     </StackPanel>
                                 </Button>
@@ -57,9 +61,9 @@
                                         Command="{Binding $parent[ItemsControl].((vm:ArtefactsTabViewModel)DataContext).SelectCommand}"
                                         CommandParameter="{Binding}" ToolTip.Tip="{Binding Path}" AutomationProperties.Name="{Binding FileName}">
                                     <StackPanel Spacing="2">
-                                        <TextBlock Text="{Binding FileName}" FontSize="13" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Classes="rowTitle" Text="{Binding FileName}" FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
                                         <StackPanel Orientation="Horizontal" Spacing="6">
-                                            <TextBlock Text="{Binding KindLabel}" FontSize="11" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                                            <TextBlock Text="{Binding KindLabel}" FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
                                             <views:StatusBadge Classes="attention" Icon="TriangleAlert" Text="{Binding StateChip}"
                                                                IsVisible="{Binding HasStateChip}" />
                                         </StackPanel>
@@ -86,7 +90,7 @@
                     </DataTemplate>
                 </ContentControl.ContentTemplate>
             </ContentControl>
-            <TextBlock Text="{Binding EmptyReaderNote}" FontSize="13.5" Foreground="{StaticResource KcapMutedBrush}"
+            <TextBlock Text="{Binding EmptyReaderNote}" FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapMutedBrush}"
                        HorizontalAlignment="Center" VerticalAlignment="Center"
                        IsVisible="{Binding ShowsReaderNote}" />
         </Panel>

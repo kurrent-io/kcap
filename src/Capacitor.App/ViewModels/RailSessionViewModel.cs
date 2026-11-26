@@ -19,66 +19,44 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
 
     public string Id { get; }
     public string Key { get; }
-    DateTime _createdAt;
-    public DateTime CreatedAt { get => _createdAt; private set => this.RaiseAndSetIfChanged(ref _createdAt, value); }
+    public DateTime CreatedAt { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// The server's last activity for a listed session; null for a row only a daemon knows.
-    DateTime? _lastActivityAt;
-    public DateTime? LastActivityAt { get => _lastActivityAt; private set => this.RaiseAndSetIfChanged(ref _lastActivityAt, value); }
-    string? _checkoutPath;
-    public string? CheckoutPath { get => _checkoutPath; private set => this.RaiseAndSetIfChanged(ref _checkoutPath, value); }
+    public DateTime? LastActivityAt { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? CheckoutPath { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// Null when the row has no title, in which case the chips line stands alone as the row.
-    string? _primary;
-    public string? Primary { get => _primary; private set => this.RaiseAndSetIfChanged(ref _primary, value); }
-    bool _hasTitle;
-    public bool HasTitle { get => _hasTitle; private set => this.RaiseAndSetIfChanged(ref _hasTitle, value); }
+    public string? Primary { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool HasTitle { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public string SessionAccessibleName => Primary ?? (HasVendor ? Vendor : "Session");
-    string _vendor = "";
-    public string Vendor { get => _vendor; private set => this.RaiseAndSetIfChanged(ref _vendor, value); }
-    bool _hasVendor;
-    public bool HasVendor { get => _hasVendor; private set => this.RaiseAndSetIfChanged(ref _hasVendor, value); }
-    string? _model;
-    public string? Model { get => _model; private set => this.RaiseAndSetIfChanged(ref _model, value); }
-    string _meta = "";
-    public string Meta { get => _meta; private set => this.RaiseAndSetIfChanged(ref _meta, value); }
+    public string Vendor { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
+    public bool HasVendor { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? Model { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string Meta { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
     public string Tooltip => MachineBadge is { Length: > 0 } machine
-        ? $"{Status.Tip}\n\n{machine}\nMachine · remote daemon" : Status.Tip;
+        ? $"{Status.Tip}\n\nMachine · remote daemon\n{machine}" : Status.Tip;
     /// The daemon name badge for a remote row; null for a local one.
-    string? _machineBadge;
-    public string? MachineBadge { get => _machineBadge; private set => this.RaiseAndSetIfChanged(ref _machineBadge, value); }
+    public string? MachineBadge { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public string MachineLabel => $"on {MachineBadge}";
     public string MachineTooltip => $"This session runs on the remote daemon ‘{MachineBadge}’.";
-    bool _isRemote;
-    public bool IsRemote { get => _isRemote; private set => this.RaiseAndSetIfChanged(ref _isRemote, value); }
+    public bool IsRemote { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// A session the server lists with no daemon row behind it.
-    bool _isServer;
-    public bool IsServer { get => _isServer; private set => this.RaiseAndSetIfChanged(ref _isServer, value); }
+    public bool IsServer { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// A live server row no daemon hosts: started in a terminal.
-    bool _isTerminalSession;
-    public bool IsTerminalSession { get => _isTerminalSession; private set => this.RaiseAndSetIfChanged(ref _isTerminalSession, value); }
+    public bool IsTerminalSession { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// A terminal session a daemon steers: labelled as one, never as an agent a daemon hosts.
-    bool _isAttached;
-    public bool IsAttached { get => _isAttached; private set => this.RaiseAndSetIfChanged(ref _isAttached, value); }
-    bool _isEnded;
-    public bool IsEnded { get => _isEnded; private set => this.RaiseAndSetIfChanged(ref _isEnded, value); }
+    public bool IsAttached { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool IsEnded { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     /// Up to two initials of the owner's name, for a row that is not the signed-in user's.
-    string? _ownerInitials;
-    public string? OwnerInitials { get => _ownerInitials; private set => this.RaiseAndSetIfChanged(ref _ownerInitials, value); }
-    string? _ownerAvatarUrl;
-    public string? OwnerAvatarUrl { get => _ownerAvatarUrl; private set => this.RaiseAndSetIfChanged(ref _ownerAvatarUrl, value); }
-    bool _showsOwner;
-    public bool ShowsOwner { get => _showsOwner; private set => this.RaiseAndSetIfChanged(ref _showsOwner, value); }
-    string? _ownerName;
-    public string? OwnerName { get => _ownerName; private set => this.RaiseAndSetIfChanged(ref _ownerName, value); }
-    string _ownerTooltip = "";
-    public string OwnerTooltip { get => _ownerTooltip; private set => this.RaiseAndSetIfChanged(ref _ownerTooltip, value); }
-    string _repoLabel = "";
-    public string RepoLabel { get => _repoLabel; private set => this.RaiseAndSetIfChanged(ref _repoLabel, value); }
+    public string? OwnerInitials { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? OwnerAvatarUrl { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool ShowsOwner { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? OwnerName { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string OwnerTooltip { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
+    public string RepoLabel { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
     readonly ObservableAsPropertyHelper<bool> _showsRepo;
     /// The repository name moves onto the row when the groups no longer say it.
     public bool ShowsRepo => _showsRepo.Value;
     /// A launch the daemon has not published yet: Meta carries its stage instead of an age.
-    bool _isStarting;
-    public bool IsStarting { get => _isStarting; private set => this.RaiseAndSetIfChanged(ref _isStarting, value); }
+    public bool IsStarting { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public AgentRow Row => _row.Value;
     public ReactiveCommand<Unit, Unit> OpenCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenPullRequestCommand { get; }
@@ -89,7 +67,15 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public PullRequestStatus? PullRequestStatus => PullRequest?.Status;
     public bool HasPullRequestLifecycle => PullRequest?.HasLifecycle == true;
     public bool HasMultiplePullRequests => PullRequest?.Count > 1;
-    public string PullRequestTooltip => $"{PullRequest?.Description}\n\nLinked to this session: {SessionAccessibleName}\n{(HasMultiplePullRequests ? "Choose a pull request" : "Open pull request details")}";
+    public KcapTip? LinkedPullRequestTip => PullRequest switch {
+        { Count: 1 } summary => SinglePullRequestTip(summary.MenuItems[0]),
+        { Count: > 1 } summary => new(summary.Description,
+            Details: KcapTipDetail.Present(KcapTipDetail.Field("Linked session", Primary))),
+        _ => null,
+    };
+    KcapTip SinglePullRequestTip(RailPullRequestMenuItem item) => KcapTip.PullRequest(
+        item.Subject.Number, item.Title, item.Status, item.Repository, KcapTipDetail.Field("Linked session", Primary));
+
     public bool HasPullRequest => PullRequest is not null;
     public string PullRequestAccessibleName => $"{(HasMultiplePullRequests ? "Choose from" : "Open")} {PullRequestLabel}{(HasPullRequestLifecycle ? $", {PullRequest?.Lifecycle}" : "")} for {Primary ?? Vendor}";
     /// The right-click menu's items; each disables itself on a row it cannot act on.
@@ -105,10 +91,20 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     readonly ObservableAsPropertyHelper<AgentStatusPresentation> _status;
     public AgentStatusPresentation Status => _status.Value;
 
-    readonly ObservableAsPropertyHelper<bool> _isStale;
-    /// A remote or server row greys out while the lane is stale, a server row also on the server's
-    /// own idle flag; a local row is never stale.
-    public bool IsStale => _isStale.Value;
+    /// What a remote or server row says while the server lane is down: it cannot update, so it is
+    /// the last state the server reported. The window's connection notice says how to reconnect.
+    public const string LaneStaleNote = "Not connected to the server, so this is the last known state";
+
+    readonly ObservableAsPropertyHelper<bool> _isLaneStale;
+    /// A remote or server row while the server lane is not connected; a local row never is.
+    public bool IsLaneStale => _isLaneStale.Value;
+    readonly ObservableAsPropertyHelper<string?> _laneNote;
+    public string? LaneNote => _laneNote.Value;
+
+    readonly ObservableAsPropertyHelper<string> _rowAccessibleName;
+    /// The row's name, with any state that changes what the row's facts are worth: a stale status
+    /// and a lane that cannot update it.
+    public string RowAccessibleName => _rowAccessibleName.Value;
 
     readonly CompositeDisposable _disposables = new();
     readonly BehaviorSubject<AgentRow> _row;
@@ -150,7 +146,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
                 this.RaisePropertyChanged(nameof(PullRequestStatus));
                 this.RaisePropertyChanged(nameof(HasPullRequestLifecycle));
                 this.RaisePropertyChanged(nameof(HasMultiplePullRequests));
-                this.RaisePropertyChanged(nameof(PullRequestTooltip));
+                this.RaisePropertyChanged(nameof(LinkedPullRequestTip));
                 this.RaisePropertyChanged(nameof(HasPullRequest));
                 this.RaisePropertyChanged(nameof(PullRequestAccessibleName));
             }).DisposeWith(_disposables);
@@ -175,9 +171,16 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             .ToProperty(this, x => x.Status, initialValue: SessionStatusDots.ForRow(row, pending: false))
             .DisposeWith(_disposables);
 
-        _isStale = _row.CombineLatest(remoteStale, (current, laneStale) =>
-                current.Origin is AgentOrigin.Remote or AgentOrigin.Server && (laneStale || current.IsStale))
-            .ToProperty(this, x => x.IsStale, initialValue: false)
+        _isLaneStale = _row.CombineLatest(remoteStale, (current, laneStale) =>
+                current.Origin is AgentOrigin.Remote or AgentOrigin.Server && laneStale)
+            .ToProperty(this, x => x.IsLaneStale, initialValue: false)
+            .DisposeWith(_disposables);
+        _laneNote = this.WhenAnyValue(x => x.IsLaneStale).Select(stale => stale ? LaneStaleNote : null)
+            .ToProperty(this, x => x.LaneNote, initialValue: null)
+            .DisposeWith(_disposables);
+
+        _rowAccessibleName = this.WhenAnyValue(x => x.SessionAccessibleName, x => x.Status, x => x.IsLaneStale, RowName)
+            .ToProperty(this, x => x.RowAccessibleName, initialValue: SessionAccessibleName)
             .DisposeWith(_disposables);
 
         _showsRepo = (grouping ?? Observable.Return(RailGrouping.Repository)).CombineLatest(_row, (mode, current) =>
@@ -214,6 +217,13 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
         DeleteCommand = ReactiveCommand.CreateFromTask(
             () => actions?.DeleteAsync(_row.Value, SessionAccessibleName) ?? Task.CompletedTask, deletable).DisposeWith(_disposables);
         TerminateCommand = ReactiveCommand.Create(() => actions?.Terminate(_row.Value, SessionAccessibleName), running).DisposeWith(_disposables);
+    }
+
+    static string RowName(string name, AgentStatusPresentation status, bool laneStale) {
+        var parts = new List<string> { name };
+        if (status.Kind == AgentStatusKind.Stale) parts.Add($"{status.Label}: {status.AccessibleName}");
+        if (laneStale) parts.Add(LaneStaleNote);
+        return string.Join(", ", parts);
     }
 
     AgentOrigin Origin() => IsServer ? AgentOrigin.Server : IsRemote ? AgentOrigin.Remote : AgentOrigin.Local;
@@ -254,7 +264,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
 
         if (oldPrimary != Primary || oldVendor != Vendor) {
             this.RaisePropertyChanged(nameof(SessionAccessibleName));
-            this.RaisePropertyChanged(nameof(PullRequestTooltip));
+            this.RaisePropertyChanged(nameof(LinkedPullRequestTip));
             this.RaisePropertyChanged(nameof(PullRequestAccessibleName));
         }
         if (oldMachine != MachineBadge) {
@@ -274,7 +284,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     /// so it shows no time.
     string MetaFor(AgentRow row) {
         var created = AsUtc(row.CreatedAt);
-        if (row.IsEndedSession && row.EndedAt is { } endedRaw) {
+        if (row is { IsEndedSession: true, EndedAt: { } endedRaw }) {
             var ended = AsUtc(endedRaw);
             var shown = _sort == RailSort.Created ? created : AsUtc(row.LastActivityAt ?? endedRaw);
             return $"{Since(shown)} · {UptimeFormat.Format(ended - created)}";

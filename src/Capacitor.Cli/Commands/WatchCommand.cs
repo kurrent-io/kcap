@@ -163,7 +163,7 @@ class WatchCommand(
             TimeSpan        noProgressElapsed,
             TimeSpan        ceiling
         ) =>
-        reResolvedPid is { } pid && pid > 1 && isAlive(pid) ? ParentDeadRecovery.ReArm
+        reResolvedPid is { } pid and > 1 && isAlive(pid) ? ParentDeadRecovery.ReArm
         : noProgressElapsed > ceiling                        ? ParentDeadRecovery.EndTerminal
         :                                                      ParentDeadRecovery.KeepWaiting;
 
@@ -287,7 +287,7 @@ class WatchCommand(
 
         // The recorder can stop itself, and only cts stops what runs beside it. Left to the end of RunAsync, a
         // parent monitor could see an agent exit right after its end hook and post a parent_exited end.
-        using var stopWithRecorder = recorder.Stopping.Register(cts.Cancel);
+        await using var stopWithRecorder = recorder.Stopping.Register(cts.Cancel);
 
         // Handle SIGTERM/SIGINT for graceful shutdown.
         //

@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 namespace Capacitor.Cli.Core.Http;
 
 /// <summary>A pass or message as one of its parties reads it; <see cref="Side"/> is <c>sent</c> or
-/// <c>received</c>.</summary>
+/// <c>received</c>. A server that predates <see cref="Delivery"/> sends none.</summary>
 public record PassDto(
     [property: JsonPropertyName("pass_id")]                     string                     PassId,
     [property: JsonPropertyName("side")]                        string                     Side,
@@ -23,4 +23,5 @@ public record PassDto(
     [property: JsonPropertyName("released_to_agent")]           bool?                      ReleasedToAgent,
     [property: JsonPropertyName("follow_up_due")]               bool?                      FollowUpDue,
     [property: JsonPropertyName("applied_grants")]              List<PassSharingGrantDto>? AppliedGrants,
+    [property: JsonPropertyName("delivery")]                    List<PassDeliveryLaneDto>? Delivery,
     [property: JsonPropertyName("stay_hidden_session_ids")]     List<string>?              StayHiddenSessionIds);

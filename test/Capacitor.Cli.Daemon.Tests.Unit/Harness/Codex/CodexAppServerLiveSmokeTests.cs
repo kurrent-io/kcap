@@ -88,5 +88,5 @@ public class CodexAppServerLiveSmokeTests {
         }
     }
 
-    static JsonElement Element(JsonNode node) => JsonDocument.Parse(node.ToJsonString()).RootElement.Clone();
+    static JsonElement Element(JsonNode node) => JsonElement.Parse(node.ToJsonString());
 }

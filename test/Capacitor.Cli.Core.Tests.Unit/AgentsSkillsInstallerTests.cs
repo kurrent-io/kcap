@@ -4,7 +4,7 @@ using TUnit.Core.Enums;
 namespace Capacitor.Cli.Core.Tests.Unit;
 
 public partial class AgentsSkillsInstallerTests {
-    static readonly string[] SourceNames = ["recap", "errors", "disable", "hide", "validate-plan", "review-flows", "agent-flows", "work-items", "plans", "guided-tour", "eval-watch", "start-agents", "connect-kcap", "pages", "worktrees"];
+    static readonly string[] SourceNames = ["recap", "errors", "disable", "hide", "validate-plan", "review-flows", "agent-flows", "work-items", "plans", "guided-tour", "eval-watch", "start-agents", "connect-kcap", "pages", "worktrees", "progressive-disclosure"];
 
     [Test]
     public async Task Mirror_of_SourceNames_matches_the_installer() {

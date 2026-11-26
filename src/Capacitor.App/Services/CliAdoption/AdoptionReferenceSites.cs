@@ -131,7 +131,7 @@ internal static class AdoptionReferenceSites {
         var name = LaunchdSite + label;
         try {
             var result = await launchctl.PrintAsync(label, ct).ConfigureAwait(false);
-            if (LaunchdPrint.Classify(result.ExitCode, result.Stdout, result.Stderr) != LabelProbe.Loaded) return new(name, null, true);
+            if (LaunchdPrint.Classify(result.ExitCode, result.Stderr) != LabelProbe.Loaded) return new(name, null, true);
 
             return LaunchdPrint.LoadedProgram(result.Stdout) is { } program ? new(name, program, true) : new(name, null, false);
         } catch (Exception ex) when (ex is IOException or InvalidOperationException or Win32Exception) {

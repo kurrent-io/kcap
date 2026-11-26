@@ -305,8 +305,8 @@ public class SequencedCommandProcessorTests {
         // throw and never resolves Done. A CI job that times out is a much worse signal than
         // a named assertion, so the wait is capped and the failure message says what it means.
         var settled  = p.SubmitAsync(Harness.Launch(1), () => Task.FromResult(new CommandOutcome(CommandOutcomeKind.LaunchExecuted)));
-        var finished = await Task.WhenAny(settled, Task.Delay(TimeSpan.FromSeconds(10)));
-        await Assert.That(finished == settled)
+        var finished = await settled.FinishedWithinAsync(TimeSpan.FromSeconds(10), TimeProvider.System);
+        await Assert.That(finished)
             .IsTrue().Because("the lane faulted on the liveness throw and never resolved the submitter's Done");
         await settled;
 
@@ -373,8 +373,8 @@ public class SequencedCommandProcessorTests {
         // A LaunchRejected outcome takes the rejection-send path.
         var settled = p.SubmitAsync(Harness.Launch(1), () => Task.FromResult(
             new CommandOutcome(CommandOutcomeKind.LaunchRejected, "a1", null, CommandRejectedReason.DaemonCapacity)));
-        var finished = await Task.WhenAny(settled, Task.Delay(TimeSpan.FromSeconds(10)));
-        await Assert.That(finished == settled)
+        var finished = await settled.FinishedWithinAsync(TimeSpan.FromSeconds(10), TimeProvider.System);
+        await Assert.That(finished)
             .IsTrue().Because("the lane faulted on the rejection-send throw and never resolved the submitter's Done");
         await settled;
 
@@ -433,8 +433,8 @@ public class SequencedCommandProcessorTests {
 
         // An execution fault takes the LogWarning path, where the logger throws.
         var settled  = p.SubmitAsync(Harness.Launch(1), () => throw new InvalidOperationException("boom"));
-        var finished = await Task.WhenAny(settled, Task.Delay(TimeSpan.FromSeconds(10)));
-        await Assert.That(finished == settled)
+        var finished = await settled.FinishedWithinAsync(TimeSpan.FromSeconds(10), TimeProvider.System);
+        await Assert.That(finished)
             .IsTrue().Because("the lane faulted on the logger throw and never resolved the submitter's Done");
         await settled;
 

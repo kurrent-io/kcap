@@ -26,7 +26,6 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     public const string WorkspaceSettingUp = "Your workspace is still being set up";
 
     readonly WizardAuthService       _service;
-    readonly ConnectChoiceViewModel  _connect;
     readonly WizardTenantPicker      _picker;
     readonly UiAuthProgress          _progress;
     readonly ConsentFlipClaims       _claims;
@@ -45,27 +44,13 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     AuthAttempt?   _attempt;
     ConnectIntent? _running;
     Task?          _run;
-    string?        _lastReport;
 
-    string  _status = "";
-    bool    _statusIsError;
-    string? _statusDetail;
-    bool    _busy;
-    bool    _satisfied;
-    string? _deviceCode;
-    string? _verificationUri;
-    string? _browserUrl;
-    string? _waitingText;
-    string? _quarantineNotice;
     bool    _tenantPickerVisible;
     bool    _tenantChoiceMade;
-    bool    _urlPanelVisible;
     bool    _statusIsReady;
     bool    _expireAfterRun;
 
     CancellationTokenSource? _signUpClock;
-
-    DiscoveredTenant? _selectedTenant;
 
     public SignInStepViewModel(
             WizardAuthService    service,
@@ -86,7 +71,7 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
         _signingUp       = signingUp ?? (() => false);
         _signUpUrl       = SignUpUrl(bridges.Endpoints.SignupUrl);
         _service         = service;
-        _connect         = connect;
+        Connect         = connect;
         _picker          = bridges.Picker;
         _progress        = bridges.Progress;
         _claims          = claims;
@@ -95,17 +80,8 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
         _post            = bridges.Post;
         _committedDetail = committedDetail;
 
-        bridges.Progress.NoticeReceived += line => {
-            // Kept as the failure detail's fallback: a decline is reported as a notice, not an error.
-            _lastReport = line;
-            Append(line);
-        };
-        bridges.Progress.ErrorReceived += line => {
-            // Headline + StatusDetail only — Append would double the line in the progress log.
-            var detail = FormatErrorDetail(line);
-            _lastReport  = detail;
-            StatusDetail = detail;
-        };
+        bridges.Progress.NoticeReceived += Append;
+        bridges.Progress.ErrorReceived += line => Console.Error.WriteLine($"kcap: sign-in: {line}");
         bridges.Progress.BrowserOpened      += url => {
             BrowserUrl = url;
             // StatusDetail survives here: SetStatus only clears it on the next non-error headline.
@@ -199,7 +175,7 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     public bool Skippable => false;
     public bool PassThrough => _passThrough?.Invoke() ?? false;
 
-    public ConnectChoiceViewModel Connect => _connect;
+    public ConnectChoiceViewModel Connect { get; }
 
     /// Sign-in committed and a quarantine notice, if any, has been acknowledged.
     public event Action? Completed;
@@ -226,19 +202,19 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
 
     /// The "I have a workspace URL" field under the work-account action.
     public bool UrlPanelVisible {
-        get => _urlPanelVisible;
-        set => this.RaiseAndSetIfChanged(ref _urlPanelVisible, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string Status {
-        get => _status;
-        private set => this.RaiseAndSetIfChanged(ref _status, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
     public bool StatusIsError {
-        get => _statusIsError;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _statusIsError, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(PrimaryActionLabel));
             this.RaisePropertyChanged(nameof(WorkAccountLabel));
         }
@@ -250,14 +226,14 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
 
     /// The last error line the façade rendered. Detail behind the generic failure headline.
     public string? StatusDetail {
-        get => _statusDetail;
-        private set => this.RaiseAndSetIfChanged(ref _statusDetail, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool Busy {
-        get => _busy;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _busy, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(Idle));
             this.RaisePropertyChanged(nameof(ShowPrimaryAction));
             RestatePhase();
@@ -267,9 +243,9 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     public bool Idle => !Busy;
 
     public bool Satisfied {
-        get => _satisfied;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _satisfied, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowPrimaryAction));
             this.RaisePropertyChanged(nameof(OwnsPrimaryAction));
             this.RaisePropertyChanged(nameof(StatusLineVisible));
@@ -281,29 +257,29 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     public bool ShowPrimaryAction => Idle && !Satisfied;
 
     public string? DeviceCode {
-        get => _deviceCode;
-        private set => this.RaiseAndSetIfChanged(ref _deviceCode, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? VerificationUri {
-        get => _verificationUri;
-        private set => this.RaiseAndSetIfChanged(ref _verificationUri, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? BrowserUrl {
-        get => _browserUrl;
-        private set => this.RaiseAndSetIfChanged(ref _browserUrl, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? WaitingText {
-        get => _waitingText;
-        private set => this.RaiseAndSetIfChanged(ref _waitingText, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public string? QuarantineNotice {
-        get => _quarantineNotice;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _quarantineNotice, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(OwnsPrimaryAction));
         }
     }
@@ -321,8 +297,8 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     public bool TenantChoicePending => _tenantPickerVisible && !_tenantChoiceMade;
 
     public DiscoveredTenant? SelectedTenant {
-        get => _selectedTenant;
-        set => this.RaiseAndSetIfChanged(ref _selectedTenant, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public Task OnEnterAsync(CancellationToken ct) {
@@ -342,6 +318,14 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
         return Task.CompletedTask;
     }
 
+    /// The re-auth dialog: a Sign in click opened or refocused it, so it starts the attempt rather
+    /// than asking for a second click. A live or committed attempt is left as it is. The wizard
+    /// step stays on <see cref="OnEnterAsync"/> and waits.
+    public async Task EnterAndSignInAsync(CancellationToken ct) {
+        await OnEnterAsync(ct).ConfigureAwait(true);
+        if (!Satisfied) await SignInAsync().ConfigureAwait(true);
+    }
+
     /// kcap-web's Team sign-up; <c>via=desktop</c> is what it records as the desktop setup path.
     internal static string SignUpUrl(string signupBase) => $"{signupBase.TrimEnd('/')}/get-started?tier=team&via=desktop";
 
@@ -350,7 +334,7 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
             _urlOpener.Open(_signUpUrl);
             RememberWebSignUp(_time.GetUtcNow());
         } catch (Exception ex) {
-            Append($"Couldn't open the browser: {ex.Message}");
+            Console.Error.WriteLine($"kcap: could not open the browser for sign-in: {ex.Message}");
             SetStatus("Couldn't open your browser.", isError: true,
                 $"Open {_signUpUrl} to create your workspace, then continue here.");
         }
@@ -445,8 +429,8 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     }
 
     async Task RunAsync() {
-        if (_connect.Intent is not { } intent) {
-            _connect.Validate();
+        if (Connect.Intent is not { } intent) {
+            Connect.Validate();
             UrlPanelVisible = true;
 
             return;
@@ -500,7 +484,7 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
         switch (result) {
             case AuthResult.Committed { CredentialSaved: false }:
                 SetStatus("Signed in, but the credential could not be saved.", isError: true,
-                    _lastReport ?? "Sign in again from the profile's row in Settings.");
+                    "Sign in again from the profile’s row in Settings.");
 
                 break;
             case AuthResult.Committed committed:
@@ -530,10 +514,16 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
                     "Finish creating it in your browser, then continue here. Setting it up can take a few minutes.");
 
                 break;
-            // Already rendered through the sink; prefer the last reported line over in-flight
-            // guidance (StatusDetail holds browser-wait copy until an ErrorReceived overwrites it).
             default:
-                SetStatus("Sign-in failed.", isError: true, _lastReport ?? StatusDetail);
+                var guidance = result is AuthResult.Failed failed ? failed.Reason switch {
+                    AuthFailureReason.Unreachable => "Check your connection to the server and try again.",
+                    AuthFailureReason.SigninDenied => "Allow access in your browser and try again.",
+                    AuthFailureReason.NoTenantsFound => "Ask your workspace administrator to invite you, then try again.",
+                    AuthFailureReason.ConfigUnreadable => "kcap couldn’t read its settings. Check that you can open the settings file or restore a working copy, then try again.",
+                    AuthFailureReason.ProfileChanged => "The profile settings changed during sign-in. Reopen sign-in for the profile you want and try again.",
+                    _ => "Try signing in again.",
+                } : "Try signing in again.";
+                SetStatus("Sign-in failed.", isError: true, guidance);
 
                 break;
         }
@@ -555,13 +545,13 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
             ? "No sign-in required for this server."
             : committed.Username is { Length: > 0 } username ? $"Signed in as {username}" : "Signed in.";
 
-    string ReadyStatus() => _connect.Intent switch {
+    string ReadyStatus() => Connect.Intent switch {
         // Destination only — the surrounding chrome already says "Sign in"; detail explains what happens.
         ConnectIntent.Paste paste => paste.ServerInput,
         _                         => "Find your workspaces with single sign-on",
     };
 
-    string ReadyDetail() => _connect.Intent switch {
+    string ReadyDetail() => Connect.Intent switch {
         ConnectIntent.Paste =>
             "Opens your browser to authorize this machine and stores a token for launching hosted agents.",
         _ => "Opens your browser, then lists the workspaces your account can access.",
@@ -596,9 +586,9 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
     Task StartAsync(ConnectChoice choice, bool device) {
         if (Busy) return Task.CompletedTask;
 
-        _connect.Choice        = choice;
-        _connect.UseDeviceCode = device;
-        if (choice == ConnectChoice.Paste && !_connect.Validate()) return Task.CompletedTask;
+        Connect.Choice        = choice;
+        Connect.UseDeviceCode = device;
+        if (choice == ConnectChoice.Paste && !Connect.Validate()) return Task.CompletedTask;
 
         return SignInAsync();
     }
@@ -621,7 +611,6 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
 
     void ResetForRun(ConnectIntent intent) {
         _running    = intent;
-        _lastReport = null;
         _progress.TakeProvisioningFailure();
         Log.Clear();
         HidePrompts();
@@ -654,7 +643,7 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
         Status        = text;
         this.RaisePropertyChanged(nameof(StatusLineVisible));
         StatusIsError = isError;
-        StatusDetail  = detail is null ? null : FormatErrorDetail(detail);
+        StatusDetail  = detail;
     }
 
     void Append(string line) {
@@ -669,7 +658,10 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
         try {
             _urlOpener.Open(url);
         } catch (Exception ex) {
-            Append($"Couldn't open the browser: {ex.Message}");
+            Console.Error.WriteLine($"kcap: could not open the browser for sign-in: {ex.Message}");
+            StatusDetail = url == BrowserUrl
+                ? "kcap couldn’t open your browser. Copy the sign-in link and open it in a browser to continue."
+                : "kcap couldn’t open your browser. Open the address shown below in a browser and enter the code.";
         }
     }
 
@@ -680,14 +672,4 @@ public sealed class SignInStepViewModel : ReactiveObject, IWizardStep {
         return note < 0 ? code.Trim() : code[..note].Trim();
     }
 
-    /// Progress sink lines often start with "Error: "; the failure headline already says that.
-    internal static string FormatErrorDetail(string line) {
-        const string prefix = "Error: ";
-        var text = line.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-            ? line[prefix.Length..].TrimStart()
-            : line.Trim();
-        if (text.Length == 0 || text.StartsWith("kcap ", StringComparison.Ordinal)) return text;
-
-        return char.ToUpperInvariant(text[0]) + text[1..];
-    }
 }

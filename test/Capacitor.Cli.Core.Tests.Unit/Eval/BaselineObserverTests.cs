@@ -217,7 +217,7 @@ public partial class BaselineObserverTests {
     sealed class RecordingObserver : IEvalObserver {
         public List<string> Info          { get; } = [];
         public int          FinishedCount { get; private set; }
-        public int          FailedCount   { get; private set; }
+        int          FailedCount   { get; set; }
 
         public void OnInfo(string message) => Info.Add(message);
         public void OnStarted(string evalRunId, string judgeModel, int totalQuestions) { }

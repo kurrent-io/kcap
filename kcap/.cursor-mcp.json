@@ -1,0 +1,52 @@
+{
+  "mcpServers": {
+    "kcap-review": {
+      "command": "kcap",
+      "args": ["mcp", "review"]
+    },
+    "kcap-sessions": {
+      "command": "kcap",
+      "args": ["mcp", "sessions"]
+    },
+    "kcap-flows": {
+      "command": "kcap",
+      "args": ["mcp", "flows"]
+    },
+    "kcap-memory": {
+      "command": "kcap",
+      "args": ["mcp", "memory"]
+    },
+    "kcap-analytics": {
+      "command": "kcap",
+      "args": ["mcp", "analytics"]
+    },
+    "kcap-workitems": {
+      "command": "kcap",
+      "args": ["mcp", "workitems"]
+    },
+    "kcap-plans": {
+      "command": "kcap",
+      "args": ["mcp", "plans"]
+    },
+    "kcap-handoff": {
+      "command": "kcap",
+      "args": ["mcp", "handoff"]
+    },
+    "kcap-pages": {
+      "command": "kcap",
+      "args": ["mcp", "pages"]
+    },
+    "kcap-sharing": {
+      "command": "kcap",
+      "args": ["mcp", "sharing"]
+    },
+    "kcap-knowledge": {
+      "command": "kcap",
+      "args": ["mcp", "knowledge"]
+    },
+    "kcap-pass": {
+      "command": "kcap",
+      "args": ["mcp", "pass"]
+    }
+  }
+}

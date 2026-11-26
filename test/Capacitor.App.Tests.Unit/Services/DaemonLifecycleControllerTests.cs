@@ -2477,6 +2477,10 @@ sealed class FakeKcapCli : IKcapCli {
     public bool SupportsRetire = true;
     public Task<bool> SupportsServiceRetireAsync(CancellationToken ct) => Task.FromResult(SupportsRetire);
 
+    public HashSet<string> SupportedInstallFlags = ["--retire", "--retire-profile", "--activate"];
+    public Task<bool> SupportsServiceInstallFlagsAsync(IReadOnlyList<string> flags, CancellationToken ct) =>
+        Task.FromResult(SupportsRetire && flags.All(SupportedInstallFlags.Contains));
+
     public int StartVerifiedCallCount;
     public Func<CancellationToken, Task<ProcessResult>> StartVerifiedBehavior = _ => Task.FromResult(new ProcessResult(0, "", "", false));
     public Task<ProcessResult> ServiceStartVerifiedAsync(CancellationToken ct) {
@@ -2501,12 +2505,17 @@ sealed class FakeKcapCli : IKcapCli {
     public int InstallVerifiedCallCount;
     public bool? LastInstallReplace;
     public string? LastRetireServiceId;
+    public string? LastRetireProfile;
+    public bool? LastActivate;
     public Func<bool, CancellationToken, Task<ProcessResult>> InstallVerifiedBehavior =
         (_, _) => Task.FromResult(new ProcessResult(0, "", "", false));
-    public Task<ProcessResult> ServiceInstallVerifiedAsync(bool replace, CancellationToken ct, string? retireServiceId = null) {
+    public Task<ProcessResult> ServiceInstallVerifiedAsync(
+            bool replace, CancellationToken ct, string? retireServiceId = null, string? retireProfile = null, bool activate = false) {
         InstallVerifiedCallCount++;
         LastInstallReplace = replace;
         LastRetireServiceId = retireServiceId;
+        LastRetireProfile = retireProfile;
+        LastActivate = activate;
         return InstallVerifiedBehavior(replace, ct);
     }
 
@@ -2568,6 +2577,23 @@ sealed class FakeKcapCli : IKcapCli {
         return IntelligenceBehavior(answer);
     }
 
+    public int IntelligenceStatusCalls;
+    public Func<Task<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome>> IntelligenceStatusBehavior =
+        () => Task.FromResult<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome>(new Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome.Failed("unset"));
+    public Task<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome> LocalIntelligenceStatusAsync(CancellationToken ct) {
+        IntelligenceStatusCalls++;
+        return IntelligenceStatusBehavior();
+    }
+
+    public readonly List<(bool? ImportOutcomes, int? DailyLimit)> IntelligencePreferenceCalls = [];
+    public Func<bool?, int?, Task<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome>> IntelligencePreferencesBehavior =
+        (_, _) => Task.FromResult<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome>(new Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome.Failed("unset"));
+    public Task<Cli.Core.Setup.Intelligence.IntelligenceSettingsOutcome> LocalIntelligencePreferencesAsync(
+            bool? importOutcomes, int? dailyLimit, CancellationToken ct) {
+        IntelligencePreferenceCalls.Add((importOutcomes, dailyLimit));
+        return IntelligencePreferencesBehavior(importOutcomes, dailyLimit);
+    }
+
     public int ImportCallCount;
     public readonly List<ImportRequest> ImportRequests = [];
     public Func<ImportRequest, Action<StreamedLine>, CancellationToken, Task<StreamingResult>> ImportBehavior =
@@ -2609,10 +2635,12 @@ sealed class FakeKcapCli : IKcapCli {
     }
 
     public List<bool> UninstallPurgeFlags { get; } = [];
+    public List<bool> UninstallKeepConfigFlags { get; } = [];
     public Func<Action<StreamedLine>, Task<StreamingResult>> UninstallBehavior =
         _ => Task.FromResult(new StreamingResult(1, false, []));
-    public Task<StreamingResult> UninstallAsync(bool purgeLocal, Action<StreamedLine> onLine, CancellationToken ct) {
+    public Task<StreamingResult> UninstallAsync(bool purgeLocal, bool keepConfig, Action<StreamedLine> onLine, CancellationToken ct) {
         UninstallPurgeFlags.Add(purgeLocal);
+        UninstallKeepConfigFlags.Add(keepConfig);
         return UninstallBehavior(onLine);
     }
 

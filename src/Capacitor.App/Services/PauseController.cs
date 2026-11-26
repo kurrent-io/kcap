@@ -190,6 +190,8 @@ public sealed class PauseController : IPauseController, IDisposable {
     static bool HasPauseRuleAtZero(ConsentPolicyDto policy) =>
         policy.Rules.Count > 0 && policy.Rules[0] is { Action: "deny", Requester: null, Kind: null, Repo: null, Vendor: null };
 
-    static string MapReason(LocalControlOpsException ex) =>
-        ex.Reason == DaemonUnreachableReason ? UnreachableCopy : $"Couldn't update launch pause: {ex.Message}";
+    static string MapReason(LocalControlOpsException ex) {
+        Console.Error.WriteLine($"kcap: could not update launch pause: {ex.Message}");
+        return ex.Reason == DaemonUnreachableReason ? UnreachableCopy : "Couldn’t update launch pause. Try again.";
+    }
 }

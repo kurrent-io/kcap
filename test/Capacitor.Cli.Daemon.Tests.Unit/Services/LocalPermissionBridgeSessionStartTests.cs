@@ -13,7 +13,7 @@ public class LocalPermissionBridgeSessionStartTests {
 
     sealed class Harness : IAsyncDisposable {
         public LocalPermissionBridge Bridge { get; }
-        public HttpClient Client { get; } = new() { Timeout = TimeSpan.FromSeconds(30) };
+        HttpClient Client { get; } = new() { Timeout = TimeSpan.FromSeconds(30) };
         public List<string> Seen { get; } = [];
 
         public Harness(string? attributeTo = "agent-1") {

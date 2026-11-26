@@ -39,7 +39,6 @@ internal sealed partial class CodexNotificationMapper {
     readonly Func<string?>             _modelAtInstant;
     readonly ILogger                   _logger;
     readonly HashSet<string>           _loggedUnknownTypes = new(StringComparer.Ordinal);
-    int _unmappedKindCount;
 
     public CodexNotificationMapper(Func<string?> modelAtInstant, ILogger logger) {
         _modelAtInstant = modelAtInstant;
@@ -49,7 +48,7 @@ internal sealed partial class CodexNotificationMapper {
     /// <summary>Count of <c>item/completed</c> notifications whose item type this mapper did not
     /// recognise (surfaced generically, never dropped). A rising count means the app-server vocabulary
     /// grew past this mapper — the signal to widen the switch below.</summary>
-    public int UnmappedKindCount => _unmappedKindCount;
+    public int UnmappedKindCount { get; private set; }
 
     /// <summary>Exact post-resume usage baseline (from <c>thread/read</c>) so the next token delta is
     /// exact. Mirrors <see cref="CodexUsageDeltaConverter.SetExactBaseline"/>.</summary>
@@ -170,9 +169,10 @@ internal sealed partial class CodexNotificationMapper {
 
         switch (type) {
             case "commandExecution":
+                var command = item.Str("command") is { } line ? CodexShellCommand.Script(line) : null;
                 return One(new AcpEventEnvelope(
                     Kind: AcpEventKind.ToolCall, ToolCallId: id, ToolName: "shell",
-                    ToolInputJson: RenderCommandOpen(item), ToolKind: CodexToolKinds.Shell(item.Str("command")),
+                    ToolInputJson: RenderCommandOpen(command, item.Str("cwd")), ToolKind: CodexToolKinds.Shell(command),
                     ItemId: id, TimestampIso: ts));
 
             case "mcpToolCall":
@@ -244,7 +244,7 @@ internal sealed partial class CodexNotificationMapper {
     }
 
     IReadOnlyList<AcpEventEnvelope> Unmapped(string? type, string? id, JsonElement item, string? ts) {
-        _unmappedKindCount++;
+        UnmappedKindCount++;
         if (type is not null && _loggedUnknownTypes.Add(type))
             LogUnknownItemType(_logger, type);
 
@@ -326,12 +326,12 @@ internal sealed partial class CodexNotificationMapper {
         return Encoding.UTF8.GetString(buffer.ToArray());
     }
 
-    static string RenderCommandOpen(JsonElement item) {
+    static string RenderCommandOpen(string? command, string? cwd) {
         using var buffer = new MemoryStream();
         using (var w = new Utf8JsonWriter(buffer)) {
             w.WriteStartObject();
-            WriteNullable(w, "command", item.Str("command"));
-            WriteNullable(w, "cwd", item.Str("cwd"));
+            WriteNullable(w, "command", command);
+            WriteNullable(w, "cwd", cwd);
             w.WriteEndObject();
         }
         return Encoding.UTF8.GetString(buffer.ToArray());

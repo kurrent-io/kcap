@@ -17,7 +17,7 @@ public class IdeRpcLoopTests {
 
         public override Encoding Encoding => Encoding.UTF8;
 
-        public Func<Exception?>? FailWrite { get; set; }
+        public Func<Exception?>? FailWrite { get; init; }
 
         public bool Overlapped { get; private set; }
 
@@ -378,5 +378,76 @@ public class IdeRpcLoopTests {
         await Assert.That(all[1]["id"]!.GetValue<int>()).IsEqualTo(2);
         await Assert.That(stderr.GetCapturedError()).Contains("follow-up broke");
         await Assert.That(output.Text).DoesNotContain("follow-up broke");
+    }
+
+    /// <summary>The command closes the loop before it disposes the writer: a notification sent after that writes nothing.</summary>
+    [Test]
+    public async Task A_notification_after_close_writes_nothing() {
+        var lines = new Lines();
+        using var loop = new IdeRpcLoop(new StringReader(""), lines);
+
+        await Assert.That(await loop.CloseAsync(TimeSpan.FromSeconds(5))).IsTrue();
+        await loop.NotifyAsync("connection/changed", new JsonObject());
+
+        await Assert.That(lines.Writes).IsEqualTo(0);
+    }
+
+    /// <summary>Notifications queued behind the gate when the loop closes and is disposed all return, writing nothing
+    /// after the close; none is left waiting on the gate.</summary>
+    [Test]
+    public async Task Notifications_queued_at_close_all_return() {
+        var release = new TaskCompletionSource();
+        var lines = new BlockingLines(release.Task);
+        var loop = new IdeRpcLoop(new StringReader(""), lines);
+
+        var first = loop.NotifyAsync("connection/changed", new JsonObject());
+        await WaitHarnessUntilAsync(() => lines.Started);
+        // Called on this thread, each call runs to its wait on the gate the first write holds before it returns.
+        var queued = Enumerable.Range(0, 20).Select(_ => loop.NotifyAsync("connection/changed", new JsonObject())).ToArray();
+        await Assert.That(queued.All(t => !t.IsCompleted)).IsTrue().Because("every notification is waiting on the gate");
+        var closing = loop.CloseAsync(TimeSpan.FromSeconds(30));
+        loop.Dispose();
+        release.SetResult();
+
+        await Assert.That(await closing.WaitAsync(TimeSpan.FromSeconds(30))).IsTrue();
+        await Task.WhenAll(queued).WaitAsync(TimeSpan.FromSeconds(30));
+        await first.WaitAsync(TimeSpan.FromSeconds(30));
+        await Assert.That(lines.Writes).IsEqualTo(1);
+    }
+
+    /// <summary>A write stuck on a peer that stopped reading does not hold the close past its wait: the command then
+    /// leaves the writer alone rather than disposing it under the write.</summary>
+    [Test]
+    public async Task A_write_stuck_on_its_peer_bounds_the_close() {
+        var lines = new BlockingLines(new TaskCompletionSource().Task);
+        using var loop = new IdeRpcLoop(new StringReader(""), lines);
+
+        _ = loop.NotifyAsync("connection/changed", new JsonObject());
+        await WaitHarnessUntilAsync(() => lines.Started);
+
+        await Assert.That(await loop.CloseAsync(TimeSpan.FromMilliseconds(50))).IsFalse();
+    }
+
+    /// Blocks every write until its gate opens, counting them.
+    sealed class BlockingLines(Task gate) : TextWriter {
+        int _writes;
+        public int Writes => Volatile.Read(ref _writes);
+        public bool Started => Writes > 0;
+        public override Encoding Encoding => Encoding.UTF8;
+
+        public override async Task WriteAsync(string? value) {
+            Interlocked.Increment(ref _writes);
+            await gate;
+        }
+
+        public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    static async Task WaitHarnessUntilAsync(Func<bool> condition) {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (!condition()) {
+            if (DateTime.UtcNow > deadline) throw new TimeoutException("the condition");
+            await Task.Delay(10);
+        }
     }
 }

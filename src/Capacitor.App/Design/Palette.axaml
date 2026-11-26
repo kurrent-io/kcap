@@ -1,0 +1,70 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- A brush without a color here is themed: its colors live only in Themes.axaml, and
+         App.Initialize paints Light into it before anything can render. -->
+    <SolidColorBrush x:Key="KcapCanvasBrush" />
+    <SolidColorBrush x:Key="KcapSurfaceBrush" />
+    <SolidColorBrush x:Key="KcapSurfaceRaisedBrush" />
+    <SolidColorBrush x:Key="KcapBorderBrush" />
+    <SolidColorBrush x:Key="KcapChoiceBorderBrush" />
+    <SolidColorBrush x:Key="KcapBorderStrongBrush" />
+    <SolidColorBrush x:Key="KcapTextBrush" />
+    <SolidColorBrush x:Key="KcapMutedBrush" />
+    <SolidColorBrush x:Key="KcapFaintBrush" />
+    <SolidColorBrush x:Key="KcapPlaceholderBrush" />
+    <SolidColorBrush x:Key="KcapFieldBorderBrush" />
+    <SolidColorBrush x:Key="ProgressiveDisclosureDetailFadeBrush" />
+    <SolidColorBrush x:Key="ProgressiveDisclosureFootnoteFadeBrush" />
+    <SolidColorBrush x:Key="ProgressiveDisclosureDetailCodeFadeBrush" />
+    <SolidColorBrush x:Key="ProgressiveDisclosureFootnoteCodeFadeBrush" />
+    <SolidColorBrush x:Key="KcapPrimaryBrush" />
+    <SolidColorBrush x:Key="KcapPrimaryHoverBrush" />
+    <SolidColorBrush x:Key="KcapPrimaryPressedBrush" />
+    <SolidColorBrush x:Key="KcapOnPrimaryBrush" />
+    <SolidColorBrush x:Key="KcapSuccessBrush" />
+    <SolidColorBrush x:Key="KcapSuccessDimBrush" />
+    <SolidColorBrush x:Key="KcapWarningBrush" />
+    <SolidColorBrush x:Key="KcapWarningDimBrush" />
+    <SolidColorBrush x:Key="KcapPurpleBrush" />
+    <SolidColorBrush x:Key="KcapPurpleDimBrush" />
+    <SolidColorBrush x:Key="KcapActivityBrush" />
+    <SolidColorBrush x:Key="KcapActivityDimBrush" />
+    <SolidColorBrush x:Key="KcapPrOpenBrush" />
+    <SolidColorBrush x:Key="KcapPrMergedBrush" />
+    <SolidColorBrush x:Key="KcapPrClosedBrush" />
+    <SolidColorBrush x:Key="KcapPrMergedTipBrush" />
+    <SolidColorBrush x:Key="KcapDangerBrush" />
+    <SolidColorBrush x:Key="KcapDangerDimBrush" />
+    <SolidColorBrush x:Key="KcapInfoBrush" />
+    <SolidColorBrush x:Key="KcapInfoDimBrush" />
+    <SolidColorBrush x:Key="KcapControlHoverBrush" />
+    <SolidColorBrush x:Key="KcapControlPressedBrush" />
+    <SolidColorBrush x:Key="KcapSelectionBrush" />
+    <SolidColorBrush x:Key="KcapTopicRailBrush" Opacity="0.55" />
+    <SolidColorBrush x:Key="KcapTopicBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkRedBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkOrangeBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkYellowBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkGreenBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkBlueBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkPurpleBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkPinkBrush" />
+    <SolidColorBrush x:Key="KcapBookmarkGreyBrush" />
+    <Color x:Key="ScrollBarThumbBackgroundColor">#3A66B8</Color>
+    <Color x:Key="ScrollBarPanningThumbBackgroundColor">#3A66B8</Color>
+    <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" />
+    <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" />
+    <SolidColorBrush x:Key="ScrollBarThumbFillPressed" />
+    <SolidColorBrush x:Key="ScrollBarTrackFill" Color="#00000000" />
+    <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" />
+    <SolidColorBrush x:Key="ScrollBarTrackStroke" Color="#00000000" />
+    <SolidColorBrush x:Key="ScrollBarTrackStrokePointerOver" />
+    <SolidColorBrush x:Key="ScrollBarBackground" Color="#00000000" />
+    <ScaleTransform x:Key="VerticalSmallScrollThumbScaleTransform" ScaleX="1" ScaleY="1" />
+    <ScaleTransform x:Key="HorizontalSmallScrollThumbScaleTransform" ScaleX="1" ScaleY="1" />
+    <SolidColorBrush x:Key="ScrollBarBackgroundPointerOver" Color="#00000000" />
+    <SolidColorBrush x:Key="ScrollBarButtonBackground" Color="#00000000" />
+    <SolidColorBrush x:Key="ScrollBarButtonBackgroundPointerOver" Color="#00000000" />
+    <SolidColorBrush x:Key="ScrollBarButtonBackgroundPressed" Color="#00000000" />
+    <SolidColorBrush x:Key="ScrollViewerScrollBarsSeparatorBackground" Color="#00000000" />
+</ResourceDictionary>

@@ -32,9 +32,7 @@ public class EvalContextCacheTests : IDisposable {
 
     string RunRoot => Tmp.PathTo("runs");
 
-    AdmissionFence? _fence;
-
-    AdmissionFence Fence => _fence ??= new AdmissionFence(Tmp.PathTo("retiring.json"), null, _time, NullLogger<AdmissionFence>.Instance);
+    AdmissionFence Fence => field ??= new AdmissionFence(Tmp.PathTo("retiring.json"), null, _time, NullLogger<AdmissionFence>.Instance);
 
     int RunDirectories() => Directory.Exists(RunRoot) ? Directory.GetDirectories(RunRoot, EvidenceRunContext.DirectoryPrefix + "*").Length : 0;
 
@@ -166,7 +164,7 @@ public class EvalContextCacheTests : IDisposable {
     public async Task A_slow_hold_release_never_holds_up_retiring_the_run() {
         // The release takes five seconds unless the test lets it finish sooner.
         var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var (connection, _) = Daemon(heldRelease: () => Task.WhenAny(finish.Task, Task.Delay(TimeSpan.FromSeconds(5))));
+        var (connection, _) = Daemon(heldRelease: () => finish.Task.FinishedWithinAsync(TimeSpan.FromSeconds(5), TimeProvider.System));
         await connection.PrepareEvalHandler!(Prepare("run-1"));
         await Assert.That(_stub.Requests("evidence-scope/holds").Count).IsEqualTo(1);
 

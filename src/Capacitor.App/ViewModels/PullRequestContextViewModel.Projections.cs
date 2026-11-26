@@ -175,10 +175,9 @@ public sealed partial class PullRequestContextViewModel {
             "not_found" => "This pull request could not be found.",
             "tool_signed_out" => "The local CLI is not signed in for this host. Sign in and refresh.",
             "tool_denied" => "Your account cannot read this pull request.",
-            "tool_failed" => read.Detail is { } detail ? $"The local CLI could not read this pull request ({detail}). Refresh to try again."
-                : "The local CLI could not read this pull request. Refresh to try again.",
-            _ => read.Reader is { } tool ? $"Couldn't read this pull request through {tool}. Refresh to try again."
-                : "Couldn't load pull request context. Retry when the server is reachable."
+            _ when read.Reader is { } tool => $"Couldn't read this pull request through {tool}. Refresh to try again.",
+            "tool_failed" => "The local CLI could not read this pull request. Refresh to try again.",
+            _ => "Couldn't load pull request context. Refresh to try again."
         }
     };
     static string Author(PullRequestActorDto? actor) => actor is null ? "Unknown author" : actor.Kind == "team"
@@ -200,7 +199,7 @@ public sealed partial class PullRequestContextViewModel {
     PullRequestRow ToRow(PullRequestCommentDto item, PullRequestSubjectDto subject) => item.Availability == "available"
         ? new(item.Id, Author(item.Author), Dated(item.CreatedAt), item.Body, null, PrLink(item.Url, subject), "available", item.BodyTruncated, ActorKind: item.Author?.Kind)
         : Unavailable(item.Id, "Comment", PrLink(item.Url, subject), item.Availability);
-    PullRequestRow ToRow(PullRequestReviewDto item, PullRequestSubjectDto subject) => item.Availability == "available" && item.State is not ("pending" or "PENDING")
+    PullRequestRow ToRow(PullRequestReviewDto item, PullRequestSubjectDto subject) => item is { Availability: "available", State: not ("pending" or "PENDING") }
         ? new(item.Id, Author(item.Author), Joined(ReviewState(item.State), Dated(item.SubmittedAt)), item.Body, null, PrLink(item.Url, subject), "available", item.BodyTruncated)
         : Unavailable(item.Id, "Review", PrLink(item.Url, subject), item.Availability);
     PullRequestRow ToRow(PullRequestReviewerDto item, PullRequestSubjectDto subject) {
@@ -208,7 +207,7 @@ public sealed partial class PullRequestContextViewModel {
         var status = ReviewRowStatus(item.ReviewState, item.Requested == true);
         return new(item.Id, Author(item.Actor), (item.Requested == true ? "Review requested · " : "") + status.Text,
             null, null, PrLink(item.Url, subject), "available", IsReviewer: true, ActorKind: item.Actor?.Kind, AvatarUrl: AvatarUrl(item.Actor, subject),
-            Status: status, ReRequested: item.Requested == true && item.ReviewState is not null);
+            Status: status, ReRequested: item is { Requested: true, ReviewState: not null });
     }
     PullRequestRow ToRow(PullRequestCheckDto item, PullRequestSubjectDto subject) => item.Availability == "available"
         ? new(item.Id, item.Name ?? "Unnamed check",

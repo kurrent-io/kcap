@@ -50,7 +50,10 @@ internal sealed class MessageSenderLookup(IMessageSenderSource source, TimeProvi
         var labels = visible.ToList();
         _generation++;
         _due.Clear();
-        foreach (var label in labels) label.Title = null;
+        foreach (var label in labels) {
+            label.IsOtherParticipant = false;
+            label.Title = null;
+        }
         Track(labels);
     }
 
@@ -138,6 +141,7 @@ internal sealed class MessageSenderLookup(IMessageSenderSource source, TimeProvi
                 : null;
             if (row is not null) {
                 entry.Label.Title = TitleOf(row);
+                entry.Label.IsOtherParticipant = !row.SentByCaller;
                 if (read.Kind == MessageSendersReadKind.Ready && row.DispatchId is { } receipt
                     && receipt != Guid.Empty && _receipts.Add(receipt)) delivered?.Invoke(receipt, entry.Label);
             }

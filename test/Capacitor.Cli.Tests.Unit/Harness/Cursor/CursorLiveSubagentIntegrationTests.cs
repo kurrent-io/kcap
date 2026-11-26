@@ -103,13 +103,13 @@ public class CursorLiveSubagentIntegrationTests {
         readonly TempHome _home = new();
 
         public string TranscriptsRoot { get; }
-        public string SpoolDir        { get; }
+        string SpoolDir        { get; }
         public List<string> Sent       { get; } = [];
         public List<string> RouteOrder { get; } = [];
-        public HookSpool    Spool      { get; }
-        public ConfigRoot   Config     { get; }
-        public HttpClient   Client     { get; }
-        public HttpStatusCode PostStatus { get; set; } = HttpStatusCode.OK;
+        HookSpool    Spool      { get; }
+        ConfigRoot   Config     { get; }
+        HttpClient   Client     { get; }
+        HttpStatusCode PostStatus { get; } = HttpStatusCode.OK;
 
         readonly List<string> _markersToClean = [];
 
@@ -187,12 +187,12 @@ public class CursorLiveSubagentIntegrationTests {
         public void Dispose() {
             Client.Dispose();
             foreach (var m in _markersToClean) {
-                try { File.Delete(Path.Combine(Config.Path("cursor-subagent-links"), m)); } catch { }
+                try { File.Delete(Path.Combine(Config.Path("cursor-subagent-links"), m)); } catch { /* ignored */ }
                 // The subagent-start ACK marker lives in a different directory and is durable
                 // too. A test that seeds one (see the mid-lifecycle scenario) would otherwise
                 // leave it behind for the rest of the process, where a later
                 // HasSubagentStartAck check could read it.
-                try { File.Delete(new CursorMarkers(Config, TimeProvider.System).SubagentStartAckPath(m)); } catch { }
+                try { File.Delete(new CursorMarkers(Config, TimeProvider.System).SubagentStartAckPath(m)); } catch { /* ignored */ }
             }
             _home.Dispose();
         }

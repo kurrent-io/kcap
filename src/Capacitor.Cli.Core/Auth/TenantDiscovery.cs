@@ -96,7 +96,7 @@ public class TenantDiscovery(IAuthProxyClient proxy, ITenantPicker picker) {
         var names   = new string?[tenants.Length];
 
         // A tenant listed twice is one tenant: its rows share a name rather than claiming two.
-        var first = tenants.Select((t, i) => Array.FindIndex(tenants, o => SameTenant(o, t))).ToArray();
+        var first = tenants.Select((t, _) => Array.FindIndex(tenants, o => SameTenant(o, t))).ToArray();
 
         // Tenants are named in an order of their own ids rather than the order discovery lists them,
         // so a collision resolves the same way on every sign-in.

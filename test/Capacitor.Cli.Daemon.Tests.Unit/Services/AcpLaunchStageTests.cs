@@ -1,4 +1,3 @@
-using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Acp;
 using Capacitor.Cli.Daemon.Services;
 using Capacitor.Cli.Daemon.Tests.Unit.Acp;
@@ -29,7 +28,7 @@ public class AcpLaunchStageTests {
     /// launch failed.</summary>
     sealed class FakeAcpProcess : IAcpProcess {
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int  Pid            { get; init; } = 4242;
+        public int  Pid            { get; } = 4242;
         public bool HasExited      { get; private set; }
         public int? ExitCode       { get; private set; }
         public int  TerminateCalls { get; private set; }
@@ -79,7 +78,7 @@ public class AcpLaunchStageTests {
 
         Task _fakeRunTask = Task.CompletedTask;
 
-        public Harness(ConfigRoot configRoot) {
+        public Harness() {
             Fake    = new FakeAcpAgent();
             Process = new FakeAcpProcess();
             Clock   = new AgentActivityClock(Time);
@@ -127,7 +126,7 @@ public class AcpLaunchStageTests {
 
     [Test]
     public async Task Wedged_initialize_fails_at_90s_naming_the_initialized_stage_and_terminates_the_child() {
-        await using var h = new Harness(Config.Root);
+        await using var h = new Harness();
         h.Fake.HoldInitializeResponse = new TaskCompletionSource(); // never completed
         h.StartFakeAgentLoop();
 
@@ -168,7 +167,7 @@ public class AcpLaunchStageTests {
     /// </summary>
     [Test]
     public async Task Failed_termination_still_reports_the_coded_stage_and_never_claims_the_child_died() {
-        await using var h = new Harness(Config.Root);
+        await using var h = new Harness();
         h.Process.TerminateThrows        = true;
         h.Fake.HoldInitializeResponse    = new TaskCompletionSource(); // never completed
         h.StartFakeAgentLoop();
@@ -201,7 +200,7 @@ public class AcpLaunchStageTests {
     /// </summary>
     [Test]
     public async Task Four_stages_each_taking_about_80_seconds_all_complete_successfully() {
-        await using var h = new Harness(Config.Root);
+        await using var h = new Harness();
         h.Fake.HoldInitializeResponse      = new TaskCompletionSource();
         h.Fake.HoldSessionNewResponse      = new TaskCompletionSource();
         h.Fake.HoldSetConfigOptionResponse = new TaskCompletionSource();
@@ -250,7 +249,7 @@ public class AcpLaunchStageTests {
     /// </summary>
     [Test]
     public async Task Session_created_stage_gets_its_own_fresh_budget_after_a_slow_but_completing_initialize() {
-        await using var h = new Harness(Config.Root);
+        await using var h = new Harness();
         h.Fake.HoldInitializeResponse = new TaskCompletionSource();
         h.Fake.HoldSessionNewResponse = new TaskCompletionSource();
         h.StartFakeAgentLoop();
@@ -367,7 +366,7 @@ public class AcpLaunchStageOrchestratorTests {
     /// <summary>Minimal <see cref="IAcpProcess"/> — records terminate calls, mirroring
     /// <see cref="AcpLaunchStageTests"/>'s own fake.</summary>
     sealed class StageTimeoutFakeAcpProcess : IAcpProcess {
-        public int  Pid            { get; init; } = 4343;
+        public int  Pid            { get; } = 4343;
         public bool HasExited      { get; private set; }
         public int? ExitCode       { get; private set; }
         public int  TerminateCalls { get; private set; }

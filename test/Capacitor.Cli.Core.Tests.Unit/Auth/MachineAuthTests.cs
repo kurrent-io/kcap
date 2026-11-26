@@ -78,8 +78,8 @@ public class MachineAuthTests : IDisposable {
                 .WithHeader("Content-Type", "application/json")
                 .WithBody("""{"access_token":"tok_after_hop","expires_in":3600}"""));
 
-        using var sp     = Container(Runner);
-        using var minter = new MachineTokenProvider(StubEndpoint, TimeProvider.System);
+        await using var sp = Container(Runner);
+        using var minter   = new MachineTokenProvider(StubEndpoint, TimeProvider.System);
 
         var result = await minter.GetTokenAsync(
             sp.GetRequiredService<WorkOSClient>(), new MachineCredential("client_01ABC", "sekrit"),
@@ -316,9 +316,9 @@ public class MachineAuthTests : IDisposable {
         _server.Given(Request.Create().WithPath("/ping").UsingGet())
             .RespondWith(Response.Create().WithStatusCode(200));
 
-        using var sp      = Container(Runner);
-        var       attempt = await sp.GetRequiredService<ICapacitorHttpClient>().ForHookAsync();
-        using var client  = attempt.Client;
+        await using var sp = Container(Runner);
+        var       attempt  = await sp.GetRequiredService<ICapacitorHttpClient>().ForHookAsync();
+        using var client   = attempt.Client;
 
         await Assert.That(attempt.Status).IsEqualTo(AuthStatus.Ok);
 
@@ -349,9 +349,9 @@ public class MachineAuthTests : IDisposable {
                 .WithHeader("Content-Type", "application/json")
                 .WithBody("{\"provider\":\"workos\",\"client_id\":\"client_01TENANT\",\"authkit_domain\":\"\",\"organization_id\":\"org_01T\"}"));
 
-        using var sp      = Container(StubEndpoint with { ClientId = "client_01ABC" }); // secret missing
-        var       attempt = await sp.GetRequiredService<ICapacitorHttpClient>().ForHookAsync();
-        using var client  = attempt.Client;
+        await using var sp = Container(StubEndpoint with { ClientId = "client_01ABC" }); // secret missing
+        var       attempt  = await sp.GetRequiredService<ICapacitorHttpClient>().ForHookAsync();
+        using var client   = attempt.Client;
 
         await Assert.That(attempt.Status).IsEqualTo(AuthStatus.NotAuthenticated);
         await Assert.That(attempt.Usable).IsFalse();
@@ -471,7 +471,7 @@ public class MachineAuthTests : IDisposable {
         _server.Given(Request.Create().WithPath("/api/ping").UsingGet().WithHeader("Authorization", "Bearer tok_2"))
             .RespondWith(Response.Create().WithStatusCode(200).WithBody("ok"));
 
-        using var sp = Container(Runner);
+        await using var sp = Container(Runner);
 
         // The interactive lane is the one that installs the retry handler.
         using var client = await sp.GetRequiredService<ICapacitorHttpClient>().ForCommandAsync();

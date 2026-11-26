@@ -58,7 +58,7 @@ public class RemoteSessionViewModelTests {
 
         public readonly FakeRemoteAgents Remote = new();
         public readonly FakeServerSessionsService Sessions = new();
-        public readonly RecordingNotifier Notifier = new();
+        readonly RecordingNotifier Notifier = new();
 
         public RemoteSessionViewModel Build(AgentRow row, IPlanArtifactSource? planArtifacts = null,
                 Cli.Core.PullRequests.IPullRequestSource? pullRequests = null, IPlanSource? plans = null,
@@ -67,7 +67,7 @@ public class RemoteSessionViewModelTests {
                 IPageContentSource? pageContent = null, IUrlOpener? opener = null, bool? webView = null, bool inAppPages = true,
                 IHeldMessagesApi? heldMessages = null) {
             Directory.Rows.AddOrUpdate(row);
-            return new RemoteSessionViewModel(row, Directory, Access, Permissions, Actions, Lane, (_, _) => Task.FromResult(Detail), opener ?? new RecordingOpener(), Time, WorkSource, () => new FakeTerminalSurface(), planArtifacts, commands, pullRequests: pullRequests, plans: plans, readSubagent: readSubagent, readings: readings,
+            return new RemoteSessionViewModel(row, Directory, Access, Permissions, Actions, Lane, FakeSessionEvents.Paged(_ => Task.FromResult(Detail)), opener ?? new RecordingOpener(), Time, WorkSource, () => new FakeTerminalSurface(), planArtifacts, commands, pullRequests: pullRequests, plans: plans, readSubagent: readSubagent, readings: readings,
                 remoteAgents: Remote, notifier: Notifier, serverSessions: Sessions, handoff: handoff, handoffOutcomes: handoffOutcomes,
                 pageContent: pageContent, pageLinks: webView is null ? null : new PageLinkRouter(() => "https://a.kcap.ai"),
                 webView: webView is { } available ? new FixedWebViewAvailability(available) : null, inAppPages: () => inAppPages, heldMessages: heldMessages);
@@ -401,13 +401,13 @@ public class RemoteSessionViewModelTests {
     public async Task A_subagent_row_opens_its_own_transcript_in_place_of_the_chat_until_back() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
                 Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
             var requested = new List<(string Session, string Agent)>();
             SubagentEventsReader read = (session, agent, _, _) => {
                 requested.Add((session, agent));
-                return Task.FromResult(new SubagentEventsFetch(new SubagentEventsDto {
+                return Task.FromResult(new StreamEventsFetch(new StreamEventsPage {
                     Events = [Event(0, CanonicalEventTypes.AssistantTextGenerated, """{"content":"Found the chat surfaces"}""")],
                 }));
             };
@@ -450,13 +450,13 @@ public class RemoteSessionViewModelTests {
     public async Task An_ended_imported_session_opens_a_subagent_its_call_result_names() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
                 Event(1, CanonicalEventTypes.ToolResultReceived, ForegroundAgentResult)));
             var requested = new List<string>();
             SubagentEventsReader read = (_, agent, _, _) => {
                 requested.Add(agent);
-                return Task.FromResult(new SubagentEventsFetch(new SubagentEventsDto { Events = [] }));
+                return Task.FromResult(new StreamEventsFetch(new StreamEventsPage { Events = [] }));
             };
             var vm = h.Build(Harness.ServerRow(), readSubagent: read);
             await h.UntilAsync(vm, () => vm.WorkContext.Subagents.Any(r => r.CanOpen), "imported subagent row named");
@@ -487,10 +487,10 @@ public class RemoteSessionViewModelTests {
     public async Task An_ended_imported_session_explains_a_subagent_row_with_no_recorded_agent() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
                 Event(1, CanonicalEventTypes.ToolResultReceived, UnlinkedAgentResult)));
-            SubagentEventsReader read = (_, _, _, _) => Task.FromResult(new SubagentEventsFetch(null, NotFound: true));
+            SubagentEventsReader read = (_, _, _, _) => Task.FromResult(new StreamEventsFetch(null, NotFound: true));
             var vm = h.Build(Harness.ServerRow(), readSubagent: read);
             await h.UntilAsync(vm, () => vm.WorkContext.HasSubagents, "imported subagent row listed");
             var row = vm.WorkContext.Subagents.Single();
@@ -509,7 +509,7 @@ public class RemoteSessionViewModelTests {
     public async Task A_remote_session_without_a_subagent_reader_offers_no_row_to_open() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
                 Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
             var vm = h.Build(Harness.Row(vendor: "claude"));
@@ -529,7 +529,7 @@ public class RemoteSessionViewModelTests {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
             h.WorkSource.Default = LinkedWork("w1", "Private task");
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
                 Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
             var plans = new FakePlanSource { Default = new(SessionPlansReadKind.Ready, [new SessionPlanDto {
@@ -547,8 +547,13 @@ public class RemoteSessionViewModelTests {
             var row = Harness.Row(vendor: "claude");
             var vm = h.Build(row, artefacts, prs, plans);
             vm.PullRequests!.SetForeground(true);
-            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready && vm.WorkContext.IsReady
-                && vm.WorkContext.Plan.HasPlan && vm.Artefacts.HasAny && vm.PullRequests.HasPullRequest, what: "all context loaded");
+            await WaitUntilAsync(() => vm is {
+                Access: RemoteSessionAccess.Ready,
+                WorkContext.IsReady: true,
+                WorkContext.Plan.HasPlan: true,
+                Artefacts.HasAny: true,
+                PullRequests.HasPullRequest: true
+            }, what: "all context loaded");
             await h.UntilAsync(vm, () => vm.WorkContext.HasSubagents, "subagent loaded");
             await WaitUntilAsync(() => !vm.WorkContext.IsReading, what: "initial work read settled");
             h.WorkSource.Gate();
@@ -583,8 +588,11 @@ public class RemoteSessionViewModelTests {
                 h.Lane.AccessWatchHandler = _ => Task.FromResult(HubCallOutcome.Ok);
                 h.Lane.SessionAccessChangedSubject.OnNext("s1");
             } else h.Directory.Rows.AddOrUpdate(row);
-            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready && vm.WorkContext.IsReady
-                && vm.PullRequests.HasPullRequest, what: "context restored");
+            await WaitUntilAsync(() => vm is {
+                Access: RemoteSessionAccess.Ready,
+                WorkContext.IsReady: true,
+                PullRequests.HasPullRequest: true
+            }, what: "context restored");
             await vm.TeardownAsync();
         });
     }
@@ -599,8 +607,11 @@ public class RemoteSessionViewModelTests {
             var prs = new FakePullRequestSource(h.Time) { ListFailure = stopped ? "retries_stopped" : null };
             var vm = h.Build(Harness.Row(), pullRequests: prs);
             vm.PullRequests!.SetForeground(true);
-            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready && vm.WorkContext.IsReady
-                && !vm.PullRequests.IsReading, what: "initial reads finished");
+            await WaitUntilAsync(() => vm is {
+                Access: RemoteSessionAccess.Ready,
+                WorkContext.IsReady: true,
+                PullRequests.IsReading: false
+            }, what: "initial reads finished");
             var lists = prs.Lists;
             var reads = h.WorkSource.Requested.Count;
             h.Time.Advance(TimeSpan.FromSeconds(15));
@@ -1156,7 +1167,7 @@ public class RemoteSessionViewModelTests {
     public async Task The_chat_seeds_from_the_session_detail_and_follows_the_stream() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.UserMessageReceived, Hello),
                 Event(1, CanonicalEventTypes.AssistantTextGenerated, HiThere)));
             var vm = h.Build(Harness.Row());
@@ -1286,7 +1297,7 @@ public class RemoteSessionViewModelTests {
     public async Task A_refused_stream_keeps_the_seeded_rows_and_says_why_beneath_them() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.UserMessageReceived, Hello),
                 Event(1, CanonicalEventTypes.AssistantTextGenerated, HiThere)));
             h.Lane.TailHandler = (_, _) => new HubException(WireTokens.StreamNotAuthorized);
@@ -1322,10 +1333,10 @@ public class RemoteSessionViewModelTests {
             monitor = new SessionRunMonitor(row.Key, _ => { }, () => {
                 ended = true;
                 monitor!.Dispose();
-            }, new FakeDaemonClientService(), h.Directory, h.Access, (_, _) => {
+            }, new FakeDaemonClientService(), h.Directory, h.Access, FakeSessionEvents.Paged(_ => {
                 unexpectedRead.TrySetResult();
                 return Task.FromResult(h.Detail);
-            }, h.Lane, h.Time);
+            }), h.Lane, h.Time);
             using var lifetime = monitor;
 
             h.Directory.Rows.AddOrUpdate(row with { SessionId = "s2" });
@@ -1349,14 +1360,14 @@ public class RemoteSessionViewModelTests {
             var call = AgentCall.Replace("toolu_A", "toolu_S").Replace("\"Agent\"", "\"Bash\"");
             const string launch = """{"call_id":"toolu_S","result":"Command running in background with ID: b1.","extensions":{"claude_code":{"tool_use_result":{"backgroundTaskId":"b1"}}}}""";
             const string finished = """{"content":"<task-notification>\n<task-id>b1</task-id>\n<tool-use-id>toolu_S</tool-use-id>\n<status>completed</status>\n<summary>done</summary>\n</task-notification>"}""";
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, call),
                 Event(1, CanonicalEventTypes.ToolResultReceived, launch)));
             SessionRunMonitor? monitor = null;
             var backgroundSeed = new TaskCompletionSource<SessionDetailFetch>(TaskCreationOptions.RunContinuationsAsynchronously);
             using var commands = new SessionRunActivity((key, report, ended, _) =>
                 monitor = new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
-                    h.Access, (_, ct) => backgroundSeed.Task.WaitAsync(ct), h.Lane, h.Time));
+                    h.Access, FakeSessionEvents.Paged(ct => backgroundSeed.Task.WaitAsync(ct)), h.Lane, h.Time));
             IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = commands.Running.Subscribe(running => latest = running);
             var row = Harness.Row(vendor: "claude") with { AwaitingInput = true };
@@ -1392,14 +1403,14 @@ public class RemoteSessionViewModelTests {
     public async Task A_remote_background_monitor_reads_on_the_feeds_signal_without_a_poll() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
                 Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
             var row = Harness.ServerRow("s1", "active");
             h.Directory.Rows.AddOrUpdate(row);
             var latest = default(RunningWork);
             using var monitor = new SessionRunMonitor(row.Key, work => latest = work, () => { }, new FakeDaemonClientService(),
-                h.Directory, h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time);
+                h.Directory, h.Access, FakeSessionEvents.Paged(_ => Task.FromResult(h.Detail)), h.Lane, h.Time);
 
             await WaitUntilAsync(() => latest.Subagents == 1 && h.Lane.Tails.Count == 1, what: "the seeded subagent and the tail");
             await Assert.That(monitor.IsTickingForTesting).IsFalse();
@@ -1418,7 +1429,7 @@ public class RemoteSessionViewModelTests {
             var row = Harness.ServerRow("s1", "active");
             h.Directory.Rows.AddOrUpdate(row);
             using var monitor = new SessionRunMonitor(row.Key, _ => { }, () => { }, new FakeDaemonClientService(),
-                h.Directory, h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time);
+                h.Directory, h.Access, FakeSessionEvents.Paged(_ => Task.FromResult(h.Detail)), h.Lane, h.Time);
             await WaitUntilAsync(() => h.Lane.Tails.Count == 1, what: "the tail");
             await WaitUntilAsync(() => monitor.PendingReadForTesting is { IsCompleted: true }, what: "the seed read");
             await Task.Delay(100);
@@ -1445,14 +1456,14 @@ public class RemoteSessionViewModelTests {
     public async Task A_remote_background_monitor_reads_a_session_switched_to_during_a_read() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
-            var subagent = new SessionDetailFetch(RemoteFixtures.Detail(
+            var subagent = new SessionDetailFetch(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
                 Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
             var row = Harness.Row(vendor: "claude");
             h.Directory.Rows.AddOrUpdate(row);
             var latest = default(RunningWork);
             using var monitor = new SessionRunMonitor(row.Key, work => latest = work, () => { }, new FakeDaemonClientService(),
-                h.Directory, h.Access, (session, _) => Task.FromResult(session == "s2" ? subagent : h.Detail), h.Lane, h.Time);
+                h.Directory, h.Access, FakeSessionEvents.Paged((session, _) => Task.FromResult(session == "s2" ? subagent : h.Detail)), h.Lane, h.Time);
 
             h.Directory.Rows.AddOrUpdate(row with { SessionId = "s2" });
             await WaitUntilAsync(() => latest.Subagents == 1, what: "the replacement session read, with no time advanced");
@@ -1466,12 +1477,12 @@ public class RemoteSessionViewModelTests {
     public async Task A_terminal_sessions_subagent_stays_on_its_server_key_after_navigation_until_it_ends() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
                 Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
             using var commands = new SessionRunActivity((key, report, ended, _) =>
                 new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
-                    h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time));
+                    h.Access, FakeSessionEvents.Paged(_ => Task.FromResult(h.Detail)), h.Lane, h.Time));
             IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = commands.Running.Subscribe(running => latest = running);
             var vm = h.Build(Harness.ServerRow("s1", "active"), commands: commands);
@@ -1512,12 +1523,12 @@ public class RemoteSessionViewModelTests {
     public async Task A_terminal_session_leaving_the_loaded_set_stays_tracked_until_it_returns_ended() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
                 Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
             using var commands = new SessionRunActivity((key, report, ended, _) =>
                 new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
-                    h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time));
+                    h.Access, FakeSessionEvents.Paged(_ => Task.FromResult(h.Detail)), h.Lane, h.Time));
             IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = commands.Running.Subscribe(running => latest = running);
             var row = Harness.ServerRow("s1", "active");
@@ -1539,12 +1550,12 @@ public class RemoteSessionViewModelTests {
     public async Task A_hosted_row_leaving_the_directory_stops_tracking_its_session() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
                 Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
             using var commands = new SessionRunActivity((key, report, ended, _) =>
                 new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
-                    h.Access, (_, _) => Task.FromResult(h.Detail), h.Lane, h.Time));
+                    h.Access, FakeSessionEvents.Paged(_ => Task.FromResult(h.Detail)), h.Lane, h.Time));
             IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = commands.Running.Subscribe(running => latest = running);
             var row = Harness.Row(vendor: "claude");
@@ -1564,13 +1575,13 @@ public class RemoteSessionViewModelTests {
             using var h = new Harness();
             var call = AgentCall.Replace("toolu_A", "toolu_S").Replace("\"Agent\"", "\"Bash\"");
             const string launch = """{"call_id":"toolu_S","result":"Command running in background with ID: b1.","extensions":{"claude_code":{"tool_use_result":{"backgroundTaskId":"b1"}}}}""";
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, call),
                 Event(1, CanonicalEventTypes.ToolResultReceived, launch)));
             var refusal = new SessionDetailFetch(null, NotFound: notFound, Unauthorized: !notFound);
             using var commands = new SessionRunActivity((key, report, ended, _) =>
                 new SessionRunMonitor(key, report, ended, new FakeDaemonClientService(), h.Directory,
-                    h.Access, (_, _) => Task.FromResult(refusal), h.Lane, h.Time));
+                    h.Access, FakeSessionEvents.Paged(_ => Task.FromResult(refusal)), h.Lane, h.Time));
             IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = commands.Running.Subscribe(running => latest = running);
             var vm = h.Build(Harness.Row(vendor: "claude") with { AwaitingInput = true }, commands: commands);
@@ -1593,7 +1604,7 @@ public class RemoteSessionViewModelTests {
     public async Task Server_shaped_events_drive_the_strip_through_a_background_launch_and_its_finish() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
                 Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
             var vm = h.Build(Harness.Row(vendor: "claude"));
@@ -1624,7 +1635,7 @@ public class RemoteSessionViewModelTests {
             const string secondLaunch = """{"call_id":"toolu_B","result":"Async agent launched successfully.","timestamp":"2026-09-17T10:02:05Z","extensions":{"claude_code":{"tool_use_result":{"isAsync":true,"status":"async_launched","agentId":"a"}}}}""";
             const string taskStop = """{"call_id":"toolu_S","result":"ok","timestamp":"2026-09-17T10:01:00Z","extensions":{"claude_code":{"tool_use_result":{"task_id":"a","task_type":"local_agent","message":"Successfully stopped task: a"}}}}""";
 
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, firstCall),
                 Event(1, CanonicalEventTypes.ToolResultReceived, firstLaunch)));
             var vm = h.Build(Harness.Row(vendor: "claude"));
@@ -1655,7 +1666,7 @@ public class RemoteSessionViewModelTests {
     public async Task A_meta_notification_finishes_its_subagent_without_a_row() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
                 Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
             var vm = h.Build(Harness.Row(vendor: "claude"));
@@ -1675,7 +1686,7 @@ public class RemoteSessionViewModelTests {
     public async Task A_row_removal_stops_the_strip_and_its_reappearance_restores_it() {
         await RunOnUiAsync(async () => {
             using var h = new Harness();
-            h.Detail = new(RemoteFixtures.Detail(
+            h.Detail = new(Detail(
                 Event(0, CanonicalEventTypes.AssistantToolCallsGenerated, AgentCall),
                 Event(1, CanonicalEventTypes.ToolResultReceived, AgentLaunch)));
             var vm = h.Build(Harness.Row(vendor: "claude"));

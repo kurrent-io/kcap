@@ -50,7 +50,7 @@ internal sealed partial class ModAttachmentStore(string path, ILogger logger) {
 
     static bool IsValid(ModInputReport? r) =>
         r is not null && r.DispatchId != Guid.Empty && ModAttachments.IsAgentId(r.AgentId) && r.Refusals >= 0 && r.Kind switch {
-            ModInputReport.Link                                   => r.SessionId is { Length: > 0 } && r.RowUuid is { } row && row != Guid.Empty,
+            ModInputReport.Link                                   => r is { SessionId.Length: > 0, RowUuid: { } row } && row != Guid.Empty,
             ModInputReport.Rejected or ModInputReport.Unconfirmed => r.Reason is { Length: > 0 },
             _                                                     => false,
         };
@@ -58,7 +58,7 @@ internal sealed partial class ModAttachmentStore(string path, ILogger logger) {
     static T[] Keep<T>(T[]? entries, Func<T?, bool> valid, ref int dropped) where T : class {
         if (entries is null) return [];
 
-        T[] kept = [.. entries.Where(e => valid(e))];
+        T[] kept = [.. entries.Where(valid)];
         dropped += entries.Length - kept.Length;
 
         return kept;

@@ -441,7 +441,7 @@ public class SessionImporterProgressTests : IDisposable {
         await Assert.That(TranscriptPosts().Distinct()).IsEquivalentTo([CanonicalRoute.HttpPath]);
 
         var agents = _server.LogEntries.Where(e => e.RequestMessage.Path == CanonicalRoute.HttpPath)
-            .Select(e => JsonDocument.Parse(e.RequestMessage.Body!).RootElement.TryGetProperty("agent_id", out var a) ? a.GetString() : null);
+            .Select(e => JsonElement.Parse(e.RequestMessage.Body!).TryGetProperty("agent_id", out var a) ? a.GetString() : null);
         await Assert.That(agents.Distinct()).IsEquivalentTo([null, agentId]);
     }
 
@@ -459,9 +459,9 @@ public class SessionImporterProgressTests : IDisposable {
         await File.WriteAllLinesAsync(path, lines);
 
         using var client = new HttpClient();
-        await SessionImporter.SendTranscriptBatches(
-            client, _server.Url!, "s1", path, agentId: null, startLine: 3, TimeProvider.System,
-            canonical: new IngestCapability(client, _server.Url!, TimeProvider.System));
+        await SessionImporter.ImportSessionAsync(
+            client, _server.Url!, path, "s1", new SessionMetadata(), encodedCwd: null, TimeProvider.System,
+            canonical: new IngestCapability(client, _server.Url!, TimeProvider.System), startLine: 3, strict: true);
 
         var uninterrupted = CanonicalRoute.For("claude", "s1", null, true)!;
         uninterrupted.Encode(new() { SessionId = "s1", Lines = lines[..3], LineNumbers = [0, 1, 2] }, DateTimeOffset.UnixEpoch);

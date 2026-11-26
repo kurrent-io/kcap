@@ -23,7 +23,7 @@ public class DaemonClientServiceTests {
     /// before triggering the restart. PeakLiveEnumerations is updated INSIDE Run() itself (not
     /// via external polling), so a single-flight violation of any duration is caught for sure.
     sealed class Script {
-        public readonly Channel<LocalControlEvent> Events = Channel.CreateUnbounded<LocalControlEvent>();
+        readonly Channel<LocalControlEvent> Events = Channel.CreateUnbounded<LocalControlEvent>();
         public int LiveEnumerations;
         public int PeakLiveEnumerations;
         public int StartCount;
@@ -596,8 +596,8 @@ public class DaemonClientServiceTests {
         // App shutdown proceeds without waiting on the outstanding start — the start's own
         // caller-supplied ct is what abandons ITS wait, not the service's dispose.
         var disposeTask = svc.DisposeAsync().AsTask();
-        var completed = await Task.WhenAny(disposeTask, Task.Delay(TimeSpan.FromSeconds(5)));
-        await Assert.That(completed).IsEqualTo(disposeTask);
+        var completed = await disposeTask.FinishedWithinAsync(TimeSpan.FromSeconds(5), TimeProvider.System);
+        await Assert.That(completed).IsTrue();
 
         startCts.Cancel();
         await Assert.ThrowsAsync<OperationCanceledException>(() => startTask);

@@ -193,7 +193,6 @@ public class ExperimentalCommandTests {
             await Assert.That(output).Contains(feature.Id);
     }
 
-    /// The daemon reports nothing for a desktop-app feature, so reading its silence would call the daemon too old.
     [Test]
     public async Task List_labels_a_desktop_app_feature_instead_of_asking_the_daemon() {
         await new ExperimentalSettingsStore(new ConfigRoot(Tmp.Path)).SetAsync("default", "in-app-pages", true, CancellationToken.None);

@@ -12,12 +12,12 @@
                         Cursor="Hand" AutomationProperties.Name="Back to the session" ToolTip.Tip="Back to the session">
                     <StackPanel Orientation="Horizontal" Spacing="5">
                         <views:AppIcon Kind="ChevronLeft" Size="14" VerticalAlignment="Center" />
-                        <TextBlock x:Name="ParentTitleText" Text="{Binding ParentTitle}" MaxWidth="260" FontSize="13"
+                        <TextBlock x:Name="ParentTitleText" Text="{Binding ParentTitle}" MaxWidth="260" FontSize="{StaticResource KcapFontSizeBody}"
                                    TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
                     </StackPanel>
                 </Button>
-                <TextBlock Grid.Column="1" Text="/" FontSize="13" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
-                <TextBlock x:Name="SubagentTitleText" Grid.Column="2" Text="{Binding Row.Name}" FontSize="13" FontWeight="SemiBold"
+                <TextBlock Grid.Column="1" Text="/" FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                <TextBlock x:Name="SubagentTitleText" Grid.Column="2" Text="{Binding Row.Name}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold"
                            Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                            ToolTip.Tip="{Binding Row.Description}" />
                 <TextBlock x:Name="SubagentStateText" Grid.Column="3" Text="{Binding Row.StateText}"

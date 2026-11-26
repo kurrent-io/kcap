@@ -267,7 +267,7 @@ public class GeminiReviewerLiveCertTests {
                 while (await proc.StandardOutput.ReadLineAsync(cts.Token) is { } line) {
                     if (line.Length == 0) continue;
                     JsonElement root;
-                    try { root = JsonDocument.Parse(line).RootElement; } catch { continue; }
+                    try { root = JsonElement.Parse(line); } catch { continue; }
 
                     var hasId     = root.TryGetProperty("id", out var idEl);
                     var hasResult = root.TryGetProperty("result", out _) || root.TryGetProperty("error", out _);
@@ -319,7 +319,7 @@ public class GeminiReviewerLiveCertTests {
                        $"timed out after {TurnTimeout.TotalSeconds:N0}s; stderr tail: "
                      + err[Math.Max(0, err.Length - 400)..]);
         } finally {
-            try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { }
+            try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { /* ignored */ }
         }
     }
 }

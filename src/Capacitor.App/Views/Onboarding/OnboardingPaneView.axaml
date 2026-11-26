@@ -99,7 +99,7 @@
                                      AutomationProperties.HelpText="{x:Static vm:UsageDataStepViewModel.ShareDetail}"
                                      IsChecked="{Binding Share, Mode=TwoWay}">
                             <StackPanel Spacing="2">
-                                <TextBlock Classes="onboardingLabel" FontSize="13" Text="{x:Static vm:UsageDataStepViewModel.ShareTitle}" />
+                                <TextBlock Classes="onboardingLabel" FontSize="{StaticResource KcapFontSizeBody}" Text="{x:Static vm:UsageDataStepViewModel.ShareTitle}" />
                                 <TextBlock Classes="onboardingDetail" TextWrapping="Wrap" Text="{x:Static vm:UsageDataStepViewModel.ShareDetail}" />
                             </StackPanel>
                         </RadioButton>
@@ -108,7 +108,7 @@
                                      AutomationProperties.HelpText="{x:Static vm:UsageDataStepViewModel.OffDetail}"
                                      IsChecked="{Binding DontShare, Mode=TwoWay}">
                             <StackPanel Spacing="2">
-                                <TextBlock Classes="onboardingLabel" FontSize="13" Text="{x:Static vm:UsageDataStepViewModel.OffTitle}" />
+                                <TextBlock Classes="onboardingLabel" FontSize="{StaticResource KcapFontSizeBody}" Text="{x:Static vm:UsageDataStepViewModel.OffTitle}" />
                                 <TextBlock Classes="onboardingDetail" TextWrapping="Wrap" Text="{x:Static vm:UsageDataStepViewModel.OffDetail}" />
                             </StackPanel>
                         </RadioButton>
@@ -136,7 +136,7 @@
         <Border x:Name="TitleBar" Background="{StaticResource OnboardingCanvasBrush}" PointerPressed="OnChromePointerPressed">
             <Panel>
             <TextBlock x:Name="CompactStepTitle" Text="{Binding Current.Title}" Margin="96,0"
-                       FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource OnboardingTextBrush}"
+                       FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" Foreground="{StaticResource OnboardingTextBrush}"
                        TextAlignment="Center" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                        Opacity="0" IsHitTestVisible="False" />
             <Border x:Name="TitleBarRule" Height="1" VerticalAlignment="Bottom" Opacity="0" IsHitTestVisible="False"
@@ -169,7 +169,7 @@
                                          Foreground="{StaticResource OnboardingAccentBrush}" />
                         </Panel>
                     </Border>
-                    <TextBlock Classes="onboardingLabel" FontSize="15" VerticalAlignment="Center" Text="Looking for harnesses" />
+                    <TextBlock Classes="onboardingLabel" FontSize="{StaticResource KcapFontSizeLarge}" VerticalAlignment="Center" Text="Looking for harnesses" />
                 </StackPanel>
 
                 <StackPanel x:Name="PreflightBlocked" Spacing="14" IsVisible="{Binding PreflightBlocked}">
@@ -204,10 +204,10 @@
                     <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
                         <Button x:Name="BackButton" Classes="onboardingQuiet" Content="Back"
                                 Command="{Binding BackCommand}" IsVisible="{Binding BackVisible}" />
-                        <Button Grid.Column="2" x:Name="SkipButton" Classes="onboardingSecondary" Command="{Binding SkipCommand}"
+                        <Button Grid.Column="2" x:Name="SkipButton" Classes="onboardingQuiet" Command="{Binding SkipCommand}"
                                 Content="{Binding SkipLabel}"
                                 IsVisible="{Binding SkipVisible}" />
-                        <Button Grid.Column="2" x:Name="CancelTenantButton" Classes="onboardingSecondary" Content="Cancel"
+                        <Button Grid.Column="2" x:Name="CancelTenantButton" Classes="onboardingQuiet" Content="Cancel"
                                 Command="{Binding CancelTenantCommand}" IsVisible="{Binding TenantActionsVisible}" />
                         <Button Grid.Column="2" x:Name="OpenInBrowserButton" Classes="onboardingLink" Content="Open in browser"
                                 Command="{Binding OpenInBrowserCommand}" IsVisible="{Binding OpenInBrowserVisible}" />

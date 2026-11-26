@@ -18,7 +18,6 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
     readonly CompositeDisposable _subscriptions = new();
     AttachStatus _attach = new(AttachState.Connecting, null, null);
     DaemonStatusDto? _snapshot;
-    string? _problem;
     string? _saveProblem;
     readonly HashSet<string> _saving = new(StringComparer.Ordinal);
     readonly Lock _fingerprintLock = new();
@@ -65,24 +64,30 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
 
     /// Why the switches cannot change anything, or why the last change was not kept.
     public string? Problem {
-        get => _problem;
-        private set => this.RaiseAndSetIfChanged(ref _problem, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    /// The store as it is now, or null when its last-write time and length match the last read.
+    /// Null when the store matches the fingerprint of a readable revision or a read in progress.
     internal (ExperimentalSettingsRead Settings, long Epoch, long Sequence)? ReadIfChanged() => Read(onlyIfChanged: true);
 
     // The sequence is taken with the fingerprint, so it orders reads by the file state each one recorded.
     (ExperimentalSettingsRead Settings, long Epoch, long Sequence)? Read(bool onlyIfChanged) {
         var epoch = Interlocked.Read(ref _saveEpoch);
-        var fingerprint = Fingerprint();
+        var fingerprint = Fingerprint(_store.Path);
         long sequence;
         lock (_fingerprintLock) {
             if (onlyIfChanged && fingerprint == _fingerprint) return null;
             _fingerprint = fingerprint;
             sequence = ++_readSequence;
         }
-        return (_store.Load(_profile), epoch, sequence);
+        var settings = _store.Load(_profile);
+        if (!settings.Readable) {
+            lock (_fingerprintLock) {
+                if (sequence == _readSequence) _fingerprint = null;
+            }
+        }
+        return (settings, epoch, sequence);
     }
 
     /// A read that a save began or ended after is stale, and a row being saved keeps the value the user
@@ -111,8 +116,8 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
         Apply(read!.Value);
     }
 
-    (bool, DateTime, long) Fingerprint() {
-        var file = new FileInfo(_store.Path);
+    static (bool, DateTime, long) Fingerprint(string path) {
+        var file = new FileInfo(path);
         return file.Exists ? (true, file.LastWriteTimeUtc, file.Length) : (false, default, 0);
     }
 
@@ -133,7 +138,8 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
             return;
         } catch (Exception ex) {
-            _saveProblem = $"Could not save the setting: {ex.Message}";
+            Console.Error.WriteLine($"kcap: could not save the experimental setting: {ex.Message}");
+            _saveProblem = "Could not save the setting. Try again.";
             row.Revert(!enabled);
         } finally {
             _saving.Remove(row.Id);

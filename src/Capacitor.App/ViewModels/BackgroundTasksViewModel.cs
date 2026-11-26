@@ -10,7 +10,6 @@ public sealed class BackgroundTasksViewModel : ReactiveObject, IDisposable {
     readonly AvaloniaList<RunRow> _rows = new();
     int _agents;
     int _commands;
-    bool _isExpanded;
 
     public BackgroundTasksViewModel() {
         ToggleCommand = ReactiveCommand.Create(() => { IsExpanded = !IsExpanded; });
@@ -36,10 +35,10 @@ public sealed class BackgroundTasksViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<RunRow, Unit> OpenRunCommand { get; }
 
     public bool IsExpanded {
-        get => _isExpanded;
+        get;
         private set {
-            if (_isExpanded == value) return;
-            this.RaiseAndSetIfChanged(ref _isExpanded, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(AccessibleName));
         }
     }

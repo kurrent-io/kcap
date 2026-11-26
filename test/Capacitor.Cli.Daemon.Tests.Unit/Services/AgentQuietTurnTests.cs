@@ -82,7 +82,7 @@ public class AgentQuietTurnTests {
             await FrameCodec.WriteAsync(frames, LocalFrame.Resize(100, 30), default);
             await FrameCodec.WriteAsync(frames, LocalFrame.Detach(), default);
             frames.Position = 0;
-            using var client = new DuplexTestStream(frames, new MemoryStream());
+            await using var client = new DuplexTestStream(frames, new MemoryStream());
             await orch.HandleLocalAttachAsync(agent.Id, client, default);
         }
         await Assert.That(agent.CurrentCols).IsEqualTo((ushort)100);
@@ -131,7 +131,7 @@ public class AgentQuietTurnTests {
         await FrameCodec.WriteAsync(frames, LocalFrame.Stdin(System.Text.Encoding.UTF8.GetBytes(input)), default);
         await FrameCodec.WriteAsync(frames, LocalFrame.Detach(), default);
         frames.Position = 0;
-        using var client = new DuplexTestStream(frames, new MemoryStream());
+        await using var client = new DuplexTestStream(frames, new MemoryStream());
         await orch.HandleLocalAttachAsync(agent.Id, client, default);
 
         var reading = orch.ReadAgentOutputForTest(agent);

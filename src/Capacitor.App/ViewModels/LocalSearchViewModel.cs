@@ -143,7 +143,7 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
         };
 
     public bool CanApply =>
-        _loaded && !Running && !_upgrade.Running && Choice.Valid && !Choice.AwaitingOffer
+        _loaded && !Running && !_upgrade.Running && Choice is { Valid: true, AwaitingOffer: false }
      && (Differs(Choice.Choice) || _current is { Pending: true } || BuiltinNeedsRetry && Choice.UseBuiltin);
 
     public string ApplyLabel => !Running && BuiltinNeedsRetry && Choice.UseBuiltin ? "Try again" : "Save";
@@ -157,7 +157,7 @@ public sealed class LocalSearchViewModel : ReactiveObject, IDisposable {
         && _current is { Pending: false, Provider: LocalEmbeddingProvider.None or LocalEmbeddingProvider.Ollama or LocalEmbeddingProvider.Builtin };
 
     public string? FailureText => !Running && _search.Outcome is LocalInstallOutcome.Failed failed
-        ? failed.Affordance == LocalInstallAffordance.Busy ? BusyText : TerminalAdvice.Strip(failed.Message) ?? "Setup did not finish."
+        ? failed.Affordance == LocalInstallAffordance.Busy ? BusyText : LocalFailureText.For(failed.Code, "Could not finish setting up search. Try again.")
         : null;
 
     /// The server's model is usable, yet its last session-vector pass failed and stored nothing.

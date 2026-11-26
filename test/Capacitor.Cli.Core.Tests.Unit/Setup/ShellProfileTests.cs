@@ -184,14 +184,14 @@ public class ShellProfileTests {
     [Test]
     public async Task An_unreadable_profile_is_returned_for_cleanup_to_report() {
         var profile = Tmp.CreateFile(".zprofile", Block);
-        using var held = new FileStream(profile, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        await using var held = new FileStream(profile, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
         await Assert.That(ShellProfile.Removable(Home, [])).IsEquivalentTo([profile]);
     }
 
     [Test]
     public async Task Removal_refuses_a_profile_that_another_writer_holds() {
         var profile = Tmp.CreateFile(".zprofile", Block);
-        using (new FileStream(profile, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite)) {
+        await using (new FileStream(profile, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite)) {
             await Assert.That(() => ShellProfile.Remove(profile)).Throws<IOException>();
         }
         await Assert.That(File.ReadAllText(profile)).IsEqualTo(Block);

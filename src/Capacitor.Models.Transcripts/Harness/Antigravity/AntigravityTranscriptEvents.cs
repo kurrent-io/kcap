@@ -1,9 +1,10 @@
+using System.Collections.Frozen;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Google.Protobuf.WellKnownTypes;
 using Kurrent.Agent.Schema.Events;
-using static Capacitor.Models.Transcripts.TranscriptText;
 
 namespace Capacitor.Models.Transcripts.Harness.Antigravity;
 
@@ -14,9 +15,12 @@ namespace Capacitor.Models.Transcripts.Harness.Antigravity;
 ///   <item><c>USER_INPUT</c>: a user message from the text inside its <c>&lt;USER_REQUEST&gt;</c> wrapper; the
 ///   blocks Antigravity appends after it were never typed.</item>
 ///   <item><c>PLANNER_RESPONSE</c>: thinking, text, and per <c>tool_calls</c> entry a call, each a tick after the
-///   one before; <c>ask_question</c> and <c>ask_permission</c> become interrupts instead.</item>
-///   <item><c>RUN_COMMAND</c>, <c>VIEW_FILE</c>, <c>LIST_DIRECTORY</c>, <c>CODE_ACTION</c>: the result of the oldest
-///   call still waiting, since calls carry no id and each gets one derived from its step.</item>
+///   one before, named as <see cref="AntigravityToolNames"/> translates it; <c>ask_question</c> and
+///   <c>ask_permission</c> become interrupts instead. Calls carry no id, so each gets one derived from its step.</item>
+///   <item>any other step that is not conversational: the result of the oldest call still waiting from the latest
+///   planner before it, whatever its type. Current versions write every result as <c>GENERIC</c>, older ones as
+///   <c>RUN_COMMAND</c>, <c>VIEW_FILE</c> and the like. An <c>ERROR_MESSAGE</c> with no call waiting is a model
+///   error, not a result, and emits nothing.</item>
 ///   <item><c>USAGE</c>: written by the recorder per generation row of the conversation database, which is where
 ///   Antigravity keeps tokens and model.</item>
 /// </list>
@@ -60,18 +64,26 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
             var step = new Step(TranscriptIds.AntigravityStep(line), lineNumber, root.Num("step_index") ?? long.MaxValue, Instant(recordTs), recordTs);
 
             return type switch {
-                "USER_INPUT"       => User(root, step),
+                "USER_INPUT"       => User(root, step, ctx),
                 "PLANNER_RESPONSE" => Planner(root, step, receivedAt, ctx),
-                "RUN_COMMAND" or "CODE_ACTION" or "VIEW_FILE" or "LIST_DIRECTORY" => Result(root, type, step, ctx),
                 "USAGE"            => Usage(root, step, ctx),
-                _                  => ProjectionResult.Empty,
+                _ when NoiseSteps.Contains(type) => ProjectionResult.Empty,
+                _                  => Result(root, type, step, ctx),
             };
         }
     }
 
+    /// Steps that are neither conversation nor the result of a tool call.
+    static readonly FrozenSet<string> NoiseSteps =
+        FrozenSet.Create(StringComparer.Ordinal, "CHECKPOINT", "CONVERSATION_HISTORY", "SYSTEM_MESSAGE", "EPHEMERAL_MESSAGE");
+
+    /// False for a step type that never projects to an event.
+    public static bool CanProject(string type) => !NoiseSteps.Contains(type);
+
     readonly record struct Step(Guid Id, int LineNumber, long Order, DateTimeOffset At, string? RecordTimestamp);
 
-    static ProjectionResult User(JsonElement root, Step step) {
+    static ProjectionResult User(JsonElement root, Step step, AntigravityContext ctx) {
+        RecordBoundary(step.Order, ctx);
         if (RequestText(root.Str("content")) is not { Length: > 0 } text) return ProjectionResult.Empty;
 
         var message = new UserMessageReceived { Content = text, Timestamp = Timestamp.FromDateTimeOffset(step.At) };
@@ -104,6 +116,12 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
             events.Add(new(CanonicalEventTypes.AssistantTextGenerated, payload, TranscriptIds.Sibling(step.Id, "text"), at, step.RecordTimestamp));
         }
 
+        // A result answers only the latest planner's calls: one whose result never came must not take a later one.
+        // A planner with no step_index cannot be ordered, so it drops every waiting call but its own.
+        RecordBoundary(step.Order, ctx);
+        ctx.PendingCallIds.RemoveAll(id => ctx.CallSteps[id] < step.Order
+                                        || (step.Order == long.MaxValue && ctx.CallPlanners[id] != step.Id));
+
         if (root.Arr("tool_calls") is { } toolCalls) {
             var index = -1;
             foreach (var call in toolCalls.EnumerateArray()) {
@@ -125,14 +143,21 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
                     continue;
                 }
 
-                var info = new ToolCallInfo { CallId = callId, ToolName = name, ToolKind = AntigravityToolKinds.Of(name) };
-                if (call.Obj("args") is { } args) info.Arguments = StructOf(args);
+                var native            = call.Obj("args") is { } args ? JsonNode.Parse(args.GetRawText())!.AsObject() : null;
+                var (tool, arguments) = AntigravityToolNames.Translate(name, native);
+                var info              = new ToolCallInfo { CallId = callId, ToolName = tool, ToolKind = AntigravityToolKinds.Of(name) };
+                if (arguments is not null) info.Arguments = Struct.Parser.ParseJson(arguments.ToJsonString());
 
                 var calls = new AssistantToolCallsGenerated { Timestamp = Timestamp.FromDateTimeOffset(at) };
                 calls.ToolCalls.Add(info);
+                if (tool != name) calls.Extensions[AntigravityExtension.Slug] = AntigravityExtension.Native(name);
                 events.Add(new(CanonicalEventTypes.AssistantToolCallsGenerated, calls, eventId, at, step.RecordTimestamp));
 
-                if (ctx.QueuedCallIds.Add(callId)) ctx.PendingCallIds.Enqueue(callId);
+                if (ctx.QueuedCallIds.Add(callId)) {
+                    ctx.PendingCallIds.Add(callId);
+                    ctx.CallSteps[callId]    = step.Order;
+                    ctx.CallPlanners[callId] = step.Id;
+                }
             }
         }
 
@@ -150,7 +175,7 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
 
         var remaining = new List<AntigravityHeldResult>();
         foreach (var held in ctx.Held.OrderBy(h => h.Step)) {
-            if (held.Step <= planner.Order || !ctx.PendingCallIds.TryDequeue(out var callId)) {
+            if (held.Step <= planner.Order || TakeCall(held.Step, ctx) is not { } callId) {
                 remaining.Add(held);
                 continue;
             }
@@ -164,18 +189,53 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
         ctx.Held = remaining;
     }
 
+    /// The oldest waiting call of the latest planner before <paramref name="resultStep"/> with no planner or prompt
+    /// between them, taken off the queue; a result with no step cannot be ordered, so it takes from the latest planner
+    /// queued.
+    static string? TakeCall(long resultStep, AntigravityContext ctx) {
+        var taken     = -1;
+        var takenStep = long.MinValue;
+        for (var i = 0; i < ctx.PendingCallIds.Count; i++) {
+            var callStep = ctx.CallSteps[ctx.PendingCallIds[i]];
+            if ((callStep < resultStep || resultStep == long.MaxValue)
+             && !BoundaryBetween(callStep, resultStep, ctx)
+             && (taken < 0 || callStep > takenStep)) {
+                taken     = i;
+                takenStep = callStep;
+            }
+        }
+
+        if (taken < 0) return null;
+
+        var callId = ctx.PendingCallIds[taken];
+        ctx.PendingCallIds.RemoveAt(taken);
+        return callId;
+    }
+
+    // A step without a step_index cannot be ordered, so it is never a boundary.
+    static void RecordBoundary(long step, AntigravityContext ctx) {
+        if (step != long.MaxValue) ctx.BoundarySteps.Add(step);
+    }
+
+    static bool BoundaryBetween(long callStep, long resultStep, AntigravityContext ctx) {
+        var first = callStep == long.MaxValue ? long.MaxValue : callStep + 1;
+        var last  = resultStep == long.MaxValue ? long.MaxValue : resultStep - 1;
+        return first <= last && ctx.BoundarySteps.GetViewBetween(first, last).Count > 0;
+    }
+
     static ProjectionResult Result(JsonElement root, string type, Step step, AntigravityContext ctx) {
         if (ctx.HeldResultIds.Contains(step.Id)) return ProjectionResult.Empty;
 
-        var content = root.Str("content");
-        // A viewed file or listing could quote the failure line; only a command's own output means it.
-        var failed = root.Str("error") is { Length: > 0 }
-                  || (type is "RUN_COMMAND" or "CODE_ACTION" && content is not null && CommandFailed().IsMatch(content));
+        var error   = root.Str("error");
+        var content = WithoutTimingLines(root.Str("content")) is { Length: > 0 } text ? text : error;
+        var failed  = root.Str("status") == "ERROR" || error is { Length: > 0 } || CommandFailed(type, content);
 
-        if (ctx.PairedCallIds.TryGetValue(step.Id, out var paired) || ctx.PendingCallIds.TryDequeue(out paired)) {
+        if (ctx.PairedCallIds.TryGetValue(step.Id, out var paired) || (paired = TakeCall(step.Order, ctx)) is not null) {
             ctx.PairedCallIds[step.Id] = paired;
             return ProjectionResult.Of([ToolResult(step.Id, paired, content, failed, step.At, step.RecordTimestamp)]);
         }
+
+        if (type == "ERROR_MESSAGE") return ProjectionResult.Empty;
 
         ctx.HeldResultIds.Add(step.Id);
         ctx.Held.Add(new(step.Id, step.LineNumber, step.At, step.RecordTimestamp, content, failed, step.Order));
@@ -217,7 +277,34 @@ public sealed partial class AntigravityTranscriptEvents : ITranscriptProjection,
     static DateTimeOffset Instant(string? raw) =>
         raw is not null && DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var at) ? at : DateTimeOffset.MinValue;
 
-    /// Antigravity's marker line for a failed command; the digits keep output that only mentions failing out.
+    /// A non-zero <c>Command exited with code N.</c> or <c>Command failed to run:</c> opening the result, or the
+    /// older marker line in a command step's output. Anchoring the current markers keeps a file or listing that
+    /// quotes them from reading as a failure.
+    static bool CommandFailed(string type, string? content) {
+        if (content is null) return false;
+        if (content.StartsWith("Command failed to run:", StringComparison.Ordinal)) return true;
+        if (ExitCode().Match(content) is { Success: true } exit) return exit.Groups[1].Value != "0";
+        return type is "RUN_COMMAND" or "CODE_ACTION" && LegacyCommandFailed().IsMatch(content);
+    }
+
+    [GeneratedRegex(@"\ACommand exited with code (-?\d+)\.", RegexOptions.CultureInvariant)]
+    private static partial Regex ExitCode();
+
+    /// The digits keep output that only mentions failing out.
     [GeneratedRegex(@"command failed with exit code:\s*\d+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
-    private static partial Regex CommandFailed();
+    private static partial Regex LegacyCommandFailed();
+
+    /// Without the <c>Created At:</c> and <c>Completed At:</c> lines, sometimes repeated, that open every result,
+    /// and the blank lines after them.
+    static string? WithoutTimingLines(string? content) {
+        if (string.IsNullOrEmpty(content)) return content;
+
+        var rest = content.AsSpan();
+        while (rest.StartsWith("Created At:", StringComparison.Ordinal) || rest.StartsWith("Completed At:", StringComparison.Ordinal)) {
+            var newline = rest.IndexOf('\n');
+            rest = newline < 0 ? [] : rest[(newline + 1)..];
+        }
+
+        return rest.TrimStart("\r\n").ToString();
+    }
 }

@@ -4,7 +4,6 @@ using System.Reactive.Disposables;
 using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
-using Capacitor.App.Services.LocalSetup;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalEdition;
 using ReactiveUI.Reactive;
@@ -17,7 +16,6 @@ namespace Capacitor.App.ViewModels;
 /// another kcap is changing, whose port another program holds, or that its supervisor is already starting. While <c>busy</c> (the upgrade banner owns the
 /// stack) the banner stays hidden.
 public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
-    const int MessageTailLines = 12;
 
     static readonly TimeSpan ChangingRecheck = TimeSpan.FromSeconds(2);
 
@@ -33,10 +31,8 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
     readonly bool _canStart;
     LocalServerReading? _reading;
     bool _disposed;
-    bool _isStarting;
     int _running;
     int _connectedVersion;
-    string? _message;
 
     /// <param name="readCondition">What the local root's files and the server's port say, read off the UI thread each
     /// time the lane retries, after each start, and again on a fixed interval until the lane connects; a newer read
@@ -195,14 +191,14 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
     public bool ServerDown => _serverDown.Value;
 
     public bool IsStarting {
-        get => _isStarting;
-        private set => this.RaiseAndSetIfChanged(ref _isStarting, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// The last start or reconnect failure; cleared when a new start begins or the server connects.
     public string? Message {
-        get => _message;
-        private set => this.RaiseAndSetIfChanged(ref _message, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// A start that failed, or an installation missing its server's files, which only a reinstall lets run.
@@ -224,8 +220,9 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
             } catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
                 return false;
             } catch (Exception ex) {
+                Console.Error.WriteLine($"kcap: could not run local start: {ex.Message}");
                 if (Volatile.Read(ref _connectedVersion) == connectedVersion)
-                    Message = $"kcap local start could not run: {ex.Message}";
+                    Message = "Could not start the local server. Try again.";
                 return false;
             }
 
@@ -234,8 +231,9 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
                     await _reconnect();
                 } catch (Exception) when (_shutdown.IsCancellationRequested) {
                 } catch (Exception ex) {
+                    Console.Error.WriteLine($"kcap: could not reconnect to the local server: {ex.Message}");
                     if (Volatile.Read(ref _connectedVersion) == connectedVersion)
-                        Message = $"The local server started, but reconnecting failed: {ex.Message}";
+                        Message = "The local server started, but kcap couldn’t reconnect. Try connecting again.";
                     return false;
                 }
                 return !_shutdown.IsCancellationRequested;
@@ -243,7 +241,7 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
 
             // A connection during this attempt supersedes even a failure returned after it.
             if (Volatile.Read(ref _connectedVersion) == connectedVersion)
-                Message = MessageFor(result);
+                Message = StartFailureText(result);
             return false;
         } finally {
             IsStarting = false;
@@ -252,16 +250,13 @@ public sealed class LocalServerRecoveryViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    static string MessageFor(ProcessResult result) {
-        var lines = (result.Stdout + "\n" + result.Stderr)
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .TakeLast(MessageTailLines);
-        var output = TerminalAdvice.Strip(string.Join("\n", lines)) ?? "";
-        var headline = result.TimedOut
-            ? "kcap local start did not finish in time."
-            : $"kcap local start failed (exit code {result.ExitCode}).";
-
-        return output.Length == 0 ? headline : headline + "\n" + output;
+    internal static string StartFailureText(ProcessResult result) {
+        Console.Error.WriteLine($"kcap: local start failed ({result.ExitCode}): {result.Stderr}");
+        return result.TimedOut
+            ? "The local server took too long to start. Try again."
+            : result.Stderr.StartsWith("lifecycle_busy:", StringComparison.Ordinal)
+                ? "Another local server operation is running. Wait for it to finish and try again."
+                : "Could not start the local server. Try again.";
     }
 
     public void Dispose() {

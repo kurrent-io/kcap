@@ -21,7 +21,7 @@ public class StaleDaemonNudgeTests {
         public readonly List<(string Mode, string Result)> Outcomes = [];
         public readonly List<DaemonOnOtherInstall?> OtherInstalls = [];
         public string? Executable = AppDaemon;
-        public readonly StaleDaemonNudge Nudge;
+        readonly StaleDaemonNudge Nudge;
         readonly IDisposable _otherInstalls;
 
         public Harness() {

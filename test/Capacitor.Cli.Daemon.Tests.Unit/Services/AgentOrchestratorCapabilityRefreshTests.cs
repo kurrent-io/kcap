@@ -46,12 +46,18 @@ public class AgentOrchestratorCapabilityRefreshTests {
 
     static (AgentOrchestrator Orchestrator, CaptureServerConnection Server, DaemonConfig Config) BuildWithCatalog(
             StubCatalogFactory factory, Dictionary<string, VendorModelOption[]>? initial,
-            bool supported = true, Exception? registerThrow = null, bool classifyAtStartup = false) {
-        var server = new CaptureServerConnection { RegisterDaemonThrow = registerThrow };
+            bool supported = true, Exception? registerThrow = null,
+            Func<DaemonCapabilitiesUpdate, DaemonCapabilitiesUpdateResponse?>? capabilityUpdate = null,
+            bool classifyAtStartup = false) {
+        // A server that takes updates builds them from the orchestrator's config, as the one DI singleton does.
+        var shared = capabilityUpdate is null
+            ? null
+            : new DaemonConfig { Name = "test", ServerUrl = "http://127.0.0.1:1", Binaries = TestBinaries.None };
+        var server = new CaptureServerConnection(shared) { RegisterDaemonThrow = registerThrow, CapabilityUpdate = capabilityUpdate };
         DaemonConfig? captured = null;
         var orch = AgentOrchestratorHarness.BuildOrchestrator(
             server, new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>(),
-            extraRuntimeFactories: [factory],
+            extraRuntimeFactories: [factory], sharedConfig: shared,
             configure: config => {
                 config.UnattendedVendors            = [];
                 config.UnattendedVendorCapabilities = [];
@@ -282,6 +288,35 @@ public class AgentOrchestratorCapabilityRefreshTests {
         await Assert.That(before!["pi"]).IsEmpty();
         await Assert.That(server.RegisterDaemonCalls).IsEqualTo(1);
         await Assert.That(orch.StatusNotifierForTest.Version).IsGreaterThan(v0);
+    }
+
+    /// <summary>A server that takes capability updates gets the change on its own, so no agent is re-registered and
+    /// no terminal mirror resyncs.</summary>
+    [Test]
+    public async Task A_changed_catalog_reaches_a_server_that_takes_updates_without_a_re_registration() {
+        var (orch, server, _) = BuildWithCatalog(new StubCatalogFactory("pi", [new("p/a", "A · p")]), Catalog(),
+            capabilityUpdate: _ => new(true));
+        await using var __ = orch;
+
+        orch.RefreshAdvertisedCapabilities("test");
+        await orch.CapabilityRefreshForTest;
+
+        await Assert.That(server.CapabilityUpdates.Single().VendorModels!["pi"].Single().Value).IsEqualTo("p/a");
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task A_capacity_change_reaches_a_server_that_takes_updates_without_a_re_registration() {
+        var (orch, server, config) = BuildWithCatalog(new StubCatalogFactory("pi", models: null), initial: null,
+            capabilityUpdate: _ => new(true));
+        await using var __ = orch;
+
+        config.MaxConcurrentAgents = 7;
+        orch.RepublishRegistration("settings");
+        await orch.CapabilityRefreshForTest;
+
+        await Assert.That(server.CapabilityUpdates.Single().MaxAgents).IsEqualTo(7);
+        await Assert.That(server.RegisterDaemonCalls).IsEqualTo(0);
     }
 
     [Test]

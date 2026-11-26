@@ -21,7 +21,7 @@ public class LocalStackProbeTests {
 
         var path = Tmp.CreateFile(["run", LocalStackProbe.ServerLockName]);
 
-        using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        await using (new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             await Assert.That(LocalStackProbe.FindLive(Root)).Contains("instance lock");
 
         await Assert.That(LocalStackProbe.FindLive(Root)).IsNull();

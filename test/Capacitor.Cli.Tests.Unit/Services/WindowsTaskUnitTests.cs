@@ -101,7 +101,9 @@ public class WindowsTaskUnitTests {
     public async Task Wrapper_keeps_the_daemons_stderr_beside_its_log() {
         var cmd = WindowsTaskUnit.Wrapper(Spec());
 
-        await Assert.That(cmd).Contains(@"""8"" 2>>""C:\Users\u\.config\kcap\daemon-laptop.stderr.log""");
+        await Assert.That(cmd).Contains("""
+            "8" 2>>"C:\Users\u\.config\kcap\daemon-laptop.stderr.log"
+            """);
         await Assert.That(WindowsTaskUnit.BinaryFromWrapper(cmd)).IsEqualTo(@"C:\kcap\kcap-daemon.exe");
     }
 

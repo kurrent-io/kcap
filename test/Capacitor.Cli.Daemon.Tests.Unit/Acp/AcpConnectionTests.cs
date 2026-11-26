@@ -112,11 +112,11 @@ public class AcpConnectionTests {
 
         var requestA = harness.Connection.RequestAsync("session/new", null, CancellationToken.None);
         var frameA   = await harness.ReadFrameFromConnectionAsync();
-        var idA      = JsonDocument.Parse(frameA).RootElement.GetProperty("id").GetInt64();
+        var idA      = JsonElement.Parse(frameA).GetProperty("id").GetInt64();
 
         var requestB = harness.Connection.RequestAsync("session/prompt", null, CancellationToken.None);
         var frameB   = await harness.ReadFrameFromConnectionAsync();
-        var idB      = JsonDocument.Parse(frameB).RootElement.GetProperty("id").GetInt64();
+        var idB      = JsonElement.Parse(frameB).GetProperty("id").GetInt64();
 
         await Assert.That(idA).IsNotEqualTo(idB);
 
@@ -146,7 +146,7 @@ public class AcpConnectionTests {
 
         var requestTask = harness.Connection.RequestAsync("session/set_config_option", null, CancellationToken.None);
         var frame       = await harness.ReadFrameFromConnectionAsync();
-        var id          = JsonDocument.Parse(frame).RootElement.GetProperty("id").GetInt64();
+        var id          = JsonElement.Parse(frame).GetProperty("id").GetInt64();
 
         await harness.WriteFrameToConnectionAsync(
             $$$"""{"jsonrpc":"2.0","id":{{{id}}},"error":{"code":-32603,"message":"Internal error"}}"""
@@ -188,7 +188,7 @@ public class AcpConnectionTests {
         using var       cts     = new CancellationTokenSource();
         var              runTask = harness.Connection.RunAsync(cts.Token);
 
-        harness.Connection.OnServerRequest = (request, _) => {
+        harness.Connection.OnServerRequest = (_, _) => {
             var result = JsonSerializer.SerializeToElement(new { content = "file contents" });
             return Task.FromResult<JsonElement?>(result);
         };
@@ -424,7 +424,7 @@ public class AcpConnectionTests {
 
         var requestTask = harness.Connection.RequestAsync("session/prompt", null, CancellationToken.None);
         var frame       = await harness.ReadFrameFromConnectionAsync();
-        var id          = JsonDocument.Parse(frame).RootElement.GetProperty("id").GetInt64();
+        var id          = JsonElement.Parse(frame).GetProperty("id").GetInt64();
 
         await harness.WriteFrameToConnectionAsync(
             $$$"""{"jsonrpc":"2.0","id":{{{id}}},"error":{"code":"oops","message":"x"}}"""
@@ -451,10 +451,10 @@ public class AcpConnectionTests {
 
         var requestTask = harness.Connection.RequestAsync("session/prompt", null, CancellationToken.None);
         var frame       = await harness.ReadFrameFromConnectionAsync();
-        var id          = JsonDocument.Parse(frame).RootElement.GetProperty("id").GetInt64();
+        var id          = JsonElement.Parse(frame).GetProperty("id").GetInt64();
 
         await harness.WriteFrameToConnectionAsync(
-            $$$"""{"jsonrpc":"2.0","id":{{{id}}},"error":"totally-not-an-object"}"""
+            $$"""{"jsonrpc":"2.0","id":{{id}},"error":"totally-not-an-object"}"""
         );
 
         var ex = await Assert.ThrowsAsync<AcpRpcException>(() => requestTask.WaitAsync(HangGuard));
@@ -470,7 +470,7 @@ public class AcpConnectionTests {
         using var       cts     = new CancellationTokenSource();
         var              runTask = harness.Connection.RunAsync(cts.Token);
 
-        harness.Connection.OnServerRequest = (request, _) => {
+        harness.Connection.OnServerRequest = (_, _) => {
             var result = JsonSerializer.SerializeToElement(new { content = "file contents" });
             return Task.FromResult<JsonElement?>(result);
         };
@@ -551,7 +551,7 @@ public class AcpConnectionTests {
 
         var requestTask = harness.Connection.RequestAsync("session/prompt", null, CancellationToken.None);
         var frame        = await harness.ReadFrameFromConnectionAsync();
-        var id           = JsonDocument.Parse(frame).RootElement.GetProperty("id").GetInt64();
+        var id           = JsonElement.Parse(frame).GetProperty("id").GetInt64();
 
         await harness.WriteFrameToConnectionAsync(
             $$$"""{"jsonrpc":"2.0","id":{{{id}}},"result":{"stopReason":"end_turn"}}"""
@@ -576,7 +576,7 @@ public class AcpConnectionTests {
 
         var requestTask = harness.Connection.RequestAsync("session/prompt", null, CancellationToken.None);
         var frame        = await harness.ReadFrameFromConnectionAsync();
-        var id           = JsonDocument.Parse(frame).RootElement.GetProperty("id").GetInt64();
+        var id           = JsonElement.Parse(frame).GetProperty("id").GetInt64();
 
         await Assert.That(logger.Entries).Contains(e =>
             e.Level == LogLevel.Debug && e.Message.Contains("ACP >>>") && e.Message.Contains("session/prompt"));

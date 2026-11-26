@@ -32,6 +32,9 @@ sealed class PollingServiceVerify(
     static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
     static readonly TimeSpan DefaultKillWait = TimeSpan.FromSeconds(5);
 
+    /// <summary>How long a retirement waits for the old daemon to end its agents, capped at half the forward budget.</summary>
+    static readonly TimeSpan EndWait = TimeSpan.FromSeconds(10);
+
     /// <summary>How long a stopped or ended daemon is given to exit before the operation gives up on it.</summary>
     internal TimeSpan KillWait { get; init; } = DefaultKillWait;
 
@@ -58,35 +61,68 @@ sealed class PollingServiceVerify(
     readonly Func<string, CancellationToken, Task<AdmissionFenceAcquireResult>> _acquireFence =
         acquireFence ?? ((name, ct) => AdmissionFenceClient.AcquireAsync(store, name, FenceWait, time, ct));
 
-    public async Task<int> InstallVerifiedAsync(ServiceSpec spec, bool replace, string? expectedVersion, string? retireServiceId = null) {
+    /// <param name="activation">With <c>--activate</c>: the old unit is retired before the new one is
+    /// installed, and the pinned profile set active once every owner is confirmed stopped.</param>
+    /// <param name="retireProfile">The profile the retired unit must be pinned to; the installed one when null.</param>
+    public async Task<int> InstallVerifiedAsync(
+            ServiceSpec spec, bool replace, string? expectedVersion, string? retireServiceId = null,
+            ProfileActivation? activation = null, string? retireProfile = null) {
+        if (activation is not null && !replace)
+            throw new ArgumentException("Activation requires replacement.", nameof(activation));
+        if (retireProfile is not null && retireServiceId is null)
+            throw new ArgumentException("A retired profile requires a retired service.", nameof(retireProfile));
+
         var id = spec.ServiceId;
         using var txn = await ServiceTxnLock.TryAcquireAsync(store, id, LockWait, time);
         if (txn is null) return Fail(VerifyExit.Contended, VerifyExit.ContendedToken);
 
         if (profileViable is not null && !profileViable()) return Fail(VerifyExit.Viability, VerifyExit.ViabilityToken);
 
+        if (activation is not null) {
+            if (activation.Viability() is { } unviable) return ProfileActivation.Refusal(unviable);
+            if (await activation.PrepareAsync() is { } unprepared) return ProfileActivation.Refusal(unprepared);
+        }
+
+        // Held until the transaction ends, so nothing reinstalls or restarts the old id before activation.
+        var activatesRename = activation is not null && retireServiceId is not null;
+        using var retireTxn = activatesRename ? await ServiceTxnLock.TryAcquireAsync(store, retireServiceId!, LockWait, time) : null;
+        if (activatesRename && retireTxn is null) return Fail(VerifyExit.Contended, VerifyExit.ContendedToken);
+
         IAdmissionFenceSession? fence = null;
+        var retiredPresent = false;
         if (retireServiceId is not null) {
-            var (refused, present, session) = await PrepareRetireAsync(retireServiceId, spec);
+            var (refused, present, session) = await PrepareRetireAsync(retireServiceId, spec, retireProfile, requireStoppedWithoutUnit: activation is not null);
             if (refused is { } exit) return exit;
             fence = session;
-            if (!present) retireServiceId = null;
+            retiredPresent = present;
+            // An activation still confirms the absent unit's label stopped before it writes.
+            if (!present && activation is null) retireServiceId = null;
         }
 
         try {
-            return await InstallAfterRetirePreparedAsync(spec, replace, expectedVersion, retireServiceId, fence);
+            return await InstallAfterRetirePreparedAsync(spec, replace, expectedVersion, retireServiceId, retiredPresent, fence, activation);
         } finally {
             if (fence is not null) await fence.DisposeAsync();
         }
     }
 
     async Task<int> InstallAfterRetirePreparedAsync(
-            ServiceSpec spec, bool replace, string? expectedVersion, string? retireServiceId, IAdmissionFenceSession? fence) {
+            ServiceSpec spec, bool replace, string? expectedVersion, string? retireServiceId, bool retiredPresent,
+            IAdmissionFenceSession? fence, ProfileActivation? activation) {
         var id = spec.ServiceId;
 
         // A rename never takes over a daemon that already answers to the new name.
         if (retireServiceId is not null && validatedDaemonPid(id) is not null)
             return Fail(VerifyExit.Contended, VerifyExit.ContendedToken);
+
+        // An activation must not leave the previous profile's daemon running once the selection has moved, so
+        // its unit goes before anything is written for the new one.
+        if (activation is not null && retireServiceId is not null && retiredPresent) {
+            // A target the supervisor cannot read is refused while the old unit still stands.
+            if (manager.Query(id).Probe == LabelProbe.Unknown) return Unanswered(id);
+            if (await RetireAsync(retireServiceId, fence) is { } retireExit) return retireExit;
+            if (validatedDaemonPid(id) is not null) return Fail(VerifyExit.Contended, VerifyExit.ContendedToken);
+        }
 
         var pre = manager.Query(id);
         if (pre.Probe == LabelProbe.Unknown) return Unanswered(id);
@@ -100,6 +136,12 @@ sealed class PollingServiceVerify(
         // daemon would only be refused the name and the install would time out.
         if (replace && endsManualOwner && pre.Probe != LabelProbe.Loaded && validatedDaemonPid(id) is not null && !await EndManualOwnerAsync(id))
             return Fail(VerifyExit.StopUnconfirmed, VerifyExit.StopUnconfirmedToken);
+
+        if (activation is not null) {
+            if (!await StoppedAsync(id) || retireServiceId is not null && !await StoppedAsync(retireServiceId))
+                return ProfileActivation.Refusal("activation_owner_alive");
+            if (await activation.ActivateAsync() is { } refused) return ProfileActivation.Refusal(refused);
+        }
 
         string? installError;
         try {
@@ -119,7 +161,7 @@ sealed class PollingServiceVerify(
             return exit;
         }
 
-        if (retireServiceId is null) return VerifyExit.Ok;
+        if (retireServiceId is null || !retiredPresent || activation is not null) return VerifyExit.Ok;
 
         // A manager whose install ended the old daemon has nothing left to fence; under any other, a daemon that
         // is merely absent may be its supervisor's relaunch on the way.
@@ -145,12 +187,51 @@ sealed class PollingServiceVerify(
         return VerifyExit.Ok;
     }
 
+    /// <summary>Commits the old daemon's fence, uninstalls its unit, and waits for it to be confirmed stopped.</summary>
+    async Task<int?> RetireAsync(string retireId, IAdmissionFenceSession? fence) {
+        if (fence is not null && !await fence.CommitAsync(FenceWait, CancellationToken.None)) {
+            await fence.AbortAsync(FenceWait, CancellationToken.None);
+            return RetireRefusal("fence_unavailable");
+        }
+
+        // An uninstall alone stops the daemon keeping its agents for a successor this unit will never start, so it
+        // is asked to end them first. One that does not answer within the wait is left to the uninstall.
+        if (fence is not null)
+            await _endDaemon(retireId, TimeSpan.FromTicks(Math.Min(EndWait.Ticks, _forwardBudget.Ticks / 2)));
+
+        if (!manager.Uninstall(retireId, out var retireError)) {
+            Say($"retire: {retireError}");
+            if (fence is not null) await fence.AbortAsync(FenceWait, CancellationToken.None);
+            return RetireRefusal("uninstall_failed");
+        }
+
+        var deadline = time.GetUtcNow() + _forwardBudget;
+        while (!await StoppedAsync(retireId)) {
+            if (time.GetUtcNow() >= deadline) return Fail(VerifyExit.StopUnconfirmed, VerifyExit.StopUnconfirmedToken);
+            await Task.Delay(PollInterval, time, CancellationToken.None);
+        }
+
+        if (fence is not null && File.Exists(store.RetiringMarkerPath(retireId))) {
+            try { File.Delete(store.RetiringMarkerPath(retireId)); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Say($"retire: could not remove the retiring marker: {ex.Message}"); }
+        }
+        return null;
+    }
+
+    /// <summary>No well-formed hello and, read after it, no validated pid: a hung process that still answers is not
+    /// stopped, and a daemon that published its pid during the hello wait is not missed.</summary>
+    async Task<bool> StoppedAsync(string id) =>
+        !(await hello(id, PollInterval * 4)).WellFormed && validatedDaemonPid(id) is null;
+
     /// <summary>
     /// Proves the task a rename leaves behind is this profile's and, when its daemon runs, takes that
     /// daemon's admission fence, before anything changes. Uninstalling the task kills the daemon, so one
     /// that is busy, or cannot be fenced, is refused; so is an installed task whose wrapper cannot be read.
     /// </summary>
-    async Task<(int? Exit, bool Present, IAdmissionFenceSession? Fence)> PrepareRetireAsync(string retireId, ServiceSpec spec) {
+    /// <param name="requireStoppedWithoutUnit">An absent task must also have no daemon answering for it: one
+    /// started by hand has no task to retire and would keep running beside the new one.</param>
+    async Task<(int? Exit, bool Present, IAdmissionFenceSession? Fence)> PrepareRetireAsync(
+            string retireId, ServiceSpec spec, string? retireProfile, bool requireStoppedWithoutUnit) {
         ServiceQuery old;
         try {
             old = manager.Query(retireId);
@@ -161,7 +242,10 @@ sealed class PollingServiceVerify(
 
         // Its state says nothing when the supervisor did not answer, so it can be neither fenced nor called stopped.
         if (old.Probe == LabelProbe.Unknown) return (RetireRefusal("unit_unknown"), true, null);
-        if (old.Probe != LabelProbe.Loaded && !old.UnitPresent) return (null, false, null);
+        if (old.Probe != LabelProbe.Loaded && !old.UnitPresent)
+            return requireStoppedWithoutUnit && !await StoppedAsync(retireId)
+                ? (RetireRefusal("live_owner_without_unit"), false, null)
+                : (null, false, null);
 
         IReadOnlyDictionary<string, string>? retiredEnv;
         try {
@@ -171,7 +255,7 @@ sealed class PollingServiceVerify(
             retiredEnv = null;
         }
         if (retiredEnv is null) return (RetireRefusal("unit_unreadable"), true, null);
-        if (!SameProfile(retiredEnv, spec.Environment)) return (RetireRefusal("foreign_profile"), true, null);
+        if (!PinnedTo(retiredEnv, retireProfile ?? spec.Environment.GetValueOrDefault(Core.Config.ProfileOverrides.ProfileVar))) return (RetireRefusal("foreign_profile"), true, null);
 
         if (old.State != ServiceState.Running) return (null, true, null);
         if (old.JobPid is not { } jobPid) return (RetireRefusal("fence_unavailable"), true, null);
@@ -308,9 +392,9 @@ sealed class PollingServiceVerify(
         return Fail(reasonExit, reasonToken);
     }
 
-    static bool SameProfile(IReadOnlyDictionary<string, string> retired, IReadOnlyDictionary<string, string> installing) =>
-        retired.TryGetValue(Core.Config.ProfileOverrides.ProfileVar, out var a) && !string.IsNullOrEmpty(a)
-     && installing.TryGetValue(Core.Config.ProfileOverrides.ProfileVar, out var b) && string.Equals(a, b, StringComparison.Ordinal);
+    static bool PinnedTo(IReadOnlyDictionary<string, string> retired, string? profile) =>
+        !string.IsNullOrEmpty(profile)
+     && retired.TryGetValue(Core.Config.ProfileOverrides.ProfileVar, out var pinned) && string.Equals(pinned, profile, StringComparison.Ordinal);
 
     static int RetireRefusal(string reason) {
         Say($"retire_reason={reason}");

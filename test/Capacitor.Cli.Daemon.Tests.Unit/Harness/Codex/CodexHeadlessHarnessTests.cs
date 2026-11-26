@@ -16,9 +16,9 @@ public class CodexHeadlessHarnessTests {
         Skip.When(OperatingSystem.IsWindows(), "the fake codex is a POSIX shell script");
 
         var argsFile = Bin.PathTo("args.txt");
-        Bin.CreateExecutable("codex", $$"""
+        Bin.CreateExecutable("codex", $"""
             #!/bin/sh
-            printf '%s\n' "$@" > '{{argsFile}}'
+            printf '%s\n' "$@" > '{argsFile}'
             while [ $# -gt 0 ]; do
               if [ "$1" = "--output-last-message" ]; then out="$2"; fi
               shift

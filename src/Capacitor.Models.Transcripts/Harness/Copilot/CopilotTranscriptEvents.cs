@@ -331,7 +331,7 @@ public sealed partial class CopilotTranscriptEvents : ITranscriptProjection {
 
         if (data.Obj("result") is { } result) {
             content = result.Str("content");
-            if (content is null && result.Prop("content") is { } raw && !raw.IsNull) content = raw.GetRawText();
+            if (content is null && result.Prop("content") is { IsNull: false } raw) content = raw.GetRawText();
             detailed = result.Str("detailedContent");
         }
 

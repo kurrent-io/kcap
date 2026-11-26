@@ -2,6 +2,7 @@ using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using Avalonia.Threading;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.LocalIpc;
 using Capacitor.Cli.Core.Resume;
 using DynamicData;
@@ -10,47 +11,24 @@ using System.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// One terminal tab: resolves the agent's terminal capability against the daemon's Agents cache,
-/// then drives the attach/reattach/detach lifecycle over ITerminalAttachClient. Constructed once
-/// per tab (like HomeViewModel/ActivityViewModel), not gated behind IActivatableViewModel — the
-/// resolve gate and the Agents-cache watch must be live from construction, and TeardownAsync
-/// (not Dispose/WhenActivated) is the one lifecycle exit a tab tracker calls when the tab closes.
+/// One terminal tab: resolves the agent's terminal capability from the daemon's Agents cache, then
+/// drives attach/reattach/detach over ITerminalAttachClient. Not an IActivatableViewModel: the resolve
+/// gate and cache watch must be live from construction, and TeardownAsync is the only exit.
 ///
-/// State machine (TerminalSessionPhase): Resolving -> {NoTerminal | NotFound | Connecting} ->
-/// {Attached -> Detached/Exited/Failed/SessionEnded}; a drop while the resume ledger holds the agent
-/// goes to Resuming, then to a fresh attempt, Interrupted or Failed. Two independent linearizations guard it:
+/// * Resolve gate (_resolveState CAS): the first of a DTO, the 10s timeout or teardown claims it. A
+///   timeout renders NotFound but keeps watching, because Claude can take well past 10s to produce a
+///   linked transcript and a late DTO must still attach without Retry.
+/// * Attempts (_attemptGeneration): a completion from a retired generation mutates nothing.
+///   _attachLane is try-entered, never awaited: ReactiveCommand.Execute runs eagerly without checking
+///   CanExecute, so a queued wait would let a double-click spawn two clients.
+/// * Send gate (_openingToken): advanced only by BeginAttempt and Invalidate, with the gate and
+///   in-flight flag derived from token ownership so an advance needs nothing remembered. A terminal
+///   outcome invalidates only while its own attempt holds the token, since a reattach takes its token
+///   before disposing the old client. Publish is State's only assignment site.
 ///
-/// * Resolve gate (_resolveState, CAS 0 pending/1 dto-won/2 timeout-won/3 disposed): the FIRST of
-///   {a DTO observed, the 10s TimeProvider timeout, TeardownAsync} claims the gate from pending.
-///   A timeout-win renders NotFound but keeps the Agents subscription: Claude (and similar) can
-///   take well past 10s to produce a transcript the daemon links as a session id, and a late DTO
-///   must still be able to claim timeout-won → dto-won and attach without Retry. Retry remains for
-///   a DTO that is already in the cache with no change notification. A dto-win leaves the
-///   subscription alive so a LATER removal can still render SessionEnded.
-/// * Attempt lifecycle (_attemptGeneration): every attach/reattach bumps it; a completion whose
-///   captured generation no longer matches the current one is a retired attempt and mutates
-///   nothing (silent, not an error). _attachLane (SemaphoreSlim(1,1), TRY-entered via Wait(0) --
-///   never awaited) single-flights the swap: two ReattachCommand.Execute() calls issued before the
-///   first has reached its own await point collapse to exactly one new client, because
-///   ReactiveCommand.Execute() invokes its Func&lt;Task&gt; eagerly, without consulting
-///   CanExecute/IsExecuting, so a queueing WaitAsync() here would let a double-click spawn two
-///   real clients.
-///   A call that loses the try-enter is a clean no-op, not a queued retry.
-/// * Send gate (_openingToken): who may accept composer text. BeginAttempt and Invalidate are its
-///   only advances, and both the gate and the in-flight flag are DERIVED from ownership
-///   (_gateOpenToken / _sendInFlightToken == _openingToken), so an advance settles them with
-///   nothing to remember and no window in which a passed token check still sets one. A publish that is not an attempt's own Connecting/Attached invalidates -- a
-///   terminal outcome only while its OWN attempt still holds the token, since a reattach takes
-///   its token before it disposes the client whose outcome it is retiring. State has one
-///   assignment site, Publish, which applies both rules.
-///
-/// UI affinity: the resolve gate mutates State after ObserveOn(RxSchedulers.MainThreadScheduler)
-/// or RxSchedulers.MainThreadScheduler.Schedule(...) (the TimeProvider timer fires off-thread in
-/// production, synchronously on the CALLING thread under FakeTimeProvider.Advance -- Schedule onto
-/// MainThreadScheduler is what makes that synchronous under WithImmediateRxScheduler too). Every
-/// attempt-lifecycle mutation (the swap, OnAttached/OnOutput's Feed, the outcome mapping) goes
-/// through Dispatcher.UIThread.InvokeAsync awaited with the attempt's own token -- these arrive
-/// from the attach client's own async continuations, which carry no Rx scheduler affinity at all.
+/// The resolve gate mutates State on MainThreadScheduler (the timer fires off-thread). Attempt
+/// mutations go through Dispatcher.UIThread.InvokeAsync, since attach-client continuations carry no
+/// scheduler affinity.
 public sealed class TerminalTabViewModel : ReactiveObject {
     const int ResolvePending = 0, ResolveDtoWon = 1, ResolveTimeoutWon = 2, ResolveDisposed = 3;
 
@@ -97,12 +75,11 @@ public sealed class TerminalTabViewModel : ReactiveObject {
     CancellationTokenSource? _attemptCts;
     Task? _runTask;
 
-    TerminalSessionState _state = TerminalSessionState.Resolving;
     /// Bound; mutated only on the UI scheduler (see class doc comment), and only from Publish.
     public TerminalSessionState State {
-        get => _state;
-        private set => this.RaiseAndSetIfChanged(ref _state, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = TerminalSessionState.Resolving;
 
     // The send gate. Only BeginAttempt and Invalidate advance the token; an attempt carries the
     // token its BeginAttempt produced and may open the gate only while that token is current.
@@ -316,12 +293,11 @@ public sealed class TerminalTabViewModel : ReactiveObject {
         }
     }
 
-    ITerminalSurface? _surface;
     /// The VM-owned model handle the view binds -- a fresh instance per attempt, assigned on the
     /// UI scheduler before the attempt's RunAsync starts.
     public ITerminalSurface? Surface {
-        get => _surface;
-        private set => this.RaiseAndSetIfChanged(ref _surface, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public static readonly TimeSpan HiddenFeedInterval = TimeSpan.FromSeconds(1);
@@ -528,7 +504,7 @@ public sealed class TerminalTabViewModel : ReactiveObject {
                 if (Volatile.Read(ref _resolveState) == ResolveDisposed) return;
                 // Resolving (first claim) or NotFound (late recovery after timeout).
                 if (State.Phase is not (TerminalSessionPhase.Resolving or TerminalSessionPhase.NotFound)) return;
-                Publish(TerminalSessionState.Failed($"couldn't open the terminal: {ex.Message}"), null);
+                Publish(TerminalSessionState.Failed("Couldn’t open the terminal."), null);
             });
         }
     }
@@ -760,11 +736,9 @@ public sealed class TerminalTabViewModel : ReactiveObject {
             outcome = await client.RunAsync(cols, rows, ct).ConfigureAwait(false);
         } catch (OperationCanceledException) {
             return; // retired attempt's own cancellation -- silent, never an error
-        } catch (AttachCallbackException ex) {
-            await FinishAttemptAsync(generation, openingToken, surface, decoder, TerminalSessionState.Failed(Describe(ex))).ConfigureAwait(false);
-            return;
         } catch (Exception ex) {
-            await FinishAttemptAsync(generation, openingToken, surface, decoder, TerminalSessionState.Failed(ex.Message)).ConfigureAwait(false);
+            Console.Error.WriteLine($"kcap: terminal attach failed: {ex.GetBaseException().Message}");
+            await FinishAttemptAsync(generation, openingToken, surface, decoder, TerminalSessionState.Failed("Couldn’t open the terminal.")).ConfigureAwait(false);
             return;
         }
 
@@ -775,6 +749,8 @@ public sealed class TerminalTabViewModel : ReactiveObject {
             return;
         }
 
+        if (outcome is AttachOutcome.Failed(var diagnostic))
+            Console.Error.WriteLine($"kcap: terminal attach failed: {diagnostic}");
         var mapped = outcome switch {
             AttachOutcome.Detached          => TerminalSessionState.DetachedState,
             AttachOutcome.Exited(var code)   => TerminalSessionState.Exited(code),
@@ -811,9 +787,8 @@ public sealed class TerminalTabViewModel : ReactiveObject {
         }
     }
 
-    static string Describe(AttachCallbackException ex) => ex.InnerException?.Message ?? ex.Message;
-
-    const string LostConnection = "the terminal lost connection to the daemon";
+    internal const string LostConnection = "the terminal lost connection to the daemon";
+    internal const string DidNotResume = "This session didn’t come back after the daemon restarted.";
 
     /// What an attempt's end means, read from the resume ledger, which the daemon writes before any
     /// status reaches the cache: Interrupted once the daemon gave up, Resuming while the agent is
@@ -929,7 +904,7 @@ public sealed class TerminalTabViewModel : ReactiveObject {
                 return;
             }
 
-            var end = entry is null ? TerminalSessionState.Failed("This session didn’t come back after the daemon restarted.")
+            var end = entry is null ? TerminalSessionState.Failed(DidNotResume)
                     : entry.State == ResumeState.Interrupted ? TerminalSessionState.Interrupted(entry.LastError)
                     : expired ? TerminalSessionState.Failed(LostConnection)
                     : null;
@@ -1030,22 +1005,17 @@ public sealed class TerminalTabViewModel : ReactiveObject {
 
         if (client is not null) {
             var detach = client.DetachAsync();
-            var detachWinner = await Task.WhenAny(detach, Task.Delay(DetachBound, _time)).ConfigureAwait(false);
-            if (!ReferenceEquals(detachWinner, detach)) ObserveAbandoned(detach, "detach");
+            var detached = await detach.FinishedWithinAsync(DetachBound, _time).ConfigureAwait(false);
+            if (!detached) ObserveAbandoned(detach, "detach");
 
             var dispose = client.DisposeAsync().AsTask();
-            var disposeWinner = await Task.WhenAny(dispose, Task.Delay(Remaining(), _time)).ConfigureAwait(false);
-            if (ReferenceEquals(disposeWinner, dispose)) {
-                // Completed within budget -- still observe (never re-throw) a fault.
-                if (dispose.IsFaulted) _ = dispose.Exception;
-            } else {
-                ObserveAbandoned(dispose, "dispose");
-            }
+            var disposed = await dispose.FinishedWithinAsync(Remaining(), _time).ConfigureAwait(false);
+            if (!disposed) ObserveAbandoned(dispose, "dispose");
         }
 
         if (runTask is not null) {
-            var runWinner = await Task.WhenAny(runTask, Task.Delay(Remaining(), _time)).ConfigureAwait(false);
-            if (!ReferenceEquals(runWinner, runTask)) ObserveAbandoned(runTask, "run");
+            var runEnded = await runTask.FinishedWithinAsync(Remaining(), _time).ConfigureAwait(false);
+            if (!runEnded) ObserveAbandoned(runTask, "run");
         }
         _runTask = null;
 
@@ -1055,7 +1025,7 @@ public sealed class TerminalTabViewModel : ReactiveObject {
         // ever wedged. Not carved from the (possibly already-exhausted) 3s above -- this is a
         // trivial property set, not something that should ever race the run/dispose budget.
         var clear = Dispatcher.UIThread.InvokeAsync(() => { Surface = null; }).GetTask();
-        await Task.WhenAny(clear, Task.Delay(DetachBound, _time)).ConfigureAwait(false);
+        await clear.FinishedWithinAsync(DetachBound, _time).ConfigureAwait(false);
     }
 
     static void ObserveAbandoned(Task task, string label) =>

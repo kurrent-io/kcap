@@ -58,10 +58,10 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
 
     sealed class FakeAcpProcess : IAcpProcess {
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int  Pid       { get; init; } = 4242;
+        public int  Pid       { get; } = 4242;
         public bool HasExited { get; private set; }
         public int? ExitCode  { get; private set; }
-        public void SignalExited(int exitCode = 0) { HasExited = true; ExitCode = exitCode; _exited.TrySetResult(); }
+        void SignalExited(int exitCode = 0) { HasExited = true; ExitCode = exitCode; _exited.TrySetResult(); }
         public Task WaitForExitAsync(TimeSpan? timeout = null) => _exited.Task;
         public Task TerminateAsync(TimeSpan? timeout = null) { SignalExited(); return Task.CompletedTask; }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -84,7 +84,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         public readonly TaskCompletionSource ReleaseTerminate = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public readonly TaskCompletionSource TerminateEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public int  Pid       { get; init; } = 4343;
+        public int  Pid       { get; } = 4343;
         public bool HasExited { get; private set; }
         public int? ExitCode  { get; private set; }
 
@@ -130,7 +130,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         // that derailed the handshake before it ever reached model selection.
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public int  Pid       { get; init; } = 4444;
+        public int  Pid       { get; } = 4444;
         public bool HasExited { get; private set; }
         public int? ExitCode  { get; private set; }
 
@@ -569,7 +569,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     static async Task<string[]> WaitForSessionNewServerNamesAsync(FakeAcpAgent fake) {
         var json = await WaitForSessionNewMcpServersJsonAsync(fake);
 
-        return System.Text.Json.JsonDocument.Parse(json).RootElement
+        return System.Text.Json.JsonElement.Parse(json)
             .EnumerateArray()
             .Select(e => e.GetProperty("name").GetString()!)
             .ToArray();
@@ -895,7 +895,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         var fakeRunTask = fake.RunAsync(cts.Token);
 
         AcpMcpServerSpec[] mcpServers = [
-            new AcpMcpServerSpec(Name: "fs", Command: "npx",
+            new(Name: "fs", Command: "npx",
                 Args: ["-y", "@modelcontextprotocol/server-filesystem"],
                 Env: [new AcpMcpServerEnvVar("FOO", "bar")])
         ];
@@ -924,7 +924,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         var fakeRunTask = fake.RunAsync(cts.Token);
 
         AcpMcpServerSpec[] mcpServers = [
-            new AcpMcpServerSpec(Name: "fs", Command: "npx", Args: ["-y", "server-filesystem"], Env: [])
+            new(Name: "fs", Command: "npx", Args: ["-y", "server-filesystem"], Env: [])
         ];
         var ctx = MakeContext("agent-1") with { McpServers = mcpServers };
 
@@ -951,7 +951,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         var fakeRunTask = fake.RunAsync(cts.Token);
 
         AcpMcpServerSpec[] mcpServers = [
-            new AcpMcpServerSpec(Name: "fs", Command: "npx",
+            new(Name: "fs", Command: "npx",
                 Args: ["-y", "@modelcontextprotocol/server-filesystem"],
                 Env: [new AcpMcpServerEnvVar("FOO", "bar")])
         ];
@@ -2294,7 +2294,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
         var fakeRunTask = fake.RunAsync(cts.Token);
 
         AcpMcpServerSpec[] mcpServers = [
-            new AcpMcpServerSpec(Name: "kcap-flow-result", Command: "kcap", Args: ["mcp", "flow-result"], Env: [])
+            new(Name: "kcap-flow-result", Command: "kcap", Args: ["mcp", "flow-result"], Env: [])
         ];
         var ctx = MakeContext("agent-1") with { McpServers = mcpServers };
 
@@ -3015,7 +3015,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
 
         // ReleaseTerminate is still unset, so the reap task cannot have completed — give a (possibly
         // regressed) implementation a bounded window to complete anyway before asserting it hasn't.
-        await Task.WhenAny(startTask, Task.Delay(300));
+        await startTask.FinishedWithinAsync(TimeSpan.FromMilliseconds(300), TimeProvider.System);
         await Assert.That(startTask.IsCompleted).IsFalse();
 
         process.ReleaseTerminate.TrySetResult();
@@ -3076,7 +3076,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
 
         fake.SimulateCrash();
 
-        await Task.WhenAny(startTask, Task.Delay(300));
+        await startTask.FinishedWithinAsync(TimeSpan.FromMilliseconds(300), TimeProvider.System);
         await Assert.That(startTask.IsCompleted).IsFalse();
 
         process.ReleaseTerminate.TrySetResult();
@@ -3237,7 +3237,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     /// BEFORE <c>ReclassifyIfReaped</c> runs, replacing the coded verdict with a teardown exception.</summary>
     sealed class ThrowingDisposeAcpProcess : IAcpProcess {
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int  Pid       { get; init; } = 4545;
+        public int  Pid       { get; } = 4545;
         public bool HasExited { get; private set; }
         public int? ExitCode  { get; private set; }
         public Task WaitForExitAsync(TimeSpan? timeout = null) => _exited.Task;
@@ -3309,7 +3309,7 @@ public partial class AcpHostedAgentRuntimeFactoryTests : IDisposable {
     /// connection disposal above it faulted.</summary>
     sealed class DisposeTrackingAcpProcess : IAcpProcess {
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int  Pid            { get; init; } = 4646;
+        public int  Pid            { get; } = 4646;
         public bool HasExited      { get; private set; }
         public int? ExitCode       { get; private set; }
         public int  TerminateCalls { get; private set; }

@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Capacitor.Models.Transcripts.Tests.Unit;
 
 public class JsonElementExtensionsTests {
-    static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
+    static JsonElement Parse(string json) => JsonElement.Parse(json);
 
     [Test]
     public async Task Prop_returns_any_kind_and_null_when_absent_or_not_an_object() {

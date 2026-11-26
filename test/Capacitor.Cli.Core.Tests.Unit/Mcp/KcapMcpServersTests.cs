@@ -69,9 +69,9 @@ public class KcapMcpServersTests {
         });
     }
 
-    /// <summary>Flows waits on a reviewer, and a pass on the human answering its approval prompt.</summary>
+    /// <summary>Flows waits on a reviewer, and a pass on a send and its follow-up, each with a 100-second budget.</summary>
     [Test]
-    public async Task Flows_and_pass_are_the_servers_whose_tool_calls_block_for_minutes() {
+    public async Task Flows_and_pass_are_the_servers_whose_tool_calls_outlast_a_default_timeout() {
         var timed = KcapMcpServers.All.Where(s => s.ToolTimeout is not null).ToArray();
         await Assert.That(timed.Select(s => s.Name).ToArray()).IsEquivalentTo(new[] { "kcap-flows", "kcap-pass" });
         foreach (var server in timed) await Assert.That(server.ToolTimeout).IsEqualTo(TimeSpan.FromMinutes(10));

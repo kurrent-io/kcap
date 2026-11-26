@@ -24,7 +24,7 @@ public static class WindowSizeMemory {
     public static (PixelPoint? Position, Size Size) Place(AppState state, IReadOnlyList<ScreenArea> screens) {
         var (width, height) = Resolve(state.WindowWidth, state.WindowHeight);
         var size = new Size(width, height);
-        PixelPoint? saved = state.WindowX is int x && state.WindowY is int y ? new PixelPoint(x, y) : null;
+        PixelPoint? saved = state is { WindowX: { } x, WindowY: { } y } ? new PixelPoint(x, y) : null;
         if (screens.Count == 0) return (saved, size);
         if (saved is { } kept && WindowRestore.InsideWorkAreas(kept, size, screens)) return (kept, size);
 
@@ -110,7 +110,7 @@ public static class WindowSizeMemory {
     }
 
     static double Fit(double? saved, double min, double fallback) {
-        if (saved is not double value || !double.IsFinite(value) || value <= 0) return fallback;
+        if (saved is not { } value || !double.IsFinite(value) || value <= 0) return fallback;
         return Math.Max(min, value);
     }
 }

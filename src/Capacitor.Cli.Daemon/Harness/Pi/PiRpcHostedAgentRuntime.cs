@@ -12,59 +12,19 @@ namespace Capacitor.Cli.Daemon.Harness.Pi;
 
 /// <summary>
 /// <see cref="IHostedAgentRuntime"/> for Pi's CLI (<c>pi --mode rpc</c>) as an interactive hosted
-/// agent, speaking Pi's LF-framed JSONL-RPC over stdio (see <see cref="PiRpc"/> for the pure
-/// protocol layer).
-///
-/// <para><b>Why this is much simpler than <see cref="AntigravityHostedAgentRuntime"/>.</b> agy has
-/// no process between turns, which is why it needs an explicit phase machine to answer "is this
-/// runtime alive". Pi's child is LONG-LIVED — ONE <c>pi</c> process backs the whole hosted session,
-/// its stdin stays open for that session's whole life — so liveness is REAL:
-/// <see cref="HasExited"/>/<see cref="ExitCode"/>/<see cref="Pid"/> all delegate straight to the
-/// process, and there is no phase to keep in sync with it. What this class owns instead is the
-/// stdio protocol: one read pump, command/response correlation by <c>id</c>, and the transcript
-/// translation.</para>
-///
-/// <para><b>(a) The ready barrier is the load-bearing invariant.</b> The constructor sends
-/// <c>get_state</c> (id <see cref="InitStateCommandId"/>) and
-/// <see cref="WaitForSessionReadyAsync"/> completes when its response resolves
-/// <see cref="AcpSessionId"/> and <see cref="ResolvedModel"/>. A factory MUST await it before
-/// returning control to the orchestrator, which reads <see cref="AcpSessionId"/> synchronously the
-/// moment a launch returns — binding a transcript to <c>""</c> is a silent, permanent correlation
-/// break, not a flaky race (the same rule <see cref="AntigravityHostedAgentRuntime"/>'s rule (e)
-/// documents at length). The barrier is only usable because it resolves on EVERY path: the
-/// response arrives (success), the response says <c>success:false</c> or carries no
-/// <c>sessionId</c> (fault — fail closed rather than bind <c>""</c>), the child exits or its stdout
-/// EOFs (fault, via <see cref="EnterTerminal"/>), the write itself fails (fault), or the deadline
-/// elapses (fault). A hanging barrier wedges the launch path; a faulted one merely fails a launch.</para>
-///
-/// <para>That last path is why the deadline is NOT optional. A caller may override it, but it
-/// always applies — <see cref="DefaultReadyDeadline"/> backs an omitted one. Every other path
-/// needs the child to DO something (answer, refuse, or die); an alive-but-silent child — spawned,
-/// hung before its first read, never exiting — does none of them, so a null deadline would leave
-/// that one shape with no resolver at all. A launch path that hangs only when a callsite forgot to
-/// pass a timeout is the exact failure this barrier exists to prevent, arriving through the
-/// barrier's own configuration.</para>
-///
-/// <para><b>(b) <see cref="ReadOutputAsync"/> parks on one signal, created once.</b> Same rule as
-/// Antigravity's (c): the orchestrator drives <c>FinalizeAgentRunAsync</c> from that stream's
-/// <c>await foreach</c> ending, so <see cref="_terminalTcs"/> is a single constructor-owned
-/// <see cref="TaskCompletionSource"/> completed exactly once, on entry to terminal — never a
-/// per-turn signal. Pi's stdout is protocol traffic, never terminal bytes, so
-/// <see cref="EmitsTerminalOutput"/> is <see langword="false"/> and this stream yields no bytes at
-/// all.</para>
-///
-/// <para><b>(c) The user-echo dedupe.</b> <see cref="SendUserInputAsync"/> emits the
-/// <c>user_message</c> envelope itself, at send time, so the viewer sees their message immediately
-/// rather than only once Pi echoes it back. Pi then ALSO reports that same text as a user-role
-/// <c>message_end</c>, so without a dedupe every hosted message renders twice. Sent prompts are
-/// remembered in a bounded (<see cref="SentPromptMemory"/>), most-recent-first, CONSUME-on-match
-/// list, and the match is applied BEFORE the envelope reaches the channel. Consume-on-match (rather
-/// than a contains-check) is what keeps a genuinely repeated message renderable: sending "again"
-/// twice must show two user messages, and a non-consuming filter would swallow the second
-/// forever.</para>
-///
-/// <para><b>Never emits <c>session_ended</c></b> — the server's <c>EndAgentSession</c> owns that
-/// transition, exactly as for every other <see cref="IAcpTranscriptSource"/> runtime.</para>
+/// agent, over Pi's JSONL-RPC on stdio (<see cref="PiRpc"/>). One long-lived <c>pi</c> process backs
+/// the session, so liveness delegates straight to it, with none of
+/// <see cref="AntigravityHostedAgentRuntime"/>'s phase machine.
+/// <para>A factory must await <see cref="WaitForSessionReadyAsync"/> before returning: the
+/// orchestrator reads <see cref="AcpSessionId"/> as soon as a launch returns, and binding a transcript
+/// to <c>""</c> breaks correlation permanently. The barrier resolves on every path, including a
+/// deadline that always applies, because an alive-but-silent child would otherwise hang the launch.</para>
+/// <para><see cref="ReadOutputAsync"/> parks on one constructor-owned signal completed on terminal entry,
+/// never a per-turn one: the orchestrator finalizes when that stream ends.</para>
+/// <para>Sent prompts are echoed at send time, and Pi echoes them again as a user-role
+/// <c>message_end</c>. The dedupe consumes a remembered prompt on match, so a message sent twice still
+/// renders twice.</para>
+/// <para>Never emits <c>session_ended</c>; the server's <c>EndAgentSession</c> owns that.</para>
 /// </summary>
 internal sealed class PiRpcHostedAgentRuntime : IHostedAgentRuntime, IAcpTranscriptSource, ITerminationVerdictSource {
     /// <summary>The correlation id of the constructor's handshake <c>get_state</c> — fixed rather

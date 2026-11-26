@@ -124,9 +124,6 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
     CancellationTokenSource?  _childCts;   // per-child read-loop token, so a teardown unblocks the loop
     volatile bool             _restarting; // true only across the hook-trust seed-and-restart window
 
-    string?                   _threadId;
-    string?                   _resolvedModel;
-    CodexTokenUsage?          _usage;
     int                       _disposed;
 
     // Envelope emission is on only alongside envelope-source ingestion (deferred first-turn, source
@@ -194,7 +191,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
             // Deferring the first turn seals the dispatcher — externally-reachable input arriving during
             // the source-claim window enqueues and waits; BeginFirstTurnAsync unseals it.
             sealedAtStart: deferFirstTurn, compact: IssueCompactAsync);
-        _mapper = new CodexNotificationMapper(() => _resolvedModel, logger);
+        _mapper = new(() => ResolvedModel, logger);
         _submitted = new CodexSubmittedInputs(timeProvider);
         _forwardBuffer = new CodexForwardBuffer(
             ForwardBufferCapacity,
@@ -215,7 +212,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
 
     /// <summary>Resolved model from the <c>thread/start</c> response (never the requested one);
     /// null until the handshake completes. Feeds the existing launch-attempt reporting.</summary>
-    public string? ResolvedModel => _resolvedModel;
+    public string? ResolvedModel { get; private set; }
 
     readonly HostedAgentCommandsRelay _commandsRelay = new();
 
@@ -227,11 +224,11 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
 
     /// <summary>Daemon-held thread id — the deterministic session-id correlation that replaces the
     /// <c>CodexSessionRolloutLocator</c> timestamp race.</summary>
-    public string? ThreadId => _threadId;
+    public string? ThreadId { get; private set; }
 
     /// <summary>Latest cumulative token usage reported over <c>thread/tokenUsage/updated</c>, or null
     /// if none has arrived yet.</summary>
-    public CodexTokenUsage? Usage => _usage;
+    public CodexTokenUsage? Usage { get; private set; }
 
     // ── IAcpTranscriptSource ──────────────────────────────────────────
     // The canonical session id is the app-server thread id (== the rollout filename id and the hook
@@ -239,7 +236,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
     // thread/start handshake sets it.
 
     /// <inheritdoc cref="IAcpTranscriptSource.AcpSessionId"/>
-    public string AcpSessionId => _threadId ?? "";
+    public string AcpSessionId => ThreadId ?? "";
 
     /// <inheritdoc cref="IAcpTranscriptSource.Cwd"/>
     string IAcpTranscriptSource.Cwd => _launch.Cwd;
@@ -443,16 +440,16 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
         // coded; it NEVER silently starts a new thread (that would fork the transcript).
         var result = await RequestAsync(method, startParams, ct).ConfigureAwait(false);
 
-        _threadId      = result.Obj("thread")?.Str("id"); // same read for both start and resume
+        ThreadId      = result.Obj("thread")?.Str("id"); // same read for both start and resume
         // Codex can answer with an empty model; usage attributed to "" can never be priced.
-        _resolvedModel = result.Str("model") is { Length: > 0 } model ? model
+        ResolvedModel = result.Str("model") is { Length: > 0 } model ? model
                        : CodexLauncher.IsConcreteModel(_launch.Model) ? _launch.Model : null;
         _clock?.SetLaunchStage(isResume ? "thread_resumed" : "thread_started");
 
         // A started thread has every approval it will raise pass through this runtime; a resumed one may not.
-        if (!isResume && _threadId is { Length: > 0 } started) _policy?.MarkBridgedSinceStart(started);
+        if (!isResume && ThreadId is { Length: > 0 } started) _policy?.MarkBridgedSinceStart(started);
 
-        if (string.IsNullOrEmpty(_threadId))
+        if (string.IsNullOrEmpty(ThreadId))
             throw new InvalidOperationException($"codex app-server: {method} returned no thread id.");
 
         // Usage baseline: on resume the first thread/tokenUsage/updated carries the thread-CUMULATIVE
@@ -469,7 +466,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
     // not argv) and issues turn/start, returning the server-assigned turn. A -32001 backpressure
     // rejection is retried inside RequestAsync.
     async Task<CodexTurnStarted> IssueTurnStartAsync(string text, CancellationToken ct) {
-        var threadId = _threadId ?? throw new InvalidOperationException("codex app-server: no thread to start a turn on.");
+        var threadId = ThreadId ?? throw new InvalidOperationException("codex app-server: no thread to start a turn on.");
 
         var turnParams = new JsonObject {
             ["threadId"]          = threadId,
@@ -493,7 +490,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
     // pinned by its turn/start). A stale/ended turn answers -32600 as a CodexAppServerRpcException,
     // which the dispatcher catches and retries once as a turn/start.
     async Task IssueTurnSteerAsync(string turnId, string text, CancellationToken ct) {
-        var threadId = _threadId ?? throw new InvalidOperationException("codex app-server: no thread to steer.");
+        var threadId = ThreadId ?? throw new InvalidOperationException("codex app-server: no thread to steer.");
         var steerParams = new JsonObject {
             ["threadId"]       = threadId,
             ["expectedTurnId"] = turnId,
@@ -503,7 +500,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
     }
 
     async Task IssueCompactAsync(CancellationToken ct) {
-        var threadId = _threadId ?? throw new InvalidOperationException("codex app-server: no thread to compact.");
+        var threadId = ThreadId ?? throw new InvalidOperationException("codex app-server: no thread to compact.");
         await RequestAsync("thread/compact/start", new JsonObject { ["threadId"] = threadId }, ct).ConfigureAwait(false);
     }
 
@@ -601,7 +598,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
                 break;
             }
             case "thread/tokenUsage/updated":
-                _usage = ParseUsage(n.Params);
+                Usage = ParseUsage(n.Params);
                 _clock?.Advance();
                 break;
             case "account/rateLimits/updated":
@@ -614,7 +611,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
             case "model/rerouted":
                 // The resolved model changed mid-thread; the mapper attributes each subsequent token
                 // delta to the model-at-instant, so per-interval attribution across a reroute is correct.
-                if (n.Params?.Str("toModel") is { } rerouted) _resolvedModel = rerouted.Length > 0 ? rerouted : null;
+                if (n.Params?.Str("toModel") is { } rerouted) ResolvedModel = rerouted.Length > 0 ? rerouted : null;
                 _clock?.Advance();
                 break;
             default:
@@ -622,12 +619,15 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
                 break;
         }
 
+        if (FileChange(n.Method, n.Params) is ({ } itemId, var changes)) {
+            _policy?.Paths.Observe(itemId, changes);
+            _approvalBridge?.FileChanges.Observe(itemId, changes);
+        }
+
         // Translate every notification into canonical/ephemeral envelopes and
         // drain them through the forward buffer. Runs on the read-loop thread, so a full buffer blocks
         // here (a canonical emit) — the intended lossless backpressure onto the app-server's stdout.
         // Gated on envelope-source ingestion (see _emitEnvelopeTranscript).
-        if (_policy is { } policy) ObservePolicyFacts(policy, n.Method, n.Params);
-
         if (_emitEnvelopeTranscript)
             foreach (var mapped in _mapper.Map(n.Method, n.Params)) {
                 var env = _submitted.Stamp(mapped);
@@ -636,18 +636,15 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
             }
     }
 
-    /// <summary>A file change's paths arrive on its started item and its patch updates; its approval names none.</summary>
-    static void ObservePolicyFacts(CodexHostedPolicySeam policy, string method, JsonElement? p) {
-        switch (method) {
-            case "item/fileChange/patchUpdated" when p?.Str("itemId") is { } itemId && p.Value.TryGetProperty("changes", out var changes):
-                policy.Paths.Observe(itemId, changes);
-                break;
-            case "item/started" when p?.Obj("item") is { } item && item.Str("type") == "fileChange" && item.Str("id") is { } id
-                                  && item.TryGetProperty("changes", out var started):
-                policy.Paths.Observe(id, started);
-                break;
-        }
-    }
+    /// <summary>A file change's changes arrive on its started item and its patch updates; its approval names none.</summary>
+    static (string ItemId, JsonElement Changes)? FileChange(string method, JsonElement? p) => method switch {
+        "item/fileChange/patchUpdated" when p?.Str("itemId") is { } itemId && p.Value.TryGetProperty("changes", out var changes)
+            => (itemId, changes),
+        "item/started" when p?.Obj("item") is { } item && item.Str("type") == "fileChange" && item.Str("id") is { } id
+                         && item.TryGetProperty("changes", out var started)
+            => (id, started),
+        _ => null,
+    };
 
     // Stall watchdog: the forward buffer stayed full of canonical envelopes past the stall timeout
     // (the SignalR leg is wedged). Fault the runtime deterministically rather than wedging the read loop
@@ -727,7 +724,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
 
         // If a turn is in flight, interrupt it first so the app-server isn't mid-generation when we ask
         // it to shut down. Best-effort; never let it block teardown.
-        var threadId = _threadId;
+        var threadId = ThreadId;
         var turnId   = _dispatcher.CurrentTurnId;
         if (threadId is not null && turnId is not null) {
             try {
@@ -822,7 +819,7 @@ internal sealed partial class CodexAppServerHostedAgentRuntime : IHostedAgentRun
 
     // JsonNode → JsonElement without reflection (AOT-safe): the node writes its own JSON.
     static JsonElement ToElement(JsonNode node) =>
-        JsonDocument.Parse(node.ToJsonString()).RootElement.Clone();
+        JsonElement.Parse(node.ToJsonString());
 }
 
 /// <summary>Cumulative thread token usage from <c>thread/tokenUsage/updated.total</c> (the app-server

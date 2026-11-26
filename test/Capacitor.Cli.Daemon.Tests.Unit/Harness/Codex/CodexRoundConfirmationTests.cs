@@ -1,3 +1,4 @@
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Harness.Codex;
 using Microsoft.Extensions.Time.Testing;
 
@@ -17,7 +18,7 @@ public class CodexRoundConfirmationTests {
                 throw new TimeoutException($"Stalled waiting for the confirmation to settle: not done within {BoundedWait.DeadlineSeconds}s.");
 
             time.Advance(Poll);
-            await Task.WhenAny(task, Task.Delay(5));
+            await task.FinishedWithinAsync(TimeSpan.FromMilliseconds(5), TimeProvider.System);
         }
 
         return await task;

@@ -117,6 +117,15 @@ internal sealed class CodexHostedAgentRuntimeFactory : IHostedAgentRuntimeFactor
         return [paths.ModelsCache, paths.AuthJson];
     }
 
+    /// <summary>Every account probes with the one installed Codex, so its version judges every models cache.</summary>
+    public bool CatalogWrittenByProbedCli(string path, byte[] content) =>
+        !string.Equals(Path.GetFileName(path), CodexPaths.ModelsCacheFileName, StringComparison.Ordinal)
+     || CodexModelsCache.WrittenBy(content, ProbedCliVersion());
+
+    string? ProbedCliVersion() =>
+        _config.UnattendedVendorCapabilities?.FirstOrDefault(c => string.Equals(c.Vendor, Vendor, StringComparison.Ordinal))?.CliVersion
+     ?? (_config.CodexResolution is { Probed: true, CliVersion: { } version } ? version : null);
+
     // A default-kind launch is the only Codex shape that accepts a follow-up while running, so it is
     // the only one whose fetch happens alongside a live, write-contained process: the store keeps
     // that write outside every cwd it could steer. Protected kinds fetch before the process exists.
@@ -136,7 +145,7 @@ internal sealed class CodexHostedAgentRuntimeFactory : IHostedAgentRuntimeFactor
         var appServer = pinned switch {
             CodexTransportDecision.Pty       => false,
             CodexTransportDecision.AppServer => true,
-            _ => !(ctx.IsReview && !ctx.IsReviewFlow) && _config.AcknowledgedCodexResolution.Active,
+            _ => ctx is not { IsReview: true, IsReviewFlow: false } && _config.AcknowledgedCodexResolution.Active,
         };
         if (!appServer) return new(AppServer: false, Refusal: null);
 
@@ -209,7 +218,7 @@ internal sealed class CodexHostedAgentRuntimeFactory : IHostedAgentRuntimeFactor
             // SessionStarted, since the resumed thread keeps its canonical id).
             ResumeSessionId: ctx.ResumeSessionId);
 
-        CodexAppServerSpawn spawn = (seed, spawnCt) =>
+        CodexAppServerSpawn spawn = (seed, _) =>
             _spawnFactory(_launcher.CliPath, appServerArgs, seed, ctx.Worktree.Path, env, removeEnv, _config, _loggerFactory);
 
         ctx.Journal?.Open(ctx.Worktree.Path, ctx.Model);

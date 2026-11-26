@@ -247,8 +247,8 @@ public class AntigravityReviewerLiveCertTests {
             Config   = config;
         }
 
-        internal string       Worktree { get; }
-        internal DaemonConfig Config   { get; }
+        string       Worktree { get; }
+        DaemonConfig Config   { get; }
 
         internal List<SpawnedRound> Spawns { get; } = [];
 
@@ -317,10 +317,11 @@ public class AntigravityReviewerLiveCertTests {
             return factory.StartAsync(ctx, CancellationToken.None);
         }
 
-        Task<IAgyTurnProcess> SpawnAsync(ProcessStartInfo psi, CancellationToken ct) {
-            var process = new AgyTurnProcess(psi, NullLogger<AgyTurnProcess>.Instance, TimeProvider.System);
+        Task<IAgyTurnProcess> SpawnAsync(AgyTurnSpawn spawn, CancellationToken ct) {
+            var process = new AgyTurnProcess(
+                spawn.Psi, spawn.Prompt, NullLogger<AgyTurnProcess>.Instance, TimeProvider.System);
 
-            lock (Spawns) Spawns.Add(new SpawnedRound(psi, process));
+            lock (Spawns) Spawns.Add(new SpawnedRound(spawn.Psi, process));
 
             return Task.FromResult<IAgyTurnProcess>(process);
         }

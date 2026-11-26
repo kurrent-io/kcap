@@ -591,6 +591,38 @@ public class CodexAppServerHostedAgentRuntimeTests {
         await runtime.DisposeAsync();
     }
 
+    /// A file-change approval names no file, so the card takes it from the item's start — with no policy configured.
+    [Test]
+    public async Task A_file_change_approval_shows_the_file_its_item_started_with() {
+        var fake = new FakeCodexAppServer {
+            InjectApprovalDuringTurn = true,
+            ApprovalMethod = "item/fileChange/requestApproval",
+            ApprovalItem = new JsonObject {
+                ["type"] = "fileChange", ["id"] = "fc-1", ["status"] = "inProgress",
+                ["changes"] = new JsonArray(new JsonObject {
+                    ["path"] = "/tmp/wt/new.txt", ["kind"] = new JsonObject { ["type"] = "add" }, ["diff"] = "hello\n",
+                }),
+            },
+        };
+        AcpInteractionRequest? shown = null;
+        var (runtime, _, _) = Build(_ => fake, Launch(approval: "on-request"),
+            requestInteraction: (request, _) => {
+                shown = request;
+                return Task.FromResult(new AcpInteractionDecision("allow", "accept", "Allow", null, null, null));
+            });
+        await runtime.StartAsync(CancellationToken.None).WaitAsync(HangGuard);
+
+        await runtime.SendUserInputAsync("write it").WaitAsync(HangGuard);
+        await runtime.WaitForTurnIdleAsync(CancellationToken.None).WaitAsync(HangGuard);
+
+        await Assert.That(shown).IsNotNull();
+        await Assert.That(shown!.Value.ToolName).IsEqualTo("Write");
+        await Assert.That(shown.Value.ToolInput?.Str("file_path")).IsEqualTo("/tmp/wt/new.txt");
+        await Assert.That(fake.ApprovalResponse!.Value.GetProperty("decision").GetString()).IsEqualTo("accept");
+
+        await runtime.DisposeAsync();
+    }
+
     [Test]
     public async Task Token_usage_notification_is_captured() {
         var fake = new FakeCodexAppServer { EmitUsageOnTurn = (input: 120, output: 40, total: 160) };
@@ -658,8 +690,8 @@ public class CodexAppServerHostedAgentRuntimeTests {
         var moveNext = e.MoveNextAsync().AsTask();
 
         // Still live: the stream must not end while the runtime is running.
-        var early = await Task.WhenAny(moveNext, Task.Delay(300));
-        await Assert.That(early).IsNotSameReferenceAs(moveNext);
+        var early = await moveNext.FinishedWithinAsync(TimeSpan.FromMilliseconds(300), TimeProvider.System);
+        await Assert.That(early).IsFalse();
 
         await runtime.DisposeAsync();
         // Terminal now: the stream ends (no bytes ever, EmitsTerminalOutput=false).

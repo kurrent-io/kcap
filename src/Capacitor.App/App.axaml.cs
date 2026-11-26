@@ -16,6 +16,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.Platform;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Capacitor.App.Services;
@@ -27,6 +28,7 @@ using Capacitor.App.Services.Notifications;
 using Capacitor.App.Services.Onboarding;
 using Capacitor.App.Services.Update;
 using Capacitor.Cli.Core.Install;
+using Capacitor.App.ProgressiveDisclosure;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.NextWork;
 using Capacitor.App.ViewModels.Onboarding;
@@ -79,8 +81,7 @@ public partial class App : Application {
     readonly AuthEndpoints    _endpoints  = AuthEndpoints.FromEnvironment();
     readonly UserHome   _userHome = UserHome.FromEnvironment();
 
-    LifecycleLog? _lifecycleLogInstance;
-    LifecycleLog LifecycleLog => _lifecycleLogInstance ??= new LifecycleLog(_config, _time, _userHome.Path,
+    LifecycleLog LifecycleLog => field ??= new LifecycleLog(_config, _time, _userHome.Path,
         closed: () => _uninstalling || _uninstallMode is not null);
     StartupMarks StartupMarks => field ??= new StartupMarks(LifecycleLog, _time, StartupMarks.CurrentProcessStart());
     TimeSpan? _windowBuild;
@@ -115,7 +116,17 @@ public partial class App : Application {
     readonly AppStateStore _appState;
 
     readonly UiScaleSetting _uiScale;
+    readonly string? _openingDesktopColorScheme;
+    readonly IReadOnlyDictionary<string, string>? _openingDesktopAppearance;
+    DesktopColorSchemeSettings? _colorScheme;
+    DesktopAppearanceSettings? _desktopAppearance;
+    CompositeDisposable? _appearanceSubscription;
+    ChatMarksFiles? _chatMarksFiles;
+    readonly ProgressiveDisclosurePreferences? _progressiveDisclosure;
     readonly BetaUpdatesSetting _betaUpdates;
+    // The constructor's read of app-state.json, handed to the first main window and then dropped:
+    // a later window must read what the earlier one saved.
+    AppState? _startupState;
 
     // Set only in a copy started to uninstall; nothing of the normal app is built in it.
     readonly UninstallMode? _uninstallMode = Program.Uninstall;
@@ -127,9 +138,15 @@ public partial class App : Application {
      || (OperatingSystem.IsWindows() && RuntimeInformation.OSArchitecture == Architecture.X64);
 
     public App() {
-        _appMenu = new AppMenu(OperatingSystem.IsMacOS() ? AppKitMenus.ShowAboutPanel
+        // About opens Settings → About, the one About surface; the platform's own About covers the
+        // time before a profile can open Settings.
+        Action? platformAbout = OperatingSystem.IsMacOS() ? AppKitMenus.ShowAboutPanel
             : OperatingSystem.IsWindows() ? () => _coordinator?.Window?.ShowAbout()
-            : null);
+            : null;
+        _appMenu = new AppMenu(platformAbout is null ? null : () => {
+            if (_openAboutSettings is { } open) open();
+            else platformAbout();
+        });
         // A live facade creates the device id and the spool under the config root being removed.
         _telemetry   = CliTelemetry.Start(
             DesktopTelemetry(_uninstallMode, _endpoints.SignupUrl,
@@ -140,8 +157,14 @@ public partial class App : Application {
 #pragma warning disable RS0030 // the one store the ban points every other site at
         _appState = new AppStateStore(_config.Path("app-state.json"));
 #pragma warning restore RS0030
-        _uiScale = UiScaleSetting.LoadAsync(_appState).GetAwaiter().GetResult();
-        _betaUpdates = BetaUpdatesSetting.LoadAsync(_appState).GetAwaiter().GetResult();
+        var state = _appState.LoadAsync().GetAwaiter().GetResult();
+        _openingDesktopColorScheme = state.DesktopColorScheme;
+        _openingDesktopAppearance = state.DesktopAppearance;
+        _uiScale = UiScaleSetting.From(_appState, state);
+        SecondaryWindowScale.Install(_uiScale);
+        _betaUpdates = BetaUpdatesSetting.From(_appState, state);
+        _progressiveDisclosure = state.ProgressiveDisclosure;
+        _startupState = state;
     }
 
     internal static TelemetryStartup DesktopTelemetry(
@@ -216,6 +239,7 @@ public partial class App : Application {
     // shutdown and startup-failure alike — disposes them in reverse creation order, tray icon
     // first, so a quit never strands a dead icon in the menu bar.
     MainWindowCoordinator? _coordinator;
+    ChatViewWarmup? _chatWarmup;
     PauseController? _pause;
     ConsentService? _consent;
     PermissionService? _permissions;
@@ -243,6 +267,7 @@ public partial class App : Application {
     HandoffDrafts? _handoffDrafts;
     SessionRunActivity? _commands;
     SessionAccessService? _sessionAccess;
+    RemoteTranscriptCache? _remoteTranscripts;
     PullRequestToneCache? _pullRequestTones;
     ConsentPromptCoordinator? _promptCoordinator;
     // Disposed with the other UI services below: it holds a constructor-scoped subscription to
@@ -263,6 +288,8 @@ public partial class App : Application {
     LocalUpgradeController? _localUpgrade;
     LocalSearchController? _localSearch;
     LocalStackViewModel? _localStack;
+    // The open Settings window's Background intelligence tab, which the upgrade and a search change wait for.
+    BackgroundIntelligenceSettingsViewModel? _intelligenceSettings;
     // The server-side clients that outlive a window rebuild (MainWindowCoordinator can build a
     // second window over the same launch client) and own live transports. Torn down through one
     // holder on both teardown paths, after _home — never before, or a launch still in flight would
@@ -275,6 +302,7 @@ public partial class App : Application {
     AgentDirectory? _directory;
     ServerVendorModelCatalog? _modelCatalog;
     GitHubCliReaderProvider? _gh;
+    GitHubLinkStatuses? _githubLinks;
     TrayViewModel? _trayVm;
     TrayIconManager? _tray;
     DaemonRestartPendingWatcher? _restartPending;
@@ -284,7 +312,7 @@ public partial class App : Application {
     // disposed, and the window that owns dialogs while no main window exists. Both are cleared again
     // by the handoff at the end of RunWizardModeAsync.
     WizardAuthService? _wizardAuth;
-    // The History step, kept past the handoff: its import outlives onboarding and only shutdown stops it.
+    // The History step, kept past the handoff: its import outlives onboarding, so shutdown must still stop it.
     HistoryStepViewModel? _historyImport;
     // Imports of earlier chats started from Settings → Harnesses; shutdown stops every one like setup's.
     readonly List<HistoryImportRun> _settingsImports = [];
@@ -297,17 +325,24 @@ public partial class App : Application {
     // The onboarding window once its flow has finished, waiting for BuildAndShowMainWindow to take
     // it over so the main surface opens in place rather than in a second window.
     (MainWindow Window, AppState State)? _adoptableWindow;
-    // Steady-state re-auth dialog, one at a time — a second Sign in click focuses it. The settle
+    // Steady-state re-auth dialog, one at a time, and the graph it runs on. The settle
     // task is FinishSignInAsync for the most recent close; shutdown awaits it so a live attempt is
     // cancelled (or a commit past the boundary finishes) before the process exits — the dialog's
     // counterpart of the wizard sign-in quiesce.
     SignInWindow? _signInWindow;
+    ReauthGraph? _signInGraph;
     SettingsWindow? _settingsWindow;
     readonly BehaviorSubject<Action?> _openSearchSettings = new(null);
     readonly BehaviorSubject<Func<bool>?> _openHarnessesSettings = new(null);
+    Action? _openAboutSettings;
     FeedbackWindow? _feedbackWindow;
     internal FeedbackWindow? FeedbackWindowForTests => _feedbackWindow;
     readonly AppMenu _appMenu;
+    // The menu's uninstall, which a launch from Windows' Installed apps asks this running copy for; null until the
+    // app can gather what the confirmation names.
+    Action? _requestUninstall;
+    // Set when a start fails, and completed once that failure's cleanup has run and its error window is up.
+    TaskCompletionSource? _startupFailure;
     // A field, not a local: the report items it retains are enabled only once the profile has
     // resolved, long after the bar is attached.
     AppMenuBar? _menuBar;
@@ -338,8 +373,17 @@ public partial class App : Application {
 
     public override void Initialize() {
         AvaloniaXamlLoader.Load(this);
+        // The themed brushes are declared without colors. A fixed Light start keeps the headless tests
+        // independent of the machine's theme; the app paints the saved or system scheme before its first window.
+        if (!new DesktopPalette(this).TryApply(DesktopTheme.Light))
+            throw new InvalidOperationException("The Light theme in Design/Themes.axaml is missing a palette entry.");
+        ScrollReveal.Register();
+        ProgressiveDisclosureViewModel.Shared.Restore(_progressiveDisclosure, _appState);
         LineSelection.Install();
         ToolTipFocusGate.Install();
+        FullOpacityPlaceholder.Install();
+        ReducedMotion.Install();
+        CaretBlink.Install();
         // Here, not later: Avalonia exports the app menu right after Initialize, substituting its own
         // "About Avalonia" when there is none.
         NativeMenu.SetMenu(this, _appMenu.Menu);
@@ -354,6 +398,18 @@ public partial class App : Application {
                 () => _shutdownStarted ? null : MainWindowAction(_coordinator), AppKitDock.SetVisible);
             _windowLifecycle = windowLifecycle;
             desktop.Exit += (_, _) => { windowLifecycle.Dispose(); Program.Host.Dispose(); };
+            // The install, update and uninstall paths below can open dialogs: they open in the user's scheme.
+            ConfigureDesktopAppearance();
+            Program.Host.SingleInstance.UninstallRequested += () => Dispatcher.UIThread.Post(() => {
+                // A copy started to uninstall is already asking or removing; a second question would start a second removal.
+                if (_shutdownStarted || _uninstalling || _uninstallRun is not null || _uninstallMode is not null) return;
+                if (_requestUninstall is { } request) {
+                    MainWindowAction(_coordinator)?.Invoke();
+                    request();
+                } else {
+                    _ = UninstallBeforeMainAppAsync(desktop);
+                }
+            });
             Program.Host.SingleInstance.ShowRequested += () => Dispatcher.UIThread.Post(() => {
                 if (_uninstallRun is not null && desktop.MainWindow is { } uninstallWindow) {
                     if (uninstallWindow.WindowState == WindowState.Minimized) uninstallWindow.WindowState = WindowState.Normal;
@@ -374,7 +430,7 @@ public partial class App : Application {
             if (_uninstallMode is { } uninstall) {
                 RunUninstallMode(desktop, uninstall);
             } else {
-                // Before StartAsync: it shows its first window (the install guard or the wizard) synchronously.
+                // Install the menu before startup can show a window.
                 _menuBar = new AppMenuBar(new ShellUrlOpener(), () => desktop.Windows, () => MainWindowAction(_coordinator));
                 _menuBar.Install();
                 _ = StartAsync(desktop);
@@ -411,7 +467,7 @@ public partial class App : Application {
 
             // The lane is constructed first — every daemon mutation routes through this one instance, and its dependencies need neither a resolved profile nor a live service.
             var laneRunner = new ProcessRunner(_time);
-            var laneProbe  = TerminalPathProbe.Create(laneRunner, Environment.GetEnvironmentVariable);
+            var laneProbe  = NewTerminalProbe(laneRunner);
             var channel    = new OutcomeChannel();
             var lane = new DaemonMutationLane(
                 _daemonStore, laneProbe, channel, ResolvePinnedCli,
@@ -423,10 +479,15 @@ public partial class App : Application {
             _lane = lane;
             _adoption = BuildCliAdoption(lane, laneRunner, laneProbe);
 
+            // Before setup can open: an uninstall asked for from Installed apps while it is up should still ask.
+            if (OperatingSystem.IsWindows()
+             && Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is { } installed)
+                PointInstalledAppsAtThisUninstall(installed);
+
             var gateStarted = _time.GetTimestamp();
             var (gate, profiles) = await ResolveAndEvaluateGateAsync(_config, _foreignHttp.GetRequiredService<TokenStore>(), _serverEnv, _localRoot, _time, _shutdown.Token);
             var gateTook = _time.GetElapsedTime(gateStarted);
-            var showWizard = ShouldShowWizard(gate, desktop.Args);
+            var showWizard = ShouldShowWizard(gate, desktop.Args, Program.FirstRunAfterInstall);
             TimeSpan? graphTook = null;
             await RunWizardThenBuildGraphAsync(
                 gate, profiles, showWizard,
@@ -481,19 +542,24 @@ public partial class App : Application {
             // A quit during cleanup must retain the startup failure's exit code.
             _exitCode = 1;
             _shutdown.Cancel();
+            // The app this would tear down is going away here; an uninstall asked for from now on is asked over the error window.
+            _requestUninstall = null;
+            var failure = _startupFailure = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var settled = Disposable.Create(() => failure.TrySetResult());
             // Block window recreation and hide-on-close before cleanup can yield.
             if (_coordinator is not null) _coordinator.QuitInProgress = true;
             LatchNavigation();
             if (_wizardWindow is { IsVisible: true } wizard) wizard.Close();
             if (TakeAdoptableWindow() is { } adoptable) adoptable.Window.Close();
             Console.Error.WriteLine($"kcap app failed to start: {ex}");
+            Program.RecordStartupFailure(ex);
             await QuiesceAppAsync(_wizardAuth, _historyImport, _localInstall,
                 lifecycle: null, lane: null, QuiesceShutdownCap, _time);
             await _workspaceTeardown.DrainAsync();
             await HandleStartupFailureAsync(
                 desktop, ex, _service, _shutdown,
                 [_tray, _trayVm, _promptCoordinator, _consent, _desktopNotifications, _notificationSink,
-                    _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess,
+                    _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess, _remoteTranscripts,
                     _pullRequestTones, _launchApprovals, _webWorkspace, _activity, _home, _localServer, _localStack, _rail, _pause, _staleDaemonNudge, _restartPending, _expectedRestart,
                     _adoption],
                 _lifecycle, _lane, _localUpgrade, _localSearch, _menuBar, _coordinator);
@@ -524,6 +590,7 @@ public partial class App : Application {
             _accounts = null;
             _usageClock = null;
             _sessionAccess = null;
+            _remoteTranscripts = null;
             _pullRequestTones = null;
             _pause = null;
             _activity = null;
@@ -750,13 +817,48 @@ public partial class App : Application {
 
     // A standalone launch and the app menu share the same window and removal pipeline.
     // The menu supplies preparation so normal app services stop before cleanup starts.
-    void RunUninstallMode(IClassicDesktopStyleApplicationLifetime desktop, UninstallMode uninstall) =>
-        StartUninstall(desktop, uninstall, prepareApp: false);
+    void RunUninstallMode(IClassicDesktopStyleApplicationLifetime desktop, UninstallMode uninstall) {
+        if (uninstall.Confirm) _ = ConfirmThenUninstallAsync(desktop);
+        else StartUninstall(desktop, uninstall, prepareApp: false);
+    }
+
+    // Best effort: an entry left as the installer wrote it still uninstalls, only without the question.
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    static void PointInstalledAppsAtThisUninstall(Platform.Windows.VelopackInstall install) {
+        if (Environment.ProcessPath is not { } exe) return;
+        try {
+            Platform.Windows.WindowsUninstallCommand.PointAtApp(install.Root, exe);
+        } catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or System.Security.SecurityException) {
+            Console.Error.WriteLine($"kcap: could not point Installed apps at kcap's own uninstall: {ex.Message}");
+        }
+    }
+
+    async Task ConfirmThenUninstallAsync(IClassicDesktopStyleApplicationLifetime desktop) {
+        try {
+            if (Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is not { } install) {
+                await Console.Error.WriteLineAsync("kcap: uninstalling from the app needs kcap installed by its Windows installer.");
+                desktop.Shutdown(1);
+                return;
+            }
+            var facts = UninstallFactsWithoutApp(install.Root);
+            var request = UninstallConfirmation.Build(await facts.GatherAsync(_shutdown.Token));
+            var (accepted, removeSettings) = await ShowLifecycleChoiceDialogAsync(null, request.Prompt, _shutdown.Token);
+            if (!accepted) {
+                desktop.Shutdown(0);
+                return;
+            }
+            StartUninstall(desktop, request.Mode(removeSettings), prepareApp: false);
+        } catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
+        } catch (Exception ex) {
+            await Console.Error.WriteLineAsync($"kcap: could not start the uninstall: {ex.Message}");
+            desktop.Shutdown(1);
+        }
+    }
 
     bool StartUninstall(IClassicDesktopStyleApplicationLifetime desktop, UninstallMode uninstall, bool prepareApp) {
         var previous = prepareApp ? desktop.Windows.ToArray() : [];
         var runner = new ProcessRunner(_time);
-        var probe = TerminalPathProbe.Create(runner, Environment.GetEnvironmentVariable);
+        var probe = NewTerminalProbe(runner);
         var cli = NewWizardCli(_config, _serverEnv, _localRoot, runner, ResolvePinnedCli().Path, probe);
         var quitting = false;
         void Quit(int exitCode) {
@@ -765,13 +867,16 @@ public partial class App : Application {
             desktop.Shutdown(exitCode);
         }
         Func<Task>? prepare = prepareApp ? () => PrepareAppForUninstallAsync(previous) : null;
+        bool HasSettings() => File.Exists(AppConfig.GetConfigPath(_config));
         var run = OperatingSystem.IsMacOS()
-            ? uninstall.BuildRun(Environment.ProcessPath, root => new MacAppRemoval(runner, _userHome, _config, root), cli, () => Quit(0), prepare: prepare)
+            ? uninstall.BuildRun(Environment.ProcessPath, root => new MacAppRemoval(runner, _userHome, _config, root), cli, () => Quit(0), prepare: prepare,
+                hasSettings: HasSettings)
             : OperatingSystem.IsLinux()
                 ? uninstall.BuildAppImageRun(AppImageInstall.Detect(Environment.GetEnvironmentVariable),
-                    install => new LinuxAppRemoval(runner, _userHome, _config, install, Environment.GetEnvironmentVariable, _time), cli, () => Quit(0), prepare: prepare)
+                    install => new LinuxAppRemoval(runner, _userHome, _config, install, Environment.GetEnvironmentVariable, _time), cli, () => Quit(0), prepare: prepare,
+                    hasSettings: HasSettings)
                 : OperatingSystem.IsWindows()
-                    ? BuildWindowsUninstallRun(desktop, uninstall, cli, () => Quit(0), prepare)
+                    ? BuildWindowsUninstallRun(desktop, uninstall, cli, () => Quit(0), prepare, HasSettings)
                     : null;
         if (run is null) {
             Console.Error.WriteLine(OperatingSystem.IsWindows()
@@ -792,12 +897,12 @@ public partial class App : Application {
     // Update.exe ends every process running from the install, this one included, so the removal hands
     // the install to it only from the exit, after the user has read the result.
     static UninstallRunViewModel? BuildWindowsUninstallRun(IClassicDesktopStyleApplicationLifetime desktop, UninstallMode uninstall,
-            IKcapCli cli, Action quit, Func<Task>? prepare) {
+            IKcapCli cli, Action quit, Func<Task>? prepare, Func<bool> hasSettings) {
         if (!OperatingSystem.IsWindows()) return null;
         if (Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is not { } install) return null;
         var removal = new Platform.Windows.WindowsAppRemoval(install,
             new WindowsUserPathInstaller(new WindowsUserPathStore(), new WindowsPathProbe()));
-        var run = uninstall.BuildVelopackRun(install, _ => removal, cli, quit, prepare: prepare);
+        var run = uninstall.BuildVelopackRun(install, _ => removal, cli, quit, prepare: prepare, hasSettings: hasSettings);
         if (run is not null) desktop.Exit += (_, _) => removal.StartUninstallerIfSet();
         return run;
     }
@@ -810,6 +915,7 @@ public partial class App : Application {
         _appMenu.SetCheckForUpdatesAction(null);
         _appMenu.SetSetupAction(null);
         _appMenu.SetUninstallAction(null);
+        _requestUninstall = null;
         _shutdown.Cancel();
         await DisposeAppAsync(shutdown: false);
         // Close normal windows while their persisted state still exists. Their shutdown latch
@@ -869,6 +975,8 @@ public partial class App : Application {
             LifecycleLog.Write("install_deferred", ("replaces", string.Join(", ", plan.Replaces)));
             if (ReferenceEquals(desktop.MainWindow, shown)) desktop.MainWindow = null;
             shown?.Close();
+            // The guard waits on the user as long as setup does, so the window after it reads the state afresh.
+            _startupState = null;
             _ = StartAsync(desktop, guarded: false);
         }
         var window = BuildInstallLocationWindow(
@@ -1015,10 +1123,36 @@ public partial class App : Application {
     internal static bool LocalSetupCannotRetry(LocalInstallController? install) =>
         install?.Outcome is LocalInstallOutcome.Failed { Affordance: LocalInstallAffordance.Permanent or LocalInstallAffordance.Busy };
 
-    internal static bool ShouldShowWizard(GateResult gate, string[]? args) =>
-        gate is GateResult.Incomplete || args?.Contains("--setup", StringComparer.Ordinal) == true;
+    /// <param name="firstRunAfterInstall">A fresh install reopens setup over a profile that is already complete:
+    /// what it finds there was left by an earlier install, and setup is where it is confirmed or changed.</param>
+    internal static bool ShouldShowWizard(GateResult gate, string[]? args, bool firstRunAfterInstall = false) =>
+        gate is GateResult.Incomplete || firstRunAfterInstall || args?.Contains("--setup", StringComparer.Ordinal) == true;
 
-    // The steady-state graph, over the resolution the gate was evaluated on (never a second resolve).
+    void ConfigureDesktopAppearance() {
+        var palette = new DesktopPalette(this);
+        var platform = PlatformSettings;
+        var system = new SystemColorScheme(platform, OperatingSystem.IsLinux() ? LinuxColorScheme.PrefersDark() : null);
+        var systemChanges = platform is null ? Observable.Never<Unit>() :
+            Observable.FromEventPattern<PlatformColorValues>(h => platform.ColorValuesChanged += h, h => platform.ColorValuesChanged -= h)
+                .Select(_ => Unit.Default).ObserveOn(RxSchedulers.MainThreadScheduler);
+        var reading = new DesktopReadingResources(this);
+        var contrastWatch = new SerialDisposable();
+        // Contrast is settled before the first paint, so the scheme paints once.
+        var appearance = new DesktopAppearanceSettings(_appState, _openingDesktopAppearance, preferences => {
+            reading.Apply(preferences);
+            var highContrast = preferences.HighContrast;
+            void ApplyContrast() => palette.SetHigherContrast(highContrast ||
+                platform?.GetColorValues().ContrastPreference == ColorContrastPreference.High);
+            contrastWatch.Disposable = !highContrast ? systemChanges.Subscribe(_ => ApplyContrast()) : null;
+            ApplyContrast();
+        });
+        var zoomWatch = _uiScale.Changes.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(reading.SetZoom);
+        _colorScheme = new DesktopColorSchemeSettings(_appState, _openingDesktopColorScheme,
+            palette.TryApply, () => system.IsDark, systemChanges);
+        _desktopAppearance = appearance;
+        _appearanceSubscription = new CompositeDisposable(system, contrastWatch, zoomWatch);
+    }
+
     void BuildDaemonGraph(
             IClassicDesktopStyleApplicationLifetime desktop, DaemonMutationLane lane, OutcomeChannel channel, ILoginShellProbe probe,
             GateResult gate, ProfileContext? profiles, bool laneQuiesced) {
@@ -1064,7 +1198,7 @@ public partial class App : Application {
                 lock (lifecycleStatus) if (ReferenceEquals(lifecycleStatus.Value, message)) lifecycleStatus.OnNext(null);
                 lock (lifecycleAttention) if (ReferenceEquals(lifecycleAttention.Value, message)) lifecycleAttention.OnNext(null);
             },
-            lane.RunAsync, profiles?.Resolution, () => lane.IsRetired(service.DaemonName), lane.CliVersionAsync, probe);
+            lane.RunAsync, profiles?.Resolution, () => lane.IsRetired(service.DaemonName) || lane.RestartRequired, lane.CliVersionAsync, probe);
         lifecycle.RestartExpected = () => expectedRestart.Expected;
         lifecycle.Start();
         _lifecycle = lifecycle;
@@ -1193,9 +1327,9 @@ public partial class App : Application {
 
         // After the directory, which feeds it the session→agent map: a server-lane item names a
         // session, and only that map turns it into the agent whose card it belongs on.
-        SessionDetailReader readDetail = new SharedSessionDetailReader(ServerSessionHttp.DetailReader(sessionHttp, profiles)).ReadAsync;
         var readSubagent = ServerSessionHttp.SubagentEventsReader(sessionHttp, profiles);
         var readEvents = ServerSessionHttp.SessionEventsReader(sessionHttp, profiles);
+        var readPending = ServerSessionHttp.PendingInterruptsReader(sessionHttp, profiles);
         var readSummary = ServerSearchHttp.Summary(sessionHttp, profiles);
         bool? listedEnded(string sessionId) {
             var rows = directory.Rows.Items.Where(r => r.SessionId == sessionId).ToList();
@@ -1213,15 +1347,19 @@ public partial class App : Application {
         lane.AccountsRevisionReached = (revision, ct) => accounts.ReachedAsync(revision, TimeSpan.FromSeconds(10), ct);
         var sessionAccess = new SessionAccessService(serverLane, _time);
         var permissionFeed = new ServerPermissionFeed(
-            serverLane, sessionAccess, permissions, new SessionInterruptLog(readEvents, serverLane, readSummary, listedEnded),
+            serverLane, sessionAccess, permissions, new SessionInterruptLog(readEvents, serverLane, readSummary, listedEnded, readPending),
             directory.VendorOfSession, _time);
         // A pending ping is evidence the listing and summary can trail, so neither answers for it.
-        var attention = new SessionAttentionTracker(serverLane, new SessionInterruptLog(readEvents, serverLane), _time);
+        var attention = new SessionAttentionTracker(serverLane, new SessionInterruptLog(readEvents, serverLane, readPending: readPending), _time);
         _sessionAccess = sessionAccess;
+        var remoteTranscripts = new RemoteTranscriptCache(SignedInSubject.From(serverLane.Status), sessionAccess.Transitions);
+        _remoteTranscripts = remoteTranscripts;
         // Sessions the rail hides are not read: nothing would show their PRs.
         var railShown = new ReplaySubject<Func<AgentRow, bool>>(1);
         var pullRequestTones = new PullRequestToneCache(directory, readers, TimeProvider.System, railShown);
         _pullRequestTones = pullRequestTones;
+        var githubLinks = _githubLinks = new GitHubLinkStatuses(new GitHubCliLinkLookup(gh, _gh, _time).LookUpAsync, _time,
+            RxSchedulers.MainThreadScheduler, pullRequestTones.Summaries);
         _permissionFeed = permissionFeed;
         _attention = attention;
 
@@ -1272,14 +1410,17 @@ public partial class App : Application {
             OpenSignInDialog(profiles.Name, serverUrl, refreshAppState: true);
         });
         // The bundled CLI's own coordinator, never a hook: the stack follows the CLI this app ships.
-        // The upgrade and a search change both take the installation, so each holds the other off; both start on the UI thread.
+        // The upgrade, a search change and the Background intelligence tab all reach the server, which the first two restart,
+        // so each holds the others off; all start on the UI thread.
         LocalSearchController? localSearch = null;
         var localUpgrade = isLocalServer
-            ? new LocalUpgradeController(() => lifecycleCli, action => Dispatcher.UIThread.Post(action), held: () => localSearch?.Running == true)
+            ? new LocalUpgradeController(() => lifecycleCli, action => Dispatcher.UIThread.Post(action),
+                held: () => localSearch?.Running == true || _intelligenceSettings?.Busy == true)
             : null;
         _localUpgrade = localUpgrade;
         localSearch = localUpgrade is null ? null
-            : new LocalSearchController(() => lifecycleCli, action => Dispatcher.UIThread.Post(action), held: () => localUpgrade.Running);
+            : new LocalSearchController(() => lifecycleCli, action => Dispatcher.UIThread.Post(action),
+                held: () => localUpgrade.Running || _intelligenceSettings?.Busy == true);
         _localSearch = localSearch;
         Func<CancellationToken, Task<EmbeddingHealthAnswer?>>? localEmbeddingHealth = profiles?.Resolution.ServerUrl is { Length: > 0 } localUrl
             ? ct => EmbeddingHealthAnswer.ReadAsync(localUrl, ct)
@@ -1324,7 +1465,7 @@ public partial class App : Application {
 
         var appSubject = SignedInSubject.From(serverLane.Status);
         var commands = new SessionRunActivity((key, report, ended, handoff) =>
-            new SessionRunMonitor(key, report, ended, service, directory, sessionAccess, readDetail, serverLane, _time, handoff));
+            new SessionRunMonitor(key, report, ended, service, directory, sessionAccess, readEvents, serverLane, _time, handoff));
         _commands = commands;
         Action linkGitHub = () => {
             if (profiles?.Resolution.ServerUrl is { Length: > 0 } url)
@@ -1339,6 +1480,11 @@ public partial class App : Application {
         var inAppPages = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.InAppPages);
         var launcherNextWork = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.LauncherNextWork);
         var drafts = new ComposerDrafts();
+        var chatMarksOn = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profiles?.Resolution.ProfileName, ExperimentalFeatures.ChatMarks);
+        _chatMarksFiles = new ChatMarksFiles(_config.Path("chat-marks"));
+        var chatMarks = new ChatMarks(_chatMarksFiles);
+        // Off, a chat shows no topic or bookmark controls and its saved marks stay on disk unread.
+        ChatMarks? ChatMarksIfOn() => chatMarksOn.IsOn ? chatMarks : null;
         var finds = new ChatFindMemory();
         var workContextLayout = new WorkContextLayout();
         var transcripts = new LocalTranscripts();
@@ -1362,22 +1508,22 @@ public partial class App : Application {
             appSubject: appSubject, notifier: notifier, serverLane: serverLane.Status, workContextLayout: workContextLayout,
             handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
             pickers: pickers,
-            inAppPages: () => inAppPages.IsOn);
+            inAppPages: () => inAppPages.IsOn, chatMarks: ChatMarksIfOn());
         // The origin lookup below and this call are two reads of a cache the directory's own
         // background recompute mutates, so the row can be gone by the time this runs: no row, no
         // host, and the click opens nothing.
         RemoteSessionViewModel? BuildRemote(string agentId) =>
             directory.Rows.Lookup($"remote:{agentId}") is { HasValue: true, Value: var row }
-                ? new RemoteSessionViewModel(row, directory, sessionAccess, permissions, actions, serverLane, readDetail, workspaceOpener, _time, workContext,
+                ? new RemoteSessionViewModel(row, directory, sessionAccess, permissions, actions, serverLane, readEvents, workspaceOpener, _time, workContext,
                     () => new XtermTerminalSurface(80, 24, PtyDumpPath), planArtifacts, commands,
                     pullRequests: readers, requestSignIn: requestSignIn, linkGitHub: linkGitHub,
                     signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, finds: finds, inputSending: attention.ReplySending,
-                    pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
+                    pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent, transcripts: remoteTranscripts,
                     readings: readings, senders: senders, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject,
                     serverSessions: sessions, workContextLayout: workContextLayout, localMachine: localMachine, handoffOutcomes: handoffOutcomes,
                     heldMessages: heldMessages, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
                     inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer,
-                    uploader: uploader)
+                    uploader: uploader, chatMarks: ChatMarksIfOn())
                 : null;
         // One for the app's life: a failed hand-off's draft outlives the composer that sent it.
         var handoffDrafts = new HandoffDrafts(serverLane.LaunchFailures, directory, _time);
@@ -1406,15 +1552,16 @@ public partial class App : Application {
         // A session the server lists with no daemon behind it: read-only, so no terminal surface.
         RemoteSessionViewModel? BuildServer(string sessionId) =>
             directory.Rows.Lookup($"server:{sessionId}") is { HasValue: true, Value: var row }
-                ? new RemoteSessionViewModel(row, directory, sessionAccess, permissions, actions, serverLane, readDetail, workspaceOpener, _time, workContext,
+                ? new RemoteSessionViewModel(row, directory, sessionAccess, permissions, actions, serverLane, readEvents, workspaceOpener, _time, workContext,
                     surfaceFactory: null, planArtifacts, commands,
                     pullRequests: readers, requestSignIn: requestSignIn, linkGitHub: linkGitHub,
                     signInCompleted: serverClients.SignInCompleted, plans: plans, drafts: drafts, finds: finds, inputSending: attention.ReplySending,
-                    pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent,
+                    pullRequestSnapshots: pullRequestSnapshots, pullRequestLinksChanged: pullRequestTones.Refresh, readSubagent: readSubagent, transcripts: remoteTranscripts,
                     readings: readings, remoteAgents: remoteAgents, notifier: notifier, appSubject: appSubject, serverSessions: sessions,
                     workContextLayout: workContextLayout, handoff: BuildHandoff, localMachine: localMachine,
                     handoffOutcomes: handoffOutcomes, pageContent: planArtifacts, pageLinks: pageLinks, webView: webView,
-                    inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer)
+                    inAppPages: () => inAppPages.IsOn, retryConnection: () => serverLane.RestartAsync(), localServer: localServer,
+                    chatMarks: ChatMarksIfOn())
                 : null;
 
         // Windows hides the main window to the notification area on close, where nothing else says kcap is still there.
@@ -1425,6 +1572,7 @@ public partial class App : Application {
                     && await access.GetAsync() == DesktopNotificationAccess.Allowed,
                 notification => _notificationSink?.Show(notification, _ => _coordinator?.ShowMainWindow()))
             : null;
+        var chatWarmup = _chatWarmup = new ChatViewWarmup(permissions, opener, _time, ChatViewWarmup.EnabledByEnvironment);
         _coordinator = new MainWindowCoordinator(
             () => TrackStartupMarks(() => TrackNoticeWindow(notifier, TrackViewedAgent(BuildAndShowMainWindow(
                 shownService, _config, _appState, actions, notifier, ticker,
@@ -1435,7 +1583,7 @@ public partial class App : Application {
                 agentsAwaitingAnswer: permissions.AgentsAwaitingAnswer, agentsRunningWork: commands.Running,
                 requestSignIn: requestSignIn,
                 lifecycleAttention: lifecycleAttention, identityReport: lifecycle.IdentityReport,
-                pullRequestSummaries: pullRequestTones.Summaries, railShown: railShown,
+                pullRequestSummaries: pullRequestTones.Summaries, railShown: railShown, githubLinks: githubLinks,
                 directory: directory, remoteAgents: remoteAgents, lane: serverLane, localAccounts: accounts.Snapshot, readings: readings,
                 viewerId: viewerId, localMachineId: machineId, restartPending: restartPending.Wait,
                 daemonOnOtherInstall: daemonOnOtherInstall,
@@ -1449,7 +1597,7 @@ public partial class App : Application {
                 sessions: sessions, railPreferences: railPreferences, profileName: profiles?.Name,
                 modelCatalog: modelCatalog.Catalog, uploader: uploader, appServerUrl: profiles?.Resolution.ServerUrl,
                 openFeedback: openFeedback, settingsAction: _appMenu.SettingsAction,
-                adopt: TakeAdoptableWindow(), show: !_holdingMainWindow,
+                adopt: TakeAdoptableWindow(), state: TakeStartupState(), show: !_holdingMainWindow,
                 requestSetup: () => _ = RestartForSetupAsync(desktop),
                 historyImport: _settingsImports.LastOrDefault() ?? _historyImport?.Run,
                 backgroundPriority: lifecycle.BackgroundPriority, reloadState: lifecycle.ReloadState,
@@ -1470,7 +1618,10 @@ public partial class App : Application {
             parkWorkspace: window => (window.DataContext as MainWindowViewModel)?.ParkWorkspace(),
             restoreWorkspace: window => (window.DataContext as MainWindowViewModel)?.RestoreParkedWorkspace(),
             onHidden: () => _ = _closeToTrayHint?.OnHiddenAsync(),
-            onShown: () => _closeToTrayHint?.OnShown());
+            onShown: () => {
+                _closeToTrayHint?.OnShown();
+                if (!_holdingMainWindow && _coordinator?.Window is { } shown) chatWarmup.Shown(shown);
+            });
         // A shutdown that started before this continuation resumed already ran its first
         // pass against a null coordinator, so a window built now must never be
         // close-protected (BeginShutdownPass's rule 1 is the general defense; this is the
@@ -1557,11 +1708,13 @@ public partial class App : Application {
 
         Func<SettingsTab, bool>? openSettingsOn = profiles?.Resolution is { ProfileName: { Length: > 0 } profileName, ServerUrl: { Length: > 0 } serverUrl }
             ? page => OpenSettings(desktop, new SettingsProfileStore(_config, profileName, serverUrl), service, ops, lane, notifier,
-                lifecycle.PhaseClosed, lifecycle.InstallWindowsServiceAsync, lifecycleCli.ServiceStatusAsync, page, serverLane.Status)
+                lifecycle.PhaseClosed, lifecycle.InstallWindowsServiceAsync, lifecycleCli.ServiceStatusAsync, lifecycleCli.ServiceStatusAsync,
+                page, serverLane.Status)
             : null;
         Action? openSettings = openSettingsOn is null ? null : () => _ = openSettingsOn(SettingsTab.Default);
         _openSearchSettings.OnNext(openSettingsOn is null ? null : () => _ = openSettingsOn(SettingsTab.Search));
         _openHarnessesSettings.OnNext(openSettingsOn is null ? null : () => openSettingsOn(SettingsTab.Harnesses));
+        _openAboutSettings = openSettingsOn is null ? null : () => _ = openSettingsOn(SettingsTab.About);
         ConfigureSettingsMenu(openSettings);
         _appMenu.SetSetupAction(() => _ = RestartForSetupAsync(desktop));
         var os = OperatingSystem.IsMacOS() ? OSPlatform.OSX
@@ -1574,7 +1727,8 @@ public partial class App : Application {
                     : AppImageInstall.StagedRoot(Environment.GetEnvironmentVariable, _userHome),
                 () => Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory)?.Root) is { } uninstallRoot) {
             var facts = UninstallFactsFor(uninstallRoot, service.DaemonName, profiles?.Resolution.ServerUrl, lifecycle, lifecycleProbe);
-            _appMenu.SetUninstallAction(() => _ = UninstallFromAppAsync(desktop, facts));
+            _requestUninstall = () => _ = UninstallFromAppAsync(desktop, facts);
+            _appMenu.SetUninstallAction(_requestUninstall);
         }
 
         // LAST, deliberately: anything above throwing lands in the catch with no
@@ -1637,10 +1791,10 @@ public partial class App : Application {
         : null;
 
     UninstallFactsSource UninstallFactsFor(string bundleRoot, string daemonName, string? profileServerUrl,
-            DaemonLifecycleController lifecycle, ILoginShellProbe probe) => new(
+            DaemonLifecycleController? lifecycle, ILoginShellProbe probe) => new(
         LocalServerUrl: () => LocalServerFact.Read(_localRoot),
         AttachedDaemon: daemonName,
-        Activity: () => lifecycle.LatestActivity,
+        Activity: () => lifecycle?.LatestActivity,
         LiveDaemons: () => DaemonPidLiveness.LiveDaemons(_daemonStore),
         HostedServerUrl: () => profileServerUrl is { Length: > 0 } && !IsLocalServer(profileServerUrl, _localRoot) ? profileServerUrl : null,
         TerminalPath: probe.TerminalPathAsync,
@@ -1656,6 +1810,11 @@ public partial class App : Application {
             : null,
         FindOtherInstalls: OperatingSystem.IsWindows() ? path => Platform.Windows.WindowsOtherKcapInstalls.Find(path, bundleRoot) : null);
 
+    // Before the app is built nothing is attached to a daemon, so every live one is named as another's and none is
+    // asked what it is doing. The profile on disk still says which server holds the sessions already sent.
+    UninstallFactsSource UninstallFactsWithoutApp(string bundleRoot) => UninstallFactsFor(
+        bundleRoot, "", ResolveWizardIdentity(_config, _serverEnv, _localRoot)?.Server, null, NewTerminalProbe(new ProcessRunner(_time)));
+
     // The same window owns preparation, removal, and the final acknowledgement.
     async Task UninstallFromAppAsync(IClassicDesktopStyleApplicationLifetime desktop, UninstallFactsSource source) {
         if (_uninstalling || _setupRestarting || _shutdownStarted) return;
@@ -1663,8 +1822,9 @@ public partial class App : Application {
         var started = false;
         try {
             var request = UninstallConfirmation.Build(await source.GatherAsync(_shutdown.Token));
-            if (!await ShowLifecyclePromptDialogAsync(_coordinator?.Window, request.Prompt, _shutdown.Token)) return;
-            started = StartUninstall(desktop, new UninstallMode(request.PurgeLocal), prepareApp: true);
+            var (accepted, removeSettings) = await ShowLifecycleChoiceDialogAsync(DialogOwner(), request.Prompt, _shutdown.Token);
+            if (!accepted) return;
+            started = StartUninstall(desktop, request.Mode(removeSettings), prepareApp: true);
             if (!started)
                 _coordinator?.Window?.Notifier?.Notify("Uninstall needs the installed kcap app. Run kcap uninstall in a terminal instead.");
         } catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
@@ -1676,6 +1836,45 @@ public partial class App : Application {
         }
     }
 
+    // Setup and the startup screens run before the app whose teardown the menu's uninstall drives. The question is
+    // asked over whatever window is up, and the removal goes to a fresh copy that starts once this one has quit.
+    async Task UninstallBeforeMainAppAsync(IClassicDesktopStyleApplicationLifetime desktop) {
+        if (_uninstalling || _setupRestarting || _shutdownStarted) return;
+        if (Platform.Windows.VelopackInstall.Current(Environment.ProcessPath, Program.Host.CliDirectory) is not { } install) return;
+        _uninstalling = true;
+        var handedOver = false;
+        // A start that failed has cancelled the shared token and torn the app down, and its error window is all that
+        // is left. Removing the app is the likely next step from there, so the question is asked without that token,
+        // once the cleanup that ends by showing that window has run.
+        var failure  = _startupFailure;
+        var lifetime = failure is null ? _shutdown.Token : CancellationToken.None;
+        try {
+            if (failure is not null) await failure.Task;
+            var owner = DialogOwner() ?? desktop.Windows.FirstOrDefault(w => w.IsVisible);
+            owner?.Activate();
+            var facts = UninstallFactsWithoutApp(install.Root);
+            var request = UninstallConfirmation.Build(await facts.GatherAsync(lifetime));
+            var (accepted, removeSettings) = await ShowLifecycleChoiceDialogAsync(owner is { IsVisible: true } ? owner : null, request.Prompt, lifetime);
+            if (!accepted) return;
+            var start = Program.Host.NewCopy(request.Mode(removeSettings).Args());
+            desktop.Exit += (_, _) => {
+                try { Process.Start(start)?.Dispose(); }
+                catch (Exception ex) { Console.Error.WriteLine($"kcap: could not start the uninstall: {ex.Message}"); }
+            };
+            handedOver = true;
+            // Nothing is left for the two-pass quit to tear down after a failed start: the error window's close is
+            // that state's exit.
+            if (failure is null) desktop.TryShutdown();
+            else if (desktop.MainWindow is { } errorWindow) errorWindow.Close();
+            else desktop.Shutdown(1);
+        } catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: could not start the uninstall: {ex.Message}");
+        } finally {
+            if (!handedOver) _uninstalling = false;
+        }
+    }
+
     internal static LifecyclePrompt SetupRestartPrompt(bool importRunning) => new(
         LifecyclePrompt.KindSetup, null, null, false,
         "kcap will restart to reopen setup. Your running sessions will keep going, and your settings and sign-in will stay intact."
@@ -1683,12 +1882,26 @@ public partial class App : Application {
 
     (KcapCli Cli, ILoginShellProbe Probe, ProcessRunner Runner) SettingsCli(SettingsProfileStore settings, string daemonName) {
         var runner = new ProcessRunner(_time);
-        var probe = TerminalPathProbe.Create(runner, Environment.GetEnvironmentVariable);
+        var probe = NewTerminalProbe(runner);
         var cli = new KcapCli(runner,
             CliResolver.ResolvePath(Environment.GetEnvironmentVariable, File.Exists, Program.Host.CliDirectory),
             daemonName, settings.ProfileName, probe.TerminalPathAsync,
             canonicalServer: ServerIdentity.Canonicalize(settings.ServerUrl));
         return (cli, probe, runner);
+    }
+
+    BackgroundIntelligenceSettingsViewModel NewIntelligenceSettings(
+            SettingsProfileStore settings, string daemonName, LocalUpgradeController upgrade, LocalSearchController search) {
+        var (cli, probe, _) = SettingsCli(settings, daemonName);
+        return new BackgroundIntelligenceSettingsViewModel(cli, ct => ReadHeadlessHarnessesAsync(probe, daemonName, ct), upgrade, search);
+    }
+
+    /// The agents a daemon of this name advertises for headless prompts, else what this machine can run.
+    async Task<string[]> ReadHeadlessHarnessesAsync(ILoginShellProbe probe, string daemonName, CancellationToken ct) {
+        var binaries = BinaryProbe.Searching(await probe.TerminalPathAsync(ct));
+
+        return await HeadlessHarnessSource.ReadAsync(_daemonStore, daemonName, _time,
+            () => HeadlessHarnessProbe.Detect(HarnessRegistry.FromEnvironment(_userHome, binaries), binaries), ct);
     }
 
     HarnessesSettingsViewModel CreateHarnessesSettings(SettingsProfileStore settings, string daemonName) {
@@ -1707,6 +1920,7 @@ public partial class App : Application {
                 (_coordinator?.Window?.DataContext as MainWindowViewModel)?.ShowHistoryImport(run);
             },
             post: action => Dispatcher.UIThread.Post(action),
+            grokBotFound: () => Capacitor.Cli.Core.Harness.GrokBot.GrokBotDesktopPaths.HasChatStore(_userHome),
             ensureTerminalCommand: shimInstaller is null ? null : async ct => {
                 // An inconclusive probe never offers an install, as in setup.
                 if (await probe.KcapOnPathAsync(ct) != false) return null;
@@ -1755,7 +1969,8 @@ public partial class App : Application {
     bool OpenSettings(IClassicDesktopStyleApplicationLifetime desktop, SettingsProfileStore settings,
             IDaemonClientService service, ILocalControlOps ops, DaemonMutationLane lane, IAppNotifier notifier, Task startupSettled,
             Func<CancellationToken, Task<MutationOutcome?>> moveToWindowsService,
-            Func<CancellationToken, Task<ServiceSnapshot?>> serviceStatus, SettingsTab page = SettingsTab.Default,
+            Func<CancellationToken, Task<ServiceSnapshot?>> serviceStatus,
+            Func<string, CancellationToken, Task<ServiceSnapshot?>> namedServiceStatus, SettingsTab page = SettingsTab.Default,
             IObservable<ServerLaneStatus>? appLane = null) {
         if (_shutdownStarted) return false;
         if (_settingsWindow is { } open) {
@@ -1778,14 +1993,23 @@ public partial class App : Application {
                 confirmRemove: (name, ct) => ShowLifecyclePromptDialogAsync(_settingsWindow,
                     new LifecyclePrompt(LifecyclePrompt.KindRemoveProfile, null, null, false,
                         ProfilesSettingsViewModel.RemovePrompt(name, LatestDaemonProfile(service))), ct),
-                appLifetime: _shutdown.Token, appLane: appLane, daemon: service);
+                appLifetime: _shutdown.Token, appLane: appLane, daemon: service,
+                switching: new ProfileSwitchServices(
+                    service.DaemonName, lane.RunAsync,
+                    (text, ct) => ShowLifecyclePromptDialogAsync(_settingsWindow,
+                        new LifecyclePrompt(LifecyclePrompt.KindSwitchProfile, null, null, false, text), ct),
+                    ct => RelaunchForSettingsAsync(desktop, _time, ct), startupSettled,
+                    async (name, ct) => (await LocalControlProbe.ProbeAsync(_daemonStore, name, _time, OneShotProbeTimeout, ct)).Reachable,
+                    namedServiceStatus, lane.CanRetireAsync, () => lane.RestartRequired,
+                    ProfileOverridden: Environment.GetEnvironmentVariable(ProfileOverrides.ProfileVar) is { Length: > 0 },
+                    PlatformSupported: AttachedIdentity.SupportsVerifiedReplace));
 
             vm = new SettingsViewModel(settings, service, ops,
                 async (name, ct) => (await LocalControlProbe.ProbeAsync(_daemonStore, name, _time, OneShotProbeTimeout, ct)).Reachable,
                 lane.RunAsync, (prompt, ct) => ShowLifecyclePromptDialogAsync(_settingsWindow, prompt, ct),
                 ct => RelaunchForSettingsAsync(desktop, _time, ct), Program.Host.CanRelaunchNow, startupSettled, lane.CanRetireAsync,
                 nameOverridden: Environment.GetEnvironmentVariable("KCAP_DAEMON_NAME") is { Length: > 0 },
-                needsAppRestart: lane.IsRetired(service.DaemonName), appLifetime: _shutdown.Token,
+                needsAppRestart: lane.IsRetired(service.DaemonName) || lane.RestartRequired, appLifetime: _shutdown.Token,
                 notificationSettings: _notificationSettings, notificationAccess: _notificationAccess,
                 profiles: profilesVm, moveToWindowsService: moveToWindowsService, serviceStatus: serviceStatus,
                 harnesses: CreateHarnessesSettings(settings, service.DaemonName),
@@ -1798,9 +2022,12 @@ public partial class App : Application {
                             _userHome, AccountStore.Beside(_daemonStore).TryLoad() ?? new AccountRegistry(), Environment.GetEnvironmentVariable),
                         pickDirectory: PickAccountDirectoryAsync, daemonStatus: service.Status, usageClock: _usageClock, appLifetime: _shutdown.Token)
                     : null,
-                Appearance = new AppearanceSettingsViewModel(_uiScale),
+                Appearance = new AppearanceSettingsViewModel(_uiScale, _colorScheme, _desktopAppearance),
                 Privacy    = new PrivacySettingsViewModel(_telemetry, _config, _usageNotice),
                 Search     = _localStack?.Search,
+                Intelligence = _localUpgrade is { } upgrade && _localSearch is { } search
+                    ? NewIntelligenceSettings(settings, service.DaemonName, upgrade, search)
+                    : null,
                 Experimental = new ExperimentalSettingsViewModel(new ExperimentalSettingsStore(_config), settings.ProfileName, service,
                     saved: () => _experimentalSaved.OnNext(Unit.Default)),
                 About = new AboutSettingsViewModel(service, SettingsCli(settings, service.DaemonName).Cli.VersionAsync, _localStack,
@@ -1808,14 +2035,20 @@ public partial class App : Application {
                     followsBetas: () => _updater.AllowsPrerelease, setBetaUpdates: SetBetaUpdatesAsync, appLifetime: _shutdown.Token),
             };
         } catch (Exception ex) {
-            notifier.Notify($"Could not open settings: {ex.Message}");
+            Console.Error.WriteLine($"kcap: could not open settings: {ex.Message}");
+            notifier.Notify("Could not open settings. Try again.");
             return false;
         }
 
         var window = new SettingsWindow { DataContext = vm, ContentScale = _uiScale };
         _settingsWindow = window;
         window.Closing += (_, e) => { if (vm.HasActiveOperation && !_shutdownStarted) e.Cancel = true; };
-        window.Closed += (_, _) => { _settingsWindow = null; vm.Dispose(); };
+        _intelligenceSettings = vm.Intelligence;
+        window.Closed += (_, _) => {
+            _settingsWindow = null;
+            if (_intelligenceSettings == vm.Intelligence) _intelligenceSettings = null;
+            vm.Dispose();
+        };
         // Profiles and the saved audience are re-read whenever the window regains focus, so a `kcap use`,
         // `kcap profile add` or `kcap config set` made in a terminal shows up on return without a file watcher.
         window.Activated += (_, _) => {
@@ -1891,6 +2124,7 @@ public partial class App : Application {
     void OpenSignInDialog(string profile, string serverUrl, bool refreshAppState) {
         if (_signInWindow is { } open) {
             open.Activate();
+            if (_signInGraph is { } openGraph) _ = openGraph.SignInAgainAsync(profile, serverUrl);
             return;
         }
 
@@ -1924,10 +2158,12 @@ public partial class App : Application {
         window.Closed += (_, _) => {
             graph.SignIn.PropertyChanged -= OnSignInChanged;
             _signInWindow = null;
+            _signInGraph  = null;
             _reauthSettle = FinishSignInAsync(graph, refreshAppState);
         };
 
         _signInWindow = window;
+        _signInGraph  = graph;
         window.Show();
     }
 
@@ -1972,6 +2208,8 @@ public partial class App : Application {
     async Task<bool> RunWizardModeAsync(
             IClassicDesktopStyleApplicationLifetime desktop, DaemonMutationLane lane, OutcomeChannel channel,
             IProcessRunner runner, ILoginShellProbe probe, ProfileContext? profiles, bool alreadyAuthenticated) {
+        // Setup can run for as long as the user likes, so the window after it reads the state afresh.
+        _startupState = null;
         var cliPath = CliResolver.ResolvePath(Environment.GetEnvironmentVariable, File.Exists, Program.Host.CliDirectory);
         // Same rule as the shim coordinator's: only a resolved ABSOLUTE path is linkable.
         var shimTarget = ShimTargetFor(cliPath, Program.Host.CliOutlivesApp);
@@ -2029,12 +2267,7 @@ public partial class App : Application {
                 SystemBrowser.Instance, Clipboard.TryCopy),
             ResumeWebSignUp: WizardComposition.ResumesWebSignUp(await _appState.LoadAsync(), _time.GetUtcNow()),
             Prefetch: _localPrefetch,
-            HeadlessHarnesses: async (name, ct) => {
-                var binaries = BinaryProbe.Searching(await probe.TerminalPathAsync(ct));
-
-                return await HeadlessHarnessSource.ReadAsync(_daemonStore, name, _time,
-                    () => HeadlessHarnessProbe.Detect(HarnessRegistry.FromEnvironment(_userHome, binaries), binaries), ct);
-            },
+            HeadlessHarnesses: (name, ct) => ReadHeadlessHarnessesAsync(probe, name, ct),
             OffersWindowsService: OperatingSystem.IsWindows());
         _localInstall ??= WizardComposition.NewInstallController(options);
         var graph = WizardComposition.BuildGraph(options with { Install = _localInstall });
@@ -2243,9 +2476,6 @@ public partial class App : Application {
             try {
                 await service.DisposeAsync();
             } catch (Exception disposeEx) {
-                // The ORIGINAL startup exception (ex, already captured and about to be shown
-                // below) must never be masked by a secondary dispose failure — append it to the
-                // same Console.Error channel instead of letting it propagate.
                 Console.Error.WriteLine($"kcap app failed to dispose the daemon client service during startup-failure cleanup: {disposeEx}");
             }
         }
@@ -2287,7 +2517,7 @@ public partial class App : Application {
         // Showing a window is legal before Avalonia's main loop starts (StartWithClassicDesktopLifetime
         // does the same); calling desktop.Shutdown(1) directly throws when startup faulted
         // synchronously, before the main loop began.
-        var errorWindow = BuildStartupErrorWindow(ex);
+        var errorWindow = BuildStartupErrorWindow(ex, Program.StartupCrashLogPath);
         if (desktop.MainWindow is null) desktop.MainWindow = errorWindow;
         errorWindow.Closed += (_, _) => desktop.Shutdown(1);
         errorWindow.Show();
@@ -2297,11 +2527,7 @@ public partial class App : Application {
     static IBrush? KcapBrush(string key) =>
         Current?.TryGetResource(key, null, out var brush) == true ? brush as IBrush : null;
 
-    // Last-resort UI for a startup failure: Console.Error above is invisible on a normal GUI
-    // launch (OutputType=WinExe has no console), so this window is the only channel that
-    // actually reaches the user. SelectableTextBlock (not TextBlock) keeps the stack trace
-    // copyable for a bug report.
-    internal static Window BuildStartupErrorWindow(Exception ex) =>
+    internal static Window BuildStartupErrorWindow(Exception ex, string? crashLogPath = null) =>
         new() {
             Title = "kcap — startup failed",
             Icon = ProductIcon.WindowIcon,
@@ -2311,7 +2537,15 @@ public partial class App : Application {
             Foreground = KcapBrush("KcapTextBrush"),
             Content = new ScrollViewer {
                 Content = new SelectableTextBlock {
-                    Text = $"The app failed to start. Details:\n{ex}",
+                    Text = ex switch {
+                        DllNotFoundException or EntryPointNotFoundException or BadImageFormatException =>
+                            "kcap couldn’t load a required component. Update or reinstall kcap, then open it again.",
+                        UnauthorizedAccessException =>
+                            "kcap couldn’t access files it needs to start. Check your permissions, then open kcap again.",
+                        _ when crashLogPath is not null =>
+                            $"kcap couldn’t start. Close this window and open kcap again. If it keeps happening, look for the crash log at {crashLogPath} and contact support.",
+                        _ => "kcap couldn’t start. Close this window and open kcap again. Contact support if it keeps happening.",
+                    },
                     TextWrapping = TextWrapping.Wrap,
                 },
             },
@@ -2347,7 +2581,7 @@ public partial class App : Application {
             IObservable<string?>? lifecycleAttention = null, IObservable<string?>? identityReport = null,
             IObservable<IReadOnlyDictionary<string, RunningWork>>? agentsRunningWork = null,
             IObservable<IReadOnlyDictionary<string, RailPullRequestSummary>>? pullRequestSummaries = null,
-            IObserver<Func<AgentRow, bool>>? railShown = null,
+            IObserver<Func<AgentRow, bool>>? railShown = null, GitHubLinkStatuses? githubLinks = null,
             IAgentDirectory? directory = null, IRemoteAgentsService? remoteAgents = null,
             IServerLane? lane = null, IObservable<AccountsSnapshotDto?>? localAccounts = null,
             Func<CancellationToken, Task<string?>>? viewerId = null,
@@ -2358,7 +2592,7 @@ public partial class App : Application {
             IObservable<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>>? modelCatalog = null,
             IAttachmentUploader? uploader = null, string? appServerUrl = null,
             Action<FeedbackCategory>? openFeedback = null, IObservable<Action?>? settingsAction = null,
-            (MainWindow Window, AppState State)? adopt = null, bool show = true,
+            (MainWindow Window, AppState State)? adopt = null, AppState? state = null, bool show = true,
             Action? requestSetup = null, HistoryImportRun? historyImport = null,
             IObservable<bool>? backgroundPriority = null, IObservable<ReloadState?>? reloadState = null,
             IObservable<bool>? isReloading = null, Func<CancellationToken, Task>? reloadDaemon = null,
@@ -2434,7 +2668,10 @@ public partial class App : Application {
             retryListing: remoteAgents is null ? null : remoteAgents.RefreshDaemonsAsync, readings: readings,
             branches: new GitBranchReader(new ProcessRunner(time), time),
             pickers: pickers,
-            launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) { LocalStack = localStack, UsageNotice = usageNotice, NextWork = nextWorkBand };
+            launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) {
+                LocalStack = localStack, UsageNotice = usageNotice, NextWork = nextWorkBand,
+                OpenFolderPrivacySettings = OperatingSystem.IsMacOS() ? () => MacPrivacySettings.OpenFilesAndFolders(new ShellUrlOpener()) : null,
+            };
         homeRef = home;
         if (localServer is not null) home.AttachLocalServerRecovery(localServer);
         if (lane is ServerConnectionService serverLane) home.AttachServerRetry(() => serverLane.RestartAsync());
@@ -2446,15 +2683,15 @@ public partial class App : Application {
         // Both rail actions route through the one call, each naming the lane of the row that was
         // clicked: an unproven twin pair keeps a row on each lane under the same id, and the VM's
         // own lookup would open the local one for both.
-        // Read once before the rail exists, like the window size, so it opens in the shape of the
-        // user this profile last resolved to; the lane's own answer rebinds it below.
+        // One read for the rail and the window placement below, before the rail exists, so it opens in
+        // the shape of the user this profile last resolved to; the lane's own answer rebinds it below.
+        var savedState = adopt?.State ?? state ?? appState.LoadAsync().GetAwaiter().GetResult();
         RailPreferences? initialRail = null;
         string? railUser = null;
         Func<string, Task<RailPreferences>>? bindRailUser = null;
         Action<RailPreferences>? persistRail = null;
         if (railPreferences is { } prefs && appServerUrl is { Length: > 0 } url && profileName is { Length: > 0 } name) {
-            initialRail = prefs.LoadAsync(url, name).GetAwaiter().GetResult();
-            railUser = prefs.LastUserAsync(url, name).GetAwaiter().GetResult();
+            (initialRail, railUser) = RailPreferencesStore.Opening(savedState, url, name);
             bindRailUser = async userId => {
                 railUser = userId;
                 return await prefs.BindUserAsync(url, name, userId).ConfigureAwait(false);
@@ -2510,10 +2747,10 @@ public partial class App : Application {
         var agentLinks = new AgentLinkLabels(appServerUrl, resolvedDirectory.Rows, RxSchedulers.MainThreadScheduler);
         MarkdownView.SetAgentLinks(window, agentLinks);
         window.Closed += (_, _) => agentLinks.Dispose();
+        MarkdownView.SetGitHubLinks(window, githubLinks);
         window.Notifier = notifier;
         window.ContentScale = uiScale;
         window.Onboarding = null;
-        var savedState = adopt?.State ?? appState.LoadAsync().GetAwaiter().GetResult();
         WindowSizeMemory.Apply(window, savedState);
         WindowSizeMemory.Attach(window, appState);
         PaneLayoutMemory.Apply(window.Panes, savedState);
@@ -2531,7 +2768,10 @@ public partial class App : Application {
 
         // A window held behind an update's progress is hidden again before it renders; its mark waits for the real show.
         RenderedFrame.WhenDrawn(window, () => true, _time, at => _ = Task.Run(() => StartupMarks.Mark("window_shown", at)));
-        window.SessionRail.OnFirstSessionsPainted(_time, at => _ = Task.Run(() => StartupMarks.Mark("first_sessions_painted", at)));
+        window.SessionRail.OnFirstSessionsPainted(_time, at => {
+            _ = Task.Run(() => StartupMarks.Mark("first_sessions_painted", at));
+            _chatWarmup?.RowsPainted(window);
+        });
         return window;
     }
 
@@ -2588,7 +2828,8 @@ public partial class App : Application {
         // autoOfferSuppressed: Start() always runs — Offerable/manual install must keep working in Incomplete mode; only the once-ever auto-offer dialog is skipped.
         var shimOffer = new ShimOfferCoordinator(
             Task.WhenAll(lifecycle.PhaseClosed, _updateHandedOver.Task, _adoption?.FirstLook ?? Task.CompletedTask), probe, CliPathInstallers.Create(probe, _userHome), _appState, surface, shimTarget,
-            _shutdown.Token, autoActionsPermanentlyClosed, _wizardPathLink, () => _adoption?.FoundInstall == true);
+            _shutdown.Token, autoActionsPermanentlyClosed, _wizardPathLink, () => _adoption?.FoundInstall == true,
+            restoreClaimed: OperatingSystem.IsWindows());
 
         // The delegate below and the claims store must share one root: TryConsume takes the config
         // lock this delegate then reads under.
@@ -2630,7 +2871,7 @@ public partial class App : Application {
 
     // A hidden window shows no toast, and its toast overlay exists only once it has loaded.
     MainWindow TrackNoticeWindow(IAppNotifier notifier, MainWindow window) {
-        void Publish() => _noticeWindow.OnNext(window.IsVisible && window.IsLoaded ? notifier : null);
+        void Publish() => _noticeWindow.OnNext(window is { IsVisible: true, IsLoaded: true } ? notifier : null);
         var visible = window.GetObservable(Visual.IsVisibleProperty).Subscribe(_ => Publish());
         window.Loaded += (_, _) => Publish();
         window.Closed += (_, _) => {
@@ -2829,6 +3070,12 @@ public partial class App : Application {
         }
     }
 
+    // The bundled plugin's Claude hooks start kcap.exe themselves, so on Windows an npm kcap.cmd on PATH
+    // leaves them failing while a terminal still resolves kcap.
+    static ILoginShellProbe NewTerminalProbe(IProcessRunner runner) =>
+        TerminalPathProbe.Create(runner, Environment.GetEnvironmentVariable,
+            directStart: File.Exists(Path.Combine(Program.Host.CliDirectory, CliResolver.BundledCliFileName)));
+
     static CliPin ResolvePinnedCli() =>
         ResolvePinnedCliCore(Environment.GetEnvironmentVariable("KCAP_APP_CLI_PATH"), Program.Host.CliDirectory, File.Exists, Path.GetFullPath);
 
@@ -2963,6 +3210,7 @@ public partial class App : Application {
     /// machine token the operator cannot act on.
     internal static string? AttentionCopyFor(string token) => token switch {
         "daemon_renamed_restart_app" => "The daemon was renamed. Restart this app before managing it.",
+        "profile_switched_restart_app" => "The profile was switched. Restart this app before managing the daemon.",
         "cli_not_found"            => "kcap CLI not found. Can't manage the daemon from this app.",
         "cli_override_missing"     => "KCAP_APP_CLI_PATH names a file that does not exist. Fix or unset it, then restart this app.",
         // App↔CLI floor — never "for the daemon"; this gate runs before any daemon contact.
@@ -3026,6 +3274,12 @@ public partial class App : Application {
             return ShowLifecyclePromptDialogAsync(DialogOwner(), prompt, ct);
         });
 
+    AppState? TakeStartupState() {
+        var state = _startupState;
+        _startupState = null;
+        return state;
+    }
+
     // Once only: a later rebuild (after a real close) must not reach for a window that is gone.
     (MainWindow Window, AppState State)? TakeAdoptableWindow() {
         var window = _adoptableWindow;
@@ -3041,7 +3295,20 @@ public partial class App : Application {
 
     internal static Task<bool> ShowLifecyclePromptDialogAsync(Window? owner, LifecyclePrompt prompt, CancellationToken ct) {
         var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var dialog = new LifecyclePromptWindow { DataContext = new LifecyclePromptViewModel(prompt, tcs) };
+        return ShowLifecycleDialog(owner, new LifecyclePromptViewModel(prompt, tcs), tcs, ct);
+    }
+
+    /// The answer, and whether the prompt's choice was ticked when it was accepted.
+    internal static async Task<(bool Accepted, bool Chosen)> ShowLifecycleChoiceDialogAsync(
+            Window? owner, LifecyclePrompt prompt, CancellationToken ct) {
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var viewModel = new LifecyclePromptViewModel(prompt, tcs);
+        var accepted = await ShowLifecycleDialog(owner, viewModel, tcs, ct).ConfigureAwait(true);
+        return (accepted, accepted && viewModel.ChoiceChecked);
+    }
+
+    static Task<bool> ShowLifecycleDialog(Window? owner, LifecyclePromptViewModel viewModel, TaskCompletionSource<bool> tcs, CancellationToken ct) {
+        var dialog = new LifecyclePromptWindow { DataContext = viewModel };
         // Closing via the titlebar/Esc without Accept/Decline also resolves false —
         // BuildConfirmForceStopWindow's same rule below. TrySetResult is idempotent, so this is a
         // no-op once AcceptCommand/DeclineCommand already resolved it.
@@ -3262,6 +3529,9 @@ public partial class App : Application {
     void LatchNavigation() {
         _notificationAccessPrompt?.Dispose();
         _desktopNotifications?.Dispose();
+        _appearanceSubscription?.Dispose();
+        _colorScheme?.Dispose();
+        _desktopAppearance?.Dispose();
         _notificationBadgeSubscription?.Dispose();
         _windowLifecycle?.SetPendingNotificationCount(0);
         (_coordinator?.Window?.DataContext as MainWindowViewModel)?.LatchShutdown();
@@ -3278,6 +3548,10 @@ public partial class App : Application {
         // Keep the UI context for the dialog closes below. Later quiesce awaits may resume on a
         // worker thread; the final UI disposal explicitly returns to the dispatcher.
         await _workspaceTeardown.DrainAsync();
+        // Mark saves run in the background, and a background write does not hold the process open.
+        if (_chatMarksFiles is { } marks) {
+            try { await marks.FlushAsync().WaitAsync(TimeSpan.FromSeconds(2), _time); } catch (TimeoutException) { }
+        }
 
         // Still on the UI thread (required by Close), and before the quiesce below: the dialog's
         // own close path cancels a live re-auth attempt — or lets a commit already past the
@@ -3308,7 +3582,7 @@ public partial class App : Application {
             await Dispatcher.UIThread.InvokeAsync(async () => {
                 IDisposable?[] ui = [
                     _tray, _trayVm, _promptCoordinator, _consent, _desktopNotifications, _notificationSink,
-                    _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess,
+                    _notificationSessions, _notificationSettings, _permissionFeed, _attention, _handoffDrafts, _commands, _permissions, _accounts, _sessionAccess, _remoteTranscripts,
                     _pullRequestTones, _launchApprovals, _webWorkspace, _activity, _home, _localServer, _localStack, _rail, _pause, _staleDaemonNudge, _restartPending, _expectedRestart,
                     _adoption,
                 ];
@@ -3363,6 +3637,8 @@ public partial class App : Application {
         _sessions?.Dispose();
         _remoteAgents?.Dispose();
         _modelCatalog?.Dispose();
+        _githubLinks?.Dispose();
+        _githubLinks = null;
         if (_gh is { } gh) { _gh = null; await gh.DisposeAsync().ConfigureAwait(false); }
         if (_serverClients is null) return;
         await _serverClients.DisposeAsync().ConfigureAwait(false);
@@ -3395,14 +3671,12 @@ public partial class App : Application {
     // The shutdown cap: QuiescedAsync itself is unbounded (it just waits for the gate), so this is what
     // keeps a stuck internal mutation from hanging shutdown forever — DisposeAsync's own eventual
     // lifetime-cancel is still the backstop if the cap is reached. Static + delegate-shaped so a
-    // test can drive it without a live controller. Returns which arm won: false = the cap fired
+    // test can drive it without a live controller. False means the cap fired
     // with work still live, which the wizard handoff turns into a degraded (auto-actions closed)
-    // graph. A dead heat reads as false — never claim quiescence that wasn't observed.
+    // graph.
     internal static async Task<bool> AwaitQuiescedAsync(
             Func<Task> quiescedAsync, TimeSpan cap, TimeProvider time) {
-        var quiesced = quiescedAsync();
-
-        return await Task.WhenAny(quiesced, Task.Delay(cap, time)).ConfigureAwait(false) == quiesced;
+        return await quiescedAsync().FinishedWithinAsync(cap, time).ConfigureAwait(false);
     }
 
     // Split out of DisposeAndShutdownAsync so a test can pin the ordering with a recording list.

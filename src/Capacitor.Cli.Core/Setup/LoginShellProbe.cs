@@ -165,7 +165,7 @@ public sealed partial class LoginShellProbe(IProcessRunner runner, Func<string, 
         }
     }
 
-    static bool Succeeded(ProcessResult result) => result.ExitCode == 0 && !result.TimedOut;
+    static bool Succeeded(ProcessResult result) => result is { ExitCode: 0, TimedOut: false };
 
     static async Task<(string? Value, bool Cacheable)> Discard(Task<(string? Value, bool Cacheable, bool _)> task) {
         var (value, cacheable, _) = await task.ConfigureAwait(false);

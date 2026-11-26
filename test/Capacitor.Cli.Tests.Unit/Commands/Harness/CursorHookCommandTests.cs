@@ -1193,12 +1193,11 @@ public class CursorHookCommandTests {
         readonly TempHome _home = new("cursor-hook");
 
         readonly string _spoolPath;
-        readonly string _transcriptPath;
 
         public List<string> Sent       { get; } = [];
         public List<string> RouteOrder { get; } = [];
         public HookSpool    Spool      { get; }
-        public ConfigRoot   Config     { get; }
+        ConfigRoot   Config     { get; }
         /// When set, the hook POST waits on this and signals <see cref="PostReturned"/> once released.
         public TaskCompletionSource? ReleasePost { get; set; }
 
@@ -1212,20 +1211,20 @@ public class CursorHookCommandTests {
         // Lets a test fake the shared SessionStart memory-index endpoint
         // distinctly from the generic transcript-watermark GET (which stays 404).
         public string         MemoryIndexBody      { get; set; } = "[]";
-        public HttpStatusCode MemoryIndexStatus    { get; set; } = HttpStatusCode.OK;
+        HttpStatusCode MemoryIndexStatus    { get; } = HttpStatusCode.OK;
         public bool           MemoryIndexRequested { get; private set; }
         public Uri?           MemoryIndexRequestUri { get; private set; }
 
         public HttpClient Client                { get; }
-        public string     TranscriptPath        => _transcriptPath;
-        public string     TranscriptPathEscaped => _transcriptPath.Replace(@"\", @"\\");
+        public string     TranscriptPath        { get; }
+        public string     TranscriptPathEscaped => TranscriptPath.Replace(@"\", @"\\");
 
         // The backfill holds a non-newline-terminated final line on every mid-session
         // (Hold-policy) call. A real Cursor transcript line is newline-terminated once flushed,
         // so tests write content the same way rather than exercising the holdback edge case
         // incidentally.
         public Task WriteTranscript(string content) =>
-            File.WriteAllTextAsync(_transcriptPath, content.EndsWith('\n') ? content : content + "\n");
+            File.WriteAllTextAsync(TranscriptPath, content.EndsWith('\n') ? content : content + "\n");
 
         public IEnumerable<string> SpoolFiles =>
             Directory.Exists(_spoolPath) ? Directory.EnumerateFiles(_spoolPath, "*.jsonl") : [];
@@ -1239,7 +1238,7 @@ public class CursorHookCommandTests {
 
         public Fixture(ConfigRoot config, HttpStatusCode postStatus = HttpStatusCode.OK, Profile? profile = null) {
             _spoolPath      = _home.PathTo("spool");
-            _transcriptPath = _home.PathTo("transcript.jsonl");
+            TranscriptPath = _home.PathTo("transcript.jsonl");
             Config          = config;
             // The stub handler answers regardless of host, so any absolute URL will do — it has to be
             // absolute because the real POST helpers refuse a scheme-less one.

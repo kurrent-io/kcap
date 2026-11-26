@@ -25,8 +25,30 @@ exclude:
   - name: PreferConcreteValueOverDefault
   # Explicit `new T()` stays allowed where the type isn't evident, though .editorconfig prefers `new()`
   - name: ArrangeObjectCreationWhenTypeNotEvident
-  # Tests may keep `new[] { … }` and collection initializers; production code still gets the suggestion
+  # The parentheses group each range in a pattern for a reader: that `and` binds tighter than `or` is not obvious
+  - name: RedundantPatternParentheses
+  # A collection expression is often harder to read than the `.ToArray()`, `new[] { … }` or initializer it replaces
   - name: UseCollectionExpression
+  # Tests spell out the default values they assert on, and a sync or uncancellable call there only
+  # costs test time
+  - name: RedundantArgumentDefaultValue
+    paths:
+      - test
+  - name: MethodHasAsyncOverload
+    paths:
+      - test
+  - name: MethodSupportsCancellation
+    paths:
+      - test
+  - name: MethodHasAsyncOverloadWithCancellation
+    paths:
+      - test
+  # A test's lambdas run before the test returns, so what they capture is still live, and a captured
+  # counter or flag is read for its latest value on purpose
+  - name: AccessToDisposedClosure
+    paths:
+      - test
+  - name: AccessToModifiedClosure
     paths:
       - test
   # Solution-wide usage and visibility analysis can't see serialization, DI, reflection or the clients
@@ -52,6 +74,11 @@ exclude:
   - name: CSharpWarnings__CS8602
   - name: CSharpWarnings__CS8620
   - name: RedundantUsingDirective
+  # An expected array like `new string?[] { … }` needs its element type: without it TUnit's
+  # IsEquivalentTo fails the nullable constraint (CS8631)
+  - name: RedundantExplicitArrayCreation
+    paths:
+      - test
   # Flags every dotnet_diagnostic severity and the keys Rider itself writes
   - name: EditorConfigKeyCorrectness
   # Avalonia XAML read as WPF: Window members unresolved, a DataContext binding resolved against the

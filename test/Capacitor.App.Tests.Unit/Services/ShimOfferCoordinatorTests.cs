@@ -44,8 +44,8 @@ public class ShimOfferCoordinatorTests {
         public readonly FakeAppStateStore Store;
         public readonly FakeLifecycleSurface Surface = new();
         readonly TempDir _tmp = new();
-        public string TempDir => _tmp.Path;
-        public readonly TaskCompletionSource<bool> PhaseClosedSource = new();
+        string TempDir => _tmp.Path;
+        readonly TaskCompletionSource<bool> PhaseClosedSource = new();
         public readonly List<bool> OfferableValues = [];
 
         public readonly string? Target;
@@ -350,6 +350,86 @@ public class ShimOfferCoordinatorTests {
         await Assert.That(h.Surface.Prompts).IsEmpty();
     }
 
+    // ---- a claimed install that is gone ----
+
+    const string OtherPathEntry = @"C:\other";
+
+    sealed class MemoryUserPath : IUserPathStore {
+        public string? Value = OtherPathEntry;
+        public string? Read() => Value;
+        public void Append(string directory) => Value = $"{Value};{directory}";
+        public void Replace(string path) => Value = path;
+    }
+
+    /// The coordinator as the Windows app builds it, over a user PATH held in memory: the probe finds kcap
+    /// only while the CLI's folder is on that PATH.
+    static (ShimOfferCoordinator Coordinator, MemoryUserPath Path, FakeLifecycleSurface Surface, List<bool> Offerable) Reinstalled(
+            string cli, AppState state, bool autoOfferSuppressed = false) {
+        var path    = new MemoryUserPath();
+        var folder  = Path.GetDirectoryName(cli)!;
+        var probe   = new FakeLoginShellProbe { KcapOnPathBehavior = _ => Task.FromResult<bool?>(path.Value!.Contains(folder)) };
+        var surface = new FakeLifecycleSurface();
+        var coordinator = new ShimOfferCoordinator(
+            Task.CompletedTask, probe, new WindowsUserPathInstaller(path, probe), new FakeAppStateStore { State = state }, surface, cli,
+            CancellationToken.None, autoOfferSuppressed, restoreClaimed: true);
+        var offerable = new List<bool>();
+        coordinator.Offerable.Subscribe(offerable.Add);
+        return (coordinator, path, surface, offerable);
+    }
+
+    /// A reinstall after the Windows uninstaller: the claim survived, the PATH entry it records did not.
+    [Test]
+    public async Task A_claimed_install_that_is_gone_is_restored_without_asking() {
+        using var tmp = new TempDir();
+        var cli = tmp.PathTo("bin", "kcap.exe");
+        var (coordinator, path, surface, offerable) = Reinstalled(cli, new AppState { ShimOffered = true });
+        coordinator.Start();
+
+        await WaitUntilAsync(() => offerable.Count >= 3, what: "the restored install");
+        await Assert.That(path.Value).IsEqualTo($"{Path.GetDirectoryName(cli)};{OtherPathEntry}");
+        await Assert.That(offerable.Last()).IsFalse();
+        await Assert.That(surface.Prompts).IsEmpty();
+    }
+
+    /// Setup abandoned or its sign-in skipped leaves the dialog suppressed, and hooks need the entry all the same.
+    [Test]
+    public async Task A_claimed_install_is_restored_while_the_offer_dialog_is_suppressed() {
+        using var tmp = new TempDir();
+        var cli = tmp.PathTo("bin", "kcap.exe");
+        var (coordinator, path, surface, offerable) = Reinstalled(cli, new AppState { ShimOffered = true }, autoOfferSuppressed: true);
+        coordinator.Start();
+
+        await WaitUntilAsync(() => offerable.Count >= 3, what: "the restored install");
+        await Assert.That(path.Value).IsEqualTo($"{Path.GetDirectoryName(cli)};{OtherPathEntry}");
+        await Assert.That(surface.Prompts).IsEmpty();
+    }
+
+    /// Suppression still stops the question for an install nobody has claimed.
+    [Test]
+    public async Task An_unclaimed_install_is_neither_offered_nor_made_while_the_offer_dialog_is_suppressed() {
+        using var tmp = new TempDir();
+        var (coordinator, path, surface, offerable) = Reinstalled(tmp.PathTo("bin", "kcap.exe"), new AppState(), autoOfferSuppressed: true);
+        coordinator.Start();
+
+        await WaitUntilAsync(() => offerable.Contains(true), what: "the item to become visible");
+        await Task.Delay(100); // give a wrongly-running offer every chance to finish
+        await Assert.That(path.Value).IsEqualTo(OtherPathEntry);
+        await Assert.That(surface.Prompts).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_declined_install_is_never_restored() {
+        using var tmp = new TempDir();
+        var (coordinator, path, surface, offerable) = Reinstalled(
+            tmp.PathTo("bin", "kcap.exe"), new AppState { ShimOffered = true, ShimDenied = true });
+        coordinator.Start();
+
+        await WaitUntilAsync(() => offerable.Contains(true), what: "the item to become visible");
+        await Task.Delay(100); // give a wrongly-running install every chance to finish
+        await Assert.That(path.Value).IsEqualTo(OtherPathEntry);
+        await Assert.That(surface.Prompts).IsEmpty();
+    }
+
     // ---- preflight ----
 
     [Test]
@@ -477,7 +557,7 @@ public class ShimOfferCoordinatorTests {
     }
 
     [Test]
-    public async Task Accept_then_Failed_surfaces_the_detail() {
+    public async Task Accept_then_failed_offers_retry() {
         using var h = new Harness(immediatePhaseClosed: true);
         h.Probe.KcapOnPathBehavior = _ => Task.FromResult<bool?>(false);
         h.Surface.ConfirmBehavior = (_, _) => Task.FromResult(true);
@@ -485,7 +565,7 @@ public class ShimOfferCoordinatorTests {
         h.Coordinator.Start();
 
         await WaitUntilAsync(() => h.Surface.StatusMessages.Count == 1, what: "the failed status line");
-        await Assert.That(h.Surface.StatusMessages[0]).Contains(".local");
+        await Assert.That(h.Surface.StatusMessages[0]).Contains("is a file. Move the file, then try again.");
         await Assert.That(h.Store.State.ShimDenied).IsFalse(); // Failed is not the same as declined/canceled
     }
 

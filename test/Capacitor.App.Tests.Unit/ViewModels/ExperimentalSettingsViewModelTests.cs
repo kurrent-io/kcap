@@ -172,7 +172,7 @@ public class ExperimentalSettingsViewModelTests {
         service.SnapshotsSubject.OnNext(Reporting(resolved: true, active: true));
 
         await Assert.That(row.IsEnabled).IsFalse();
-        await Until(() => row.IsEnabled && row.StatusText == "Active", "the snapshot's read");
+        await Until(() => row is { IsEnabled: true, StatusText: "Active" }, "the snapshot's read");
     });
 
     [Test]
@@ -201,7 +201,7 @@ public class ExperimentalSettingsViewModelTests {
         await store.SetAsync("work", Id, true, CancellationToken.None);
         service.SnapshotsSubject.OnNext(Reporting(resolved: true, active: true));
 
-        await Until(() => row.IsEnabled && row.StatusText == "Active", "the CLI's flip");
+        await Until(() => row is { IsEnabled: true, StatusText: "Active" }, "the CLI's flip");
 
         await File.WriteAllTextAsync(store.Path, "{ not json");
         service.SnapshotsSubject.OnNext(Reporting(resolved: true, active: true));
@@ -240,6 +240,30 @@ public class ExperimentalSettingsViewModelTests {
         service.SnapshotsSubject.OnNext(Reporting(resolved: true, active: true));
 
         await Until(() => row.IsEnabled, "the moved fingerprint");
+    });
+
+    [Test]
+    public Task A_snapshot_retries_an_unreadable_store_with_an_unchanged_fingerprint() => AvaloniaSession.RunOnUiAsync(async () => {
+        var store = new ExperimentalSettingsStore(Config.Root);
+        var feature = OffByDefault.Single();
+        await store.SetAsync("work", feature.Id, true, CancellationToken.None);
+        var path = store.Path;
+        var valid = await File.ReadAllTextAsync(path);
+        await File.WriteAllTextAsync(path, "!" + valid[1..]);
+        var written = File.GetLastWriteTimeUtc(path);
+        var service = Connected();
+        using var vm = new ExperimentalSettingsViewModel(store, "work", service, [feature]);
+        await vm.Loaded;
+        var row = vm.Features.Single();
+        await Assert.That(row.CanChange).IsFalse();
+        await Assert.That(vm.Problem).Contains("not valid JSON");
+
+        await File.WriteAllTextAsync(path, valid);
+        File.SetLastWriteTimeUtc(path, written);
+        service.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap());
+
+        await Until(() => row.CanChange && vm.Problem is null, "the repaired store");
+        await Assert.That(row.IsEnabled).IsTrue();
     });
 
     /// <summary>A snapshot's read can start before a toggle is saved and arrive after it; applying it would

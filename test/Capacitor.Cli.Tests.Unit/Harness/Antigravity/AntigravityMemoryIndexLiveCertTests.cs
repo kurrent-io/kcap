@@ -145,14 +145,14 @@ public class AntigravityMemoryIndexLiveCertTests {
     /// Diagnostic ONLY — logged unconditionally, on pass and fail alike, and never asserted on. It
     /// answers a narrower question than the cert itself: did the nonce reach the transcript at all
     /// (a coarse raw-stdout substring check — agy's stream-json shape for an injected
-    /// <c>userMessage</c> step has not been pinned by any cert, so this does not parse for a specific
+    /// <c>systemMessage</c> step has not been pinned by any cert, so this does not parse for a specific
     /// field). Asserting on it would weaken this cert to "the harness ingested it", which is exactly
     /// the standard that let the three earlier adapters merge without proof the MODEL received
     /// anything. The sole pass condition remains the nonce appearing in the model's own answer.
     /// </summary>
     static void LogInjectedStepEvidence(string nonce, string stdout) =>
         Console.WriteLine(
-            $"[cert] stdout carried the nonce (proxy for 'userMessage step injected'): {stdout.Contains(nonce)}");
+            $"[cert] stdout carried the nonce (proxy for 'systemMessage step injected'): {stdout.Contains(nonce)}");
 
     /// <summary>Saves the nonce memory, deleting the worktree if the save throws — the memory is the
     /// expensive thing to leak, but a save failure must not also strand a temp directory.</summary>

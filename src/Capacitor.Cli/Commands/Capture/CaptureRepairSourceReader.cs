@@ -17,7 +17,7 @@ internal static class CaptureRepairSourceReader {
         var snapshot = CaptureRepairFileSnapshot.Take(path);
         await using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
         using var hash = SHA256.Create();
-        using var hashed = new CryptoStream(input, hash, CryptoStreamMode.Read, leaveOpen: true);
+        await using var hashed = new CryptoStream(input, hash, CryptoStreamMode.Read, leaveOpen: true);
         using var reader = new StreamReader(hashed, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: false);
         var number = 0;
         while (await reader.ReadLineAsync(ct) is { } raw) {

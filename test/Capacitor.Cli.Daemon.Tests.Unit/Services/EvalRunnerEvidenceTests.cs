@@ -250,7 +250,7 @@ public class EvalRunnerEvidenceTests : IDisposable {
         var finalize = await connection.FinalizeEvalV2Handler!(new FinalizeEvalV2Command("run-1", [question.Assessment!], [], "sonnet"));
 
         await Assert.That(finalize.Success).IsFalse();
-        await Assert.That(JsonDocument.Parse(_stub.Requests("judge-facts").Single().RequestMessage.Body!).RootElement.GetProperty("evidence_scope_token").GetString()).IsEqualTo("tok");
+        await Assert.That(JsonElement.Parse(_stub.Requests("judge-facts").Single().RequestMessage.Body!).GetProperty("evidence_scope_token").GetString()).IsEqualTo("tok");
         await Assert.That(_stub.Requests("evals/v4")).IsEmpty();
         await Assert.That(NoRunDirectory()).IsTrue();
     }

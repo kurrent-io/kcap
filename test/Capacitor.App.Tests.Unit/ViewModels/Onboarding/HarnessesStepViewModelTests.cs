@@ -31,7 +31,7 @@ public class HarnessesStepViewModelTests {
         public Harness(ConfigRoot config, IReadOnlyDictionary<HarnessId, DetectedAgent>? detected = null,
                 IReadOnlySet<HarnessId>? declined = null, PathFixViewModel? pathFix = null, bool local = false,
                 Func<CancellationToken, Task<VisibilityOptionsResponse?>>? visibilityOptions = null,
-                Func<int, IReadOnlyDictionary<HarnessId, DetectedAgent>>? detectOnCall = null) {
+                Func<int, IReadOnlyDictionary<HarnessId, DetectedAgent>>? detectOnCall = null, bool signedInAtStart = false) {
             detected ??= new Dictionary<HarnessId, DetectedAgent> {
                 [HarnessId.Claude] = new(true, true),
                 [HarnessId.Cursor] = new(false, true),
@@ -46,7 +46,7 @@ public class HarnessesStepViewModelTests {
                 _ => Task.FromResult<IReadOnlySet<string>?>(ProviderKeys),
                 "test-mac",
                 onLocalPath: local ? () => true : null,
-                visibilityOptions: visibilityOptions);
+                visibilityOptions: visibilityOptions, signedInAtStart: signedInAtStart);
         }
 
         public HarnessRowViewModel Row(string label) => Vm.Rows.First(r => r.Label == label);
@@ -340,7 +340,7 @@ public class HarnessesStepViewModelTests {
         await Assert.That(first).IsFalse();
         await Assert.That(second).IsTrue();
         await Assert.That(cursor.Failed).IsTrue();
-        await Assert.That(cursor.Message).IsEqualTo("boom");
+        await Assert.That(cursor.Message).IsEqualTo("Could not finish setting up this tool. Try again.");
         await Assert.That(pi.Succeeded).IsTrue();
         await Assert.That(label).IsEqualTo("Continue");
         await Assert.That(calls).IsEqualTo(3); // the second Next installs nothing again
@@ -466,6 +466,43 @@ public class HarnessesStepViewModelTests {
         await Assert.That(asked).IsEqualTo(0);
     }
 
+    Task WriteSignedInProfileAsync(string visibility) => File.WriteAllTextAsync(ConfigPath, JsonSerializer.Serialize(
+        new ProfileConfig {
+            ActiveProfile = "acme",
+            Profiles      = new() { ["acme"] = new Profile { ServerUrl = "https://acme.example", DefaultVisibility = visibility } },
+        }, ProfileConfigJsonContext.Default.ProfileConfig));
+
+    /// The same profile with no sign-in before setup is asked afresh, which the test below this one pins.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_profile_signed_in_before_setup_shows_its_server_and_its_privacy_setting() {
+        await WriteSignedInProfileAsync("project");
+
+        await AvaloniaSession.DispatchAsync(async () => {
+            var h = new Harness(Config.Root, signedInAtStart: true);
+            await h.Vm.OnEnterAsync(CancellationToken.None);
+
+            await Assert.That(h.Vm.Visibility).IsEqualTo("project");
+            await Assert.That(h.Vm.CanContinue).IsTrue();
+            await Assert.That(h.Vm.KeptConnection!).Contains("https://acme.example");
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_kept_privacy_setting_the_server_stopped_offering_is_asked_again() {
+        await WriteSignedInProfileAsync("org_public");
+
+        await AvaloniaSession.DispatchAsync(async () => {
+            var h = new Harness(Config.Root, signedInAtStart: true,
+                visibilityOptions: _ => Task.FromResult<VisibilityOptionsResponse?>(Offer("private", "private", "project")));
+            await h.Vm.OnEnterAsync(CancellationToken.None);
+
+            await Assert.That(h.Vm.Visibility).IsNull();
+            await Assert.That(h.Vm.CanContinue).IsFalse();
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Next_saves_who_can_read_and_the_provider_key_answer_to_the_profile() {
@@ -545,7 +582,8 @@ public class HarnessesStepViewModelTests {
         });
 
         await Assert.That(left).IsFalse();
-        await Assert.That(message).StartsWith("Could not finish installing the terminal command.");
+        await Assert.That(message).StartsWith("A command already exists at ");
+        await Assert.That(message).Contains("Move that command");
         await Assert.That(calls).IsEqualTo(0);
     }
 
@@ -645,7 +683,7 @@ public class HarnessesStepViewModelTests {
                 canLeave = await h.Vm.CanLeaveAsync(direction, CancellationToken.None);
             }
 
-            return (canLeave && h.Vm.CanContinue && h.Vm.CanSkip, h.Vm.VisibilityVisible,
+            return (canLeave && h.Vm is { CanContinue: true, CanSkip: true }, h.Vm.VisibilityVisible,
                 ConfigMutator.LoadPure(ConfigPath).Profiles["default"].DefaultVisibility);
         });
 
@@ -737,7 +775,7 @@ public class HarnessesStepViewModelTests {
             Dispatcher.UIThread.RunJobs();
 
             var labels = window.GetVisualDescendants().OfType<TextBlock>().Count(t => t.Name == "HarnessLabelText");
-            var tools  = window.GetVisualDescendants().OfType<CheckBox>().Count(c => c.Name == "ToolsCheckBox" && c.IsVisible);
+            var tools  = window.GetVisualDescendants().OfType<CheckBox>().Count(c => c is { Name: "ToolsCheckBox", IsVisible: true });
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -773,7 +811,7 @@ public class HarnessesStepViewModelTests {
                 if (Environment.GetEnvironmentVariable("KCAP_ONBOARDING_PREVIEW") is { Length: > 0 } preview)
                     bitmap!.Save(preview, Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
                 foreach (var check in window.GetVisualDescendants().OfType<CheckBox>()
-                             .Where(c => c.IsVisible && c.Name is "RecordCheckBox" or "ToolsCheckBox")) {
+                             .Where(c => c is { IsVisible: true, Name: "RecordCheckBox" or "ToolsCheckBox" })) {
                     var column = check.Name == "RecordCheckBox" ? "RECORD" : "TOOLS";
                     var heading = window.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == column);
                     var headingCenter = heading.TranslatePoint(new Point(heading.Bounds.Width / 2, 0), window)!.Value.X;
@@ -788,7 +826,7 @@ public class HarnessesStepViewModelTests {
                     await Assert.That(Math.Abs(center.Y - rowCenter) <= 0.5).IsTrue();
                     await Assert.That(Math.Abs(center.X - headingCenter) <= 0.5).IsTrue();
                 }
-                foreach (var bundled in window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsVisible && t.Text == "BUNDLED")) {
+                foreach (var bundled in window.GetVisualDescendants().OfType<TextBlock>().Where(t => t is { IsVisible: true, Text: "BUNDLED" })) {
                     var row = bundled.GetVisualAncestors().OfType<Grid>().First();
                     var center = bundled.TranslatePoint(new Point(0, bundled.Bounds.Height / 2), row)!.Value.Y;
                     await Assert.That(Math.Abs(center - row.Bounds.Height / 2) <= 0.5).IsTrue();

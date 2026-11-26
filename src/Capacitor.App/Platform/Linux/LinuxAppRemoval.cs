@@ -46,6 +46,8 @@ public sealed partial class LinuxAppRemoval : IAppRemoval {
 
     /// A link in a folder only root can write stays: the CLI's own uninstall has already printed the command
     /// that removes it.
+    public bool CommandInstalled => _links.Find().Count > 0;
+
     public Task<IReadOnlyList<string>> RemoveLinksAsync(CancellationToken ct) {
         foreach (var failure in _links.Remove()) Console.Error.WriteLine($"kcap: could not remove {failure.Path}: {failure.Reason}");
 

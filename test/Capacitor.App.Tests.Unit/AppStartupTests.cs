@@ -101,6 +101,30 @@ public class AppStartupTests {
         await Assert.That(height).IsEqualTo(888);
     }
 
+    /// A state the caller already read is what the window opens on; the store is not read again.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task BuildAndShowMainWindow_opens_on_the_state_it_is_handed() {
+        var appState = AppState();
+        await appState.UpdateAsync(s => s with { WindowWidth = 1552, WindowHeight = 888 });
+        var handed = await appState.LoadAsync();
+        await appState.UpdateAsync(s => s with { WindowWidth = 1600, WindowHeight = 900 });
+
+        var size = await AvaloniaSession.DispatchAsync(() => {
+            var service = new FakeDaemonClientService();
+            var (actions, notifier) = NewActions(service);
+            var window = AppUnderTest.BuildAndShowMainWindow(service, Config.Root, appState, actions, notifier, new FakeTicker(),
+                CancellationToken.None, TestActivity.New(), new NeverLaunchClient(), TimeProvider.System, state: handed);
+            Dispatcher.UIThread.RunJobs();
+            var result = (window.Width, window.Height);
+            window.Close();
+            return result;
+        });
+
+        await Assert.That(size.Width).IsEqualTo(1552);
+        await Assert.That(size.Height).IsEqualTo(888);
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task BuildAndShowMainWindow_restores_the_remembered_window_placement() {
@@ -244,16 +268,11 @@ public class AppStartupTests {
         });
     }
 
-    /// App is OutputType=WinExe, so a normal GUI launch has no console: a startup failure (bad
-    /// config, window construction throw) reported only to Console.Error would make the app
-    /// silently vanish. BuildStartupErrorWindow is a plain, visible window with a copyable (SelectableTextBlock) lead
-    /// line plus the exception's full ToString(). This proves the rendered text actually carries
-    /// both, the same way MainWindowSmokeTests proves bound VM text actually reaches the screen.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task BuildStartupErrorWindow_renders_lead_line_and_exception_details() {
+    public async Task The_startup_error_window_shows_recovery_guidance() {
         var rendered = await AvaloniaSession.DispatchAsync(() => {
-            var window = AppUnderTest.BuildStartupErrorWindow(new InvalidOperationException("boom-marker"));
+            var window = AppUnderTest.BuildStartupErrorWindow(new DllNotFoundException("boom-marker\nat kcap.Start()"));
             window.Show();
             Dispatcher.UIThread.RunJobs();
 
@@ -270,8 +289,8 @@ public class AppStartupTests {
             return joined;
         });
 
-        await Assert.That(rendered).Contains("The app failed to start. Details:");
-        await Assert.That(rendered).Contains("boom-marker");
+        await Assert.That(rendered).Contains("Update or reinstall kcap");
+        await Assert.That(rendered).DoesNotContain("boom-marker");
     }
 
     /// With the app's default ShutdownMode (OnLastWindowClose, never set elsewhere), closing the
@@ -337,7 +356,7 @@ public class AppStartupTests {
             cts.Cancel(); // simulates DisposeAsync cancelling _lifetime while the dialog is open
             Dispatcher.UIThread.RunJobs(); // flush the posted Close()
 
-            return (tcs.Task.IsCompletedSuccessfully && !tcs.Task.Result, dialog.IsVisible);
+            return (tcs.Task is { IsCompletedSuccessfully: true, Result: false }, dialog.IsVisible);
         }).WaitAsync(TimeSpan.FromSeconds(10));
 
         await Assert.That(resolvedFalse).IsTrue();

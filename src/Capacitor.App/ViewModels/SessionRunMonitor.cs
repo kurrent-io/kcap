@@ -17,7 +17,7 @@ internal sealed class SessionRunMonitor : IDisposable {
     readonly Action _ended;
     readonly TimeProvider _time;
     readonly SessionAccessService _access;
-    readonly SessionDetailReader _readDetail;
+    readonly SessionEventsReader _readEvents;
     readonly IServerLane _lane;
     readonly bool _remote;
     readonly string _agentId;
@@ -36,14 +36,14 @@ internal sealed class SessionRunMonitor : IDisposable {
     bool _disposed;
 
     public SessionRunMonitor(string rowKey, Action<RunningWork> report, Action ended, IDaemonClientService daemon,
-            IAgentDirectory directory, SessionAccessService access, SessionDetailReader readDetail,
+            IAgentDirectory directory, SessionAccessService access, SessionEventsReader readEvents,
             IServerLane lane, TimeProvider time, TranscriptFeedHandoff? handoff = null) {
         _handoff = handoff;
         _report = report;
         _ended = ended;
         _time = time;
         _access = access;
-        _readDetail = readDetail;
+        _readEvents = readEvents;
         _lane = lane;
         _remote = !rowKey.StartsWith("local:", StringComparison.Ordinal);
         _agentId = rowKey[(rowKey.IndexOf(':') + 1)..];
@@ -98,7 +98,9 @@ internal sealed class SessionRunMonitor : IDisposable {
             var lease = _access.Acquire(_key);
             var denied = new SingleAssignmentDisposable();
             _accessLease.Disposable = new CompositeDisposable(denied, lease);
-            var remote = new RemoteTranscriptFeed(_key, info.Vendor, lease.State, _readDetail, _lane, _time, Log);
+            // No reader scrolls this feed back, so it seeds the whole session: a run started before any window
+            // would otherwise never be counted.
+            var remote = new RemoteTranscriptFeed(_key, info.Vendor, lease.State, _readEvents, _lane, _time, Log, window: null);
             _feed = remote;
             _feedChanged = SignalRead;
             remote.Changed += _feedChanged;

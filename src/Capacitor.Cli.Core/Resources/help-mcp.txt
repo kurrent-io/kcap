@@ -294,6 +294,8 @@ mcp pages:
     publish_page               Publish a page and get its URL. `update_id`
                                revises an existing page without changing
                                that URL; `response_schema` makes it answerable.
+                               `kind` classifies it, and `work_items` links a
+                               new page to work items by issue key or id
     get_page_guide             How a page people answer sends its answers:
                                the postMessage protocol, the answer rules,
                                and a worked example. Read it before
@@ -343,13 +345,15 @@ mcp sharing:
   `kcap login`.
 
 mcp pass:
-  Exposes six tools, where the server offers passes; elsewhere it lists none.
+  Exposes seven tools, where the server offers passes; elsewhere it lists none.
 
     find_colleague        Colleagues matching a name. Several matches mean
                           the agent asks which one.
     pass                  Pass a work item, session, page or hosted agent
                           with a brief the user approved.
     message               A short note, optionally about an item, or a reply.
+    approve_pass          Approve the one share a pass needs, after the
+                          user says yes.
     pass_status           Where a pass or message stands.
     catch_me_up           The passes the user shared with their agent in
                           kcap, as a colleague's labelled text; the rest
@@ -357,12 +361,14 @@ mcp pass:
     what_else             What the stored sessions hold that a shared pass's
                           brief leaves out, each point citing a turn.
 
-  When the colleague cannot see the item, the user approves exactly what will
-  be shared, in the harness's prompt or in kcap; no tool approves it.
+  When the colleague cannot see the item, pass returns at once with a question
+  naming exactly what will be shared. The agent asks it with its own question
+  tool and calls approve_pass only on the user's yes; the user can also answer
+  in kcap. The approval waits until they do.
 
 mcp knowledge:
-  Exposes eleven tools for agents to read retained facts and curated skills,
-  to fine-tune skills, and to merge facts filed under two categories.
+  Exposes eight tools for agents to read retained facts and curated skills,
+  and to fine-tune skills.
 
     list_skills           A repo's skills, most recently changed first.
     get_skill             One skill with bodies, members, pins and doc_revision.
@@ -373,11 +379,6 @@ mcp knowledge:
     adjust_skill_members  exclude | include draft members, or add | remove |
                           clear assignment pins.
     curate_fact_cluster   Curate a fact by its curation_key.
-    list_category_merges  Fact pairs in different categories that read as
-                          the same lesson.
-    merge_categories      Fold a pair's absorbed fact into its survivor.
-    dismiss_category_merge
-                          Mark a pair as not the same lesson, for good.
 
   Arguments are the server's field names. Reads default to the current
   repository. Skill writes take get_skill's doc_revision as

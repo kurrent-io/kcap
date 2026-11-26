@@ -40,7 +40,7 @@ internal sealed class AdoptionEvidenceReader(IProcessRunner runner, ILoginShellP
             var printed = new List<ServiceUnitFact>();
             foreach (var unit in units) {
                 var result = await _ctl.PrintAsync(LabelPrefix + unit.Name, ct).ConfigureAwait(false);
-                printed.Add(LaunchdPrint.Classify(result.ExitCode, result.Stdout, result.Stderr) == LabelProbe.Loaded
+                printed.Add(LaunchdPrint.Classify(result.ExitCode, result.Stderr) == LabelProbe.Loaded
                     ? unit with { Loaded = true, JobPid = LaunchdPrint.Pid(result.Stdout), LoadedProgram = LaunchdPrint.LoadedProgram(result.Stdout) }
                     : unit);
             }

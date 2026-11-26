@@ -22,8 +22,10 @@ public interface ILifecycleSurface {
 /// <param name="PathDegraded">Disclosed when the terminal PATH is unknown.</param>
 /// <param name="Disclosure">Replacement/recapture text.</param>
 /// <param name="Warning">A distinct data-loss line shown beneath the disclosure.</param>
+/// <param name="Choice">Only a caller that shows the dialog itself can read the answer to it.</param>
 public sealed record LifecyclePrompt(
-    string Kind, string? DaemonVersion, string? CliVersion, bool PathDegraded, string Disclosure, string? Warning = null) {
+    string Kind, string? DaemonVersion, string? CliVersion, bool PathDegraded, string Disclosure, string? Warning = null,
+    LifecycleChoice? Choice = null) {
     public const string KindTakeover      = "takeover";
     public const string KindRepair        = "repair";
     public const string KindShim          = "shim";
@@ -34,6 +36,7 @@ public sealed record LifecyclePrompt(
     public const string KindReloadService = "reload-service";
     public const string KindRename        = "rename";
     public const string KindRemoveProfile = "remove-profile";
+    public const string KindSwitchProfile = "switch-profile";
     public const string KindRemoveSharedInstall = "remove-shared-install";
     public const string KindSetup         = "setup";
     public const string KindUninstall     = "uninstall";

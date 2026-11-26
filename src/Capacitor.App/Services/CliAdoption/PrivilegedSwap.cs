@@ -51,7 +51,7 @@ internal sealed partial class PrivilegedSwap(IProcessRunner runner, AdoptionReco
         }
 
         try {
-            using (control) {
+            await using (control) {
                 var helper = RunHelperAsync(args, ct);
                 var goSent = false;
                 var ran    = false;

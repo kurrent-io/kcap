@@ -8,8 +8,9 @@ using Spectre.Console;
 namespace Capacitor.Cli.Commands;
 
 /// <summary><c>kcap local intelligence</c>: tells the local server who runs its background model calls — titles,
-/// outcomes, evals — and whether imported sessions get outcomes. The local server authenticates nobody, so the answer
-/// goes over the loopback lane with no credential.</summary>
+/// outcomes, evals — whether imported sessions get outcomes and how many older sessions a day the work takes, or with
+/// <c>status</c> reads all three back. The local server authenticates nobody, so it goes over the loopback lane with
+/// no credential.</summary>
 sealed class LocalIntelligenceCommand(ICapacitorHttpClient http, LocalRoot root, ConfigRoot config) {
     public const int Applied = 0;
 
@@ -32,9 +33,17 @@ sealed class LocalIntelligenceCommand(ICapacitorHttpClient http, LocalRoot root,
         if (Installation() is not { } installation)
             return Report(json, Failed, "There is no local installation to configure. Run kcap setup --local first.");
 
+        if (parsed.Status)
+            return Settled(json, await IntelligenceSettingsClient.ReadAsync(http.Loopback(), installation.ServerUrl, CancellationToken.None));
+
+        // The record follows the mode, which preferences alone never change.
+        if (parsed.Answer is not { } answer)
+            return Settled(json, await IntelligenceSettingsClient.UpdateAsync(http.Loopback(), installation.ServerUrl,
+                new(parsed.ImportOutcomes, parsed.DailyLimit), CancellationToken.None));
+
         string? key = null;
 
-        if (parsed.Answer.Vendor is { } vendor) {
+        if (answer.Vendor is { } vendor) {
             var prompt = !json && AnsiConsole.Profile.Capabilities.Interactive ? () => AskKey(vendor) : (Func<string?>?)null;
             (key, var keyError) = IntelligenceKey.Resolve(vendor, Variable, prompt);
 
@@ -42,7 +51,7 @@ sealed class LocalIntelligenceCommand(ICapacitorHttpClient http, LocalRoot root,
         }
 
         var outcome = await IntelligenceSetupClient.ApplyAsync(
-            http.Loopback(), installation.ServerUrl, parsed.Answer.Request(parsed.Model, key, parsed.ImportOutcomes), CancellationToken.None);
+            http.Loopback(), installation.ServerUrl, answer.Request(parsed.Model, key, parsed.ImportOutcomes), CancellationToken.None);
 
         if (outcome is IntelligenceSetupOutcome.Applied { Response: var applied } && !Record(config, installation.Id, applied))
             Console.Error.WriteLine($"  ! {RecordNotSavedLine}");
@@ -92,6 +101,37 @@ sealed class LocalIntelligenceCommand(ICapacitorHttpClient http, LocalRoot root,
 
         yield return r.Resolving.Count == 0 ? "Nothing resolves a model yet." : $"Runs: {string.Join(", ", r.Resolving)}.";
         yield return r.ImportOutcomes ? "Imported sessions get an outcome." : "Imported sessions get no outcome.";
+    }
+
+    static int Settled(bool json, IntelligenceSettingsOutcome outcome) {
+        switch (outcome) {
+            case IntelligenceSettingsOutcome.Read { Settings: var settings }:
+                if (json) Write(IntelligenceCliLine.From(settings));
+                else foreach (var line in Summary(settings)) Console.Out.WriteLine($"  {line}");
+
+                return Applied;
+            case IntelligenceSettingsOutcome.Refused { Error: var code }:
+                return Report(json, Refused, json ? code : IntelligenceRefusals.Describe(code));
+            case IntelligenceSettingsOutcome.Failed { Problem: var problem }:
+                return Report(json, Failed, $"Could not reach the local server: {problem}");
+            default:
+                return Failed;
+        }
+    }
+
+    const string PinnedNote = " The server's service environment sets this.";
+
+    internal static IEnumerable<string> Summary(IntelligenceSettings s) {
+        yield return s.Mode switch {
+            IntelligenceModes.LocalAgent => $"Background intelligence: your local agent, {s.Harness}.",
+            IntelligenceModes.Provider   => $"Background intelligence: {s.Vendor}{(s.Model is null ? "" : $" ({s.Model})")}, with your API key.",
+            IntelligenceModes.Custom     => "Background intelligence: set up in the server's web settings.",
+            _                            => "Background intelligence: not set up.",
+        };
+        yield return s.Resolving.Count == 0 ? "Nothing resolves a model yet." : $"Runs: {string.Join(", ", s.Resolving)}.";
+        yield return (s.ImportOutcomes ? "Imported sessions get an outcome." : "Imported sessions get no outcome.")
+                   + (s.ImportOutcomesPinned ? PinnedNote : "");
+        yield return $"Daily limit: {s.BacklogSessionTouchesPerDay} older sessions a day." + (s.BacklogLimitPinned ? PinnedNote : "");
     }
 
     static int Report(bool json, int exit, string message) {

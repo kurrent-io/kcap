@@ -21,7 +21,7 @@ public class WatcherManagerKillTests {
         await File.WriteAllTextAsync(pidFile, $"{watcher.Pid}\n{identity}");
 
         bool failed;
-        using (new FileStream(pidFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        await using (new FileStream(pidFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             failed = await watchers.KillWatcher("s-a");
 
         await Assert.That(failed).IsFalse();
@@ -51,7 +51,7 @@ public class WatcherManagerKillTests {
         WatcherHeartbeat.Touch(paths.StartedFile("s-a"), longAgo);
         WatcherHeartbeat.Touch(paths.HeartbeatFile("s-a"), longAgo);
 
-        using (new FileStream(pidFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        await using (new FileStream(pidFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
             await watchers.EnsureWatcherRunning("s-a", "transcript.jsonl", agentId: "child");
 
         await Assert.That(spawner.Spawned).IsEmpty();

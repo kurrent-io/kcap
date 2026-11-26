@@ -305,7 +305,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 // so it never makes a server round-trip on the shutdown path. A failure here still
                 // must not turn a loop exit into a fault.
                 if (streams is not null) {
-                    try { await streams.DisposeAsync().ConfigureAwait(false); } catch (Exception) { }
+                    try { await streams.DisposeAsync().ConfigureAwait(false); } catch (Exception) { /* ignored */ }
                 }
             }
 
@@ -613,7 +613,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 await source.DisposeAsync().ConfigureAwait(false);
                 if (!refused && hub.State == HubConnectionState.Connected) {
                     try { await hub.InvokeAsync(SignalRSubscriptionMethods.Unsubscribe, stream, CancellationToken.None).ConfigureAwait(false); }
-                    catch (Exception) { }
+                    catch (Exception) { /* ignored */ }
                 }
             }
         } finally {
@@ -686,7 +686,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     /// Null for a payload that is not a readable queue — never an empty one, which a consumer
     /// would read as the server having dropped every prompt it holds.
     static IReadOnlyList<QueuedInputItem>? ParseQueue(JsonElement? items) {
-        if (items is not { } array || !array.IsArray) return null;
+        if (items is not { IsArray: true } array) return null;
         try { return array.Deserialize(RemoteModelsJsonContext.Default.QueuedInputItemArray); }
         catch (JsonException) { return null; }
     }
@@ -718,6 +718,8 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 HubMethods.RequestLaunchAgentV2, LaunchPayload.For(request), ct).ConfigureAwait(false);
             return new LaunchOutcome(Started: true, AgentId: agentId, Error: null);
         } catch (Exception ex) {
+            if (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                Log("server_launch_failed", ("exception_type", ex.GetType().Name), ("detail", ex.Message));
             return new LaunchOutcome(false, null, ex.Message, IsUnauthorized(ex));
         }
     }
@@ -768,9 +770,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         return false;
     }
 
-    static async Task AwaitQuietly(Task t) {
-        try { await t.ConfigureAwait(false); } catch { }
-    }
+    static async Task AwaitQuietly(Task t) => await t.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
 
     public async ValueTask DisposeAsync() {
         _lifetime.Cancel();

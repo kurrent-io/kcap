@@ -21,10 +21,10 @@ public class AcpHostedAgentRuntimePermissionTests {
 
     sealed class FakeAcpProcess : IAcpProcess {
         readonly TaskCompletionSource _exited = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int  Pid       { get; init; } = 4242;
+        public int  Pid       { get; } = 4242;
         public bool HasExited { get; private set; }
         public int? ExitCode  { get; private set; }
-        public void SignalExited(int exitCode = 0) { HasExited = true; ExitCode = exitCode; _exited.TrySetResult(); }
+        void SignalExited(int exitCode = 0) { HasExited = true; ExitCode = exitCode; _exited.TrySetResult(); }
         public Task WaitForExitAsync(TimeSpan? timeout = null) => _exited.Task;
         public Task TerminateAsync(TimeSpan? timeout = null) { SignalExited(); return Task.CompletedTask; }
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
@@ -42,7 +42,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             conn,
             process,
             NullLogger.Instance, TimeProvider.System,
-            requestInteraction: (req, ct) => gate.Task);
+            requestInteraction: (_, _) => gate.Task);
 
         using var cts = new CancellationTokenSource();
         var fakeRunTask = fake.RunAsync(cts.Token);
@@ -138,7 +138,7 @@ public class AcpHostedAgentRuntimePermissionTests {
         var gate    = new TaskCompletionSource<AcpInteractionDecision>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var runtime = new AcpHostedAgentRuntime(
-            conn, process, NullLogger.Instance, TimeProvider.System, requestInteraction: (req, ct) => gate.Task) {
+            conn, process, NullLogger.Instance, TimeProvider.System, requestInteraction: (_, _) => gate.Task) {
             ActivityClock = new AgentActivityClock(new FakeTimeProvider())
         };
 
@@ -191,7 +191,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             conn,
             process,
             NullLogger.Instance, TimeProvider.System,
-            requestInteraction: (req, ct) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
+            requestInteraction: (_, _) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
 
         using var cts = new CancellationTokenSource();
         var fakeRunTask = fake.RunAsync(cts.Token);
@@ -310,7 +310,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             conn,
             process,
             NullLogger.Instance, TimeProvider.System,
-            requestInteraction: (req, ct) => { captured = req; return Task.FromResult(new AcpInteractionDecision("allow", "allow-once", "Allow", null, null, null)); });
+            requestInteraction: (req, _) => { captured = req; return Task.FromResult(new AcpInteractionDecision("allow", "allow-once", "Allow", null, null, null)); });
 
         using var cts = new CancellationTokenSource();
         var fakeRunTask = fake.RunAsync(cts.Token);
@@ -373,7 +373,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             conn,
             process,
             NullLogger.Instance, TimeProvider.System,
-            requestInteraction: (req, ct) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
+            requestInteraction: (_, _) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
 
         using var cts = new CancellationTokenSource();
         var fakeRunTask = fake.RunAsync(cts.Token);
@@ -386,7 +386,7 @@ public class AcpHostedAgentRuntimePermissionTests {
 
         // No updates at all — the turn ends on stopReason alone, exactly like a vendor that reports
         // the rejection to itself but never turns it into assistant text.
-        fake.EnqueuePromptScript([], JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone());
+        fake.EnqueuePromptScript([], JsonElement.Parse("""{"stopReason":"end_turn"}"""));
 
         await runtime.SendUserInputAsync("do it").WaitAsync(HangGuard);
 
@@ -414,7 +414,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             conn,
             process,
             NullLogger.Instance, TimeProvider.System,
-            requestInteraction: (req, ct) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
+            requestInteraction: (_, _) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
 
         using var cts = new CancellationTokenSource();
         var fakeRunTask = fake.RunAsync(cts.Token);
@@ -454,7 +454,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             conn,
             process,
             NullLogger.Instance, TimeProvider.System,
-            requestInteraction: (req, ct) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
+            requestInteraction: (_, _) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)));
 
         using var cts = new CancellationTokenSource();
         var fakeRunTask = fake.RunAsync(cts.Token);
@@ -467,7 +467,7 @@ public class AcpHostedAgentRuntimePermissionTests {
 
         fake.EnqueuePromptScript(
             [FakeAcpAgent.DefaultAgentMessageChunkUpdate(FakeAcpAgent.FixedSessionId, "I can't run that.")],
-            JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone());
+            JsonElement.Parse("""{"stopReason":"end_turn"}"""));
 
         await runtime.SendUserInputAsync("do it").WaitAsync(HangGuard);
 
@@ -496,7 +496,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             conn,
             process,
             NullLogger.Instance, TimeProvider.System,
-            requestInteraction: (req, ct) => Task.FromResult(new AcpInteractionDecision("allow", "allow-once", "Allow", null, null, null)));
+            requestInteraction: (_, _) => Task.FromResult(new AcpInteractionDecision("allow", "allow-once", "Allow", null, null, null)));
 
         using var cts = new CancellationTokenSource();
         var fakeRunTask = fake.RunAsync(cts.Token);
@@ -507,7 +507,7 @@ public class AcpHostedAgentRuntimePermissionTests {
             toolCallJson: """{"toolCallId":"call-1","title":"Run ls"}""",
             optionsJson: """[{"optionId":"allow-once","name":"Allow","kind":"allow_once"}]""");
 
-        fake.EnqueuePromptScript([], JsonDocument.Parse("""{"stopReason":"end_turn"}""").RootElement.Clone());
+        fake.EnqueuePromptScript([], JsonElement.Parse("""{"stopReason":"end_turn"}"""));
 
         await runtime.SendUserInputAsync("run ls").WaitAsync(HangGuard);
 

@@ -5,7 +5,7 @@ using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.Policy;
 
 public class ClaudeActionNormalizerTests {
-    static JsonElement Input(string json) => JsonDocument.Parse(json).RootElement.Clone();
+    static JsonElement Input(string json) => JsonElement.Parse(json);
 
     [Test]
     public async Task Bash_maps_to_shell_with_analysis() {

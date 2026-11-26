@@ -39,12 +39,11 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         }
     }
     public bool ShowsLegacyLinks => PullRequests is null;
-    PullRequestRepository? _primaryRepository;
     public PullRequestRepository? PrimaryRepository {
-        get => _primaryRepository;
+        get;
         private set {
-            var changed = value is not null && value != _primaryRepository;
-            _primaryRepository = value;
+            var changed = value is not null && value != field;
+            field = value;
             if (changed) PullRequests?.PrimaryRepositoryChanged();
         }
     }
@@ -72,6 +71,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     readonly SessionRuns _runs;
     readonly Func<bool> _canSendToAgent;
     readonly Func<string, Task<bool>> _sendToAgent;
+    readonly Func<bool> _canDraftForAgent;
+    readonly Action<string> _draftForAgent;
     readonly BehaviorSubject<bool> _canOpenWorkItem = new(false);
     readonly CompositeDisposable _disposables = new();
     ITimer? _timer;
@@ -81,8 +82,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     long _compactStartedAt;
     AgentStatusDto? _dto;
 
-    string _repository = "—";
-    public string Repository { get => _repository; private set => this.RaiseAndSetIfChanged(ref _repository, value); }
+    public string Repository { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "—";
     string? _repositoryPath;
     public string? RepositoryPath {
         get => _repositoryPath;
@@ -92,8 +92,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         }
     }
     public bool CanCopyRepository => !string.IsNullOrEmpty(_repositoryPath);
-    string _worktree = "—";
-    public string Worktree { get => _worktree; private set => this.RaiseAndSetIfChanged(ref _worktree, value); }
+    public string Worktree { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "—";
     string? _worktreePath;
     public string? WorktreePath {
         get => _worktreePath;
@@ -112,14 +111,13 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         }
     }
     public bool CanCopyBranch => _branch != "—";
-    string _harness = "—";
-    public string Harness { get => _harness; private set => this.RaiseAndSetIfChanged(ref _harness, value); }
-    string _tokens = SessionFactText.Unknown;
-    public string Tokens { get => _tokens; private set => this.RaiseAndSetIfChanged(ref _tokens, value); }
-    string _cost = SessionFactText.Unknown;
-    public string Cost { get => _cost; private set => this.RaiseAndSetIfChanged(ref _cost, value); }
-    string _contextUse = SessionFactText.Unknown;
-    public string ContextUse { get => _contextUse; private set => this.RaiseAndSetIfChanged(ref _contextUse, value); }
+    public string Harness { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "—";
+
+    /// The session's agent, as a vendor token; null until the session reports one.
+    public string? AgentVendor { get; private set; }
+    public string Tokens { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
+    public string Cost { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
+    public string ContextUse { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
     string? _currentContextUse;
     /// The context in use now, or "compacted" while a compaction awaits its next reading; null
     /// when the server reports neither.
@@ -145,10 +143,8 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
 
     public string Created { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
     public string Updated { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
-    string _sessionSharing = SessionFactText.Unknown;
-    public string SessionSharing { get => _sessionSharing; private set => this.RaiseAndSetIfChanged(ref _sessionSharing, value); }
-    string _agentSharing = SessionFactText.Unknown;
-    public string AgentSharing { get => _agentSharing; private set => this.RaiseAndSetIfChanged(ref _agentSharing, value); }
+    public string SessionSharing { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
+    public string AgentSharing { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = SessionFactText.Unknown;
     string _sessionIdText = "resolving…";
     public string SessionIdText {
         get => _sessionIdText;
@@ -213,11 +209,10 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
 
     public WorkContextPhase Phase => _card.Phase;
 
-    bool _hasWorkspaceNotice;
     public bool HasWorkspaceNotice {
-        get => _hasWorkspaceNotice;
+        get;
         set {
-            this.RaiseAndSetIfChanged(ref _hasWorkspaceNotice, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(PhaseNote));
         }
     }
@@ -275,38 +270,43 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     }
 
     public bool IsStale => _card.IsStale || _pullRequests?.HasStaleOverview == true;
-    bool _isReading;
     public bool IsReading {
-        get => _isReading;
+        get;
         private set {
-            if (_isReading == value) return;
-            this.RaiseAndSetIfChanged(ref _isReading, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             if (!value) IsRefreshing = false;
             this.RaisePropertyChanged(nameof(RefreshTip));
+            this.RaisePropertyChanged(nameof(ShowsReadProgress));
         }
     }
-    bool _isRefreshing;
     /// A refresh someone asked for, still reading; the 30s poll runs without it.
     public bool IsRefreshing {
-        get => _isRefreshing;
-        private set { if (_isRefreshing != value) { this.RaiseAndSetIfChanged(ref _isRefreshing, value); this.RaisePropertyChanged(nameof(RefreshTip)); } }
+        get;
+        private set {
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
+            this.RaisePropertyChanged(nameof(RefreshTip));
+            this.RaisePropertyChanged(nameof(ShowsReadProgress));
+        }
     }
-    bool _hasSession;
+    /// A read someone is waiting on: the first one, or a refresh they asked for. The poll re-reads behind the
+    /// note already shown; animating a bar for each one keeps an idle window rendering every 30 seconds.
+    public bool ShowsReadProgress => IsReading && (IsRefreshing || Phase is WorkContextPhase.Loading);
     // Subject, not WhenAnyValue — same RxAppBuilder init trap as SessionRailViewModel.SelectedSessionKey.
     readonly BehaviorSubject<bool> _hasSessionChanges = new(false);
     public bool HasSession {
-        get => _hasSession;
+        get;
         private set {
-            if (_hasSession == value) return;
-            this.RaiseAndSetIfChanged(ref _hasSession, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             _hasSessionChanges.OnNext(value);
             this.RaisePropertyChanged(nameof(RefreshTip));
         }
     }
 
-    bool _hasAgent;
     /// Until the daemon reports the agent, every session fact and the requester are placeholders.
-    public bool HasAgent { get => _hasAgent; private set => this.RaiseAndSetIfChanged(ref _hasAgent, value); }
+    public bool HasAgent { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     /// Tip on the header refresh control — bound with ShowOnDisabled so a greyed icon still explains itself.
     public string RefreshTip => HasSession
@@ -336,10 +336,13 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
             Action<string>? openWorkItem = null, IPlanSource? plans = null, PlanActivity? planActivity = null,
             ArtefactsTabViewModel? artefacts = null, bool isRemote = false,
             IObservable<ServerLaneStatus>? serverLane = null, Func<bool>? canSendToAgent = null,
-            Func<string, Task<bool>>? sendToAgent = null, WorkContextLayout? layout = null) {
+            Func<string, Task<bool>>? sendToAgent = null, Func<bool>? canDraftForAgent = null,
+            Action<string>? draftForAgent = null, WorkContextLayout? layout = null) {
         _isRemote = isRemote;
         _canSendToAgent = canSendToAgent ?? (() => false);
         _sendToAgent = sendToAgent ?? (_ => Task.FromResult(false));
+        _canDraftForAgent = canDraftForAgent ?? (() => false);
+        _draftForAgent = draftForAgent ?? (_ => { });
         _layout = layout ?? new WorkContextLayout();
         _source = source;
         _branchReader = new SingleFlightReader<(string? Path, string? Reported), string>(
@@ -403,7 +406,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         if (serverLane is not null) {
             // Only an attempt nothing answered is evidence the server is down; a read in flight then ends in the
             // unreachable state rather than loading for as long as the outage lasts.
-            serverLane.Select(s => s.State == ServerLaneState.Retrying && s.Failure is not null)
+            serverLane.Select(s => s is { State: ServerLaneState.Retrying, Failure: not null })
                 .DistinctUntilChanged()
                 .ObserveOn(RxSchedulers.MainThreadScheduler)
                 .Subscribe(OnServerDown)
@@ -452,7 +455,26 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
     }
 
     internal void AgentInputAvailabilityChanged() {
-        if (!_tornDown) RaiseCompactState();
+        if (_tornDown) return;
+        RaiseCompactState();
+        this.RaisePropertyChanged(nameof(CanAskAgent));
+    }
+
+    /// Whether a request to the session's agent, such as one about a bookmark, can be drafted in its composer.
+    public bool CanAskAgent => _canDraftForAgent();
+
+    // Requests are drafted rather than sent: the user reads them, can add what the bookmark leaves out, and sends.
+    /// Drafts a request about a bookmark; false means nothing was drafted.
+    public bool AskAbout(ChatBookmark bookmark, ChatBookmarkAsk ask) => Ask(ask.For(bookmark));
+
+    /// Drafts one request to file every bookmark under a topic.
+    public bool FileLooseEnds(ChatBookmarkGroup section) =>
+        section is { Topic: { } topic, Bookmarks.Count: > 0 } && Ask(ChatBookmarkAskText.LooseEnds(topic.Label, section.Bookmarks));
+
+    bool Ask(string text) {
+        if (_tornDown || !CanAskAgent) return false;
+        _draftForAgent(text);
+        return true;
     }
 
     void RaiseCompactState() {
@@ -499,6 +521,7 @@ public sealed partial class WorkContextViewModel : ReactiveObject {
         ResolveBranch();
         var vendorLabel = HostedHarnessCatalog.LabelFor(DefaultHarnessOptions, dto.Vendor);
         Harness = $"{vendorLabel} · {HostedHarnessCatalog.ModelLabelFor(dto.Vendor, dto.Model ?? "")}";
+        AgentVendor = dto.Vendor;
         if (!_reader.HasCurrent) SessionIdText = SessionIds.Canonical(dto.SessionId) ?? "resolving…";
         UpdateRequester(dto, vendorLabel);
     }

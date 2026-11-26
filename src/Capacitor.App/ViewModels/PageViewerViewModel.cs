@@ -66,12 +66,10 @@ public sealed class PageViewerViewModel : ReactiveObject {
         _                           => null,
     };
 
-    string _title = "";
-    public string Title { get => _title; private set => this.RaiseAndSetIfChanged(ref _title, value); }
+    public string Title { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
-    string? _html;
     /// The host document for the WebView; null after a read that found no page.
-    public string? Html { get => _html; private set => this.RaiseAndSetIfChanged(ref _html, value); }
+    public string? Html { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     public ArtefactDto? Page { get; private set; }
     public int Version { get; private set; }
@@ -81,12 +79,11 @@ public sealed class PageViewerViewModel : ReactiveObject {
 
     /// A link the page tried to follow, held until the user opens or dismisses it: a page's script
     /// must never reach the browser without a click in the app.
-    string? _pendingExternalUrl;
     public string? PendingExternalUrl {
-        get => _pendingExternalUrl;
+        get;
         private set {
-            if (_pendingExternalUrl == value) return;
-            this.RaiseAndSetIfChanged(ref _pendingExternalUrl, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(PendingPrompt));
             this.RaisePropertyChanged(nameof(HasPending));
         }

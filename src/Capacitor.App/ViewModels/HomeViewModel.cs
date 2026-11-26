@@ -173,7 +173,6 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     readonly Action<string>? _launchFailed;
     readonly CompositeDisposable _disposables = new();
 
-    string _selectedRepoPath = ScratchRepoPath;
     // Every assignment counts, the same path included: a pick of no repository leaves the
     // selection reading as it did, and default discovery must still yield to it.
     int _repoPicks;
@@ -186,42 +185,39 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     public ComposerPicker? Picker { get; }
 
     public string SelectedRepoPath {
-        get => _selectedRepoPath;
+        get;
         set {
             Interlocked.Increment(ref _repoPicks);
             // Same rule as SameLaunchTarget and the picker, so a refusal clears exactly when they see a new folder.
-            var changed = !PathComparerFor(RemoteMachineSelected).Equals(_selectedRepoPath, value);
-            this.RaiseAndSetIfChanged(ref _selectedRepoPath, value);
+            var changed = !PathComparerFor(RemoteMachineSelected).Equals(field, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             _selectedRepoPathChanges.OnNext(value);
             // A launch refusal describes the folder that failed. A later pick is a different attempt.
             if (changed && StartError != _intakeNotice) StartError = null;
             if (changed) SelectedBaseRef = null;
         }
-    }
+    } = ScratchRepoPath;
 
-    string? _selectedBaseRef;
     /// The branch, tag or sha the next session's worktree starts from; null is the checkout's
     /// current HEAD. A ref belongs to one repository on one machine, so picking either clears it.
     public string? SelectedBaseRef {
-        get => _selectedBaseRef;
-        private set => this.RaiseAndSetIfChanged(ref _selectedBaseRef, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    string _selectedVendor = DefaultVendor;
     // Follows the repository — only ChooseHarnessAsync/SelectRepositoryAsync set it, so a caller
     // can never desync it from the persisted-or-default rule those two methods implement.
     public string SelectedVendor {
-        get => _selectedVendor;
-        private set => this.RaiseAndSetIfChanged(ref _selectedVendor, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = DefaultVendor;
 
-    string _selectedModel = "";
     /// "" = vendor default (the wire convention). Session-scoped, not persisted; reset whenever
     /// the vendor changes — model ids are vendor-specific, so a stale one would misfire.
     public string SelectedModel {
-        get => _selectedModel;
-        set => this.RaiseAndSetIfChanged(ref _selectedModel, value);
-    }
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
 
     /// The selected machine's own model catalog merged over the server's (see MergeCatalogs), with
     /// the selected account's own list for its vendor where the machine has one; the agent chip
@@ -257,15 +253,13 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         return merged;
     }
 
-    string? _selectedEffort;
     /// null = vendor default. Survives vendor changes — the effort vocabulary is shared enough
     /// (low/medium/high/xhigh/max) that the choice usually still means what the user meant.
     public string? SelectedEffort {
-        get => _selectedEffort;
-        set => this.RaiseAndSetIfChanged(ref _selectedEffort, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    string _selectedPermissionMode = DefaultPermissionMode;
     // Bumped by every user pick, so a repository restore that loaded before it leaves the pick alone.
     int _permissionModeChoices;
     // Same role as _permissionModeChoices, for the base ref.
@@ -273,36 +267,33 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     /// A ClaudePermissionModes token, remembered per repository like the harness and kept across
     /// vendor changes; PermissionModeFor decides whether it rides a given launch.
     public string SelectedPermissionMode {
-        get => _selectedPermissionMode;
-        set => this.RaiseAndSetIfChanged(ref _selectedPermissionMode, value);
-    }
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
+    } = DefaultPermissionMode;
 
-    string _selectedCodexSandbox = HostedHarnessCatalog.DefaultCodexSandbox;
     /// Kept across vendor changes; CodexPostureFor decides whether it rides a given launch.
     public string SelectedCodexSandbox {
-        get => _selectedCodexSandbox;
-        set => this.RaiseAndSetIfChanged(ref _selectedCodexSandbox, value);
-    }
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
+    } = HostedHarnessCatalog.DefaultCodexSandbox;
 
-    string _selectedCodexApproval = HostedHarnessCatalog.DefaultCodexApproval;
     public string SelectedCodexApproval {
-        get => _selectedCodexApproval;
-        set => this.RaiseAndSetIfChanged(ref _selectedCodexApproval, value);
-    }
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
+    } = HostedHarnessCatalog.DefaultCodexApproval;
 
-    string _goal = "";
     int _goalEdits;
     /// Every real edit bumps _goalEdits: a launch clears only the goal it captured, and only while
     /// nothing has been typed into it since.
     public string Goal {
-        get => _goal;
+        get;
         set {
-            if (string.Equals(_goal, value, StringComparison.Ordinal)) return;
+            if (string.Equals(field, value, StringComparison.Ordinal)) return;
             _goalEdits++;
             ClearIntakeNotice();
-            this.RaiseAndSetIfChanged(ref _goal, value);
+            this.RaiseAndSetIfChanged(ref field, value);
         }
-    }
+    } = "";
 
     /// The chips staged for the next launch. Cleared only of what a launch actually sent.
     public AttachmentTray Tray { get; } = new();
@@ -311,13 +302,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     public IAttachmentSink Attachments => this;
 
     readonly BehaviorSubject<bool> _uploadingChanges = new(false);
-    bool _uploading;
     /// True while a launch's staged files are going up. Start is blocked, never queued.
     public bool Uploading {
-        get => _uploading;
+        get;
         private set {
-            if (_uploading == value) return;
-            this.RaiseAndSetIfChanged(ref _uploading, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             // A window closing mid-upload disposes this object while StartAsync is still inside its
             // try, and the finally that clears the flag would then publish onto a disposed subject.
             if (!_disposed) _uploadingChanges.OnNext(value);
@@ -352,32 +342,28 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
 
     public bool StartErrorIsNotice => IsAtCapacityNotice(_startError);
 
-    public bool CanRequestRepositoryAccess => !RemoteMachineSelected
-        && !string.IsNullOrEmpty(SelectedRepoPath)
-        && StartError is { } error
-        && error.Contains($"Access to the path '{SelectedRepoPath}' is denied", StringComparison.OrdinalIgnoreCase);
+    /// Opens the OS screen that can lift the daemon's denial; null where no such screen exists.
+    public Action? OpenFolderPrivacySettings { get; init; }
 
-    bool _requestingRepositoryAccess;
-    public async Task RequestRepositoryAccessAsync(Func<string, Task<bool>> requestAccess) {
-        if (!CanRequestRepositoryAccess || _requestingRepositoryAccess) return;
-        var path = SelectedRepoPath;
-        var error = StartError;
-        _requestingRepositoryAccess = true;
-        try {
-            if (!await requestAccess(path)) return;
-            await Task.Run(() => {
-                // Directory.Exists masks permission failures. Enumerating forces a real access check,
-                // including for an empty repository.
-                using var entries = Directory.EnumerateFileSystemEntries(path).GetEnumerator();
-                entries.MoveNext();
-            });
-            if (!RemoteMachineSelected && SelectedRepoPath == path && StartError == error)
-                StartError = null;
-        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) {
-            // Keep the original refusal and draft available for another attempt.
-        } finally {
-            _requestingRepositoryAccess = false;
-        }
+    /// The daemon, not the app, reads the folder: a grant to the app's own process changes nothing for
+    /// it, and only the next launch can show whether the daemon got access.
+    public bool CanRequestRepositoryAccess => OpenFolderPrivacySettings is not null
+        && !RemoteMachineSelected
+        && StartError is { } error
+        && error == _localFolderRefusal
+        && error.StartsWith(FolderDeniedLead, StringComparison.Ordinal);
+
+    /// A refusal from a local launch at the selected target. A remote daemon's denial reads the same
+    /// and can land after the picker moved to local; this settings screen cannot lift that one.
+    string? _localFolderRefusal;
+
+    void ShowLaunchRefusal(string text, bool localAtSelectedTarget) {
+        _localFolderRefusal = localAtSelectedTarget ? text : null;
+        StartError = text;
+    }
+
+    public void RequestRepositoryAccess() {
+        if (CanRequestRepositoryAccess) OpenFolderPrivacySettings!();
     }
 
     /// A 401 outcome is the only writer besides its own reset paths. A subject (not a reactive
@@ -393,7 +379,6 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     readonly BehaviorSubject<bool> _localServer = new(false);
     readonly BehaviorSubject<bool> _localServerDown = new(false);
     readonly BehaviorSubject<bool> _updateFinishing = new(false);
-    string? _updateDetail;
     readonly Action? _requestSignIn;
 
     readonly ObservableAsPropertyHelper<string?> _connectionNotice;
@@ -429,22 +414,21 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     /// The web Home's "What to do next" band under the composer; null without a server.
     public NextWork.NextWorkBandViewModel? NextWork { get; init; }
 
-    NextWork.NextWorkFill? _nextWorkSource;
     readonly Subject<Unit> _composerFills = new();
 
     /// The next-work task picked for the next launch, named on the chip above the goal; null once it is cleared or
     /// launched. While one is picked the composer is for anything to add to it, and may stay empty.
     public NextWork.NextWorkFill? NextWorkSource {
-        get => _nextWorkSource;
+        get;
         private set {
-            if (ReferenceEquals(_nextWorkSource, value)) return;
-            this.RaiseAndSetIfChanged(ref _nextWorkSource, value);
+            if (ReferenceEquals(field, value)) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(GoalPlaceholder));
             NextWork?.MarkFilled(value?.Key);
         }
     }
 
-    public const string DefaultGoalPlaceholder = "What should we build? Type a goal or paste an issue, PR, or work-item URL…";
+    public const string DefaultGoalPlaceholder = "Type a goal, or paste an issue, PR or work-item URL…";
 
     /// The chip names the picked task, so the placeholder does not again.
     public string GoalPlaceholder => NextWorkSource is not null ? PickedGoalPlaceholder : DefaultGoalPlaceholder;
@@ -557,13 +541,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
 
     readonly AccountChooser _accountChooser;
 
-    IReadOnlyDictionary<string, AccountUsageView> _accountUsageById = FrozenDictionary<string, AccountUsageView>.Empty;
     /// Keyed by registered account id, for the selected host's selected vendor; empty while the host's
     /// readings may not be drawn.
     public IReadOnlyDictionary<string, AccountUsageView> AccountUsageById {
-        get => _accountUsageById;
-        private set => this.RaiseAndSetIfChanged(ref _accountUsageById, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = FrozenDictionary<string, AccountUsageView>.Empty;
     readonly Func<Task>? _retryListing;
     (string RepoPath, string Vendor, string Machine, bool Remote)? _accountTarget;
     bool _applyingAccountInputs;
@@ -584,42 +567,36 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     readonly BehaviorSubject<(bool Resolved, string? Id)> _viewerIds = new((false, null));
     readonly BehaviorSubject<(string Vendor, string AccountId)?> _accountCatalogKey = new(null);
 
-    bool _accountSection;
     /// The Agent panel's Account section: the rows, or the pending line while the choice resolves.
     public bool AccountSection {
-        get => _accountSection;
-        private set => this.RaiseAndSetIfChanged(ref _accountSection, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    IReadOnlyList<AccountChoice> _accountRows = [];
     public IReadOnlyList<AccountChoice> AccountRows {
-        get => _accountRows;
-        private set => this.RaiseAndSetIfChanged(ref _accountRows, value);
-    }
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = [];
 
-    string? _accountPendingText;
     public string? AccountPendingText {
-        get => _accountPendingText;
-        private set => this.RaiseAndSetIfChanged(ref _accountPendingText, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    bool _accountRetryVisible;
     public bool AccountRetryVisible {
-        get => _accountRetryVisible;
-        private set => this.RaiseAndSetIfChanged(ref _accountRetryVisible, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    string? _selectedAccountLabel;
     /// The chip's account part; null while the default is chosen.
     public string? SelectedAccountLabel {
-        get => _selectedAccountLabel;
-        private set => this.RaiseAndSetIfChanged(ref _selectedAccountLabel, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    bool _startErrorOffersDefault;
     public bool StartErrorOffersDefault {
-        get => _startErrorOffersDefault;
-        private set => this.RaiseAndSetIfChanged(ref _startErrorOffersDefault, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public ReactiveCommand<Unit, Unit> RetryAccountsCommand { get; }
@@ -658,14 +635,13 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         }
     }
 
-    bool _remoteMachineSelected;
     /// False ⇒ the local repo/harness/launch behavior, which is all a HomeViewModel that never
     /// wires the machine picker ever sees.
     public bool RemoteMachineSelected {
-        get => _remoteMachineSelected;
+        get;
         private set {
-            if (_remoteMachineSelected != value) SelectedBaseRef = null;
-            this.RaiseAndSetIfChanged(ref _remoteMachineSelected, value);
+            if (field != value) SelectedBaseRef = null;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(CanRequestRepositoryAccess));
         }
     }
@@ -740,45 +716,20 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     readonly ObservableAsPropertyHelper<IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>> _effectiveModelCatalog;
     IReadOnlyDictionary<string, IReadOnlyList<ModelChoice>>? _currentLocalCatalog;
 
-    /// knownRepos is RepoPathStore.GetSortedPathsAsync in production — the same persisted list
-    /// DaemonConnect.RepoPaths feeds the server's launch dialog. Required (no defaulted overload)
-    /// so a test can never silently read the developer's own ~/.config/kcap/repos.json.
-    /// <param name="navigationGeneration">
-    /// Read BEFORE the launch call, never after: the captured value is what makes a success that
-    /// lands after the user navigated away open nothing.
-    /// </param>
-    /// <param name="openSessionIfCurrent">
-    /// The launch auto-open (MainWindowViewModel.OpenSessionIfCurrent), carrying the lane and that
-    /// captured generation. Either lane's launch opens on its placeholder row at once.
-    /// </param>
-    /// <param name="requestSignIn">Opens the re-auth sign-in surface (App owns the window). Null
-    /// leaves the Sign in button inert — a HomeViewModel with no windows to open.</param>
-    /// <param name="daemons">The viewer's own-plus-others remote registry (IRemoteAgentsService.
-    /// Daemons). Null ⇒ the machine picker offers only the local daemon.</param>
-    /// <param name="viewerId">The signed-in user's own id (JwtClaims), read fresh per call. Null
-    /// ⇒ no remote daemon is ever offered — ownership is never guessed.</param>
-    /// <param name="laneStatus">The app's own server lane (IServerLane.Status) — what a remote
-    /// launch's availability gates on, independent of the local daemon's own connection word.</param>
-    /// <param name="localMachineId">This machine's id, for excluding the local daemon's own remote
-    /// registry twin from the picker's remote options.</param>
-    /// <param name="launchFailures">The app's own server lane (IServerLane.LaunchFailures). A
-    /// failure whose id is being tracked renders as StartError; an unknown id is another client's
-    /// launch and is ignored. Null ⇒ launch failures are never correlated.</param>
-    /// <param name="directory">The merged local+remote rows (IAgentDirectory.Rows). A row for a
-    /// tracked id is success confirmation and stops tracking it. Null ⇒ only a LaunchFailed or the
-    /// pending entry's own 10-minute timeout ever stops tracking.</param>
-    /// <param name="listing">The server's daemon listing (IRemoteAgentsService.Listing), which says
-    /// whether each daemon, this machine's included, honours an explicit account. Null ⇒ no account
-    /// is offered or sent.</param>
-    /// <param name="daemonAccounts">Every listed daemon's accounts (IRemoteAgentsService.DaemonAccounts).</param>
-    /// <param name="localAccounts">This machine's daemon's own snapshot (IAccountsService.Snapshot).</param>
-    /// <param name="retryListing">Fetches the listing and every daemon's accounts again
-    /// (IRemoteAgentsService.RefreshDaemonsAsync).</param>
-    /// <param name="readings">The drawable snapshots and clock behind <see cref="AccountUsageById"/>.
-    /// Null ⇒ no usage is shown.</param>
-    /// <param name="branches">Reads branch names for the "Branch from" picker. Null ⇒ none are listed.</param>
-    /// <param name="launchFailed">A tracked launch failed (MainWindowViewModel.CloseFailedLaunch):
-    /// its auto-opened workspace would otherwise cover the StartError this view just set.</param>
+    /// knownRepos is required, with no defaulted overload, so a test never reads the developer's own
+    /// ~/.config/kcap/repos.json.
+    /// <param name="navigationGeneration">Read before the launch call, never after: it is what makes a
+    /// success landing after the user navigated away open nothing.</param>
+    /// <param name="viewerId">Read fresh per call. Null offers no remote daemon; ownership is never
+    /// guessed.</param>
+    /// <param name="localMachineId">Excludes the local daemon's own registry twin from the remote
+    /// options.</param>
+    /// <param name="launchFailures">A failure for a tracked id renders as StartError; an unknown id is
+    /// another client's launch.</param>
+    /// <param name="directory">A row for a tracked id confirms success. Null leaves only a LaunchFailed or
+    /// the 10-minute timeout to stop tracking.</param>
+    /// <param name="launchFailed">Closes the auto-opened workspace, which would otherwise cover the
+    /// StartError.</param>
     public HomeViewModel(
             IDaemonClientService daemon, IAppStateStore state, ILaunchClient launch,
             Func<Task<string[]>> knownRepos, TimeProvider time, CancellationToken shutdown = default,
@@ -1285,15 +1236,14 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
 
     /// The local stack's upgrade banner; null unless the server is this machine's local installation.
     public LocalStackViewModel? LocalStack {
-        get => _localStack;
+        get;
         init {
-            _localStack = value;
+            field = value;
             if (value is not null)
                 Notices.TrackStack(value.WhenAnyValue(x => x.BannerVisible, x => x.Upgrading, x => x.IsNote, (visible, upgrading, note) =>
                     (visible, upgrading ? LauncherNotices.Kind.Progress : note ? LauncherNotices.Kind.Note : LauncherNotices.Kind.Problem)));
         }
     }
-    readonly LocalStackViewModel? _localStack;
 
     /// Which of the launcher's problem notices show.
     public LauncherNotices Notices { get; } = new();
@@ -1309,8 +1259,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
 
     /// The update's remaining step, while one still runs after the main window opened early.
     public string? UpdateDetail {
-        get => _updateDetail;
-        private set => this.RaiseAndSetIfChanged(ref _updateDetail, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     /// Follows an update the user went on from before it finished: with this machine selected, one card stands in
@@ -1459,7 +1409,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     /// start or setup that did not work.
     internal static bool BannerFailedFor((string? Message, string? Detail) content) =>
         content.Message is DaemonIncompatibleNotice or LocalServerRefusedNotice
-        || (content.Message == DaemonDownNotice && content.Detail is { } detail && !InFlight(detail));
+        || (content is { Message: DaemonDownNotice, Detail: { } detail } && !InFlight(detail));
 
     static bool BannerInFlight((string? Message, string? Detail) content) =>
         content.Detail is { } detail ? InFlight(detail)
@@ -2302,7 +2252,7 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
                 return;
             }
             if (upload.Kind != UploadKind.Uploaded) {
-                StartError = upload.Reason ?? "the upload failed";
+                StartError = upload.FailureText;
                 return;
             }
             attachmentIds = upload.Ids;
@@ -2344,8 +2294,8 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             _signInRequired.OnNext(outcome.Unauthorized);
             if (outcome.Unauthorized)
                 StartError = null;
-            else if (SameLaunchTarget(draft.RepoPath, draft.Machine, draft.Remote) && outcome.Error is { } error)
-                StartError = FriendlyLaunchFailure(error);
+            else if (SameLaunchTarget(draft.RepoPath, draft.Machine, draft.Remote))
+                ShowLaunchRefusal(FriendlyLaunchFailure(outcome.Error, machine: draft.Machine), !draft.Remote);
             return;
         }
 
@@ -2528,12 +2478,14 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     void ApplyLaunchFailure(
             string agentId, bool hadAttachments, string reason, string repoPath, string machine,
             AgentOrigin lane) {
-        var friendly = FriendlyLaunchFailure(reason);
+        var sameTarget = SameLaunchTarget(repoPath, machine, lane == AgentOrigin.Remote);
+        var local = sameTarget && lane != AgentOrigin.Remote;
+        var friendly = FriendlyLaunchFailure(reason, machine: machine);
         // A text-only refusal names the folder+machine that was launched. Files that were not
         // handed back still need the re-attach line on whatever target is selected now — the
         // bytes left with the failed launch and the user must re-stage them for the next send.
         if (!hadAttachments) {
-            if (SameLaunchTarget(repoPath, machine, lane == AgentOrigin.Remote)) StartError = friendly;
+            if (sameTarget) ShowLaunchRefusal(friendly, local);
             return;
         }
 
@@ -2549,10 +2501,10 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             Goal = retained.Draft.ComposerGoal ?? retained.Draft.Goal;
             if (retained.Draft.Picked is { } picked) NextWorkSource = picked;
             Tray.Restore(retained.Draft.Files);
-            StartError = friendly + " — your draft is back";
+            ShowLaunchRefusal(friendly.TrimEnd('.') + " — your draft is back", local);
             return;
         }
-        StartError = friendly + " — re-attach the files to send them again";
+        ShowLaunchRefusal(friendly.TrimEnd('.') + " — re-attach the files to send them again", local);
     }
 
     /// Local and remote can share a daemon name and path; RemoteMachineSelected separates them.
@@ -2610,38 +2562,78 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     /// commit an empty tree instead so a greenfield folder can launch. Wording stays neutral about
     /// whether the folder is a git repo — an initialized commitless repo takes the same path.
     internal const string EmptyFolderStartMessage =
-        "There's nothing in this folder to start from.";
+        "There's nothing in this folder to start from. Add a file or choose another folder, then start again.";
 
     /// Shown when preparing the workspace failed for some other git reason.
-    internal const string WorkspacePrepFailed = "Couldn't prepare a workspace for this folder.";
+    internal const string WorkspacePrepFailed = "Git couldn't prepare a workspace for this folder. Check that you can write to the checkout or choose another folder.";
 
-    /// <see cref="WireTokens.LaunchDeniedByOwnerPrefix"/> is a consent-gate denial on the target
-    /// machine, and an attachment_unavailable reason is the files failing to reach it. An empty
-    /// standalone snapshot and a raw <c>git … failed:</c> line are rewritten; every other reason
-    /// passes through (the server already truncates to 400 characters).
-    internal static string FriendlyLaunchFailure(string reason) {
+    internal const string GenericLaunchFailure = "Couldn't start the session. Try again.";
+    internal const string TerminalComponentUnavailable =
+        "Couldn't start the session because kcap's terminal component couldn't load. Update or reinstall kcap on the machine running the agent, then try again.";
+    internal static string FriendlyLaunchFailure(string? reason, string fallback = GenericLaunchFailure, string? machine = null) {
+        if (string.IsNullOrWhiteSpace(reason)) return fallback;
         reason = WithoutHubLead(reason);
         if (DaemonFull().Match(reason) is { Success: true } full)
             return $"{full.Groups["name"].Value} is already running {full.Groups["used"].Value} of {full.Groups["max"].Value} agents. {AtCapacityAdvice}";
+        if (DaemonAtCapacity().Match(reason) is { Success: true } capacity)
+            return $"Daemon '{capacity.Groups["name"].Value}' is at capacity. {AtCapacityAdvice}";
+        if (reason.StartsWith("At max capacity (", StringComparison.Ordinal))
+            return $"The machine is at capacity. {AtCapacityAdvice}";
+        if (reason == "Machine is offline.") return "The machine is offline. Reconnect it or choose another machine.";
         if (reason == WireTokens.LaunchCancelled)
-            return "The launch was cancelled.";
-        if (MissingRemoteRef(reason) is { } missing)
-            return $"There's no branch, tag or commit “{missing}” on that machine or its origin.";
-        if (reason.StartsWith("invalid_base_ref:", StringComparison.Ordinal))
-            return $"“{reason["invalid_base_ref:".Length..].Trim()}” isn't a branch, tag or commit name git accepts.";
-        if (ServerBaseRefRefusal(reason) is { } refused)
-            return refused;
+            return "The launch was cancelled. Start again when you’re ready.";
+        if (reason.Contains("Unable to load shared library 'libpty_shim'", StringComparison.Ordinal)
+         || reason.Contains("in shared library 'libpty_shim'", StringComparison.Ordinal))
+            return TerminalComponentUnavailable;
+        if (FolderDenied().Match(reason) is { Success: true } denied)
+            return $"{FolderDeniedLead}{denied.Groups["path"].Value}. Give kcap-daemon access to it, then start again.";
+        if (reason.StartsWith("Repo path not allowed:", StringComparison.Ordinal))
+            return "kcap isn't allowed to work in that folder. Choose a different folder or update the machine's allowed repositories.";
+        if (reason.StartsWith("Repo path does not exist:", StringComparison.Ordinal))
+            return "The selected folder doesn't exist on that machine. Choose another folder.";
+        if (reason.StartsWith("No origin remote at ", StringComparison.Ordinal))
+            return "The checkout has no origin remote. Choose a checkout linked to the repository and try again.";
+        if (reason.StartsWith("Unknown vendor:", StringComparison.Ordinal))
+            return "The selected coding tool isn’t available on that machine. Choose another tool or install it there, then try again.";
+        if (reason.StartsWith(AccountResolution.Unavailable + ":", StringComparison.Ordinal))
+            return "The selected coding account isn’t available on that machine. Choose the default account or pick another.";
+        if (MissingRemoteRef(reason) is { } missing && IsSingleLineRef(missing))
+            return $"There's no branch, tag or commit “{missing}” on that machine or its origin. Choose another starting point or push the ref to origin.";
+        if (reason.StartsWith("invalid_base_ref:", StringComparison.Ordinal)
+         || reason.StartsWith("base_ref_invalid:", StringComparison.Ordinal)) {
+            var name = reason[(reason.IndexOf(':') + 1)..].Trim();
+            return IsSingleLineRef(name)
+                ? $"“{name}” isn't a branch, tag or commit name Git accepts. Choose another starting point."
+                : "Choose a valid branch, tag or commit.";
+        }
+        if (reason.StartsWith("base_ref_unsupported:", StringComparison.Ordinal)) {
+            var target = string.IsNullOrWhiteSpace(machine) ? "The selected machine" : machine;
+            return $"{target} can’t start a session from a chosen branch yet. Use the checked-out branch to start the session.";
+        }
+        if (reason.StartsWith("base_ref_not_allowed:", StringComparison.Ordinal)) return "Choose a different branch, tag or commit.";
         if (reason.StartsWith(WireTokens.LaunchDeniedByOwnerPrefix, StringComparison.Ordinal))
-            return "That machine's consent policy denied the launch. Approve it there, or pre-set a rule with kcap consent.";
+            return ConsentFailureText(reason[WireTokens.LaunchDeniedByOwnerPrefix.Length..].TrimStart(':', ' '));
         if (reason.StartsWith("attachment_unavailable:", StringComparison.Ordinal))
-            return "the attached files could not be delivered to the machine";
+            return "The attached files couldn’t reach the machine. Check that it’s connected, then try again.";
         if (reason.StartsWith("standalone_snapshot_empty", StringComparison.Ordinal))
             return EmptyFolderStartMessage;
         if (IsEmptySnapshotCommit(reason))
             return EmptyFolderStartMessage;
-        if (GitFailureSentence(reason) is { } git)
-            return git;
-        return reason;
+        if (reason.StartsWith("git ", StringComparison.Ordinal) && reason.Contains(" failed:", StringComparison.Ordinal))
+            return WorkspacePrepFailed;
+        return fallback;
+    }
+
+    static bool IsSingleLineRef(string value) => value.Length is > 0 and <= 200 && !value.Any(c => char.IsControl(c) || char.IsWhiteSpace(c));
+
+    static string ConsentFailureText(string reason) {
+        if (reason == "prompt_no_ui" || reason.StartsWith("owner approval required and no approval UI", StringComparison.Ordinal))
+            return "That machine's consent policy denied the launch because no approval window was available. Ask its owner to open kcap there, then try again.";
+        if (reason == "prompt_timeout" || reason.StartsWith("owner did not respond within ", StringComparison.Ordinal))
+            return "The launch approval timed out. Ask the owner to be ready to approve it, then try again.";
+        if (reason.StartsWith("declined by daemon owner", StringComparison.Ordinal))
+            return "The machine’s owner declined the launch. Ask the owner before requesting it again.";
+        return "That machine's consent policy denied the launch. Ask its owner to review the launch rules with kcap consent.";
     }
 
     /// The launch feature a server lists once it forwards a base ref to the daemon.
@@ -2671,17 +2663,6 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         return refspec?.Split(':')[0];
     }
 
-    /// The server's base-ref refusals carry a code before their sentence; the sentence is the message.
-    static string? ServerBaseRefRefusal(string reason) {
-        foreach (var code in (ReadOnlySpan<string>) ["base_ref_invalid:", "base_ref_unsupported:", "base_ref_not_allowed:"]) {
-            if (reason.StartsWith(code, StringComparison.Ordinal)) {
-                var sentence = reason[code.Length..].Trim();
-                return sentence.Length == 0 ? reason : char.ToUpperInvariant(sentence[0]) + sentence[1..];
-            }
-        }
-        return null;
-    }
-
     internal const string AtCapacityAdvice = "Stop one, or wait for one to finish, to start another.";
 
     /// A full daemon is a state to wait out, not a fault, so it reads as a notice.
@@ -2697,8 +2678,16 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             : reason;
     }
 
-    [GeneratedRegex(@"^Daemon '(?<name>[^']+)' is full \((?<used>\d+) of (?<max>\d+) in use\)")]
+    internal const string FolderDeniedLead = "The kcap daemon isn't allowed to read ";
+
+    [GeneratedRegex(@"^Access to the path '(?<path>[^\p{C}]+)' is denied\.?\z")]
+    private static partial Regex FolderDenied();
+
+    [GeneratedRegex(@"^Daemon '(?<name>[^'\p{C}]+)' is full \((?<used>\d+) of (?<max>\d+) in use\)")]
     private static partial Regex DaemonFull();
+
+    [GeneratedRegex(@"^Daemon '(?<name>[^'\p{C}\r\n]+)' is at capacity\.\z")]
+    private static partial Regex DaemonAtCapacity();
 
     /// The snapshot commit reports "nothing to commit" on stdout. A daemon that only forwarded
     /// stderr leaves this as a bare command, sometimes with that stdout appended.
@@ -2709,24 +2698,6 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
         return string.IsNullOrWhiteSpace(detail)
             || detail.Contains("nothing to commit", StringComparison.Ordinal)
             || detail.Contains("nothing added to commit", StringComparison.Ordinal);
-    }
-
-    /// A launch reason that is still a git argv line. The command is not something to show.
-    static string? GitFailureSentence(string reason) {
-        const string marker = " failed: ";
-        if (!reason.StartsWith("git ", StringComparison.Ordinal)) return null;
-        var at = reason.IndexOf(marker, StringComparison.Ordinal);
-        if (at < 0) return null;
-
-        var detail = reason[(at + marker.Length)..].Trim().ReplaceLineEndings(" ");
-        if (detail.StartsWith("fatal: ", StringComparison.OrdinalIgnoreCase))
-            detail = detail["fatal: ".Length..];
-        else if (detail.StartsWith("error: ", StringComparison.OrdinalIgnoreCase))
-            detail = detail["error: ".Length..];
-        detail = detail.Trim();
-        if (detail.Length == 0) return WorkspacePrepFailed;
-        if (char.IsLower(detail[0])) detail = char.ToUpperInvariant(detail[0]) + detail[1..];
-        return WorkspacePrepFailed + " " + detail;
     }
 
     /// Null for any vendor that takes no mode. Manual is sent like any other mode: an absent flag

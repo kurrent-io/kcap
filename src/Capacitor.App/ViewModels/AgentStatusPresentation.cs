@@ -29,5 +29,6 @@ public sealed record AgentStatusPresentation(
     public bool ShowsBang => Kind == AgentStatusKind.NeedsYou;
     public bool ShowsPause => Kind is AgentStatusKind.Interrupted or AgentStatusKind.DaemonDown;
     public bool ShowsCross => Kind == AgentStatusKind.Failed;
-    public bool ShowsDash => Kind is AgentStatusKind.Done or AgentStatusKind.Other && !IsRunningUnknownTurn;
+    public bool IsDone => Kind == AgentStatusKind.Done;
+    public bool ShowsSettledMark => Kind is AgentStatusKind.Done or AgentStatusKind.Other && !IsRunningUnknownTurn;
 }

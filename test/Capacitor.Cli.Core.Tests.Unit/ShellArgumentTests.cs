@@ -18,7 +18,9 @@ public class ShellArgumentTests {
 
     [Test]
     public async Task A_windows_path_with_a_space_is_double_quoted() {
-        await Assert.That(ShellArgument.Quote(@"C:\Users\u\my claude", windows: true)).IsEqualTo(@"""C:\Users\u\my claude""");
+        await Assert.That(ShellArgument.Quote(@"C:\Users\u\my claude", windows: true)).IsEqualTo("""
+            "C:\Users\u\my claude"
+            """);
     }
 
     [Test]

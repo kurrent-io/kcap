@@ -143,10 +143,29 @@ public class AntigravityReviewerHomeTests {
     // ── permissions.allow: the reviewer can still DO ITS JOB ───────────────────────────────────────
     //
     // Everything above certifies what the reviewer cannot do. That is perfectly consistent with a
-    // reviewer that never works: `agy -p` auto-denies every tool confirmation it raises, the result
-    // channel IS an MCP tool, and the shipped home granted nothing — so the one call a round depends
-    // on was the one call print mode refused, and every round hung until the flow timed out. These
-    // assert the home grants its own result channel.
+    // reviewer that never works: in Default mode `agy -p` auto-denies every tool confirmation, and the
+    // result channel IS an MCP tool, so a home granting nothing hangs every round to the flow timeout.
+    // These assert the home grants its own result channel.
+
+    /// <summary>
+    /// The reviewer's containment. With no saved mode agy starts headless runs in Auto, which edits,
+    /// runs shell commands and reads outside the workspace unprompted; <c>""</c> is agy's spelling of
+    /// Default. Asserted by literal key and value, since they are agy's contract, not ours.
+    /// </summary>
+    [Test]
+    public async Task The_reviewer_home_pins_agy_to_default_mode() {
+        using var root = new TempDir();
+
+        var home = AntigravityReviewerHome.Create(
+            root.Path, "epoch1", "agent1", [ResultChannel], grantInjectedMcpTools: true);
+
+        using var doc = JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(home, ".gemini", "antigravity-cli", "settings.json")));
+
+        await Assert.That(doc.RootElement.TryGetProperty("agentMode", out var mode)).IsTrue();
+        await Assert.That(mode.ValueKind).IsEqualTo(JsonValueKind.String);
+        await Assert.That(mode.GetString()).IsEqualTo("");
+    }
 
     /// <summary>Reads the launch's own settings.json by LITERAL path.
     /// <c>AntigravityPaths.CliSettingsJson</c> honours the TEST PROCESS's <c>GEMINI_CLI_HOME</c>, so it

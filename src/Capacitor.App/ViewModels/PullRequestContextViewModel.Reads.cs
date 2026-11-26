@@ -179,14 +179,14 @@ public sealed partial class PullRequestContextViewModel {
                     EnforcePageBudget(state, saved, earlier);
                     state.Next = state.Pages.LastOrDefault()?.Next;
                     _notice = "";
-                } else if (read.Kind == PullRequestReadKind.Restart && read.Reason == "head_changed" && _headRestartSection is null) {
+                } else if (read is { Kind: PullRequestReadKind.Restart, Reason: "head_changed" } && _headRestartSection is null) {
                     // Learn the new head from a fresh overview, whose apply reloads this section. Once
                     // only for that section: an overview still on the old head would bounce straight back here.
                     _headRestartSection = key;
                     if (_sections.TryGetValue(key, out var state)) state.Stopped = true;
                     _lastOverview = null;
                     restartOverview = true;
-                } else if (read.Kind == PullRequestReadKind.Restart && read.Reason is not ("identity_changed" or "integration_changed")) {
+                } else if (read is { Kind: PullRequestReadKind.Restart, Reason: not ("identity_changed" or "integration_changed") }) {
                     var state = _sections.GetValueOrDefault(key) ?? new PullRequestSectionState(key);
                     state.Stopped = true; state.Error = read.Reason == "head_changed" ? "Catching up with a new commit." : "This snapshot can no longer load pages. Refresh to start again.";
                     _sections[key] = state;
@@ -220,7 +220,7 @@ public sealed partial class PullRequestContextViewModel {
         RememberRetry(read);
         var reason = Reason(read);
         // Access loss invalidates peer reads too; a late page must not reopen protected content.
-        if (read.Kind == PullRequestReadKind.Restart && read.Reason is "identity_changed" or "integration_changed" || read.Reason == "no_reader") { CancelReads(); ClearProtected(); ForgetOverview(); }
+        if (read is { Kind: PullRequestReadKind.Restart, Reason: "identity_changed" or "integration_changed" } || read.Reason == "no_reader") { CancelReads(); ClearProtected(); ForgetOverview(); }
         else if (read.AccessFailure == "transient" || read.Kind is PullRequestReadKind.Ready or PullRequestReadKind.Stale
             || read.AccessFailure is null && read.Reason is "timeout" or "provider_unavailable" or "rate_limited" or "budget_exhausted" or "capacity_exhausted") {
             EnterGrace(reason);

@@ -10,7 +10,7 @@ namespace Capacitor.App.Tests.Unit.Services;
 public class ServerClientsTests {
     sealed class Spy(List<string> log, string name, Exception? throwOn = null) : IAsyncDisposable {
         public int Disposals;
-        public TaskCompletionSource Gate = new();
+        public readonly TaskCompletionSource Gate = new();
         public bool Gated;
 
         public async ValueTask DisposeAsync() {

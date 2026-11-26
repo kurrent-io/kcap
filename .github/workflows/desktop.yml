@@ -191,6 +191,8 @@ jobs:
           bash scripts/assert-app-plugin.sh "$APP" "$VERSION"
           bash scripts/assert-app-cli-version.sh "$APP/Contents/MacOS/kcap" "$VERSION"
           bash scripts/assert-bundle-digest.sh "$APP" trio/bin/daemon.sha256
+          cmp "$APP/Contents/MacOS/libpty_shim.dylib" trio/bin/libpty_shim.dylib
+          unzip -p "releases/kcap-$VERSION-$RID-full.nupkg" '*/libpty_shim.dylib' | cmp - trio/bin/libpty_shim.dylib
           "$APP/Contents/MacOS/kcap" --version --no-update-check
           "$APP/Contents/MacOS/kcap-daemon" --version
           # The app loads the patched Avalonia.Native; a bundle that carries the stock bytes under

@@ -7,20 +7,19 @@ namespace Capacitor.App.ViewModels;
 public sealed class PlanTaskRow(string taskId) : ReactiveObject {
     public string TaskId { get; } = taskId;
 
-    string _title = "";
-    public string Title { get => _title; private set => this.RaiseAndSetIfChanged(ref _title, value); }
-    string? _note;
-    public string? Note { get => _note; private set => this.RaiseAndSetIfChanged(ref _note, value); }
+    public string Title { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
+    public string? Note { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
-    PlanTaskState _state;
     public PlanTaskState State {
-        get => _state;
+        get;
         private set {
-            if (_state == value) return;
-            this.RaiseAndSetIfChanged(ref _state, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(IsInProgress));
             this.RaisePropertyChanged(nameof(IsCompleted));
             this.RaisePropertyChanged(nameof(IsSettled));
+            this.RaisePropertyChanged(nameof(IsStarted));
+            this.RaisePropertyChanged(nameof(StateLabel));
         }
     }
 
@@ -29,9 +28,27 @@ public sealed class PlanTaskRow(string taskId) : ReactiveObject {
     /// The server's own rule for progress: a skipped task is as settled as a completed one.
     public bool IsSettled    => State is PlanTaskState.Completed or PlanTaskState.Skipped;
 
-    bool _isActive;
     /// In progress in a session that is still running: the only state that pulses.
-    public bool IsActive { get => _isActive; private set => this.RaiseAndSetIfChanged(ref _isActive, value); }
+    public bool IsActive {
+        get;
+        private set {
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
+            this.RaisePropertyChanged(nameof(IsStarted));
+            this.RaisePropertyChanged(nameof(StateLabel));
+        }
+    }
+
+    /// In progress in a session that has ended: the task was started and never settled.
+    public bool IsStarted => IsInProgress && !IsActive;
+
+    /// The mark's state in words, so it is not told by colour or shape alone.
+    public string StateLabel => State switch {
+        PlanTaskState.InProgress => IsActive ? "In progress" : "Started",
+        PlanTaskState.Completed  => "Done",
+        PlanTaskState.Skipped    => "Skipped",
+        _                        => "Pending",
+    };
 
     public void Present(PlanBoardTask task, bool sessionOver) {
         Title = task.Title;

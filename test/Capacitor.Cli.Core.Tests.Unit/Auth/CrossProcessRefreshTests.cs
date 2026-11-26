@@ -126,7 +126,7 @@ public class CrossProcessRefreshTests {
         var refreshCalled = false;
 
         Task<StoredTokens?> refresh;
-        using (new FileStream(Path.Combine(TokensDir, "alpha.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
+        await using (new FileStream(Path.Combine(TokensDir, "alpha.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)) {
             refresh = AuthFixtures.NewTokenStore(Config.Root).RefreshWithCrossProcessLockAsync(
                 "alpha", current, _ => { refreshCalled = true; return Task.FromResult<StoredTokens?>(Token("new", DateTimeOffset.UtcNow.AddHours(1))); });
             await Task.Delay(200);

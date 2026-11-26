@@ -4,7 +4,10 @@ namespace Capacitor.App.Services.LocalSetup;
 public abstract record LocalInstallOutcome {
     public sealed record Installed(string ServerUrl, string Plan) : LocalInstallOutcome;
 
-    public sealed record Failed(string? Code, string Message, LocalInstallAffordance Affordance, bool LockedToLocal) : LocalInstallOutcome;
+    public sealed record Failed(string? Code, string Message, LocalInstallAffordance Affordance, bool LockedToLocal) : LocalInstallOutcome {
+        public string? ClientPath { get; init; }
+        public bool? ClientIsDesktopApp { get; init; }
+    }
 
     /// A `committed` or `reused` line settles Installed whatever the exit code: a cancel after the
     /// commit boundary exits non-zero after `committed`.
@@ -15,5 +18,8 @@ public abstract record LocalInstallOutcome {
                 progress.FailedCode,
                 progress.FailedMessage ?? $"The install stopped before it finished (exit {exitCode}).",
                 LocalInstallAffordance.For(progress.FailedCode),
-                lockedToLocal);
+                lockedToLocal) {
+                    ClientPath = progress.FailedClientPath,
+                    ClientIsDesktopApp = progress.FailedClientIsDesktopApp,
+                };
 }

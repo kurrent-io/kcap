@@ -14,8 +14,7 @@ public class AccountRefreshTests {
 
     readonly FakeTimeProvider _time = new(T0);
 
-    AccountStore? _store;
-    AccountStore Store => _store ??= new(Tmp.PathTo("accounts"));
+    AccountStore Store => field ??= new(Tmp.PathTo("accounts"));
 
     static VendorAccount Codex(string? email = null, string? id = null, long generation = 0, string label = ".codex-a", bool? userLabel = null) =>
         new("a", HarnessId.Codex, "/h/.codex-a", label, DateTimeOffset.UnixEpoch,
@@ -49,10 +48,10 @@ public class AccountRefreshTests {
         });
 
     bool RecordStatusLine(long counter, double used, string session = "S") {
-        var payload = JsonDocument.Parse($$"""
+        var payload = JsonElement.Parse($$"""
             { "session_id": "{{session}}", "cost": { "total_api_duration_ms": {{counter}} },
               "rate_limits": { "seven_day": { "used_percentage": {{used}}, "resets_at": 1793000000 } } }
-            """).RootElement;
+            """);
         var now = _time.GetUtcNow();
 
         return Store.Readings.TryRecord("a", (held, account) => ClaudeStatusLineReading.Apply(held, payload, account.HasSwitched, now));

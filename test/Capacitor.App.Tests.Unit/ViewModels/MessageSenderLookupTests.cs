@@ -17,7 +17,7 @@ public class MessageSenderLookupTests {
     sealed class Rig {
         public FakeTimeProvider Time { get; } = new(Now);
         public FakeMessageSenderSource Source { get; } = new();
-        public List<string> Logged { get; } = [];
+        List<string> Logged { get; } = [];
         public List<Guid> Delivered { get; } = [];
         public CancellationTokenSource Lifetime { get; } = new();
         public MessageSenderLookup Lookup { get; }
@@ -95,6 +95,8 @@ public class MessageSenderLookupTests {
         await rig.SettleAsync();
 
         await Assert.That(labels.Select(l => l.Title)).IsEquivalentTo(new[] { "Tony", "You", "User", null }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+        await Assert.That(labels.Select(l => l.IsOtherParticipant))
+            .IsEquivalentTo(new[] { true, false, true, false }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
         await Assert.That(labels[3].HasTitle).IsFalse();
         await Assert.That(rig.Source.Reads.Single().SessionId).IsEqualTo(Session);
         await Assert.That(rig.Source.Reads.Single().Request.EventIds).IsEquivalentTo(new[] { named, mine, nameless, unrecorded });

@@ -12,37 +12,37 @@
     <Style Selector="mv|MarkdownViewer :is(TextBlock).markdown-paragraph">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
-        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeLarge}" />
         <Setter Property="LineHeight" Value="24" />
         <Setter Property="Margin" Value="0" />
     </Style>
     <Style Selector="mv|MarkdownViewer :is(TextBlock).markdown-list-marker">
         <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeLarge}" />
         <Setter Property="LineHeight" Value="24" />
     </Style>
     <Style Selector="mv|MarkdownViewer :is(TextBlock).markdown-h1, mv|MarkdownViewer :is(TextBlock).markdown-h2, mv|MarkdownViewer :is(TextBlock).markdown-h3, mv|MarkdownViewer :is(TextBlock).markdown-h4, mv|MarkdownViewer :is(TextBlock).markdown-h5, mv|MarkdownViewer :is(TextBlock).markdown-h6">
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         <Setter Property="FontWeight" Value="SemiBold" />
-        <Setter Property="FontSize" Value="16" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeLarge}" />
         <Setter Property="Margin" Value="0,4,0,0" />
     </Style>
     <Style Selector="mv|MarkdownViewer :is(TextBlock).markdown-h1">
-        <Setter Property="FontSize" Value="20" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeHeading}" />
     </Style>
     <Style Selector="mv|MarkdownViewer :is(TextBlock).markdown-h2">
-        <Setter Property="FontSize" Value="17.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeHeading}" />
     </Style>
     <Style Selector="mv|MarkdownViewer Run.markdown-code-inline">
-        <Setter Property="FontFamily" Value="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace" />
+        <Setter Property="FontFamily" Value="{StaticResource KcapFontFamilyMono}" />
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
     </Style>
     <Style Selector="views|MarkdownView.thinking mv|MarkdownViewer :is(TextBlock).markdown-paragraph,
                      views|MarkdownView.thinking mv|MarkdownViewer :is(TextBlock).markdown-list-marker">
         <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-        <Setter Property="FontSize" Value="13.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         <Setter Property="LineHeight" Value="20" />
     </Style>
     <Style Selector="views|MarkdownView.thinking mv|MarkdownViewer :is(TextBlock).markdown-h1,
@@ -52,10 +52,10 @@
                      views|MarkdownView.thinking mv|MarkdownViewer :is(TextBlock).markdown-h5,
                      views|MarkdownView.thinking mv|MarkdownViewer :is(TextBlock).markdown-h6">
         <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeLarge}" />
     </Style>
     <Style Selector="views|MarkdownView.thinking mv|MarkdownViewer Run.markdown-code-inline">
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
     </Style>
     <Style Selector="mv|MarkdownViewer Border.markdown-code-block">
         <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
@@ -66,18 +66,18 @@
         <Setter Property="Margin" Value="0" />
     </Style>
     <Style Selector="mv|MarkdownViewer Border.markdown-code-block > TextBlock">
-        <Setter Property="FontFamily" Value="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace" />
-        <Setter Property="FontSize" Value="13.5" />
+        <Setter Property="FontFamily" Value="{StaticResource KcapFontFamilyMono}" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
     </Style>
     <Style Selector="mv|MarkdownViewer TextBlock.markdown-mermaid-title">
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
-        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeLarge}" />
         <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
     <Style Selector="mv|MarkdownViewer TextBlock.markdown-mermaid-note">
         <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
     </Style>
     <Style Selector="mv|MarkdownViewer WrapPanel.markdown-mermaid-actions > :is(Button)">
         <Setter Property="Margin" Value="0,0,8,0" />
@@ -89,7 +89,7 @@
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         <Setter Property="CornerRadius" Value="8" />
         <Setter Property="Padding" Value="14,8" />
-        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
     </Style>
     <Style Selector="mv|MarkdownViewer ToggleButton.markdown-mermaid-toggle /template/ ContentPresenter#PART_ContentPresenter">
         <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
@@ -129,7 +129,7 @@
         <Setter Property="CornerRadius" Value="6" />
         <Setter Property="Padding" Value="8,2" />
         <Setter Property="MinHeight" Value="0" />
-        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeCaption}" />
     </Style>
     <Style Selector="mv|MarkdownViewer Button.markdown-code-action:pointerover /template/ ContentPresenter">
         <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
@@ -166,8 +166,8 @@
         <Setter Property="TextDecorations" Value="{x:Null}" />
     </Style>
     <Style Selector="mv|MarkdownViewer :is(TextBlock).markdown-pre-text">
-        <Setter Property="FontFamily" Value="Menlo,Monaco,Consolas,Cascadia Mono,DejaVu Sans Mono,monospace" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontFamily" Value="{StaticResource KcapFontFamilyMono}" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
         <Setter Property="Background" Value="Transparent" />
     </Style>
@@ -195,7 +195,7 @@
     </Style>
     <Style Selector="mv|MarkdownViewer :is(TextBlock).markdown-alert-header">
         <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
         <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
     <!-- The same card, header row and chevron as a chat tool group. A nested section keeps only
@@ -265,15 +265,35 @@
     </Style>
     <Style Selector="mv|MarkdownViewer TextBlock.markdown-image-label">
         <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
-        <Setter Property="FontSize" Value="13.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         <Setter Property="FontStyle" Value="Italic" />
+    </Style>
+    <!-- An answer's detail and footnote text, faded by each level's own opacity. The pointer
+         brings faded text to full text colour. -->
+    <Style Selector="mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-detail, mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-detail Run.markdown-code-inline">
+        <Setter Property="Foreground" Value="{DynamicResource ProgressiveDisclosureDetailFadeBrush}" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-footnote, mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-footnote Run.markdown-code-inline">
+        <Setter Property="Foreground" Value="{DynamicResource ProgressiveDisclosureFootnoteFadeBrush}" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-detail Run.markdown-code-inline">
+        <Setter Property="Background" Value="{DynamicResource ProgressiveDisclosureDetailCodeFadeBrush}" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-footnote Run.markdown-code-inline">
+        <Setter Property="Background" Value="{DynamicResource ProgressiveDisclosureFootnoteCodeFadeBrush}" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-lit, mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-lit Run.markdown-code-inline">
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+    </Style>
+    <Style Selector="mv|MarkdownViewer Span.progressive-disclosure-faded.progressive-disclosure-lit Run.markdown-code-inline">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
     </Style>
     <Style Selector="mv|MarkdownViewer Span.markdown-marked">
         <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
     </Style>
     <Style Selector="mv|MarkdownViewer :is(TextBlock).markdown-details-label">
         <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
-        <Setter Property="FontSize" Value="13.5" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeBody}" />
         <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
 </Styles>

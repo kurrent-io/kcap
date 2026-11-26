@@ -385,7 +385,8 @@ public class PrivilegedSwapScriptTests {
         await Assert.That(signed.ExitCode).IsEqualTo(0);
         var started = Tmp.CreateDir("service").PathTo("kcap-daemon");
         File.CreateSymbolicLink(started, daemon);
-        using var running = Process.Start(new ProcessStartInfo(started, "60") { UseShellExecute = false })!;
+        // Outlives the test, which ends it: a process that exits first would leave the helper nothing in use to find.
+        using var running = Process.Start(new ProcessStartInfo(started, "86400") { UseShellExecute = false })!;
         try {
             await using var run = Run.Start(Tmp, spec);
 
@@ -887,13 +888,16 @@ public class PrivilegedSwapScriptTests {
                 LinkTargetName: e.Kind == PrivilegedEntryKind.Link ? "1.4.1" : null) {
                 Children = e.Kind == PrivilegedEntryKind.Directory ? ["1.4.1"] : null,
             })],
-            Tmp.PathTo("helper", "control"), Tmp.PathTo("helper", "status"), TimeSpan.FromSeconds(30), PrivilegedNpmInstall.Staging,
+            Tmp.PathTo("helper", "control"), Tmp.PathTo("helper", "status"), PrivilegedNpmInstall.DefaultGoWait, PrivilegedNpmInstall.Staging,
             Tmp.CreateDir("homes"));
         return (spec, root, link);
     }
 
     /// <summary>The rendered script running as the current user, with the control pipe held open for writing.</summary>
     sealed class Run(PrivilegedSpec spec, FileStream control, Task<ProcessResult> exit) : IAsyncDisposable {
+        // These only bound how long a broken run takes to fail, so they sit well past a loaded host's stalls.
+        static readonly TimeSpan StepWait = TimeSpan.FromMinutes(2);
+
         public FileStream Control { get; } = control;
 
         /// <param name="arrange">Runs after the channel is made and before the script starts.</param>
@@ -906,7 +910,7 @@ public class PrivilegedSwapScriptTests {
             var script = tmp.CreateExecutable("privileged-" + Guid.NewGuid().ToString("N") + ".sh", PrivilegedSwapScript.Render(spec));
             var exit   = new ProcessRunner(TimeProvider.System).RunAsync(
                 script, [.. PrivilegedSwapScript.Arguments(spec, owner ?? PrivilegedSwap.CurrentUid())],
-                new RunOptions(env, TimeSpan.FromMinutes(1)), CancellationToken.None);
+                new RunOptions(env, TimeSpan.FromMinutes(15)), CancellationToken.None);
             return new Run(spec, control, exit);
         }
 
@@ -916,7 +920,7 @@ public class PrivilegedSwapScriptTests {
         }
 
         public async Task WaitForAsync(string word) {
-            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+            var deadline = DateTime.UtcNow + StepWait;
             while (!Words().Contains(word)) {
                 if (exit.IsCompleted) throw new InvalidOperationException($"The script exited before '{word}': {(await exit).Stderr}");
                 if (DateTime.UtcNow > deadline) throw new TimeoutException($"No '{word}' in {spec.StatusFile}.");
@@ -925,7 +929,7 @@ public class PrivilegedSwapScriptTests {
         }
 
         public async Task<ProcessResult> ExitAsync() {
-            var result = await exit.WaitAsync(TimeSpan.FromSeconds(30));
+            var result = await exit.WaitAsync(StepWait);
             await Assert.That(result.TimedOut).IsFalse();
             return result;
         }
@@ -939,7 +943,7 @@ public class PrivilegedSwapScriptTests {
 
         public async ValueTask DisposeAsync() {
             Control.Dispose();
-            await exit.WaitAsync(TimeSpan.FromSeconds(30));
+            await exit.WaitAsync(StepWait);
         }
     }
 }

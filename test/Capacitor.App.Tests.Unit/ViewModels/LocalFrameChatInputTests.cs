@@ -16,7 +16,7 @@ public class LocalFrameChatInputTests {
     const string Id = "0123456789abcdef0123456789abcdef";
 
     sealed class Rig {
-        public FakeDaemonClientService Daemon { get; } = new();
+        FakeDaemonClientService Daemon { get; } = new();
         public ScriptedLocalControlOps Ops { get; } = new();
         public BehaviorSubject<AgentPresence> Presence { get; } = new(new AgentPresence(null, false));
         public LocalFrameChatInput Input { get; }
@@ -79,7 +79,7 @@ public class LocalFrameChatInputTests {
 
             rig.Presence.OnNext(new AgentPresence(Agent("a1", "pi", hasTerminal: false) with { Status = "Interrupted", Interruption = "too_old" }, false));
             await Assert.That(rig.Input.CanAcceptText).IsFalse();
-            await Assert.That(rig.Input.Hint).IsEqualTo("Not resumed after a daemon restart (too_old). Retry with `kcap agent resume`, or stop it to discard it.");
+            await Assert.That(rig.Input.Hint).IsEqualTo("Not resumed after a daemon restart. It was idle too long to resume. Retry with `kcap agent resume`, or stop it to discard it.");
         });
     }
 

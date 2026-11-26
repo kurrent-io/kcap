@@ -118,7 +118,7 @@ public sealed class BrowserFirstRunFlow(
 
         // Drained before the offer renders, so the two presses stay apart: a Return left over from an
         // earlier step is not an answer to it, and one made in response is a real dismissal.
-        if (_keys.CanWatch && _keys.KeyAvailable) _keys.Drain();
+        if (_keys is { CanWatch: true, KeyAvailable: true }) _keys.Drain();
 
         progress.Opening(setupUrl);
         launcher.TryOpen(setupUrl);

@@ -6,8 +6,8 @@ namespace Capacitor.App.Views;
 public partial class SignInWindow : Window {
     public SignInWindow() {
         InitializeComponent();
-        // The wizard shell calls OnEnterAsync when navigating onto the step; standalone, opening
-        // the window IS that navigation, and without it the status line stays blank.
-        Opened += (_, _) => _ = (DataContext as SignInStepViewModel)?.OnEnterAsync(CancellationToken.None);
+        // Opening the window is the step's navigation and the user's Sign in click both, so it
+        // starts the attempt: without the enter the status line stays blank.
+        Opened += (_, _) => _ = (DataContext as SignInStepViewModel)?.EnterAndSignInAsync(CancellationToken.None);
     }
 }

@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
 using Capacitor.Cli.Daemon.Harness.Antigravity;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -43,7 +45,7 @@ public class AgyTurnProcessTests {
         var child = Process.Start(longLived)!;
 
         using var observer = Process.GetProcessById(child.Id);
-        var turn = new AgyTurnProcess(child, NullLogger<AgyTurnProcess>.Instance, TimeProvider.System);
+        var turn = new AgyTurnProcess(child, "unread", NullLogger<AgyTurnProcess>.Instance, TimeProvider.System);
 
         // The precondition, asserted rather than assumed: without a child that is genuinely still
         // running, disposal has nothing to settle and this test proves nothing.
@@ -64,5 +66,53 @@ public class AgyTurnProcessTests {
 
         await Assert.That(observer.HasExited).IsTrue()
             .Because("a disposal that only releases handles leaks one live agy child per review round");
+    }
+
+    const string AwkwardPrompt = "/review \"quoted\" back\\slash\nsecond line caf\u00e9 \u65e5\u672c";
+
+    /// <summary>The stdin line is agy's stream-json user message, on one line, in ASCII alone: a raw
+    /// newline would split it into two messages, and a raw non-ASCII character is at the mercy of the
+    /// code page the child's stdin was opened with.</summary>
+    [Test]
+    public async Task The_input_line_is_one_ascii_line_carrying_the_prompt_verbatim() {
+        var line = AgyTurnProcess.InputLine(AwkwardPrompt);
+
+        await Assert.That(line.All(c => c is >= ' ' and <= '~')).IsTrue();
+
+        using var json = JsonDocument.Parse(line);
+        var message    = json.RootElement.GetProperty("message");
+
+        await Assert.That(json.RootElement.GetProperty("event").GetString()).IsEqualTo("user");
+        await Assert.That(message.GetProperty("role").GetString()).IsEqualTo("user");
+        await Assert.That(message.GetProperty("content").GetString()).IsEqualTo(AwkwardPrompt);
+    }
+
+    /// <summary>
+    /// A real child reads exactly the input line and then end of input. The end of input matters as
+    /// much as the line: agy runs one turn per line until its stdin closes, and exits only then.
+    /// <c>sort</c> prints nothing until it has read to the end, so its output is both facts at once.
+    /// </summary>
+    [Test]
+    public async Task A_turn_child_reads_its_prompt_and_then_end_of_input() {
+        var echo = OperatingSystem.IsWindows()
+            ? new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "sort.exe"))
+            : new ProcessStartInfo("/bin/sh", "-c sort");
+
+        echo.RedirectStandardInput  = true;
+        echo.RedirectStandardOutput = true;
+        echo.RedirectStandardError  = true;
+        echo.UseShellExecute        = false;
+        echo.CreateNoWindow         = true;
+        echo.StandardInputEncoding  = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
+        await using var turn = new AgyTurnProcess(
+            echo, AwkwardPrompt, NullLogger<AgyTurnProcess>.Instance, TimeProvider.System);
+
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        List<string> lines = [];
+
+        await foreach (var line in turn.ReadLinesAsync(deadline.Token)) lines.Add(line);
+
+        await Assert.That(lines).IsEquivalentTo([AgyTurnProcess.InputLine(AwkwardPrompt)]);
     }
 }

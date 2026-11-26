@@ -29,8 +29,8 @@ public sealed class EvidenceTraceAssembler(EvidenceReadClient reader, string tok
         var reads  = 0;
         var k      = 0;
 
-        using var buffer = new MemoryStream();
-        using var w      = new Utf8JsonWriter(buffer);
+        using var buffer  = new MemoryStream();
+        await using var w = new Utf8JsonWriter(buffer);
         w.WriteStartArray();
         foreach (var source in sources.Where(s => s.IsAvailable)) {
             w.WriteStartObject();
@@ -137,7 +137,7 @@ public sealed class EvidenceTraceAssembler(EvidenceReadClient reader, string tok
         if (entry.Str("plan_kind") is { } planKind) w.WriteString("plan_kind", planKind);
         if (entry.Prop("plan_content") is { IsNull: false } planContent) { w.WritePropertyName("plan_content"); planContent.WriteTo(w); }
         if (entry.Arr("calls") is { } calls) {
-            var resolvedArguments = bodies.Where(b => b.Field == "arguments" && b.Ordinal is not null)
+            var resolvedArguments = bodies.Where(b => b is { Field: "arguments", Ordinal: not null })
                 .ToDictionary(b => b.Ordinal!.Value, b => b.Content);
             w.WriteStartArray("calls");
             foreach (var call in calls.EnumerateArray()) {

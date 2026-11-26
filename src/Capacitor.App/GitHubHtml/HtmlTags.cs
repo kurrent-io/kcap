@@ -22,7 +22,7 @@ public static class HtmlTags {
         "section" or "article" or "center" or "figure" or "figcaption" or "main" or "header" or "footer" or "nav" or "aside";
 
     public static bool IsHeading(string name, out int level) {
-        level = name.Length == 2 && name[0] == 'h' && name[1] is >= '1' and <= '6' ? name[1] - '0' : 0;
+        level = name is ['h', >= '1' and <= '6'] ? name[1] - '0' : 0;
         return level > 0;
     }
 

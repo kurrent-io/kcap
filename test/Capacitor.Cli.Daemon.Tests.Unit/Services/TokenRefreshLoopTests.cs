@@ -23,7 +23,7 @@ public class TokenRefreshLoopTests {
     static readonly TimeSpan Interval = TimeSpan.FromMinutes(5);
 
     sealed class FakePort : IProactiveTokenRefreshPort {
-        public Func<Task<ProactiveRefreshOutcome>>? Handler { get; set; }
+        public Func<Task<ProactiveRefreshOutcome>>? Handler { get; init; }
         public int                                  Calls;
 
         public Task<ProactiveRefreshOutcome> RefreshIfExpiringAsync() {

@@ -17,12 +17,12 @@ public class PageBridgeTests {
     static ArtefactDto Page() => new(Id, "Poll", "u1", "org", Version, DateTimeOffset.UtcNow, false, null, null, "https://srv.test/pages/01ec");
 
     static PageBridgeReply Reply(int status, string? body = null) =>
-        new(status, body is null ? null : JsonDocument.Parse(body).RootElement.Clone());
+        new(status, body is null ? null : JsonElement.Parse(body));
 
     static string Results(string etag, bool closed = false) =>
         $$$"""{"mode":"aggregate","version":3,"closed":{{{(closed ? "true" : "false")}}},"revealed":true,"etag":"{{{etag}}}","tallies":{"a":1}}""";
 
-    static string Wrap(string data, string nonce = Nonce) => $$$"""{"nonce":"{{{nonce}}}","data":{{{data}}}}""";
+    static string Wrap(string data, string nonce = Nonce) => $$"""{"nonce":"{{nonce}}","data":{{data}}}""";
 
     sealed class Harness : IAsyncDisposable {
         public FakePageContentSource Source { get; } = new();

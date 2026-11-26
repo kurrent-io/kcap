@@ -128,7 +128,7 @@ public class ToolSummaryTests {
     [Arguments("wait_agent", ToolCategory.Agent, """{"id":"a1"}""", "Waited on agent")]
     [Arguments("send_input", ToolCategory.Agent, """{"id":"a1"}""", "Sent input")]
     [Arguments("resume_agent", ToolCategory.Agent, """{"id":"a1"}""", "Resumed agent")]
-    [Arguments("list_agents", ToolCategory.Agent, """{}""", "Listed agents")]
+    [Arguments("list_agents", ToolCategory.Agent, "{}", "Listed agents")]
     [Arguments("AskUserQuestion", ToolCategory.Question, """{"questions":[{"question":"Pick one"}]}""", null)]
     public async Task Row_label_names_built_in_tools_with_a_past_tense_verb(string name, ToolCategory category, string? input, string? expected) {
         await Assert.That(ToolSummary.RowLabel(name, category, input)).IsEqualTo(expected);

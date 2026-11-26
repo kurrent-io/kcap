@@ -1,0 +1,99 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:Capacitor.App.Views"
+        xmlns:notifications="using:Avalonia.Controls.Notifications">
+    <!-- Fluent targets the notification part names when it opens and closes a toast. -->
+    <Style Selector="NotificationCard">
+        <Setter Property="Width" Value="360" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <LayoutTransformControl Name="PART_LayoutTransformControl" UseRenderTransform="True">
+                    <Border Margin="6,6,6,10" CornerRadius="{TemplateBinding CornerRadius}" BoxShadow="0 8 24 0 #66000000"
+                            Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}">
+                        <Grid ColumnDefinitions="Auto,*,Auto" Margin="14,12,8,12">
+                            <Panel Width="16" Height="16" Margin="0,2,10,0" VerticalAlignment="Top">
+                                <views:AppIcon x:Name="ToastInfoIcon" Kind="Info" Size="16" Foreground="{StaticResource KcapInfoBrush}" />
+                                <views:AppIcon x:Name="ToastSuccessIcon" Kind="CircleCheck" Size="16" Foreground="{StaticResource KcapSuccessBrush}" IsVisible="False" />
+                                <views:AppIcon x:Name="ToastWarningIcon" Kind="CircleAlert" Size="16" Foreground="{StaticResource KcapWarningBrush}" IsVisible="False" />
+                                <views:AppIcon x:Name="ToastErrorIcon" Kind="CircleX" Size="16" Foreground="{StaticResource KcapDangerBrush}" IsVisible="False" />
+                            </Panel>
+                            <ContentPresenter Name="PART_ContentPresenter" Grid.Column="1" Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}" VerticalAlignment="Center" />
+                            <Button Grid.Column="2" Classes="kcapGhost toastClose" NotificationCard.CloseOnClick="True"
+                                    Width="{StaticResource KcapMinTargetSize}" Height="{StaticResource KcapMinTargetSize}" Padding="0" Margin="8,0,0,0" VerticalAlignment="Top"
+                                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                    AutomationProperties.Name="Dismiss notification">
+                                <views:AppIcon Kind="X" Size="12" Foreground="{StaticResource KcapMutedBrush}" />
+                            </Button>
+                        </Grid>
+                    </Border>
+                </LayoutTransformControl>
+            </ControlTemplate>
+        </Setter>
+        <Setter Property="ContentTemplate">
+            <DataTemplate DataType="notifications:INotification">
+                <StackPanel Spacing="4">
+                    <TextBlock Text="{Binding Title}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="Medium" LineHeight="20" TextWrapping="Wrap"
+                               Foreground="{StaticResource KcapTextBrush}"
+                               IsVisible="{Binding Title, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                    <TextBlock Text="{Binding Message}" FontSize="{StaticResource KcapFontSizeBody}" LineHeight="20" TextWrapping="Wrap"
+                               Foreground="{StaticResource KcapTextBrush}" />
+                </StackPanel>
+            </DataTemplate>
+        </Setter>
+    </Style>
+    <Style Selector="NotificationCard:success /template/ views|AppIcon#ToastInfoIcon,
+                     NotificationCard:warning /template/ views|AppIcon#ToastInfoIcon,
+                     NotificationCard:error /template/ views|AppIcon#ToastInfoIcon">
+        <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="NotificationCard:success /template/ views|AppIcon#ToastSuccessIcon">
+        <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="NotificationCard:warning /template/ views|AppIcon#ToastWarningIcon">
+        <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="NotificationCard:error /template/ views|AppIcon#ToastErrorIcon">
+        <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="FlyoutPresenter.kcapPanel">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="MaxWidth" Value="10000" />
+        <Setter Property="MaxHeight" Value="10000" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
+    </Style>
+    <Style Selector="MenuFlyoutPresenter.kcapPanel">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Padding" Value="0,4" />
+        <Setter Property="MaxWidth" Value="10000" />
+        <Setter Property="MaxHeight" Value="10000" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
+    </Style>
+    <Style Selector="Popup">
+        <Setter Property="InheritsTransform" Value="True" />
+    </Style>
+    <Style Selector="ToolTip">
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="6" />
+        <Setter Property="Padding" Value="8" />
+        <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
+    </Style>
+</Styles>

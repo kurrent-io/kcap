@@ -42,13 +42,13 @@ public sealed record SentinelComponent : ActionComponent;
 public static class PolicyComponents {
     /// <summary>What deny/ask rules match (any hit decides). Never empty.</summary>
     public static IReadOnlyList<ActionComponent> RestrictionOf(CanonicalAction a) => a.Kind switch {
-        ActionKind.Shell when a.Analyzed && a.Segments.Count > 0 =>
+        ActionKind.Shell when a is { Analyzed: true, Segments.Count: > 0 } =>
             [.. a.Segments.Select(s => (ActionComponent)new ShellSegmentComponent(s))],
         ActionKind.Shell => [new RawShellComponent(a.Command ?? "")],
         ActionKind.FileEdit or ActionKind.FileRead when a.Paths.Count > 0 =>
             [.. a.Paths.Select(p => (ActionComponent)new PathComponent(p))],
         ActionKind.Network when a.Host is { Length: > 0 } => [new HostComponent(a.Host, a.Port)],
-        ActionKind.McpTool when a.Server is { Length: > 0 } && a.Tool is { Length: > 0 } =>
+        ActionKind.McpTool when a is { Server.Length: > 0, Tool.Length: > 0 } =>
             [new McpToolComponent(a.Server, a.Tool)],
         ActionKind.Other when a.RawToolName is { Length: > 0 } => [new OtherToolComponent(a.RawToolName)],
         _ => [new SentinelComponent()],
@@ -57,8 +57,8 @@ public static class PolicyComponents {
     /// <summary>What allow rules must fully cover. Empty = never allow-eligible.</summary>
     public static IReadOnlyList<ActionComponent> CoverageOf(CanonicalAction a) => a switch {
         { Kind: ActionKind.Shell, Analyzed: false } => [],
-        { Kind: ActionKind.Shell } when a.Segments.Count == 0 => [],
-        { Kind: ActionKind.Other } when a.RawToolName is not { Length: > 0 } => [],
+        { Kind: ActionKind.Shell, Segments.Count: 0 } => [],
+        { Kind: ActionKind.Other, RawToolName: not { Length: > 0 } } => [],
         _ when RestrictionOf(a) is [SentinelComponent] => [],
         _ => RestrictionOf(a),
     };

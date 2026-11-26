@@ -115,12 +115,12 @@ public class ServerSessionsServiceTests {
     static void Connect(FakeServerLane lane, string subject = "u1", int epoch = 1) =>
         lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected, Subject: subject, Epoch: epoch));
 
-    static (FakeServerLane Lane, ScriptedListing Listing, FakeTimeProvider Time, ServerSessionsService Service) Build(
+    static (FakeServerLane Lane, ScriptedListing Listing, ArmedTimeProvider Time, ServerSessionsService Service) Build(
             Func<CancellationToken, Task<SessionOwnerOptionDto[]?>>? owners = null, TimeSpan? reconcileEvery = null,
             TimeSpan? pushDebounce = null, IScheduler? pushScheduler = null) {
         var lane = new FakeServerLane();
         var listing = new ScriptedListing();
-        var time = new FakeTimeProvider();
+        var time = new ArmedTimeProvider();
         var service = new ServerSessionsService(
             lane, listing.Fetch, owners ?? (_ => Task.FromResult<SessionOwnerOptionDto[]?>(Owners("me"))), time,
             pushDebounce: pushDebounce ?? TimeSpan.Zero, reconcileEvery: reconcileEvery, pushScheduler: pushScheduler);
@@ -256,8 +256,10 @@ public class ServerSessionsServiceTests {
         // Yields, so a read that re-requests without holding spins off the test's thread.
         listing.Gate = async _ => await Task.Yield();
         listing.Refuse("ended", "me", 0, TimeSpan.Zero);
+        var mark = time.Armed;
         Connect(lane);
         await Eventually(() => listing.Count("ended", "me", 0) == 1, "refused page");
+        await Eventually(() => time.ArmedSince(mark, TimeSpan.FromSeconds(1)), "the one-second hold");
         await Task.Delay(100);
         await Assert.That(listing.Count("ended", "me", 0)).IsEqualTo(1);
 
@@ -376,7 +378,7 @@ public class ServerSessionsServiceTests {
 
     [Test]
     public async Task A_subject_change_clears_every_cache_before_the_new_read() {
-        var (lane, listing, _, service) = Build(ct => Task.FromResult<SessionOwnerOptionDto[]?>(Owners("me")));
+        var (lane, listing, _, service) = Build(_ => Task.FromResult<SessionOwnerOptionDto[]?>(Owners("me")));
         using var _ = service;
         ScriptDefault(listing);
         Connect(lane, "u1", 1);
@@ -419,7 +421,7 @@ public class ServerSessionsServiceTests {
         var afterSwitch = false;
         var staleLivePublished = false;
         using var watch = service.Live.Connect().Subscribe(changes => {
-            if (afterSwitch && changes.Any(c => c.Key == "live-me" && c.Reason == ChangeReason.Add)) staleLivePublished = true;
+            if (afterSwitch && changes.Any(c => c is { Key: "live-me", Reason: ChangeReason.Add })) staleLivePublished = true;
         });
         listing.Gate = null;
         listing.Answer("active", "me", 0, 1, Row("u2-live", "active"));
@@ -452,6 +454,47 @@ public class ServerSessionsServiceTests {
         Connect(lane, "u1", 2);
         await Eventually(() => listing.Count("ended", "me", 0) == 2, "second read");
         await Eventually(() => !seen[^1], "stale after a failed read");
+    }
+
+    /// A failed read still answers: the rail stops waiting on it, even though the listing is not current.
+    [Test]
+    public async Task Answered_follows_finished_reads_and_the_lane() {
+        var (lane, listing, _, service) = Build();
+        using var _ = service;
+        ScriptDefault(listing);
+        listing.Fail("ended", "me", 0);
+        var answered = new List<bool>();
+        var current = new List<bool>();
+        using var answeredSub = service.Answered.Subscribe(answered.Add);
+        using var currentSub = service.Current.Subscribe(current.Add);
+        await Assert.That(answered[^1]).IsFalse();
+
+        Connect(lane);
+        await Eventually(() => answered[^1], "answered after a failed read");
+        await Assert.That(current[^1]).IsFalse();
+
+        lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying));
+        await Assert.That(answered[^1]).IsFalse();
+    }
+
+    /// Another account's empty caches are not its answer: Answered waits for that account's own read.
+    [Test]
+    public async Task Answered_resets_when_the_account_changes() {
+        var (lane, listing, _, service) = Build();
+        using var _ = service;
+        ScriptDefault(listing);
+        var answered = new List<bool>();
+        using var sub = service.Answered.Subscribe(answered.Add);
+        Connect(lane, "u1");
+        await Eventually(() => answered[^1], "the first account's read");
+
+        var release = new TaskCompletionSource();
+        listing.Gate = _ => release.Task;
+        Connect(lane, "u2", epoch: 2);
+
+        await Assert.That(answered[^1]).IsFalse();
+        release.SetResult();
+        await Eventually(() => answered[^1], "the new account's read");
     }
 
     [Test]

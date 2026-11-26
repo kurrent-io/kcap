@@ -4,6 +4,8 @@ using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Codex;
+using Capacitor.Cli.Core.Transcripts;
+using WireMock.Matchers;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -30,9 +32,9 @@ public class ImportChainsTests : IDisposable {
         _tmp.Dispose();
     }
 
-    void StubAllHookEndpoints() {
+    void StubAllHookEndpoints(int transcriptPriority = 0) {
         _server.Given(Request.Create().WithPath("/hooks/transcript").UsingPost())
-            .RespondWith(Response.Create().WithStatusCode(200));
+            .AtPriority(transcriptPriority).RespondWith(Response.Create().WithStatusCode(200));
         // Match both the legacy un-vendored path and the new vendor-routed
         // path the importer uses now (/hooks/session-start/{vendor}) so codex
         // imports can't silently land as claude-tagged SessionStarted events.
@@ -109,6 +111,141 @@ public class ImportChainsTests : IDisposable {
         await Assert.That(result.Loaded).IsEqualTo(3);
         await Assert.That(result.Errored).IsEqualTo(0);
         await Assert.That(completedLines.Count).IsEqualTo(3);
+    }
+
+    [Test]
+    [Arguments(false, false)]
+    [Arguments(true, false)]
+    [Arguments(false, true)]
+    [Arguments(true, true)]
+    public async Task Partial_import_retries_a_refused_subagent_before_finalizing_the_parent(bool canonical, bool lateSidecar) {
+        const string agentId = "bbbbbbbbbbbbbbbb";
+        var path = canonical ? CanonicalRoute.HttpPath : TranscriptPost.RawPath;
+        var lineCount = lateSidecar ? 104 : 5;
+        var session = MakeNew("resume-child", lineCount);
+        var lines = await File.ReadAllLinesAsync(session.FilePath);
+        var agents = _tmp.CreateDir(session.SessionId, "subagents");
+        var sidecarPath = agents.PathTo($"agent-{agentId}.meta.json");
+        if (lateSidecar) {
+            // The parent names the call, but only the sidecar can identify the child it spawned.
+            lines[2] = """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"call","name":"Agent","input":{}}]}}""";
+            await File.WriteAllTextAsync(sidecarPath, "{");
+        } else {
+            lines[3] = $$$"""{"type":"progress","data":{"type":"agent_progress","agentId":"{{{agentId}}}"}}""";
+        }
+        await File.WriteAllLinesAsync(session.FilePath, lines);
+        var agentPath = agents.PathTo($"agent-{agentId}.jsonl");
+        await File.WriteAllLinesAsync(agentPath, [
+            """{"type":"user","uuid":"8ae2506b-7f4c-4e18-bfb3-ac5b77f472fc","timestamp":"2026-03-15T10:00:00Z","message":{"role":"user","content":"child"}}""",
+        ]);
+
+        StubTranscriptRoutes();
+        // A canonical refusal can fall back to raw, so refuse both representations of the child's batch.
+        foreach (var route in new[] { TranscriptPost.RawPath, CanonicalRoute.HttpPath }) {
+            _server.Given(Request.Create().WithPath(route).UsingPost()
+                    .WithBody(new JsonPartialMatcher($$"""{"agent_id":"{{agentId}}"}""")))
+                .AtPriority(1).RespondWith(Response.Create().WithStatusCode(400));
+        }
+
+        var events = new ImportCommand.ChainWorkerEvents {
+            OnSessionStarted      = (_, _) => { },
+            OnSubagentStarted     = (_, _, _) => { },
+            OnSubagentFinished    = (_, _, _, _) => { },
+            OnSessionProgress     = (_, _, _) => { },
+            OnSessionErrored      = (_, _, _) => { },
+            OnSessionWarning      = (_, _, _) => { },
+            OnSessionEnded        = (_, _, _, _) => { },
+            OnTitleTaskReady      = _ => { },
+            OnBackgroundWorkReady = _ => { },
+        };
+
+        using var client = new HttpClient();
+        var failed = await Import().ImportChainsAsync(client, _server.Url!, [[session with {
+            Status = ImportCommand.ClassificationStatus.Partial, ResumeFromLine = 2,
+        }]], events, CancellationToken.None);
+
+        await Assert.That(failed.Errored).IsEqualTo(1);
+        await Assert.That(_server.LogEntries.Any(e => e.RequestMessage.Path.StartsWith("/hooks/session-end"))).IsFalse();
+        await Assert.That(_server.LogEntries.Any(e => e.RequestMessage.Path.EndsWith("/last-line"))).IsFalse();
+        var parent = _server.LogEntries.Where(e => e.RequestMessage.Path == path)
+            .Select(e => JsonNode.Parse(e.RequestMessage.Body!)!).Single(b => b["agent_id"] is null);
+        var watermark = canonical
+            ? parent["lines"]!.AsArray().Last()!["number"]!.GetValue<int>()
+            : parent["line_numbers"]!.AsArray().Last()!.GetValue<int>();
+        await Assert.That(watermark).IsEqualTo(lateSidecar ? 101 : 2);
+
+        if (lateSidecar) await File.WriteAllTextAsync(sidecarPath, """{"toolUseId":"call"}""");
+        _server.ResetMappings();
+        _server.ResetLogEntries();
+        StubTranscriptRoutes();
+        StubWatermark(watermark, priority: 2);
+        var retry = (await TranscriptFileClassification.ClassifyAsync(
+            new GitProviderRouter(), Config.Root, Home, client, TimeProvider.System, _server.Url!,
+            [(session.SessionId, session.FilePath, session.EncodedCwd)], minLines: 1, CancellationToken.None)).Single();
+        await Assert.That(retry.Status).IsEqualTo(ImportCommand.ClassificationStatus.Partial);
+        await Assert.That(retry.ResumeFromLine).IsEqualTo(watermark + 1);
+
+        StubWatermark(lineCount - 1, priority: 1);
+        var completed = await Import().ImportChainsAsync(client, _server.Url!, [[retry]], events, CancellationToken.None);
+        await Assert.That(completed.Resumed).IsEqualTo(1);
+        var postPaths = _server.LogEntries.Where(e => e.RequestMessage.Method == "POST").Select(e => e.RequestMessage.Path);
+        await Assert.That(string.Join(" ", postPaths))
+            .IsEqualTo($"/hooks/subagent-start {path} /hooks/subagent-stop {path} /hooks/session-end/claude");
+        await Assert.That(TranscriptImportLedger.Load(Config.Root).ResumeFrom(_server.Url!, session.SessionId, lineCount - 1)).IsEqualTo(lineCount);
+        if (lateSidecar) {
+            var start = _server.LogEntries.Single(e => e.RequestMessage.Path == "/hooks/subagent-start");
+            await Assert.That(JsonNode.Parse(start.RequestMessage.Body!)?["spawn_call_id"]?.GetValue<string>()).IsEqualTo("call");
+        }
+
+        return;
+
+        void StubTranscriptRoutes() {
+            StubAllHookEndpoints(transcriptPriority: 2);
+            if (!canonical) return;
+            _server.Given(Request.Create().WithPath("/api/ingest/capabilities").UsingGet())
+                .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json")
+                    .WithBody("""{"canonical_format":1}"""));
+            _server.Given(Request.Create().WithPath(CanonicalRoute.HttpPath).UsingPost())
+                .AtPriority(2).RespondWith(Response.Create().WithStatusCode(200));
+        }
+
+        void StubWatermark(int line, int priority) =>
+            _server.Given(Request.Create().WithPath($"/api/sessions/{session.SessionId}/last-line").UsingGet())
+                .AtPriority(priority).RespondWith(Response.Create().WithStatusCode(200).WithBody($$"""{"last_line_number":{{line}}}"""));
+    }
+
+    [Test]
+    public async Task Partial_import_waits_to_finalize_until_its_only_unsent_line_is_complete() {
+        StubAllHookEndpoints();
+        var session = MakeNew("incomplete", 3) with {
+            Status = ImportCommand.ClassificationStatus.Partial,
+            ResumeFromLine = 2,
+        };
+        var lines = await File.ReadAllLinesAsync(session.FilePath);
+        await File.WriteAllTextAsync(session.FilePath, string.Join("\n", lines));
+        var events = new ImportCommand.ChainWorkerEvents {
+            OnSessionStarted      = (_, _) => { },
+            OnSubagentStarted     = (_, _, _) => { },
+            OnSubagentFinished    = (_, _, _, _) => { },
+            OnSessionProgress     = (_, _, _) => { },
+            OnSessionErrored      = (_, _, _) => { },
+            OnSessionWarning      = (_, _, _) => { },
+            OnSessionEnded        = (_, _, _, _) => { },
+            OnTitleTaskReady      = _ => { },
+            OnBackgroundWorkReady = _ => { },
+        };
+
+        using var client = new HttpClient();
+        var deferred = await Import().ImportChainsAsync(client, _server.Url!, [[session]], events, CancellationToken.None);
+        await Assert.That(deferred.Resumed).IsEqualTo(0);
+        await Assert.That(_server.LogEntries.Any(e => e.RequestMessage.Method == "POST")).IsFalse();
+
+        await File.AppendAllTextAsync(session.FilePath, "\n");
+        var resumed = await Import().ImportChainsAsync(client, _server.Url!, [[session]], events, CancellationToken.None);
+        await Assert.That(resumed.Resumed).IsEqualTo(1);
+        var end = _server.LogEntries.Single(e => e.RequestMessage.Path == "/hooks/session-end/claude");
+        var body = JsonNode.Parse(end.RequestMessage.Body!)!;
+        await Assert.That(body["ended_at"]?.GetValue<string>()).IsEqualTo("2026-03-15T10:00:00.0000000+00:00");
     }
 
     [Test]

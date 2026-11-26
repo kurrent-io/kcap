@@ -49,7 +49,7 @@ public static class BoundedWait {
         try {
             await body(resource);
         } catch {
-            try { await resource.DisposeAsync().WithinDeadlineAsync(disposal); } catch { }
+            try { await resource.DisposeAsync().WithinDeadlineAsync(disposal); } catch { /* ignored */ }
 
             throw;
         }

@@ -48,8 +48,8 @@ public class ChatAttachmentsTests {
     }
 
     sealed class Harness {
-        public FakeDaemonClientService Daemon { get; } = new();
-        public FakeTimeProvider Time { get; } = new();
+        FakeDaemonClientService Daemon { get; } = new();
+        FakeTimeProvider Time { get; } = new();
         public ScriptedInput Input { get; } = new();
         public ScriptedUploader Uploader { get; } = new();
         public ChatTabViewModel Chat { get; }
@@ -253,10 +253,10 @@ public class ChatAttachmentsTests {
             await Assert.That(h.Chat.Tray.Count).IsEqualTo(1);
 
             send = h.Resend();
-            h.Release(UploadOutcome.Rejected("x"));
+            h.Release(UploadOutcome.Rejected("<html>upstream proxy failed</html>"));
             await send;
 
-            await Assert.That(h.Chat.ComposerHint).IsEqualTo("x");
+            await Assert.That(h.Chat.ComposerHint).IsEqualTo("The server couldn’t accept the files. Check them and try again.");
             await Assert.That(h.Input.Sends).IsEmpty();
             await Assert.That(h.Chat.Tray.Count).IsEqualTo(1);
             await h.TeardownAsync();
@@ -479,14 +479,14 @@ public class ChatAttachmentsTests {
             h.Release(UploadOutcome.Unreachable("the server could not be reached"));
             await send;
 
-            await Assert.That(h.Chat.ComposerHint).IsEqualTo("the server could not be reached");
+            await Assert.That(h.Chat.ComposerHint).IsEqualTo("Couldn’t upload the files. Check your connection and try again.");
             await Assert.That(h.Input.Sends).IsEmpty();
 
             send = h.Resend();
             h.Release(new UploadOutcome(UploadKind.Rejected, [], null));
             await send;
 
-            await Assert.That(h.Chat.ComposerHint).IsEqualTo("the upload failed");
+            await Assert.That(h.Chat.ComposerHint).IsEqualTo("The server couldn’t accept the files. Check them and try again.");
             await Assert.That(h.Input.Sends).IsEmpty();
             await Assert.That(h.Chat.Tray.Count).IsEqualTo(1);
             await h.TeardownAsync();

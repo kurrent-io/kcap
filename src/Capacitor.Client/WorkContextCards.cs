@@ -105,7 +105,7 @@ public static class WorkContextCards {
                         && string.Equals(existing, url, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(issue.Identity, identity, StringComparison.Ordinal)))
                 continue;
-            issues.Add(new WorkContextIssue(link.ShortKey, FirstNonBlank(link.Title) ?? "", link.Url, identity));
+            issues.Add(new WorkContextIssue(link.ShortKey, FirstNonBlank(link.Title) ?? "", link.Url, link.State, identity));
         }
         return [.. issues];
     }

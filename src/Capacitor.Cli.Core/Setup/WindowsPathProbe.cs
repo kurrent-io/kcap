@@ -6,6 +6,7 @@ namespace Capacitor.Cli.Core.Setup;
 public sealed class WindowsPathProbe(Func<string?> machinePath, Func<string?> userPath, Func<string, bool> fileExists, string? pathExt)
     : ILoginShellProbe {
     const string DefaultPathExt = ".COM;.EXE;.BAT;.CMD";
+    public const string DirectStartPathExt = ".EXE";
 
     public WindowsPathProbe()
         : this(
@@ -13,6 +14,15 @@ public sealed class WindowsPathProbe(Func<string?> machinePath, Func<string?> us
             () => Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.User),
             File.Exists,
             Environment.GetEnvironmentVariable("PATHEXT")) { }
+
+    /// For a caller whose hooks start `kcap.exe` without a shell: only that counts, because nothing
+    /// can start an npm `kcap.cmd` that way, however well a terminal resolves it.
+    public static WindowsPathProbe ForDirectStart() =>
+        new(
+            () => Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.Machine),
+            () => Environment.GetEnvironmentVariable("Path", EnvironmentVariableTarget.User),
+            File.Exists,
+            DirectStartPathExt);
 
     public Task<string?> TerminalPathAsync(CancellationToken ct) => Task.FromResult(TerminalPath());
 

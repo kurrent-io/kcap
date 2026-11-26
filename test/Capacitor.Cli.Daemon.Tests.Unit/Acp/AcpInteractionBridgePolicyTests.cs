@@ -48,9 +48,8 @@ public class AcpInteractionBridgePolicyTests {
     static JsonElement Frame(string toolCallJson, (string Id, string OptKind)[] options) {
         var optsJson = string.Join(",", options.Select(o => $$"""{"optionId":"{{o.Id}}","name":"{{o.Id}}","kind":"{{o.OptKind}}"}"""));
 
-        return JsonDocument.Parse(
-            $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{{toolCallJson}},"options":[{{optsJson}}]}""")
-            .RootElement.Clone();
+        return JsonElement.Parse(
+            $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{{toolCallJson}},"options":[{{optsJson}}]}""");
     }
 
     sealed class Harness {

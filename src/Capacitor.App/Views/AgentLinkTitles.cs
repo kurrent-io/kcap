@@ -25,7 +25,7 @@ public sealed class AgentLinkTitles(MarkdownView view) : IMarkViewExtension {
 
     sealed class LinkRenderer(MarkdownView view, IMarkdownObjectRenderer inner) : AvaloniaObjectRenderer<LinkInline> {
         protected override void Write(AvaloniaRenderer renderer, LinkInline obj) {
-            if (!obj.IsImage && obj.Url is { } url && (obj.IsAutoLink || KcapMarkdownExtension.Label(obj) == url)
+            if (obj is { IsImage: false, Url: { } url } && (obj.IsAutoLink || KcapMarkdownExtension.Label(obj) == url)
                 && view.AgentLinkLabel(url) is { } label) {
                 while (obj.FirstChild is { } child) child.Remove();
                 obj.AppendChild(new LiteralInline(label));

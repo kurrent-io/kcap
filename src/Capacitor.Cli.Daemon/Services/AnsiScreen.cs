@@ -8,8 +8,6 @@ namespace Capacitor.Cli.Daemon.Services;
 /// screen has overwritten it, so a match has to be read off the cells the cursor last wrote. On Windows
 /// ConPTY repaints with its own sequences (erase-character, delete-line, scroll regions), so those count too.
 internal sealed class AnsiScreen {
-    int _cols;
-    int _rows;
     char[] _cells;
     readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
     char[] _decoded = new char[4096];
@@ -39,26 +37,26 @@ internal sealed class AnsiScreen {
 
     public AnsiScreen(int cols, int rows) {
         if (!Fits(cols, rows)) (cols, rows) = (PtyDefaults.Cols, PtyDefaults.Rows);
-        _cols  = cols;
-        _rows  = rows;
+        Cols  = cols;
+        Rows  = rows;
         _cells = new char[cols * rows];
         Array.Fill(_cells, ' ');
         _bottom = rows - 1;
     }
 
-    public int Cols => _cols;
-    public int Rows => _rows;
+    public int Cols { get; private set; }
+    public int Rows { get; private set; }
 
     /// Follows the PTY to a new size. Cursor moves are relative to the width the TUI drew for, so
     /// a grid of any other size misplaces every redraw. Keeps the top-left overlap; the TUI
     /// repaints on the resize anyway.
     public void Resize(int cols, int rows) {
-        if (cols == _cols && rows == _rows || !Fits(cols, rows)) return;
+        if (cols == Cols && rows == Rows || !Fits(cols, rows)) return;
         var cells = new char[cols * rows];
         Array.Fill(cells, ' ');
-        for (var row = 0; row < Math.Min(rows, _rows); row++)
-            Array.Copy(_cells, row * _cols, cells, row * cols, Math.Min(cols, _cols));
-        (_cols, _rows, _cells) = (cols, rows, cells);
+        for (var row = 0; row < Math.Min(rows, Rows); row++)
+            Array.Copy(_cells, row * Cols, cells, row * cols, Math.Min(cols, Cols));
+        (Cols, Rows, _cells) = (cols, rows, cells);
         _row      = Math.Min(_row, rows - 1);
         _col      = Math.Min(_col, cols - 1);
         _savedRow = Math.Min(_savedRow, rows - 1);
@@ -77,9 +75,9 @@ internal sealed class AnsiScreen {
 
     public string Text() {
         var builder = new StringBuilder(_cells.Length);
-        for (var row = 0; row < _rows; row++) {
-            var end = _cols;
-            var start = row * _cols;
+        for (var row = 0; row < Rows; row++) {
+            var end = Cols;
+            var start = row * Cols;
             while (end > 0 && _cells[start + end - 1] == ' ') end--;
             if (end == 0) {
                 builder.Append('\n');
@@ -128,8 +126,8 @@ internal sealed class AnsiScreen {
                 break;
             default:
                 if (c < ' ') return;
-                if (_col >= _cols) { _col = 0; LineFeed(); }
-                _cells[_row * _cols + _col] = c;
+                if (_col >= Cols) { _col = 0; LineFeed(); }
+                _cells[_row * Cols + _col] = c;
                 _col++;
                 break;
         }
@@ -206,13 +204,13 @@ internal sealed class AnsiScreen {
             case 'F': Move(0, -Param(0, 1)); _col = 0; break;
             case 'G':
             case '`':
-                _col = Math.Clamp(Param(0, 1) - 1, 0, _cols - 1);
+                _col = Math.Clamp(Param(0, 1) - 1, 0, Cols - 1);
                 break;
-            case 'd': _row = Math.Clamp(Param(0, 1) - 1, 0, _rows - 1); break;
+            case 'd': _row = Math.Clamp(Param(0, 1) - 1, 0, Rows - 1); break;
             case 'H':
             case 'f':
-                _row = Math.Clamp(Param(0, 1) - 1, 0, _rows - 1);
-                _col = Math.Clamp(Param(1, 1) - 1, 0, _cols - 1);
+                _row = Math.Clamp(Param(0, 1) - 1, 0, Rows - 1);
+                _col = Math.Clamp(Param(1, 1) - 1, 0, Cols - 1);
                 break;
             case 'J':
                 EraseDisplay(Param(0, 0));
@@ -223,15 +221,15 @@ internal sealed class AnsiScreen {
             // A write to the last column leaves the cursor past it until the next character wraps; these
             // edit that last cell, as a terminal does, and cancel the pending wrap.
             case 'X':
-                _col = Math.Min(_col, _cols - 1);
-                Fill(_row * _cols + _col, _row * _cols + Math.Min(_cols, _col + Param(0, 1)));
+                _col = Math.Min(_col, Cols - 1);
+                Fill(_row * Cols + _col, _row * Cols + Math.Min(Cols, _col + Param(0, 1)));
                 break;
             case 'P':
-                _col = Math.Min(_col, _cols - 1);
+                _col = Math.Min(_col, Cols - 1);
                 ShiftLine(-Param(0, 1));
                 break;
             case '@':
-                _col = Math.Min(_col, _cols - 1);
+                _col = Math.Min(_col, Cols - 1);
                 ShiftLine(Param(0, 1));
                 break;
             case 'L':
@@ -248,7 +246,7 @@ internal sealed class AnsiScreen {
                 ScrollDown(_top, _bottom, Param(0, 1));
                 break;
             case 'r':
-                SetMargins(Param(0, 1) - 1, Param(1, _rows) - 1);
+                SetMargins(Param(0, 1) - 1, Param(1, Rows) - 1);
                 break;
             case 's':
                 _savedRow = _row;
@@ -267,8 +265,8 @@ internal sealed class AnsiScreen {
     /// A move up stops at the top margin when it starts at or below it, and a move down at the bottom
     /// margin when it starts at or above it, as ConPTY's does: each margin binds on its own.
     void Move(int dCol, int dRow) {
-        _col = Math.Clamp(_col + dCol, 0, _cols - 1);
-        _row = Math.Clamp(_row + dRow, _row >= _top ? _top : 0, _row <= _bottom ? _bottom : _rows - 1);
+        _col = Math.Clamp(_col + dCol, 0, Cols - 1);
+        _row = Math.Clamp(_row + dRow, _row >= _top ? _top : 0, _row <= _bottom ? _bottom : Rows - 1);
     }
 
     void EraseDisplay(int mode) {
@@ -278,14 +276,14 @@ internal sealed class AnsiScreen {
             _col = 0;
             return;
         }
-        if (mode == 0) Fill(_row * _cols + _col, _cells.Length);
-        else Fill(0, _row * _cols + _col + 1);
+        if (mode == 0) Fill(_row * Cols + _col, _cells.Length);
+        else Fill(0, _row * Cols + _col + 1);
     }
 
     void EraseLine(int mode) {
-        var start = _row * _cols;
-        if (mode == 2) Fill(start, start + _cols);
-        else if (mode == 0) Fill(start + _col, start + _cols);
+        var start = _row * Cols;
+        if (mode == 2) Fill(start, start + Cols);
+        else if (mode == 0) Fill(start + _col, start + Cols);
         else Fill(start, start + _col + 1);
     }
 
@@ -296,7 +294,7 @@ internal sealed class AnsiScreen {
     void LineFeed() {
         _col = 0;
         if (_row == _bottom) ScrollUp(_top, _bottom, 1);
-        else if (_row < _rows - 1) _row++;
+        else if (_row < Rows - 1) _row++;
     }
 
     void ReverseIndex() {
@@ -306,7 +304,7 @@ internal sealed class AnsiScreen {
 
     /// A region that is not at least two rows is ignored, as a terminal ignores it; a valid one homes the cursor.
     void SetMargins(int top, int bottom) {
-        bottom = Math.Min(bottom, _rows - 1);
+        bottom = Math.Min(bottom, Rows - 1);
         if (top < 0 || top >= bottom) return;
         (_top, _bottom) = (top, bottom);
         (_row, _col)    = (0, 0);
@@ -315,24 +313,24 @@ internal sealed class AnsiScreen {
     /// Moves rows <paramref name="top"/>+n..<paramref name="bottom"/> up by n and blanks the n rows freed at the bottom.
     void ScrollUp(int top, int bottom, int n) {
         n = Math.Min(n, bottom - top + 1);
-        Array.Copy(_cells, (top + n) * _cols, _cells, top * _cols, (bottom - top + 1 - n) * _cols);
-        Fill((bottom + 1 - n) * _cols, (bottom + 1) * _cols);
+        Array.Copy(_cells, (top + n) * Cols, _cells, top * Cols, (bottom - top + 1 - n) * Cols);
+        Fill((bottom + 1 - n) * Cols, (bottom + 1) * Cols);
     }
 
     void ScrollDown(int top, int bottom, int n) {
         n = Math.Min(n, bottom - top + 1);
-        Array.Copy(_cells, top * _cols, _cells, (top + n) * _cols, (bottom - top + 1 - n) * _cols);
-        Fill(top * _cols, (top + n) * _cols);
+        Array.Copy(_cells, top * Cols, _cells, (top + n) * Cols, (bottom - top + 1 - n) * Cols);
+        Fill(top * Cols, (top + n) * Cols);
     }
 
     /// Deletes (negative) or inserts (positive) blank cells at the cursor, shifting the rest of the row.
     void ShiftLine(int by) {
-        var start = _row * _cols;
-        var count = Math.Min(Math.Abs(by), _cols - _col);
-        var tail  = _cols - _col - count;
+        var start = _row * Cols;
+        var count = Math.Min(Math.Abs(by), Cols - _col);
+        var tail  = Cols - _col - count;
         if (by < 0) {
             Array.Copy(_cells, start + _col + count, _cells, start + _col, tail);
-            Fill(start + _cols - count, start + _cols);
+            Fill(start + Cols - count, start + Cols);
         } else {
             Array.Copy(_cells, start + _col, _cells, start + _col + count, tail);
             Fill(start + _col, start + _col + count);

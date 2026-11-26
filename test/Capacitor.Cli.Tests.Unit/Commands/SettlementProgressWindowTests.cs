@@ -37,7 +37,7 @@ public class SettlementProgressWindowTests {
     /// call. Never throws past the end of the script: the tail entry repeats, which is what "held
     /// frozen thereafter" needs.</summary>
     sealed class SeqScriptedHandler(VirtualFlowRetryClock clock, params (TimeSpan TargetElapsed, long? Seq)[] script) : HttpMessageHandler {
-        public int Requests { get; private set; }
+        int Requests { get; set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
             var (targetElapsed, seq) = script[Math.Min(Requests, script.Length - 1)];
@@ -58,7 +58,7 @@ public class SettlementProgressWindowTests {
         using var client = new HttpClient(handler) { BaseAddress = new Uri("http://settlement.test") };
 
         var result = await McpFlowsServer.SendWithSettlementRetryAsync(
-            client, "https://flows.example.test", (c, ct) => c.PostAsync("/start", null, ct), clock, SettlementBackoff.Seeded(7));
+            client, (c, ct) => c.PostAsync("/start", null, ct), clock, SettlementBackoff.Seeded(7));
 
         var exhausted = result as McpFlowsServer.SettlementSendResult.DeadlineExhausted;
         await Assert.That(exhausted).IsNotNull();

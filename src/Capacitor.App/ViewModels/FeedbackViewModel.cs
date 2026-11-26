@@ -32,13 +32,6 @@ public sealed class FeedbackViewModel : ReactiveObject, IDisposable {
     Guid _id = Guid.NewGuid();
     FeedbackCategory _category;
     string _message = "";
-    bool _isBusy;
-    bool _isSent;
-    string? _reporterEmail;
-    string? _sentMessage;
-    string? _fullReport;
-    string? _outcome;
-    bool _signInOffered;
     bool _disposed;
 
     public FeedbackViewModel(IFeedbackApi api, FeedbackCategory initial, IObservable<string> trailer,
@@ -99,30 +92,30 @@ public sealed class FeedbackViewModel : ReactiveObject, IDisposable {
         FeedbackMessageComposer.Remaining(_message, EffectiveTrailer) >= 0;
 
     public bool IsBusy {
-        get => _isBusy;
+        get;
         private set {
-            if (_isBusy == value) return;
-            this.RaiseAndSetIfChanged(ref _isBusy, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(CanSend));
         }
     }
 
     public bool IsSent {
-        get => _isSent;
+        get;
         private set {
-            if (_isSent == value) return;
-            this.RaiseAndSetIfChanged(ref _isSent, value);
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(CanSend));
         }
     }
 
-    public string? ReporterEmail { get => _reporterEmail; private set => this.RaiseAndSetIfChanged(ref _reporterEmail, value); }
-    public string? SentMessage { get => _sentMessage; private set => this.RaiseAndSetIfChanged(ref _sentMessage, value); }
+    public string? ReporterEmail { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? SentMessage { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
 
     /// <summary>The whole report as mailed, trailer included, shown to copy by hand when nothing else holds it.</summary>
-    public string? FullReport { get => _fullReport; private set => this.RaiseAndSetIfChanged(ref _fullReport, value); }
-    public string? Outcome { get => _outcome; private set => this.RaiseAndSetIfChanged(ref _outcome, value); }
-    public bool SignInOffered { get => _signInOffered; private set => this.RaiseAndSetIfChanged(ref _signInOffered, value); }
+    public string? FullReport { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? Outcome { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool SignInOffered { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public ReactiveCommand<Unit, Unit> SendCommand { get; }
     public ReactiveCommand<Unit, Unit> SendAnotherCommand { get; }
     public ReactiveCommand<Unit, Unit> SignInCommand { get; }
@@ -211,11 +204,16 @@ public sealed class FeedbackViewModel : ReactiveObject, IDisposable {
             }
         } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
             // The app is quitting; nothing to show.
+        } catch (Exception ex) when (_mail is not null) {
+            Console.Error.WriteLine($"kcap: could not prepare the feedback email: {ex.GetType().Name}");
+            FullReport = FeedbackMail.Body(submission);
+            Outcome = $"kcap couldn’t finish preparing the email. Copy the report below into the draft, or email it to {FeedbackMail.Address}.";
         } catch (CapacitorApiException ex) when (ex.Status == 401) {
             Outcome = HomeViewModel.SignInExpiredNotice;
             SignInOffered = _signIn is not null;
         } catch (Exception ex) {
-            Outcome = $"Couldn't send the report: {ex.Message}";
+            Console.Error.WriteLine($"kcap: could not send the feedback report: {ex.GetType().Name}");
+            Outcome = "Couldn’t send the report. Check your connection and try again.";
         } finally {
             IsBusy = false;
         }

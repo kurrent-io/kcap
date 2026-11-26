@@ -37,10 +37,10 @@ public class WorkContextViewModelTests {
         public List<string> OpenedWorkItems { get; } = [];
         public SessionRuns Runs { get; }
         public FakePlanSource Plans { get; } = new();
-        public PlanActivity PlanActivity { get; } = new();
+        PlanActivity PlanActivity { get; } = new();
         public BehaviorSubject<ServerLaneStatus> Lane { get; } = new(new(ServerLaneState.Connected));
         public bool CanSend { get; set; } = true;
-        public bool SendResult { get; set; } = true;
+        public bool SendResult { get; init; } = true;
         public List<string> Sent { get; } = [];
         public WorkContextViewModel Vm { get; }
 
@@ -717,6 +717,38 @@ public class WorkContextViewModelTests {
             await h.Vm.RefreshCommand.Execute();
             await h.Vm.PendingReadForTesting!;
             await Assert.That(h.Source.Requested.Count).IsEqualTo(3);
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// The poll's re-read runs behind the note already shown; the first read and a refresh someone asked for
+    /// show progress.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Only_a_read_someone_waits_on_shows_progress() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            var first = h.Source.Gate();
+            h.Push(Dto());
+            await Assert.That(h.Vm.ShowsReadProgress).IsTrue();
+            first.SetResult(Ready());
+            await h.Vm.PendingReadForTesting!;
+            await Assert.That(h.Vm.Phase).IsEqualTo(WorkContextPhase.NoWorkItem);
+            await Assert.That(h.Vm.ShowsReadProgress).IsFalse();
+
+            var polled = h.Source.Gate();
+            h.Time.Advance(WorkContextViewModel.PollInterval);
+            await Assert.That(h.Vm.IsReading).IsTrue();
+            await Assert.That(h.Vm.ShowsReadProgress).IsFalse();
+            polled.SetResult(Ready());
+            await h.Vm.PendingReadForTesting!;
+
+            var asked = h.Source.Gate();
+            await h.Vm.RefreshCommand.Execute();
+            await Assert.That(h.Vm.ShowsReadProgress).IsTrue();
+            asked.SetResult(Ready());
+            await h.Vm.PendingReadForTesting!;
+            await Assert.That(h.Vm.ShowsReadProgress).IsFalse();
             await h.Vm.TeardownAsync();
         });
     }
@@ -1675,7 +1707,7 @@ public class WorkContextViewModelTests {
             }));
             try {
                 await h.PushAsync(Dto());
-                await WaitUntilAsync(() => source.Lists == 1 && pullRequests.HasListed && !pullRequests.IsReading, what: "empty session PR list");
+                await WaitUntilAsync(() => source.Lists == 1 && pullRequests is { HasListed: true, IsReading: false }, what: "empty session PR list");
                 await Assert.That(pullRequests.HasPullRequest).IsFalse();
                 await Assert.That(pullRequests.HasChoice).IsFalse();
                 await Assert.That(pullRequests.Notice).IsEqualTo("No pull requests yet.");
@@ -1705,7 +1737,7 @@ public class WorkContextViewModelTests {
             h.Source.Enqueue(ReadyWith(Row("w1", "t"), Item()));
             try {
                 await h.PushAsync(Dto());
-                await WaitUntilAsync(() => pullRequests.HasListed && pullRequests.HasChoice, what: "legacy list applied");
+                await WaitUntilAsync(() => pullRequests is { HasListed: true, HasChoice: true }, what: "legacy list applied");
                 await Assert.That(pullRequests.IsLegacy).IsTrue();
                 await Assert.That(pullRequests.CanOpenReader).IsFalse();
                 await Assert.That(h.Vm.ShowsPullRequestCard).IsTrue();
@@ -2526,13 +2558,13 @@ public class WorkContextViewModelTests {
             h.Plans.Enqueue(PlanOf("completed"), PlanOf("pending", "pending"));
             await h.PushAsync(Dto());
             await h.PlanSettledAsync();
-            await Assert.That(h.Vm.Plan.DoneCount).IsEqualTo(1);
+            await Assert.That(h.Vm.Plan.CompletedCount).IsEqualTo(1);
 
             await h.PushAsync(Dto(sessionId: SessionB));
             await h.PlanSettledAsync();
 
             await Assert.That(h.Plans.Requested).IsEquivalentTo(new[] { SessionA, SessionB }, CollectionOrdering.Matching);
-            await Assert.That(h.Vm.Plan.DoneCount).IsEqualTo(0);
+            await Assert.That(h.Vm.Plan.CompletedCount).IsEqualTo(0);
             await Assert.That(h.Vm.Plan.Tasks.Count).IsEqualTo(2);
             await h.Vm.TeardownAsync();
         });

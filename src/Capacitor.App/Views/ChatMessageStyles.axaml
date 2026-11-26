@@ -1,0 +1,93 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:Capacitor.App.Views"
+        xmlns:vm="clr-namespace:Capacitor.App.ViewModels">
+    <Style Selector="views|ChatMessageRow">
+        <Setter Property="ContextFlyout" Value="{x:Static views:TextContextMenu.ForMessageRow}" />
+    </Style>
+    <Style Selector="views|ChatMessageRow.noMessageText" x:DataType="views:ChatMessageRow">
+        <Setter Property="Focusable" Value="True" />
+        <Setter Property="AutomationProperties.Name" Value="{Binding $self.Author}" />
+        <Setter Property="AutomationProperties.HelpText" Value="{Binding $self.Timestamp.Tip}" />
+    </Style>
+    <Style Selector="views|ChatMessageRow Border.userMessageBody">
+        <Setter Property="MaxWidth" Value="520" />
+        <Setter Property="HorizontalAlignment" Value="Right" />
+        <Setter Property="Padding" Value="{DynamicResource KcapUserTurnPadding}" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+    </Style>
+    <Style Selector="views|ChatMessageRow Border.undelivered Border.userMessageBody">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
+    <!-- Marks sit beside the first line and reserve their space, so revealing them moves nothing. -->
+    <Style Selector="views|ChatMessageHeader">
+        <Setter Property="DockPanel.Dock" Value="Right" />
+        <Setter Property="VerticalAlignment" Value="Top" />
+        <Setter Property="Margin" Value="12,0,0,0" />
+    </Style>
+    <Style Selector="views|ChatMessageRow.userRow views|ChatMessageHeader" x:DataType="vm:UserTurnItem">
+        <Setter Property="DockPanel.Dock" Value="Left" />
+        <Setter Property="Margin" Value="0,0,12,0" />
+        <Setter Property="ShowParticipant" Value="{Binding Sender.IsOtherParticipant}" />
+    </Style>
+    <Style Selector="views|ChatMessageHeader:not(:participant) TextBlock.messageAuthor">
+        <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="views|ChatMessageHeader:participant TextBlock.messageAuthor" x:DataType="TextBlock">
+        <Setter Property="ToolTip.Tip" Value="{Binding $parent[views:ChatMessageRow].AccessibleMetadata}" />
+    </Style>
+
+    <!-- A prompt's time and Copy sit under its bubble. A reply's sit once, after its last row. -->
+    <Style Selector="views|ChatMessageRow StackPanel.messageFooter">
+        <Setter Property="DockPanel.Dock" Value="Bottom" />
+        <Setter Property="HorizontalAlignment" Value="Right" />
+        <Setter Property="Margin" Value="0,4,0,0" />
+    </Style>
+    <Style Selector="views|ChatMessageRow TextBlock.messageAuthor,
+                     views|ChatMessageRow TextBlock.messageTime,
+                     views|ReplyFooter TextBlock.messageTime">
+        <Setter Property="MaxWidth" Value="124" />
+        <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+        <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="views|ChatMessageRow TextBlock.messageTime" x:DataType="TextBlock">
+        <Setter Property="ToolTip.Tip" Value="{Binding $parent[views:ChatMessageRow].AccessibleMetadata}" />
+    </Style>
+    <Style Selector="views|ChatMessageRow TextBlock.messageTime, views|ReplyFooter TextBlock.messageTime">
+        <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+    </Style>
+    <Style Selector="views|ChatMessageRow views|MessageCopyButton" x:DataType="views:MessageCopyButton">
+        <Setter Property="AutomationProperties.HelpText" Value="{Binding $parent[views:ChatMessageRow].AccessibleMetadata}" />
+    </Style>
+    <Style Selector="views|ChatMessageRow views|MessageCopyButton, views|ReplyFooter views|MessageCopyButton">
+        <Setter Property="MinimumActionHeight" Value="24" />
+    </Style>
+
+    <Style Selector="views|ChatMessageRow TextBlock.messageTime,
+                     views|ChatMessageRow views|MessageCopyButton,
+                     views|ReplyFooter TextBlock.messageTime,
+                     views|ReplyFooter views|MessageCopyButton">
+        <Setter Property="Opacity" Value="0" />
+        <Setter Property="IsHitTestVisible" Value="False" />
+    </Style>
+    <Style Selector="views|ReplyFooter.revealed TextBlock.messageTime,
+                     views|ReplyFooter.revealed views|MessageCopyButton">
+        <Setter Property="Opacity" Value="1" />
+        <Setter Property="IsHitTestVisible" Value="True" />
+    </Style>
+    <Style Selector="views|ChatMessageRow:show-details TextBlock.messageTime,
+                     views|ChatMessageRow:show-details views|MessageCopyButton,
+                     views|ChatMessageRow:show-details Button.topicHere,
+                     views|ChatMessageRow:show-details Button.bookmarkHere">
+        <Setter Property="Opacity" Value="1" />
+        <Setter Property="IsHitTestVisible" Value="True" />
+    </Style>
+    <Style Selector="views|ChatMessageRow:not(:show-details) Button.topicHere:not(.on),
+                     views|ChatMessageRow:not(:show-details) Button.bookmarkHere:not(.on)">
+        <Setter Property="IsHitTestVisible" Value="False" />
+    </Style>
+</Styles>

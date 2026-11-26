@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Daemon.Services;
 
 namespace Capacitor.Cli.Daemon.Tests.Unit.Services;
@@ -70,7 +71,7 @@ sealed class FakeHostedAgentRuntime(string vendor, bool emitsTerminalOutput) : I
     }
 
     public async Task WaitForExitAsync(TimeSpan? timeout = null) {
-        if (NeverExitsOnItsOwn) await Task.WhenAny(ExitGate.Task, Task.Delay(timeout ?? Timeout.InfiniteTimeSpan));
+        if (NeverExitsOnItsOwn) await ExitGate.Task.FinishedWithinAsync(timeout ?? Timeout.InfiniteTimeSpan, TimeProvider.System);
     }
 
     /// <summary>When set, the process survives even a terminate, like one the daemon cannot kill.</summary>

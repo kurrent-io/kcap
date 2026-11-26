@@ -124,16 +124,17 @@ public partial class LaunchChipsView : UserControl {
     /// monogram otherwise (both from HostedHarnessCatalog.TileFor). UI-thread only (constructs
     /// thread-affine Geometry/brushes).
     internal static Control BuildGlyph(string vendor, double size) {
-        var (glyph, color) = HostedHarnessCatalog.TileFor(vendor);
+        var (glyph, brushKey) = HostedHarnessCatalog.TileFor(vendor);
+        var brush = AppPalette.Brush(brushKey);
         if (VendorIcons.For(vendor) is { } geometry)
             return new Avalonia.Controls.Shapes.Path {
-                Data = geometry, Fill = new SolidColorBrush(Color.Parse(color)),
+                Data = geometry, Fill = brush,
                 Width = size, Height = size, Stretch = Stretch.Uniform,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
             };
         return new TextBlock {
             Text = glyph, FontSize = size, FontWeight = FontWeight.Bold,
-            Foreground = new SolidColorBrush(Color.Parse(color)),
+            Foreground = brush,
             VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
         };
     }
@@ -149,7 +150,6 @@ public partial class LaunchChipsView : UserControl {
         var text = this.Brush("KcapTextBrush");
         var muted = this.Brush("KcapMutedBrush");
         var faint = this.Brush("KcapFaintBrush");
-        var raised = this.Brush("KcapSurfaceRaisedBrush");
         var border = this.Brush("KcapBorderBrush");
         var warning = this.Brush("KcapWarningBrush");
         var recording = RecordingStates.Token(RecordingState.Recording);
@@ -158,8 +158,8 @@ public partial class LaunchChipsView : UserControl {
 
         var searchBox = new TextBox {
             Name = "ModelSearchBox",
-            PlaceholderText = "Search models…", FontSize = 13.5,
-            Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+            PlaceholderText = "Search models…", FontSize = TypeScale.Body,
+            Classes = { "kcapEmbedded" },
             VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Center,
         };
         AutomationProperties.SetName(searchBox, "Search models");
@@ -210,11 +210,11 @@ public partial class LaunchChipsView : UserControl {
                 Margin = new Thickness(0, 2, 0, 0),
             };
             sub.Children.Add(BuildGlyph(vendor, 10));
-            sub.Children.Add(new TextBlock { Text = vendorLabel, FontSize = 11.5, Foreground = muted });
+            sub.Children.Add(new TextBlock { Text = vendorLabel, FontSize = TypeScale.Small, Foreground = muted });
 
             var titles = new StackPanel();
             titles.Children.Add(new TextBlock {
-                Text = label, FontSize = 13.5, FontWeight = FontWeight.SemiBold,
+                Text = label, FontSize = TypeScale.Body, FontWeight = FontWeight.SemiBold,
                 Foreground = enabled ? text : faint,
             });
             titles.Children.Add(sub);
@@ -259,7 +259,7 @@ public partial class LaunchChipsView : UserControl {
                 c.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
                 line.Children.Add(c);
             }
-            TextBlock Faint(string t) => new() { Text = t, FontSize = 10.5, Foreground = faint };
+            TextBlock Faint(string t) => new() { Text = t, FontSize = TypeScale.Caption, Foreground = faint };
 
             if (usage.Bars.Count == 0) {
                 if (usage.LineText is not null) Add(Faint(usage.LineText));
@@ -277,7 +277,7 @@ public partial class LaunchChipsView : UserControl {
                     mini.Children.Add(Faint(bar.Label));
                     mini.Children.Add(track);
                     mini.Children.Add(new TextBlock {
-                        Text = bar.PercentText, FontSize = 10.5,
+                        Text = bar.PercentText, FontSize = TypeScale.Caption,
                         Foreground = this.Brush(UsageToneBrushConverter.TextKey(bar.Tone)),
                     });
                     track.VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center;
@@ -293,12 +293,12 @@ public partial class LaunchChipsView : UserControl {
             var account = choice.Row;
             var title = new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal };
             title.Children.Add(new TextBlock {
-                Text = account.Label, FontSize = 13.5, FontWeight = FontWeight.SemiBold, Foreground = text,
+                Text = account.Label, FontSize = TypeScale.Body, FontWeight = FontWeight.SemiBold, Foreground = text,
                 VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
             });
             if (choice.Removed)
                 title.Children.Add(new TextBlock {
-                    Text = " — removed", FontSize = 13.5, Foreground = muted,
+                    Text = " — removed", FontSize = TypeScale.Body, Foreground = muted,
                     VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
                 });
             if (account.IsDefault)
@@ -317,10 +317,10 @@ public partial class LaunchChipsView : UserControl {
                 var sub = new StackPanel {
                     Orientation = Avalonia.Layout.Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 2, 0, 0),
                 };
-                sub.Children.Add(new TextBlock { Text = account.Directory, FontSize = 10.5, Foreground = faint });
+                sub.Children.Add(new TextBlock { Text = account.Directory, FontSize = TypeScale.Caption, Foreground = faint });
                 if (!string.Equals(account.RecordingState, recording, StringComparison.Ordinal))
                     sub.Children.Add(new TextBlock {
-                        Text = RecordingStateLabels.Label(account.Vendor, account.RecordingState), FontSize = 10.5,
+                        Text = RecordingStateLabels.Label(account.Vendor, account.RecordingState), FontSize = TypeScale.Caption,
                         Foreground = RecordingStateLabels.IsAttention(account.Vendor, account.RecordingState) ? warning : muted,
                     });
                 titles.Children.Add(sub);
@@ -356,12 +356,12 @@ public partial class LaunchChipsView : UserControl {
             if (pending is not null) {
                 var line = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(10, 4) };
                 line.Children.Add(new TextBlock {
-                    Text = pending, FontSize = 12.5, Foreground = muted,
+                    Text = pending, FontSize = TypeScale.Small, Foreground = muted,
                     VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
                 });
                 if (retryVisible) {
                     var retry = new Button {
-                        Content = "Retry", Command = vm.RetryAccountsCommand, Padding = new Thickness(10, 3), FontSize = 12,
+                        Content = "Retry", Command = vm.RetryAccountsCommand, Padding = new Thickness(10, 3), FontSize = TypeScale.Small,
                     };
                     retry.Classes.Add("kcapChip");
                     Grid.SetColumn(retry, 1);
@@ -435,12 +435,14 @@ public partial class LaunchChipsView : UserControl {
                     Width = 34, Height = 34, Padding = new Thickness(0),
                     HorizontalContentAlignment = Avalonia.Layout.HorizontalAlignment.Center,
                     VerticalContentAlignment = Avalonia.Layout.VerticalAlignment.Center,
-                    Background = active ? raised : Brushes.Transparent,
-                    BorderBrush = active ? border : Brushes.Transparent, BorderThickness = new Thickness(1),
+                    Background = active ? this.Brush("KcapSelectionBrush") : Brushes.Transparent,
+                    BorderBrush = Brushes.Transparent, BorderThickness = new Thickness(1),
                     CornerRadius = new CornerRadius(9),
                     Opacity = option.Available ? 1 : 0.4,
                 };
-                tile.Classes.Add(active ? "kcapChip" : "kcapGhost");
+                tile.Classes.Add("kcapGhost");
+                tile.Classes.Set("active", active);
+                tile.Classes.Add("kcapVendorTab");
                 var unavailable = vm.UnavailableHarnessTip(option);
                 ToolTip.SetTip(tile, unavailable ?? $"{option.Label} — {HostedHarnessCatalog.DescriptionFor(option)}");
                 if (unavailable is not null) AutomationProperties.SetHelpText(tile, unavailable);

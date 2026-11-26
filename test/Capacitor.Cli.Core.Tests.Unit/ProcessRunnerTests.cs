@@ -172,6 +172,34 @@ public class ProcessRunnerTests {
 
     [Test]
     [NotInParallel("StreamingProcessRunner")]
+    public async Task A_descendant_holding_the_pipe_after_the_child_exits_times_out_instead_of_hanging() {
+        Skip.When(OperatingSystem.IsWindows(), "execs a POSIX binary");
+
+        using var tmp = new TempDir();
+        var pidFile = tmp.PathTo("pid");
+        var runner = new ProcessRunner(TimeProvider.System);
+        var sw = Stopwatch.StartNew();
+
+        // The shell exits at once, but the grandchild it leaves inherited the stdout pipe and holds it
+        // open; without a bound on the drain, ReadToEndAsync would never return and the call would hang.
+        var result = await runner.RunAsync(
+            "/bin/sh", ["-c", $"sleep 30 & echo $! > {pidFile}; echo done"],
+            new RunOptions(Timeout: TimeSpan.FromMilliseconds(500)), CancellationToken.None);
+        sw.Stop();
+
+        try {
+            await Assert.That(result.TimedOut).IsTrue();
+            await Assert.That(sw.Elapsed).IsLessThan(TimeSpan.FromSeconds(10));
+        } finally {
+            if (TryReadPid(pidFile, out var pid)) {
+                try { Process.GetProcessById(pid).Kill(); }
+                catch (ArgumentException) { /* already gone */ }
+            }
+        }
+    }
+
+    [Test]
+    [NotInParallel("StreamingProcessRunner")]
     public async Task KillTree_cancellation_kills_the_tree_even_with_TimeoutKill_ProcessOnly() {
         Skip.When(OperatingSystem.IsWindows(), "execs a POSIX binary");
 

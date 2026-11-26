@@ -6,7 +6,6 @@ namespace Capacitor.App.ViewModels.Onboarding;
 /// One harness whose history the History page found, and whether its sessions are part of the import.
 /// Independent of whether the harness records from now on.
 public sealed class HistorySourceOption : ReactiveObject {
-    bool _isSelected = true;
 
     internal HistorySourceOption(HarnessId id, int sessions) {
         Id       = id;
@@ -23,7 +22,7 @@ public sealed class HistorySourceOption : ReactiveObject {
     public string AutomationName => $"Import history from {Label}";
 
     public bool IsSelected {
-        get => _isSelected;
-        set => this.RaiseAndSetIfChanged(ref _isSelected, value);
-    }
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
+    } = true;
 }

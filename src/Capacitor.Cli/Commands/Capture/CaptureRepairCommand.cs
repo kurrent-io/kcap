@@ -22,7 +22,7 @@ internal sealed class CaptureRepairCommand(ProfileContext profiles, ICapacitorHt
             var client = new CaptureRepairClient(connection, url, time);
             await client.RequireCapabilityAsync(ct);
             var candidates = new List<DiscoveredSession>();
-            foreach (var source in sources.Where(s => s.IsAvailable && s.Vendor is HarnessId.Claude or HarnessId.Codex))
+            foreach (var source in sources.Where(s => s is { IsAvailable: true, Vendor: HarnessId.Claude or HarnessId.Codex }))
                 candidates.AddRange(await source.DiscoverAsync(new(null, sessionId, null, 0), ct));
             candidates = candidates.Where(s => Normalize(s.SessionId) == sessionId).ToList();
             if (candidates.Count != 1) throw new IOException(candidates.Count == 0
@@ -65,7 +65,7 @@ internal sealed class CaptureRepairCommand(ProfileContext profiles, ICapacitorHt
             Console.WriteLine($"{(dryRun ? report.CandidateRecords : report.RestoredRecords)} {(dryRun ? "candidate" : "restored")} records; {report.RemainingGapCount} remaining gaps; phase {report.Phase}.");
             foreach (var gap in report.Gaps.GroupBy(g => g.Code).OrderBy(g => g.Key, StringComparer.Ordinal))
                 Console.WriteLine($"  {gap.Key}: {gap.Count()} reported gaps");
-            if (dryRun && report.Phase == "preview" || !dryRun && report.Phase == "complete" && report.AccountingCurrent)
+            if (dryRun && report.Phase == "preview" || !dryRun && report is { Phase: "complete", AccountingCurrent: true })
                 return report.RemainingGapCount == 0 ? 0 : 2;
             Console.Error.WriteLine($"Repair {repairId} is not complete. Check the session's capture status; durable validated work continues on the server.");
             return 1;

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Acp;
 using Capacitor.Cli.Core.Harness;
@@ -24,75 +25,41 @@ internal interface IAgyTurnDiagnostics {
 }
 
 /// <summary>
-/// <see cref="IHostedAgentRuntimeFactory"/> for Antigravity's CLI (<c>agy</c>) — both an unattended
-/// review-flow reviewer and an interactive hosted agent — over the exec-per-turn
+/// <see cref="IHostedAgentRuntimeFactory"/> for Antigravity's CLI (<c>agy</c>), as an unattended
+/// review-flow reviewer and an interactive hosted agent, over the exec-per-turn
 /// <see cref="AntigravityHostedAgentRuntime"/>.
-///
-/// <para><b>The two launch shapes it SERVES differ in exactly two things:</b> one argument
-/// (<c>--dangerously-skip-permissions</c>, hosted only; see <see cref="BuildTurnPsi"/>) and the
-/// injected MCP surface (the <c>kcap-flow-result</c> channel plus the flow definition's allowlist,
-/// review only; see <see cref="BuildReviewFlowMcp"/>). In particular the per-launch isolated
-/// <c>HOME</c> is NOT reviewer-only: this runtime is itself the transcript source, so a launch under
-/// the operator's own home is captured a second time by the hook lane — isolation removes a duplicate
-/// rather than removing capture.</para>
-///
-/// <para><b>The context carries a THIRD, which this factory refuses.</b> <c>LaunchKind.Review</c> (a
-/// PR review, <c>ctx.IsReview</c>) is neither of the above and shares the hosted arm's
-/// <c>!IsReviewFlow</c> predicate, so it is rejected at the top of <see cref="StartAsync"/> with
-/// <c>antigravity_pr_review_unsupported</c> rather than served degraded — see the guard for why.</para>
-///
-/// <para><b>What this factory owns that the runtime deliberately does not:</b> the argv and
-/// environment of every turn child, the per-launch isolated <c>HOME</c> (and its removal), the
-/// absolute bound on the launch handshake, and the ordering the orchestrator depends on — that
-/// <see cref="StartAsync"/> does not return until turn 1's <c>init</c> has resolved the conversation
-/// id, because the orchestrator reads <c>transcript.AcpSessionId</c> synchronously the moment a
-/// launch returns and would otherwise bind the transcript to <c>""</c> forever.</para>
-///
-/// <para><b>One gate ladder, parameterised by launch shape</b> (<see cref="LaunchRefusal(bool)"/>). Binary
-/// presence and the recorded build minimum gate BOTH shapes — they protect the isolated
-/// <c>HOME</c> above, which is not reviewer-specific. Operator CONSENT
-/// (<c>KCAP_ANTIGRAVITY_UNATTENDED_REVIEWER</c>) gates only a review, because only a review is
-/// cross-principal; hosted Antigravity ships on by default like the other hosted vendors. Advertisement
-/// keeps the full ladder, consent included — advertising IS the offer to review unattended.</para>
-///
-/// <para><b>Auth is deliberately not an advertisement gate</b> (owner decision). The factory
-/// advertises whenever consent is given and the binary resolves; an operator whose only auth is an
-/// interactive <c>agy</c> login gets a bounded, coded launch failure naming the ADC remedy, rather
-/// than a vendor that silently disappears from the list.</para>
-///
-/// <para><b>No borrowed lane</b> — no <c>sandbox-exec</c> substrate here, so
-/// <see cref="AcpVendorDescriptor.SupportsBorrowedReviewFlow"/> stays false and a borrowed request fails closed to an
-/// owned worktree, exactly as Kiro and Claude do.</para>
+/// <para>The two shapes differ only in <c>--dangerously-skip-permissions</c> (hosted) and the home's
+/// settings and injected MCP surface (review). Both run under an isolated <c>HOME</c>: under the operator's home the hook
+/// lane would capture the session a second time. A PR review (<c>ctx.IsReview</c>) is refused.</para>
+/// <para><see cref="StartAsync"/> does not return until turn 1's <c>init</c> has resolved the
+/// conversation id, because the orchestrator reads <c>transcript.AcpSessionId</c> as soon as a launch
+/// returns and would otherwise bind the transcript to <c>""</c> forever.</para>
+/// <para>Binary presence and the build minimum gate both shapes; consent
+/// (<c>KCAP_ANTIGRAVITY_UNATTENDED_REVIEWER</c>) gates only a review, which is cross-principal. Auth is
+/// deliberately not an advertisement gate, so a launch without usable auth fails with a coded remedy
+/// rather than the vendor vanishing from the list. No borrowed lane.</para>
 /// </summary>
-/// <param name="turnSource">Test seam ONLY. Production passes null, which spawns the real
-/// <see cref="AgyTurnProcess"/> from the <see cref="ProcessStartInfo"/> <see cref="BuildTurnPsi"/>
-/// built — so the seam changes nothing about production behaviour, and the argv assertions run
-/// against the same builder a real launch uses.</param>
-/// <param name="binaryExists">Test seam ONLY, for the availability half of the gate. Production
-/// passes null, which resolves the real binary through <c>PATH</c>. A test pins it so the CONSENT
-/// half is assertable on a host that happens to have (or not have) <c>agy</c> installed — otherwise
-/// the tests pass for the wrong reason on one machine and fail on another.</param>
-/// <param name="resolveVersion">Test seam ONLY, for the installed-version half of the gate.
-/// Production passes null, which spawns the configured binary to read its own reported version — the
-/// same resolver every other gated reviewer uses. The MINIMUM it is compared against is never seamed:
-/// it is a real record on disk, so a test moves it by writing one.</param>
-/// <param name="windowsHost">Test seam ONLY, for the platform-specific launch environment (see
-/// <see cref="BuildTurnPsi"/>). Production passes null, which reads the ambient OS. A parameter so both
-/// environments are reachable from any host.</param>
+/// <param name="turnSource">Test seam; null spawns the real <see cref="AgyTurnProcess"/>.</param>
+/// <param name="binaryExists">Test seam; null resolves the binary through <c>PATH</c>.</param>
+/// <param name="resolveVersion">Test seam; null asks the configured binary. The minimum it is compared
+/// against is a real record on disk.</param>
+/// <param name="windowsHost">Test seam; null reads the ambient OS.</param>
 internal sealed partial class AntigravityHostedAgentRuntimeFactory(
         DaemonConfig                                                     config,
         ILoggerFactory                                                   loggerFactory,
         TimeProvider                                                     time,
-        Func<ProcessStartInfo, CancellationToken, Task<IAgyTurnProcess>>? turnSource = null,
+        Func<AgyTurnSpawn, CancellationToken, Task<IAgyTurnProcess>>?    turnSource = null,
         Func<string, bool>?                                              binaryExists = null,
         Func<string, string?>?                                           resolveVersion = null,
         bool?                                                            windowsHost = null
     ) : IHostedAgentRuntimeFactory {
     readonly ILogger _logger = loggerFactory.CreateLogger<AntigravityHostedAgentRuntimeFactory>();
 
-    readonly Func<ProcessStartInfo, CancellationToken, Task<IAgyTurnProcess>> _turnSource =
-        turnSource ?? ((psi, _) => Task.FromResult<IAgyTurnProcess>(
-            new AgyTurnProcess(WindowsLaunchCommand.Apply(psi, config.Binaries), loggerFactory.CreateLogger<AgyTurnProcess>(), time)));
+    readonly Func<AgyTurnSpawn, CancellationToken, Task<IAgyTurnProcess>> _turnSource =
+        turnSource ?? ((spawn, _) => Task.FromResult<IAgyTurnProcess>(
+            new AgyTurnProcess(
+                WindowsLaunchCommand.Apply(spawn.Psi, config.Binaries), spawn.Prompt,
+                loggerFactory.CreateLogger<AgyTurnProcess>(), time)));
 
     readonly Func<string, bool> _binaryExists =
         binaryExists ?? (path => config.Binaries.Finds(path));
@@ -138,40 +105,16 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
         return new(withheld is null, withheld, probeFailed);
     }
 
-    /// <summary>Why this daemon refuses to launch <c>agy</c> for a launch of the given shape, or null
-    /// when it does not. The ONE place the ladder is written — advertisement and the launch boundary
-    /// both read it, so a vendor cannot be dropped from advertisement and thereby never reach the path
-    /// that holds the explanation, and the recorded MINIMUM cannot be enforced at only one of the two
-    /// (an explicit <c>vendor: "antigravity"</c> request reaches a launch without consulting
-    /// advertisement).
-    ///
-    /// <para><b>The two launch shapes differ in ONE arm, and it is a parameter rather than a second
-    /// ladder</b> — two ladders that must agree is a shape this file has already paid for once.</para>
-    ///
-    /// <para>Every verdict and every text comes from <see cref="AntigravityReviewerCapability"/>; the
-    /// only arm written here is the one that decision cannot express — a binary that does not resolve
-    /// at all — placed BEFORE the probe so a daemon with no <c>agy</c> is told it is missing rather
-    /// than that its version could not be read.</para>
-    ///
-    /// <para>Deliberately not cached: a long-running daemon must re-judge a binary installed (or
-    /// removed) under it rather than read a startup snapshot — and, since the minimum is a record on
-    /// disk rather than configuration, an affirmation taken while this daemon runs is picked up on the
-    /// next decision.</para></summary>
-    /// <param name="reviewFlow">Whether this launch is an unattended review, which is the ONLY shape
-    /// the operator consent flag governs.
-    ///
-    /// <para><b>Consent is reviewer-only because its whole justification is cross-principal.</b> An
-    /// unattended reviewer runs under the daemon user's authority and returns what it read to whoever
-    /// requested the review — who need not be the operator. A hosted launch has no such exposure: the
-    /// server's daemon registry is keyed <c>(TeamId, OwnerUserId, Name)</c> and both daemon discovery
-    /// and the launch hub resolve a daemon with the CALLER's own normalized user id, so the launcher
-    /// IS the daemon's owner. Hosted Antigravity therefore ships on by default, like the other hosted
-    /// vendors, and a hosted launch on a consent-less daemon must not fail with a review complaint.
-    /// </para>
-    ///
-    /// <para><b>Every OTHER arm applies to both shapes</b> — binary presence and the recorded build
-    /// minimum exist to protect the per-launch isolated <c>HOME</c>, which a hosted launch depends on
-    /// exactly as a review does.</para></param>
+    /// <summary>Why this daemon refuses to launch <c>agy</c> for a launch of this shape, or null. The one
+    /// place the ladder is written: advertisement and launch both read it, since an explicit
+    /// <c>vendor: "antigravity"</c> request reaches a launch without consulting advertisement.
+    /// <para>Verdicts and texts come from <see cref="AntigravityReviewerCapability"/>. The missing-binary
+    /// arm is checked first, so a daemon without <c>agy</c> is told so rather than that its version could
+    /// not be read. Not cached, so a binary installed or an affirmation taken while the daemon runs counts on
+    /// the next decision.</para></summary>
+    /// <param name="reviewFlow">Whether this is an unattended review, the only shape consent governs. A
+    /// hosted launch's caller is always the daemon's owner, so it has no cross-principal exposure. The
+    /// binary and build arms apply to both, since both depend on the isolated <c>HOME</c>.</param>
     internal string? LaunchRefusal(bool reviewFlow) => LaunchRefusal(reviewFlow, out _);
 
     string? LaunchRefusal(bool reviewFlow, out bool probeFailed) {
@@ -301,8 +244,8 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
         IAgyTurnProcess? firstTurnProcess = null;
 
         async Task<IAgyTurnProcess> SpawnTurnAsync(string prompt, string? conversationId, CancellationToken turnCt) {
-            var psi     = BuildTurnPsi(config, ctx, prompt, conversationId, home, _windowsHost);
-            var process = await _turnSource(psi, turnCt).ConfigureAwait(false);
+            var psi     = BuildTurnPsi(config, ctx, conversationId, home, _windowsHost);
+            var process = await _turnSource(new AgyTurnSpawn(psi, prompt), turnCt).ConfigureAwait(false);
 
             firstTurnProcess ??= process;
 
@@ -423,10 +366,19 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
     /// </summary>
     static InvalidOperationException DescribeLaunchFailure(
             Exception cause, IAgyTurnProcess? firstTurn, CancellationToken callerToken, CancellationToken launchToken) {
+        // Ahead of the auth arm: a build that rejects the flag prints its whole usage text after the
+        // error, and nothing guarantees that text never matches an auth pattern.
+        if (firstTurn is IAgyTurnDiagnostics { Diagnostics: { } rejected } && LooksLikeUnknownInputFormat(rejected))
+            return new InvalidOperationException(
+                "antigravity_reviewer_agy_too_old: this agy does not accept --input-format, which the "
+              + "daemon needs to hand it a prompt on stdin instead of on its command line, where any "
+              + "local user could read it. agy 1.1.15 added the flag: run `agy update`.",
+                cause);
+
         if (firstTurn is IAgyTurnDiagnostics { Diagnostics: { } diagnostics } && LooksLikeAuthFailure(diagnostics))
             return new InvalidOperationException(
                 "antigravity_reviewer_auth_unavailable: agy could not authenticate, and a daemon-hosted "
-              + "agy has no way to complete an interactive login (its stdin is closed). Give the "
+              + "agy has no way to complete an interactive login (its stdin carries only the prompt). Give the "
               + "daemon durable credentials: `gcloud auth application-default login`, then stop and "
               + "start it (`kcap daemon stop` then `kcap daemon start` or `-d`) — or re-run `kcap "
               + "daemon service install` for a supervised macOS or Linux daemon. That derives AGY_ADC_AUTH=1 and "
@@ -466,6 +418,15 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
      && (text.Contains("authentication required", StringComparison.OrdinalIgnoreCase)
       || text.Contains("log in", StringComparison.OrdinalIgnoreCase)
       || text.Contains("oauth", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Whether a child refused <c>--input-format</c>, which agy builds before 1.1.15 do not
+    /// have. Go's flag parser names the flag it does not know with one dash or two depending on the
+    /// build, so the match is on the name and the verdict rather than the whole line.</summary>
+    internal static bool LooksLikeUnknownInputFormat(string? diagnostics) =>
+        diagnostics is { Length: > 0 } text
+     && text.Contains("input-format", StringComparison.OrdinalIgnoreCase)
+     && (text.Contains("not defined", StringComparison.OrdinalIgnoreCase)
+      || text.Contains("unknown flag", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The effective reviewer model — the launch's own override, else the daemon-wide
     /// default. ONE derivation, read by both the argv builder and the runtime's
@@ -537,45 +498,27 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
     static readonly string[] XdgBaseDirectoryVars = ["XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"];
 
     /// <summary>
-    /// PURE builder for ONE turn's spawn shape — no process, no filesystem side effects. The real
-    /// spawn path and the launch tests both go through it, so an assertion here certifies the vector
-    /// the OS actually receives rather than a re-derivation of it.
-    ///
-    /// <para><b>The one asymmetry between a hosted agent and a reviewer</b> is
-    /// <c>--dangerously-skip-permissions</c>, added on the hosted arm only. A hosted agent exists to DO
-    /// work, and without it agy's shell and out-of-workspace operations soft-deny while the run still
-    /// exits 0 — so the agent merely looks broken. <b>That flag is also the read boundary, and the
-    /// worktree is not:</b> measured on agy 1.1.10, with it an absolute <c>view_file</c> of a path
-    /// OUTSIDE the workspace succeeds, and without it the same read is refused with a typed
-    /// <c>tool_info.error</c>. Nothing here should be read as the daemon-owned worktree confining what
-    /// a hosted agent can see.</para>
-    ///
-    /// <para><b>Claude is a precedent for a single-axis no-prompt posture existing, NOT for which
-    /// launch kind gets it.</b> Codex is not the analogue — its posture is two axes
-    /// (<c>Sandbox</c> × <c>Approval</c>), so a no-prompt Codex still sits on a sandbox. But Claude's
-    /// own split runs the OTHER way: <c>ClaudeLauncher.BuildArgs</c> adds
-    /// <c>bypassPermissions</c> only under <c>ctx.IsReviewFlow</c>, because its reviewer writes into a
-    /// throwaway worktree while its interactive agent has a human to answer the dialog. This runtime
-    /// has neither property. Do not "align with the precedent" by moving this flag to the reviewer
-    /// arm — that is the direction the split exists to prevent.</para>
-    ///
-    /// <para><b>What is deliberately absent.</b> No <c>--dangerously-skip-permissions</c> for a
-    /// reviewer: it runs in a daemon-OWNED worktree and needs only to read it, which agy's headless
-    /// defaults already permit — its soft-deny of shell and out-of-workspace operations IS the desired
-    /// unattended posture, and widening it would grant a reviewer shell access it has no reason to
-    /// hold. No <c>--sandbox</c> on either arm: a vendor-side terminal restriction overlapping what
-    /// containment already provides, and unprobed.</para>
-    ///
-    /// <para><c>--print-timeout</c> is passed on EVERY invocation rather than relying on agy's own
-    /// <c>5m0s</c> default — a vendor change would otherwise silently move a bound we did not
-    /// choose.</para>
+    /// Pure builder for one turn's spawn shape; the real spawn and the launch tests both use it.
+    /// <para>It is never given the prompt: any local user can read a command line, so the prompt is the
+    /// one stream-json line <see cref="AgyTurnProcess"/> writes to stdin. <c>-p</c> still takes a value,
+    /// which agy accepts empty only alongside <c>--input-format</c>.</para>
+    /// <para><c>--dangerously-skip-permissions</c> is hosted-only. A hosted run starts in agy's Auto
+    /// mode, where a separate model reviews any command that would leave agy's terminal sandbox, and a
+    /// refusal it cannot put to a human ends the turn. Without Auto (Windows builds that lack it fall
+    /// back to Default) every edit and command is refused. The flag approves everything but agy's system
+    /// command denylist. Neither mode confines reads or new files to the worktree.</para>
+    /// <para>Claude's split runs the other way (bypass for its reviewer, which writes into a throwaway
+    /// worktree), but an agy reviewer only needs to read: it runs in Default mode, pinned by its home's
+    /// settings (<see cref="AntigravityReviewerHome"/>). Do not move the flag to the reviewer arm.</para>
+    /// <para>No <c>--sandbox</c> on either arm (unprobed). <c>--print-timeout</c> is always passed so a
+    /// vendor default change cannot move the bound.</para>
     /// </summary>
-    /// <param name="windowsHost">Which platform's environment to build; null reads the ambient OS.</param>
     internal static ProcessStartInfo BuildTurnPsi(
-            DaemonConfig config, RuntimeStartContext ctx, string prompt, string? conversationId, string home,
+            DaemonConfig config, RuntimeStartContext ctx, string? conversationId, string home,
             bool? windowsHost = null) {
         var argv = new List<string> {
-            "-p", prompt,
+            "-p", "",
+            "--input-format", "stream-json",
             "--output-format", "stream-json",
             "--disable-slash-commands"
         };
@@ -603,10 +546,12 @@ internal sealed partial class AntigravityHostedAgentRuntimeFactory(
 
         var psi = new ProcessStartInfo(config.AntigravityPath, argv) {
             WorkingDirectory = ctx.Worktree.Path,
-            // Redirected and then CLOSED at spawn (see AgyTurnProcess): nothing can consume a pasted
+            // Carries the prompt and is then CLOSED (see AgyTurnProcess): nothing can consume a pasted
             // OAuth code, so an unauthenticated agy fails against the launch deadline instead of
             // waiting on a human who is not there.
             RedirectStandardInput  = true,
+            // agy rejects a byte-order mark ahead of its first stdin message.
+            StandardInputEncoding  = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
             RedirectStandardOutput = true,
             RedirectStandardError  = true,
             // Also what makes the daemon's own Google auth variables reach the child by inheritance —

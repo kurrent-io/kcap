@@ -13,7 +13,7 @@ public sealed class WorkContextPartViewModel(string title, WorkContextPartMark m
     public WorkContextPartMark Mark { get; } = mark;
     public bool IsSettled => Mark == WorkContextPartMark.Settled;
     public bool IsThisSession => Mark == WorkContextPartMark.ThisSession;
-    /// Purple is location (this session), green is settled — tip names the mark so colour is not alone.
+    /// The tip names the mark so colour is not alone.
     public string MarkTip => Mark switch {
         WorkContextPartMark.Settled => "Completed — settled on this work item.",
         WorkContextPartMark.ThisSession => "In progress in this session.",
@@ -23,7 +23,7 @@ public sealed class WorkContextPartViewModel(string title, WorkContextPartMark m
 
 /// A pull-request or issue card. The URL is server-returned, so it crosses the same trust boundary
 /// the chat tab applies before a link reaches the shell opener.
-public sealed class WorkContextLinkViewModel {
+public sealed class WorkContextLinkViewModel : ReactiveObject {
     public const string TitleMissingNote = "Title not available";
 
     public string  Eyebrow  { get; }
@@ -32,16 +32,43 @@ public sealed class WorkContextLinkViewModel {
     public string? Url      { get; }
     /// Server kind/provider/value when projected from a work-item link; empty for legacy PR cards.
     public string  Identity { get; }
+    string? _state;
+    internal string? State {
+        get => _state;
+        set {
+            if (_state == value) return;
+            _state = value;
+            this.RaisePropertyChanged(nameof(LinkTip));
+        }
+    }
     public bool    CanOpen  { get; }
     public string  AccessibleName => $"{Key}: {(Title.Length == 0 ? TitleMissingNote : Title)}";
+    public KcapTip LinkTip {
+        get {
+            var destination = CanOpen && Uri.TryCreate(Url, UriKind.Absolute, out var uri)
+                ? uri.Host : null;
+            var state = State?.Replace('_', ' ').Trim();
+            var tone = state?.ToLowerInvariant() switch {
+                "closed" or "canceled" or "cancelled" => "danger",
+                "in progress" or "in flight" => "active",
+                _ => null,
+            };
+            var hasTitle = !string.IsNullOrWhiteSpace(Title);
+            var identity = string.IsNullOrWhiteSpace(Key) ? (Eyebrow == "ISSUE" ? "Issue" : "Pull request") : Key;
+            return new(hasTitle ? Title : identity, string.IsNullOrWhiteSpace(state) ? null : state, tone,
+                KcapTipDetail.Present(KcapTipDetail.Note(hasTitle ? KcapTip.Join(destination, identity) : destination),
+                    KcapTipDetail.Note(CanOpen ? "Opens in browser" : "Link unavailable")));
+        }
+    }
     public ReactiveCommand<Unit, Unit> OpenCommand { get; }
 
-    public WorkContextLinkViewModel(string eyebrow, string key, string title, string? url, IUrlOpener opener, string identity = "") {
+    public WorkContextLinkViewModel(string eyebrow, string key, string title, string? url, IUrlOpener opener, string identity = "", string? state = null) {
         Eyebrow  = eyebrow;
         Key      = key;
         Title    = title;
         Url      = url;
         Identity = identity;
+        _state   = state;
         CanOpen  = LinkPolicy.IsOpenable(url);
         OpenCommand = ReactiveCommand.Create(() => LinkPolicy.Open(opener, url), Observable.Return(CanOpen));
     }

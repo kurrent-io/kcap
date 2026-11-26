@@ -119,7 +119,7 @@ internal sealed class SpoolDrainLoop {
                 // session has no watcher, so this is what posts its spans.
                 if (!cts.IsCancellationRequested) {
                     var workspace = new WorkspaceSpool(_configRoot, _baseUrl, _time);
-                    if (workspace.HasPending && !workspace.IsPaused)
+                    if (workspace is { HasPending: true, IsPaused: false })
                         await workspace.DrainIfDueAsync(client, _baseUrl, Budget, cts.Token, sid => DisabledSessions.IsDisabled(sid, _configRoot));
                 }
             }

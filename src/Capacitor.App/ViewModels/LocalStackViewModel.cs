@@ -19,12 +19,11 @@ namespace Capacitor.App.ViewModels;
 public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
     internal const string BusyDetail    = "Another local operation is running. The update retries when the server is available.";
     internal const string StartGuidance = "Saved data is kept. Start the server to finish the update.";
-    const int StartMessageTailLines     = 12;
 
     static readonly string[] Derived = [
         nameof(Version), nameof(StateText), nameof(Attention), nameof(Upgrading), nameof(BannerVisible), nameof(Headline),
         nameof(Detail), nameof(Guidance), nameof(DownloadFraction), nameof(ProgressIndeterminate), nameof(TryAgainVisible),
-        nameof(DismissVisible), nameof(IsNote), nameof(StartVisible), nameof(ReinstallVisible), nameof(ActionsVisible), nameof(SuppressesServerStart),
+        nameof(DismissVisible), nameof(TryAgainIsPrimary), nameof(DismissIsPrimary), nameof(IsNote), nameof(StartVisible), nameof(ReinstallVisible), nameof(ActionsVisible), nameof(SuppressesServerStart),
     ];
 
     readonly LocalUpgradeController _upgrade;
@@ -40,7 +39,6 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
     ServerLaneState? _lane;
     LocalUpgradeOutcome? _shown;
     string? _searchWarning;
-    string? _startMessage;
     int _starting;
     readonly ObservableAsPropertyHelper<bool> _isStarting;
 
@@ -165,6 +163,7 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
             : "kcap local update is waiting"
         : _shown switch {
             LocalUpgradeOutcome.Upgraded => "Search needs attention",
+            LocalUpgradeOutcome.Failed { Switched: true, Code: "commit_failed" } => "The local server update couldn’t finish",
             LocalUpgradeOutcome.Failed { Switched: true } f => $"kcap local {f.To ?? Version} did not start after the update",
             LocalUpgradeOutcome.Failed { To: { } to }       => $"kcap local could not be updated to {to}",
             LocalUpgradeOutcome.Failed                      => "kcap local could not be updated",
@@ -190,14 +189,31 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
         }
         : Waiting ? BusyDetail
         : _shown switch {
-            LocalUpgradeOutcome.Upgraded => "The search model could not be updated. Search works by keyword. Open Settings → Search to retry.",
-            LocalUpgradeOutcome.Failed f => TerminalAdvice.Strip(f.Message) ?? "The update stopped before it finished.",
+            LocalUpgradeOutcome.Upgraded upgraded => upgraded.SearchWarning,
+            LocalUpgradeOutcome.Failed f => UpgradeFailureDetail(f),
             LocalUpgradeOutcome.NotPublished when Progress.From is { } from => $"The local server stays at {from}.",
             LocalUpgradeOutcome.NotPublished => "Try again later.",
             _ => null,
         };
 
-    public string? Guidance => StartVisible && !IsStarting ? StartGuidance : null;
+    string UpgradeFailureDetail(LocalUpgradeOutcome.Failed failure) {
+        if (failure.Switched) return failure.Code == "commit_failed"
+            ? "kcap couldn’t confirm the version switch."
+            : "The update reached the new version, but the server didn’t start.";
+        if (ServiceMissing) return "The server’s background service is missing.";
+        if (RecoveryRestartFailed) return "The update stopped before switching versions. kcap couldn’t restart the installed version.";
+        if (failure.Code == "recovery_failed")
+            return "kcap couldn’t resume an interrupted update. Try again. If it keeps happening, contact support.";
+        var detail = LocalFailureText.For(failure.Code, "The local server update stopped before it finished.");
+        return (failure.Code is "download_failed" or "verification_failed") && failure.From is { } from
+            ? $"{detail} This update attempt left kcap local {from} in place."
+            : detail;
+    }
+
+    public string? Guidance => !StartVisible || IsStarting ? null
+        : ServiceMissing ? "Your files and data are still there. Start the server to restore its background service."
+        : RecoveryRestartFailed ? "Start the server to bring the installed version back online and retry the update."
+        : StartGuidance;
 
     public double? DownloadFraction => Upgrading && Progress.Phase is LocalUpgradePhase.Downloading or LocalUpgradePhase.DownloadingModel ? Progress.DownloadFraction : null;
 
@@ -205,7 +221,7 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
 
     bool SearchChanging => _searchChange?.Running == true;
 
-    public bool TryAgainVisible => !Upgrading && !SearchChanging && _shown switch {
+    public bool TryAgainVisible => !Upgrading && !SearchChanging && !RecoveryRestartFailed && _shown switch {
         LocalUpgradeOutcome.NotPublished => true,
         LocalUpgradeOutcome.Failed { Switched: false, Affordance: not LocalInstallAffordance.Permanent } => true,
         _ => false,
@@ -214,16 +230,21 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
     /// Not for a failure after the switch: its Start is the only way to finish a journaled upgrade.
     public bool DismissVisible => !Upgrading && _shown is not null and not LocalUpgradeOutcome.Failed { Switched: true };
 
-    /// After the switch, a start finishes the upgrade; for a removed service, it restores the unit the upgrade then needs.
-    public bool StartVisible => !Upgrading && (_shown is LocalUpgradeOutcome.Failed { Switched: true } || ServiceMissing);
+    public bool StartVisible => !Upgrading && (_shown is LocalUpgradeOutcome.Failed { Switched: true } || ServiceMissing || RecoveryRestartFailed);
 
     bool ServiceMissing => _shown is LocalUpgradeOutcome.Failed { Switched: false, Code: var code } && code == LocalInstallFailureCode.ServiceMissing.Wire();
+
+    bool RecoveryRestartFailed => _shown is LocalUpgradeOutcome.Failed { Switched: false, Code: "recovery_restart_failed" };
 
     /// Opens the app's own setup, which reinstalls a server whose files are gone.
     public Action? Reinstall { get; init; }
 
     public bool ReinstallVisible =>
         !Upgrading && Reinstall is not null && _shown is LocalUpgradeOutcome.Failed { Code: var code } && code == LocalInstallFailureCode.ServerMissing.Wire();
+
+    /// Try again leads unless Start or Reinstall is the fix; Dismiss leads only when it is the sole action.
+    public bool TryAgainIsPrimary => TryAgainVisible && !StartVisible && !ReinstallVisible;
+    public bool DismissIsPrimary => DismissVisible && !StartVisible && !TryAgainVisible && !ReinstallVisible;
 
     /// The action cluster. False while an upgrade is running, so that row is not left blank.
     public bool ActionsVisible => StartVisible || TryAgainVisible || ReinstallVisible || DismissVisible;
@@ -236,8 +257,8 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
 
     /// Why the last Start failed, without its terminal advice; null once a start succeeds or a new one begins.
     public string? StartMessage {
-        get => _startMessage;
-        private set => this.RaiseAndSetIfChanged(ref _startMessage, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public ReactiveCommand<Unit, Unit> StartCommand { get; }
@@ -281,16 +302,16 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
             } catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) {
                 return;
             } catch (Exception ex) {
-                StartMessage = ex.Message;
+                Console.Error.WriteLine($"kcap: could not start the local server: {ex.Message}");
+                StartMessage = "Could not start the local server. Try again.";
                 return;
             }
 
             if (result is { ExitCode: 0, TimedOut: false }) {
                 if (!Upgrading && ReferenceEquals(_shown, recovering)) {
-                    // The restored service still owes the update: it waits like one another change held off, so whatever
-                    // holds the installation next retries it when that change settles.
-                    _shown = ServiceMissing && recovering is LocalUpgradeOutcome.Failed missing
-                        ? missing with { Code = LocalInstallFailureCode.LifecycleBusy.Wire(), Affordance = LocalInstallAffordance.Busy }
+                    // The update waits if another operation took the lifecycle lock while the server was starting.
+                    _shown = (ServiceMissing || RecoveryRestartFailed) && recovering is LocalUpgradeOutcome.Failed failedBeforeSwitch
+                        ? failedBeforeSwitch with { Code = LocalInstallFailureCode.LifecycleBusy.Wire(), Affordance = LocalInstallAffordance.Busy }
                         : recovering is LocalUpgradeOutcome.Failed { Switched: true } failed && _searchWarning is { } warning
                         ? new LocalUpgradeOutcome.Upgraded(failed.From, failed.To, warning)
                         : null;
@@ -302,11 +323,7 @@ public sealed class LocalStackViewModel : ReactiveObject, IDisposable {
                 return;
             }
 
-            var tail = string.Join("\n", (result.Stdout + "\n" + result.Stderr)
-                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .TakeLast(StartMessageTailLines));
-            StartMessage = TerminalAdvice.Strip(tail)
-                ?? (result.TimedOut ? "The local server did not start in time." : $"The local server did not start (exit {result.ExitCode}).");
+            StartMessage = LocalServerRecoveryViewModel.StartFailureText(result);
         } finally {
             Volatile.Write(ref _starting, 0);
         }

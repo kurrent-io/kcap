@@ -11,7 +11,7 @@ public class JudgeErrorDigestTests {
         """;
 
     static JsonElement Render(int offset, int limit, params string[] entries) =>
-        JsonDocument.Parse(JudgeErrorDigest.Render("[" + string.Join(",", entries) + "]", "aaaaaaaa1111", offset, limit)).RootElement.Clone();
+        JsonElement.Parse(JudgeErrorDigest.Render("[" + string.Join(",", entries) + "]", "aaaaaaaa1111", offset, limit));
 
     static string[] Refs(JsonElement array) => array.EnumerateArray().Select(r => r.GetProperty("ref").GetString()!).ToArray();
 

@@ -88,7 +88,7 @@ public class BootRefusalAttributionTests {
 
     sealed class FakeServiceManager(UserHome home) : IVerifyServiceManager {
         public string UnitPath(string serviceId) => LaunchdUnit.PlistPath(home, serviceId);
-        public bool Started, Stopped;
+        bool Started, Stopped;
         public int? RunningPid = 4242;
         public Action<string>? OnStart;
 

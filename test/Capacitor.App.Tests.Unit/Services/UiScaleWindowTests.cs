@@ -25,6 +25,43 @@ public class UiScaleWindowTests {
     static double? Applied(MainWindow window) =>
         (window.FindControl<LayoutTransformControl>("ScaleHost")!.LayoutTransform as ScaleTransform)?.ScaleX;
 
+    /// Flyouts and tooltips open outside the window's scale host; they must still grow with the text size.
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public Task A_popup_grows_with_the_text_size(bool flyout) => AvaloniaSession.RunOnUiAsync(async () => {
+        async Task<double> WidthAt(double scale) {
+            var setting = await NewSetting();
+            await setting.SetAsync(scale);
+            var window = new MainWindow { ContentScale = setting, Width = 1400, Height = 800 };
+            var text = new TextBlock { Text = "Help and support", FontSize = 13 };
+            var button = new Button { Content = "Open" };
+            if (flyout) button.Flyout = new Flyout { Content = text };
+            else ToolTip.SetTip(button, text);
+            try {
+                window.FindControl<Panel>("ContentPane")!.Children.Add(button);
+                window.Show();
+                window.Activate();
+                Dispatcher.UIThread.RunJobs();
+                if (flyout) ((Flyout)button.Flyout!).ShowAt(button);
+                else ToolTip.SetIsOpen(button, true);
+                Dispatcher.UIThread.RunJobs();
+                var root = TopLevel.GetTopLevel(text)!;
+                root.UpdateLayout();
+                return text.TranslatePoint(new Point(text.Bounds.Width, 0), root)!.Value.X - text.TranslatePoint(default, root)!.Value.X;
+            } finally {
+                button.Flyout?.Hide();
+                ToolTip.SetIsOpen(button, false);
+                window.Close();
+            }
+        }
+
+        var plain = await WidthAt(1.0);
+        var large = await WidthAt(1.5);
+        await Assert.That(plain).IsGreaterThan(0);
+        await Assert.That(large).IsGreaterThan(plain * 1.4);
+    });
+
     [Test]
     public Task Main_window_shortcuts_step_the_scale_and_magnify_its_content() => AvaloniaSession.RunOnUiAsync(async () => {
         var setting = await NewSetting();
@@ -88,9 +125,10 @@ public class UiScaleWindowTests {
     });
 
     /// The zoom scales the show-sidebar button but not the macOS window buttons beside it, so at
-    /// either end of the range it keeps its 100% window centre there, and the header still clears it.
+    /// either end of the range it keeps its 100% window centre there, and the header's title still
+    /// starts below the controls' row.
     [Test]
-    public Task A_zoomed_sidebar_toggle_keeps_clear_of_the_window_buttons_and_the_header_of_the_controls() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task A_zoomed_sidebar_toggle_keeps_clear_of_the_window_buttons_and_the_header_below_the_controls() => AvaloniaSession.RunOnUiAsync(async () => {
         var setting = await NewSetting();
         var window = new MainWindow { ContentScale = setting, Width = 1400, Height = 800 };
         var view = new WorkspaceView();
@@ -108,12 +146,12 @@ public class UiScaleWindowTests {
                 await setting.SetAsync(scale);
                 Dispatcher.UIThread.RunJobs();
                 window.UpdateLayout();
-                var right = window.ForwardButton.TranslatePoint(new Point(window.ForwardButton.Bounds.Width, 0), window)!.Value.X;
+                var bottom = button.TranslatePoint(new Point(0, button.Bounds.Height), window)!.Value.Y;
                 if (OperatingSystem.IsMacOS()) {
                     await Assert.That(Centre().X).IsEqualTo(atDefault.X).Within(0.5);
                     await Assert.That(Centre().Y).IsEqualTo(atDefault.Y).Within(0.5);
                 }
-                await Assert.That(title.TranslatePoint(default, window)!.Value.X).IsGreaterThan(right);
+                await Assert.That(title.TranslatePoint(default, window)!.Value.Y).IsGreaterThan(bottom);
             }
         } finally { window.Close(); }
     });

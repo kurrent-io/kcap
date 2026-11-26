@@ -16,9 +16,13 @@ namespace Capacitor.App.Views;
 
 /// Selection behaviour MarkView lacks, built on its private selection layer: a double click
 /// selects the line under the pointer, a drag that leaves every block keeps extending to the
-/// nearest one, and a copied list item keeps its tail. Every member named below is MarkView's
-/// private surface; `MarkViewSelectionTests` fails on a release that renames one.
+/// nearest one, a copied list item keeps its tail, and a copied link chip reads as its address.
+/// Every member named below is MarkView's private surface; `MarkViewSelectionTests` fails on a
+/// release that renames one.
 static class MarkViewSelection {
+    /// What an embedded control occupies in a block's text: the one character its layout gives it.
+    const char Embedded = '\uFFFC';
+
     const string LayerType = "MarkView.Avalonia.Rendering.DocumentSelectionLayer, MarkView.Avalonia";
     const string EntryType = "MarkView.Avalonia.Rendering.IndexEntry, MarkView.Avalonia";
 
@@ -36,12 +40,93 @@ static class MarkViewSelection {
     /// Continues a drag at a point in the viewer's coordinates. Used when the chat scrolls under a
     /// pointer that is sitting on the viewport edge, so the selection grows without a new move.
     public static void Extend(MarkdownViewer viewer, Point pointInViewer) {
-        if (LayerOf(viewer) is not Visual layer) return;
+        if (LayerOf(viewer) is not { } layer) return;
         if (Anchor(layer) is null) return;
         IsDragging(viewer) = true;
         var point = viewer.TranslatePoint(pointInViewer, layer) ?? pointInViewer;
         if (HitTestOffset(layer, point) is not null) MoveFocus(layer, point);
         else if (Nearest(layer, point) is { } inside) MoveFocus(layer, inside);
+    }
+
+    /// MarkView indexes a block's text without its embedded controls while hit-testing a layout that
+    /// counts each as a character, so every offset after one lands a character early and a select-all
+    /// stops short of the block's end. Each control gets its character back, and every block after
+    /// moves along. Run after each render, which rebuilds the index.
+    public static void AlignEmbedded(MarkdownViewer viewer) {
+        if (LayerOf(viewer) is not { } layer) return;
+        var total = 0;
+        var moved = false;
+        foreach (var entry in Entries(layer)) {
+            if (TextBlockOf(entry).Inlines is { } inlines && Controls(inlines).Any()) {
+                var plain = PlainText(entry);
+                var laidOut = LaidOut(inlines);
+                if (!plain.EndsWith(laidOut, StringComparison.Ordinal)) {
+                    var markdown = ExtractPlainText(null, inlines);
+                    var marker = plain.EndsWith(markdown, StringComparison.Ordinal) ? plain.Length - markdown.Length : 0;
+                    PlainTextField(entry) = plain[..marker] + laidOut;
+                    moved = true;
+                }
+            }
+            if (moved) SetAbsStart(entry, total);
+            total += PlainText(entry).Length + Separator(entry).Length;
+        }
+        if (moved) TotalLength(layer) = total;
+    }
+
+    /// A block's text as its layout counts it, an embedded control as one character.
+    static string LaidOut(InlineCollection inlines) {
+        var text = new StringBuilder();
+        void Walk(InlineCollection items) {
+            foreach (var inline in items) {
+                switch (inline) {
+                    case Run run: text.Append(run.Text); break;
+                    case LineBreak: text.Append(Environment.NewLine); break;
+                    case Span span: Walk(span.Inlines); break;
+                    case InlineUIContainer: text.Append(Embedded); break;
+                }
+            }
+        }
+        Walk(inlines);
+        return text.ToString();
+    }
+
+    static IEnumerable<Control?> Controls(InlineCollection inlines) {
+        foreach (var inline in inlines) {
+            if (inline is InlineUIContainer container) yield return container.Child;
+            else if (inline is Span span) foreach (var nested in Controls(span.Inlines)) yield return nested;
+        }
+    }
+
+    /// Where each embedded control stands in the entry's text. Found from the layout, so a character
+    /// the writer typed that reads the same is left as text.
+    static Dictionary<int, Control?> EmbeddedIn(object entry) {
+        var found = new Dictionary<int, Control?>();
+        if (TextBlockOf(entry).Inlines is not { } inlines) return found;
+        var at = MarkerLength(entry, PlainText(entry));
+        void Walk(InlineCollection items) {
+            foreach (var inline in items) {
+                switch (inline) {
+                    case Run run: at += run.Text?.Length ?? 0; break;
+                    case LineBreak: at += Environment.NewLine.Length; break;
+                    case Span span: Walk(span.Inlines); break;
+                    case InlineUIContainer container: found[at++] = container.Child; break;
+                }
+            }
+        }
+        Walk(inlines);
+        return found;
+    }
+
+    /// The entry's text from <paramref name="from"/> up to <paramref name="to"/>, each embedded control
+    /// read as what it copies as: a link chip its address, anything else nothing.
+    static string Readable(string plain, Dictionary<int, Control?> embedded, int from, int to) {
+        if (embedded.Count == 0) return plain[from..to];
+        var readable = new StringBuilder();
+        for (var i = from; i < to; i++) {
+            if (!embedded.TryGetValue(i, out var control)) readable.Append(plain[i]);
+            else if (control is GitHubLinkChip chip) readable.Append(chip.Url);
+        }
+        return readable.ToString();
     }
 
     public static bool IsSelecting(MarkdownViewer viewer) =>
@@ -56,7 +141,50 @@ static class MarkViewSelection {
     /// offset lands that many characters early and the item's tail is never copied.
     public static string SelectedText(MarkdownViewer viewer) {
         if (LayerOf(viewer) is not { } layer || Anchor(layer) is not { } anchor || Focus(layer) is not { } focus) return "";
-        var (from, to) = (Math.Min(anchor, focus), Math.Max(anchor, focus));
+        return TextBetween(layer, Math.Min(anchor, focus), Math.Max(anchor, focus));
+    }
+
+    /// Selects the first run of text that reads as <paramref name="quote"/>, whitespace aside, and
+    /// returns where it starts in the viewer's coordinates; null when the viewer shows no such text.
+    public static Rect? Select(MarkdownViewer viewer, string quote) {
+        if (LayerOf(viewer) is not { } layer) return null;
+        var needle = string.Join(' ', quote.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (needle.Length == 0) return null;
+        // Each character kept, with the offset it starts at and the entry it is laid out in. A
+        // list marker is not laid out, so it stands at its item's start.
+        var text = new StringBuilder();
+        var at = new List<(int Offset, object Entry, int Index)>();
+        void Keep(char c, int offset, object entry, int index) {
+            if (char.IsWhiteSpace(c)) {
+                if (text.Length == 0 || text[^1] == ' ') return;
+                c = ' ';
+            }
+            text.Append(c);
+            at.Add((offset, entry, index));
+        }
+        foreach (var entry in Entries(layer)) {
+            var start = AbsStart(entry);
+            var plain = PlainText(entry);
+            var marker = MarkerLength(entry, plain);
+            var embedded = EmbeddedIn(entry);
+            for (var i = 0; i < plain.Length; i++) {
+                var (offset, index) = (i < marker ? start : start + i - marker, Math.Max(0, i - marker));
+                foreach (var c in Readable(plain, embedded, i, i + 1)) Keep(c, offset, entry, index);
+            }
+            foreach (var c in Separator(entry)) Keep(c, start + plain.Length - marker, entry, plain.Length - marker);
+        }
+        var found = text.ToString().IndexOf(needle, StringComparison.Ordinal);
+        if (found < 0) return null;
+        var (first, last) = (at[found], at[found + needle.Length - 1]);
+        Anchor(layer) = first.Offset;
+        Focus(layer) = last.Offset + 1;
+        layer.InvalidateVisual();
+        var block = TextBlockOf(first.Entry);
+        if (block.TranslatePoint(new Point(block.Padding.Left, block.Padding.Top), viewer) is not { } origin) return null;
+        return block.TextLayout.HitTestTextPosition(first.Index).Translate(origin);
+    }
+
+    static string TextBetween(object layer, int from, int to) {
         if (from == to) return "";
         var text = new StringBuilder();
         foreach (var entry in Entries(layer)) {
@@ -68,11 +196,35 @@ static class MarkViewSelection {
             if (start + laidOut + Separator(entry).Length <= from) continue;
             var (s, e) = (Math.Max(0, from - start), Math.Min(laidOut, to - start));
             if (s == 0 && marker > 0) text.Append(plain, 0, marker);
-            if (e > s) text.Append(plain, marker + s, e - s);
+            if (e > s) text.Append(Readable(plain, EmbeddedIn(entry), marker + s, marker + e));
             if (to > start + laidOut) text.Append(Separator(entry));
         }
         return text.ToString();
     }
+
+    /// The text of the block under a point in the viewer's coordinates, or the nearest one, without a
+    /// list item's marker, and how many blocks before it read the same, whitespace aside.
+    public static (string Text, int Occurrence)? BlockAt(MarkdownViewer viewer, Point pointInViewer) {
+        if (LayerOf(viewer) is not { } layer) return null;
+        var point = viewer.TranslatePoint(pointInViewer, layer) ?? pointInViewer;
+        var entry = HitTestEntry(layer, point) ?? (Nearest(layer, point) is { } inside ? HitTestEntry(layer, inside) : null);
+        if (entry is null) return null;
+        var text = Unmarked(entry);
+        var words = Words(text);
+        var occurrence = 0;
+        foreach (var earlier in Entries(layer)) {
+            if (ReferenceEquals(earlier, entry)) break;
+            if (Words(Unmarked(earlier)) == words) occurrence++;
+        }
+        return (text, occurrence);
+    }
+
+    static string Unmarked(object entry) {
+        var plain = PlainText(entry);
+        return Readable(plain, EmbeddedIn(entry), MarkerLength(entry, plain), plain.Length);
+    }
+
+    static string Words(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     public static async Task CopyAsync(MarkdownViewer viewer) {
         var text = SelectedText(viewer);
@@ -82,7 +234,7 @@ static class MarkViewSelection {
 
     static void OnPressed(MarkdownViewer viewer, PointerPressedEventArgs e) {
         if (!e.GetCurrentPoint(viewer).Properties.IsLeftButtonPressed) return;
-        if (LayerOf(viewer) is not Visual layer) return;
+        if (LayerOf(viewer) is not { } layer) return;
         var point = e.GetPosition(layer);
         if (e.ClickCount == 2) {
             if (HitTestEntry(layer, point) is not { } entry || HitTestOffset(layer, point) is not { } offset) return;
@@ -99,7 +251,7 @@ static class MarkViewSelection {
 
     public static bool TryStartFromLeft(MarkdownViewer viewer, PointerPressedEventArgs e) {
         if (e.ClickCount != 1 || !e.GetCurrentPoint(viewer).Properties.IsLeftButtonPressed || PressedOnControl(e)) return false;
-        if (LayerOf(viewer) is not Visual layer) return false;
+        if (LayerOf(viewer) is not { } layer) return false;
         var point = e.GetPosition(layer);
         if (HitTestOffset(layer, point) is not null) return false;
         // Padding sits outside the glyph bounds, so MarkView records no anchor and the drag never starts.
@@ -117,7 +269,7 @@ static class MarkViewSelection {
 
     static bool PressedOnControl(PointerPressedEventArgs e) {
         for (var visual = e.Source as Visual; visual is not null; visual = visual.GetVisualParent())
-            if (visual is Button or TextBox or Avalonia.Controls.Primitives.ScrollBar or MarkdownImage { Target: not null }) return true;
+            if (visual is Button or TextBox or Avalonia.Controls.Primitives.ScrollBar or MarkdownImage { Target: not null } or GitHubLinkChip) return true;
         return false;
     }
 
@@ -141,7 +293,7 @@ static class MarkViewSelection {
     /// blocks are exactly as wide as their text: leaving one past its last glyph keeps whatever
     /// the last sample inside hit, often the caret before that glyph.
     static void OnMoved(MarkdownViewer viewer, PointerEventArgs e) {
-        if (!IsDragging(viewer) || LayerOf(viewer) is not Visual layer) return;
+        if (!IsDragging(viewer) || LayerOf(viewer) is not { } layer) return;
         var point = e.GetPosition(layer);
         if (HitTestOffset(layer, point) is not null) return;
         if (Nearest(layer, point) is { } inside) MoveFocus(layer, inside);
@@ -172,7 +324,7 @@ static class MarkViewSelection {
 
     static int MarkerLength(object entry, string plain) {
         var block = TextBlockOf(entry);
-        var laidOut = block.Inlines is { } inlines ? ExtractPlainText(null, inlines) : block.Text ?? "";
+        var laidOut = block.Inlines is { } inlines ? LaidOut(inlines) : block.Text ?? "";
         return plain.Length > laidOut.Length && plain.EndsWith(laidOut, StringComparison.Ordinal) ? plain.Length - laidOut.Length : 0;
     }
 
@@ -207,6 +359,15 @@ static class MarkViewSelection {
 
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_PlainText")]
     static extern string PlainText([UnsafeAccessorType(EntryType)] object entry);
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "<PlainText>k__BackingField")]
+    static extern ref string PlainTextField([UnsafeAccessorType(EntryType)] object entry);
+
+    [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "set_AbsStart")]
+    static extern void SetAbsStart([UnsafeAccessorType(EntryType)] object entry, int value);
+
+    [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_totalLength")]
+    static extern ref int TotalLength([UnsafeAccessorType(LayerType)] object layer);
 
     [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_Separator")]
     static extern string Separator([UnsafeAccessorType(EntryType)] object entry);

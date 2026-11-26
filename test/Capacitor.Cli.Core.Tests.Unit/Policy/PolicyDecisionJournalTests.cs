@@ -169,7 +169,7 @@ public class PolicyDecisionJournalTests {
 }
 
 public class PolicyInputHashTests {
-    static JsonElement Input(string json) => JsonDocument.Parse(json).RootElement.Clone();
+    static JsonElement Input(string json) => JsonElement.Parse(json);
 
     [Test]
     public async Task Key_order_does_not_change_the_hash() {

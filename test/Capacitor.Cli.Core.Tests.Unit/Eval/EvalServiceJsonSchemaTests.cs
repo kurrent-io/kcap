@@ -117,7 +117,7 @@ public class EvalServiceJsonSchemaTests {
     // ── VerdictJsonSchema ────────────────────────────────────────────────────
 
     static JsonElement VerdictSchemaRoot() =>
-        JsonDocument.Parse(EvalService.GetVerdictJsonSchema()).RootElement.Clone();
+        JsonElement.Parse(EvalService.GetVerdictJsonSchema());
 
     [Test]
     public async Task VerdictJsonSchema_outcome_is_a_required_three_value_enum() {

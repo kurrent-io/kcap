@@ -38,7 +38,7 @@ public class UnusableUrlHookMatrixTests : IDisposable {
     readonly List<Process> _spawned = [];
 
     public void Dispose() {
-        foreach (var p in _spawned) { try { if (!p.HasExited) p.Kill(entireProcessTree: true); } catch { } p.Dispose(); }
+        foreach (var p in _spawned) { try { if (!p.HasExited) p.Kill(entireProcessTree: true); } catch { /* ignored */ } p.Dispose(); }
     }
 
     [Test]

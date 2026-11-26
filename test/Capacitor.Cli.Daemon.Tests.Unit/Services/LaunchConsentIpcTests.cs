@@ -166,7 +166,7 @@ public class LaunchConsentIpcTests {
             }
 
             await Assert.That(h.ConsentStore.Current.Rules
-                .Any(r => r.Action == "deny" && r.Kind == "review-flow")).IsTrue();
+                .Any(r => r is { Action: "deny", Kind: "review-flow" })).IsTrue();
 
             var outcome = await decideTask;
             await Assert.That(outcome.Allowed).IsFalse();

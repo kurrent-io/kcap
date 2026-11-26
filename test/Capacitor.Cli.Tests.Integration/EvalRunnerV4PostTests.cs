@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Eval;
 using Capacitor.Cli.Core.Eval.Contracts;
@@ -138,12 +139,17 @@ public class EvalRunnerV4PostTests : IDisposable {
         await Assert.That(v3Hits.Count).IsEqualTo(0);
 
         var body = v4Hits[0].RequestMessage.Body!;
-        await Assert.That(body).Contains(@"""eval_run_id"":""run-1""");
-        await Assert.That(body).Contains(@"""outcome"":""insufficient_evidence""");
-        await Assert.That(body).Contains(@"""score"":null");
-        await Assert.That(body).Contains(@"""coverage_policy_version"":""coverage-v1""");
-        await Assert.That(body).Contains(@"""failed_questions""");
-        await Assert.That(body).Contains(@"""judge_timeout""");
+        JsonObject expected = new() {
+            ["eval_run_id"]             = "run-1",
+            ["coverage_policy_version"] = "coverage-v1",
+            ["categories"]              = new JsonArray(new JsonObject {
+                ["questions"] = new JsonArray(
+                    new JsonObject { ["outcome"] = "assessed" },
+                    new JsonObject { ["outcome"] = "insufficient_evidence", ["score"] = null })
+            }),
+            ["failed_questions"] = new JsonArray(new JsonObject { ["code"] = "judge_timeout" })
+        };
+        await Assert.That(WireJson.Pick(body, expected)).IsEqualTo(expected.ToJsonString());
     }
 
     sealed class RecordingObserver : IEvalObserver {

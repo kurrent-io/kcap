@@ -13,7 +13,7 @@ public sealed class DesktopNotificationCoordinator : IDisposable {
         public string Id { get; } = id;
         public PendingPermissionRequest? Request { get; set; } = request;
         public AgentRow Row { get; set; } = row;
-        public string? UsageLimitKey { get; set; }
+        public string? UsageLimitKey { get; init; }
         public bool Busy { get; set; }
     }
 
@@ -201,7 +201,7 @@ public sealed class DesktopNotificationCoordinator : IDisposable {
 
     IEnumerable<string> Aliases(PendingPermissionRequest request) {
         yield return request.Key;
-        if (_localOnAppServer && request.Lane == PermissionLane.Local && request.ServerRequestId is { Length: > 0 } serverId)
+        if (_localOnAppServer && request is { Lane: PermissionLane.Local, ServerRequestId: { Length: > 0 } serverId })
             yield return PendingPermissionRequest.KeyFor(PermissionLane.Server, serverId);
     }
 
@@ -287,7 +287,8 @@ public sealed class DesktopNotificationCoordinator : IDisposable {
         } catch (Exception ex) {
             if (_disposed) return;
             Close(id);
-            _notifier.Notify($"Could not answer the permission request: {ex.Message}");
+            Console.Error.WriteLine($"kcap: could not answer the permission request: {ex.Message}");
+            _notifier.Notify("Could not answer the permission request. Try again.");
             _openAgent(row);
         }
     }

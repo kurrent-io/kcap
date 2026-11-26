@@ -140,11 +140,11 @@ public class AntigravitySkippedChildOverrideRoutedLoopTests : IDisposable {
         _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").WithParam("agentId", Child).UsingGet())
             .AtPriority(1)
             .RespondWith(Response.Create().WithStatusCode(HttpStatusCode.NotFound));
-        // Root's own top-level probe (no agentId param): already fully ingested (server line 1 ==
-        // the parent's last IMPORT-RELEVANT line, index 1 / PLANNER_RESPONSE) -> AlreadyLoaded.
+        // Root's own top-level probe (no agentId param): already fully ingested (server line 2 ==
+        // the parent's last IMPORT-RELEVANT line, index 2 / the INVOKE_SUBAGENT result) -> AlreadyLoaded.
         _server.Given(Request.Create().WithPath($"/api/sessions/{Root}/last-line").UsingGet())
             .AtPriority(5)
-            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"last_line_number":1}"""));
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"last_line_number":2}"""));
         // Fallback for any other session's probe (the Gemini fixture's own session id) -> a hard
         // failure, so it classifies ProbeError rather than accidentally looking AlreadyLoaded too.
         _server.Given(Request.Create().WithPath("/api/sessions/*/last-line").UsingGet())

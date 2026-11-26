@@ -51,7 +51,7 @@ public class MuseAssistantStateStoreTests {
         var updated = State(Acme) with { Watermark = 99 };
 
         Task saving;
-        using (new FileStream(MuseAssistantPaths.ChatState(dir, "chat-main"), FileMode.Open, FileAccess.Read, FileShare.Read)) {
+        await using (new FileStream(MuseAssistantPaths.ChatState(dir, "chat-main"), FileMode.Open, FileAccess.Read, FileShare.Read)) {
             saving = Task.Run(() => store.SaveState(updated));
             await Task.Delay(50);
         }
@@ -144,7 +144,7 @@ public class MuseAssistantStateStoreTests {
     /// <summary>A grant scope add could never have written selects by accident: an unknown boundary or a
     /// missing after_seq has no floor, so it would read as the whole chat. It must be unusable instead.</summary>
     [Test]
-    [Arguments("""null""")]
+    [Arguments("null")]
     [Arguments("""{"id":"g","boundary":"everything","after_seq":null,"granted_at_ms":1,"revoked_at_ms":null}""")]
     [Arguments("""{"id":"g","boundary":"after_seq","after_seq":null,"granted_at_ms":1,"revoked_at_ms":null}""")]
     [Arguments("""{"id":"g","boundary":"after_seq","after_seq":-1,"granted_at_ms":1,"revoked_at_ms":null}""")]

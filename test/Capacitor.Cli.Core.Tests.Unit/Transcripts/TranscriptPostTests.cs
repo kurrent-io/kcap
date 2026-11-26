@@ -112,7 +112,7 @@ public class TranscriptPostTests {
     [Test]
     public async Task A_batch_that_cannot_be_projected_goes_raw() {
         var deep  = string.Concat(Enumerable.Repeat("[", 58)) + string.Concat(Enumerable.Repeat("]", 58));
-        var line  = $$$$"""{"type":"assistant","uuid":"{{{{Id(2)}}}}","timestamp":"2026-11-16T08:00:02Z","message":{"model":"claude-x","content":[{"type":"tool_use","id":"t1","name":"X","input":{"a":{{{{deep}}}}}}]}}""";
+        var line  = $$$"""{"type":"assistant","uuid":"{{{Id(2)}}}","timestamp":"2026-11-16T08:00:02Z","message":{"model":"claude-x","content":[{"type":"tool_use","id":"t1","name":"X","input":{"a":{{{deep}}}}}]}}""";
         var batch = new TranscriptBatch { SessionId = Session, Lines = [line], LineNumbers = [0] };
         var route = Route();
         using var server = new Server((_, _) => Reply(HttpStatusCode.OK));

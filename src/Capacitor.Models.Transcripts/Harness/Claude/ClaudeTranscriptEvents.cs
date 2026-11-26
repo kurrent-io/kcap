@@ -80,7 +80,7 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
                 case null:
                     recordId = TranscriptIds.ClaudeFallback(lineNumber, line);
                     break;
-                case { } uuid when uuid.IsString && Guid.TryParse(uuid.GetString(), out var parsed):
+                case { IsString: true } uuid when Guid.TryParse(uuid.GetString(), out var parsed):
                     recordId = parsed;
                     break;
                 default:
@@ -130,7 +130,7 @@ public sealed class ClaudeTranscriptEvents : ITranscriptProjection {
         public IReadOnlyList<CanonicalEvent> Events => _events;
 
         /// The record's usage, for its first emitted event only.
-        public (TokenUsage Usage, long? CacheCreation)? Usage { get; set; }
+        public (TokenUsage Usage, long? CacheCreation)? Usage { get; init; }
 
         public void Add(int blockIndex, IMessage payload, Struct? claudeCode, IReadOnlyList<TranscriptAttachment>? attachments = null) {
             if (claudeCode is not null) SchemaExtensions.Of(payload)![ClaudeCodeExtension.Slug] = claudeCode;

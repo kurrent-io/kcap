@@ -1,7 +1,7 @@
 # Desktop UI icons
 
 Use **Lucide**, through `Views/AppIcon.cs`, for desktop UI icons. See the desktop UI
-section of [CLAUDE.md](../../CLAUDE.md) for the surrounding design conventions.
+section of [AGENTS.md](../../AGENTS.md) for the surrounding design conventions.
 
 - In XAML, use `<views:AppIcon Kind="Terminal" Size="14" />`; in C#, use `AppIcon`
   with a `LucideIconKind`. Do not instantiate another icon renderer directly.

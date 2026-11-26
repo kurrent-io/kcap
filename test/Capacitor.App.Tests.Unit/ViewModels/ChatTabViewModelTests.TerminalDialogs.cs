@@ -138,7 +138,7 @@ public partial class ChatTabViewModelTests {
                 await h.PushAsync(Agent("a1", "claude", hasTerminal: true) with { Status = "Interrupted", Interruption = "worktree_missing" });
 
                 await Assert.That(h.Chat.AgentStatus.Kind).IsEqualTo(AgentStatusKind.Interrupted);
-                await Assert.That(h.Chat.AgentStatus.Tip).Contains("worktree_missing");
+                await Assert.That(h.Chat.AgentStatus.Tip).Contains("Its worktree no longer exists");
                 await Assert.That(h.Chat.AgentStatus.Tip).Contains("kcap agent resume a1");
             } finally { await h.TeardownAsync(); }
         });
@@ -235,7 +235,8 @@ public partial class ChatTabViewModelTests {
                 await h.PushAsync(Agent("a1", "claude", hasTerminal: true) with { Status = "Running", TerminalDialog = dialog });
 
                 await Assert.That(h.Chat.HasTerminalMenu).IsTrue();
-                await Assert.That(h.Chat.TerminalMenuChoices.Single().Label).IsEqualTo("Close");
+                await Assert.That(h.Chat.TerminalMenuChoices).IsEmpty();
+                await Assert.That(h.Chat.TerminalMenuClose!.Label).IsEqualTo("Close");
                 await Assert.That(h.Chat.TerminalMenuScreen).IsEqualTo(dialog.Screen);
                 await h.Chat.ShowTerminalCommand.Execute().ToTask();
                 await Assert.That(shown).IsTrue();
@@ -327,7 +328,7 @@ public partial class ChatTabViewModelTests {
             await h.PushAsync(Agent("a1", "claude", hasTerminal: true) with {
                 Status = "Running", TerminalDialog = new TerminalDialogDto("Status", "", [], -1, "Version: 2.1.310")
             });
-            var close = h.Chat.TerminalMenuChoices.Single();
+            var close = h.Chat.TerminalMenuClose!;
             await Assert.That(close.Label).IsEqualTo("Close");
             await close.Choose.Execute().ToTask();
             await Assert.That(input.Writes).IsEquivalentTo(new[] { "\e" }, CollectionOrdering.Matching);
@@ -487,7 +488,7 @@ public partial class ChatTabViewModelTests {
                 await h.Chat.TerminalMenuChoices[0].Choose.Execute().ToTask();
 
                 h.Permissions.Add(PermissionEntries.Entry("r1", "a1"));
-                await WaitUntilAsync(() => h.Chat.HasPendingCards && !h.Chat.ShowsTerminalMenu, what: "the dialog hidden");
+                await WaitUntilAsync(() => h.Chat is { HasPendingCards: true, ShowsTerminalMenu: false }, what: "the dialog hidden");
                 h.Permissions.Remove("r1");
                 await WaitUntilAsync(() => !h.Chat.HasPendingCards, what: "the card removed");
                 h.Time.Advance(ChatTabViewModel.CoveredDialogGrace);
@@ -538,6 +539,49 @@ public partial class ChatTabViewModelTests {
         }
     }
 
+    /// Text and files would both land in the menu, so while one is up the message box leaves and
+    /// staging stops, saying why. Both come back once the menu closes.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_terminal_menu_sets_the_message_box_and_attachments_aside_until_it_closes() => RunOnUiAsync(async () => {
+        var h = new Harness(TranscriptChat.For("claude"), input: new KeyRecordingInput());
+        try {
+            var agent = Agent("a1", "claude", hasTerminal: true) with { Status = "Running" };
+            await h.PushAsync(agent);
+            await Assert.That(h.Chat.ShowsComposerInput).IsTrue();
+            await Assert.That(h.Chat.Attachments.CanAttach).IsTrue();
+
+            await h.PushAsync(agent with { TerminalDialog = new TerminalDialogDto("Status", "", [], -1, "Version: 2.1.310") });
+            await Assert.That(h.Chat.ShowsComposer).IsTrue();
+            await Assert.That(h.Chat.ShowsComposerInput).IsFalse();
+            await Assert.That(h.Chat.Attachments.CanAttach).IsFalse();
+            await Assert.That(h.Chat.Attachments.AttachHint).IsEqualTo(ChatTabViewModel.TerminalMenuAttachHint);
+
+            // A pick that was already reading when the menu appeared lands now, and is not staged.
+            h.Chat.Attachments.Accept(new IntakeResult([new StagedAttachment("a.png", "image/png", new byte[] { 1 })], []));
+            await Assert.That(h.Chat.Tray.Count).IsEqualTo(0);
+            await Assert.That(h.Chat.ComposerHint).IsEqualTo("`a.png` was not attached because a terminal dialog opened. Add it again once it closes");
+
+            await h.PushAsync(agent);
+            await Assert.That(h.Chat.ShowsComposerInput).IsTrue();
+            await Assert.That(h.Chat.Attachments.CanAttach).IsTrue();
+        } finally { await h.TeardownAsync(); }
+    });
+
+    /// A dialog the chat can read offers its own choices and nothing besides.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_readable_terminal_dialog_offers_no_separate_close() => RunOnUiAsync(async () => {
+        var h = new Harness(TranscriptChat.For("claude"), input: new KeyRecordingInput());
+        try {
+            await h.PushAsync(Agent("a1", "claude", hasTerminal: true) with {
+                Status = "Running", TerminalDialog = new TerminalDialogDto("Pick one", "", ["Yes", "No"], 0, "Pick one\n❯ Yes\n  No"),
+            });
+            await Assert.That(h.Chat.TerminalMenuChoices.Select(c => c.Label)).IsEquivalentTo(new[] { "Yes", "No" }, CollectionOrdering.Matching);
+            await Assert.That(h.Chat.TerminalMenuClose).IsNull();
+        } finally { await h.TeardownAsync(); }
+    });
+
     sealed class KeyRecordingInput : AcceptingChatInput {
         public List<byte> Keys { get; } = [];
         public List<string> Writes { get; } = [];
@@ -580,6 +624,7 @@ public partial class ChatTabViewModelTests {
                 await Assert.That(chat.TerminalMenuTitle).IsEqualTo("Waiting for you in Terminal");
                 await Assert.That(chat.TerminalMenuScreen).IsEqualTo(dto.TerminalDialog.Screen);
                 await Assert.That(chat.TerminalMenuChoices).IsEmpty();
+                await Assert.That(chat.TerminalMenuClose).IsNull();
                 await chat.ShowTerminalCommand.Execute().ToTask();
                 await Assert.That(shown).IsTrue();
 

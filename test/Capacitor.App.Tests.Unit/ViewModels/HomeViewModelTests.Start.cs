@@ -194,7 +194,7 @@ public partial class HomeViewModelTests {
             await vm.SelectRepositoryAsync("/repo/a");
             await vm.StartCommand.Execute();
 
-            await Assert.That(vm.StartError).IsEqualTo("Daemon 'kcap-dev' is at capacity.");
+            await Assert.That(vm.StartError).Contains(HomeViewModel.AtCapacityAdvice);
         });
     }
 }

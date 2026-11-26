@@ -7,7 +7,7 @@ public class GitHubPrDetectorTests {
     public async Task Parses_gh_pr_view_json() {
         string? capturedCmd = null, capturedArgs = null;
 
-        CommandRunner fake = (cmd, args, cwd, _) => {
+        CommandRunner fake = (cmd, args, _, _) => {
             capturedCmd  = cmd;
             capturedArgs = args;
             return Task.FromResult<string?>(
@@ -155,8 +155,8 @@ public class GitHubPrDetectorTests {
     [Arguments("""[{"number":9,"headRefOid":"abc123","isCrossRepository":true}]""")]
     [Arguments("""[{"number":9,"headRefOid":"abc123"}]""")]
     [Arguments("""[{"number":9,"headRefOid":"elsewhere","isCrossRepository":false}]""")]
-    [Arguments("""[]""")]
-    [Arguments("""{not json""")]
+    [Arguments("[]")]
+    [Arguments("{not json")]
     [Arguments(null)]
     public async Task History_lookup_rejects_a_pr_not_on_this_history(string? prs) {
         await Assert.That(await DetectForHistory(HistoryRunner(prs))).IsNull();

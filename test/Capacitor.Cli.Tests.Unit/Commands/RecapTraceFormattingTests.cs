@@ -33,7 +33,7 @@ public class RecapTraceFormattingTests {
 
     [Test]
     public async Task A_multi_line_argument_is_indented_under_its_name() {
-        var args = JsonDocument.Parse("""{"old_string":"a\nb","new_string":"c"}""").RootElement;
+        var args = JsonElement.Parse("""{"old_string":"a\nb","new_string":"c"}""");
 
         await Assert.That(RecapTranscript.Arguments(args)).IsEqualTo(
             string.Join(Environment.NewLine, "old_string:", "  a", "  b", "new_string: c", ""));

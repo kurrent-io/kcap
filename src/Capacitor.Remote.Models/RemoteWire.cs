@@ -60,8 +60,6 @@ public static class ApiRoutes {
     public static string SessionListing(string state, string? owner, int limit, int offset) =>
         $"api/sessions/listing?state={state}&limit={limit}&offset={offset}"
         + (owner is null ? "" : $"&owner={Uri.EscapeDataString(owner)}");
-    public static string SessionDetail(string sessionId) =>
-        $"api/sessions/{Uri.EscapeDataString(sessionId)}/detail";
     public static string SessionHandoffContext(string sessionId) =>
         $"api/sessions/{Uri.EscapeDataString(sessionId)}/handoff-context";
     public static string Search(string query, string mode, int limit) =>
@@ -74,6 +72,14 @@ public static class ApiRoutes {
         $"api/sessions/{Uri.EscapeDataString(sessionId)}/events?from={from}";
     public static string SubagentEvents(string sessionId, string agentId, long from) =>
         $"api/sessions/{Uri.EscapeDataString(sessionId)}/agents/{Uri.EscapeDataString(agentId)}/events?from={from}";
+    /// The server caps limit at 1000.
+    public static string SessionEvents(string sessionId, long from, int limit) =>
+        $"{SessionEvents(sessionId, from)}&limit={limit}";
+    /// The last tail events, never before from; the server caps tail at 1000.
+    public static string SessionEventsTail(string sessionId, long from, int tail) =>
+        $"{SessionEvents(sessionId, from)}&tail={tail}";
+    public static string SessionPendingInterrupts(string sessionId) =>
+        $"api/sessions/{Uri.EscapeDataString(sessionId)}/interrupts/pending";
     public static string PermissionResponse(string sessionId, string requestId) =>
         $"api/sessions/{Uri.EscapeDataString(sessionId)}/permission-response/{Uri.EscapeDataString(requestId)}";
     public static string HeldMessages(string agentId) =>

@@ -116,7 +116,7 @@ public class ConsentDecisionLogReaderTests {
         var path = daemons.Store.ConsentLogPath(DaemonName);
         WriteLines(path, Record("2026-01-01T00:00:00Z", "initial"));
 
-        using var readerHandle = ConsentDecisionLogReader.OpenShared(path);
+        await using var readerHandle = ConsentDecisionLogReader.OpenShared(path);
 
         // (a) the daemon writer's append mode must not be blocked by the open reader handle.
         var appendLine = Record("2026-01-01T00:00:01Z", "appended") + '\n';

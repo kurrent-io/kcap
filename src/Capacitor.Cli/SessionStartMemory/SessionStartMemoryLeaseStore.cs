@@ -34,7 +34,7 @@ internal sealed partial class SessionStartMemoryLeaseStore {
         var started = _time.GetTimestamp();
         TimeSpan Remaining() => RemainingBudget(budget, started);
         try {
-            using var gate = await AcquireAsync(Remaining(), ct);
+            await using var gate = await AcquireAsync(Remaining(), ct);
             if (gate is null) return null;
             EnsureSafeRoot();
             var sweepBudget = Min(Remaining(), TimeSpan.FromMilliseconds(25));
@@ -51,9 +51,9 @@ internal sealed partial class SessionStartMemoryLeaseStore {
                 // tombstone. This makes the documented 30-day guarantee a lower bound even
                 // when the opportunistic sweep is delayed by its 15-minute cadence.
                 if (current.State == "completed") return null;
-                if (current.State == "retry_pending" && current.NextAttemptAt is { } next && now < next)
+                if (current is { State: "retry_pending", NextAttemptAt: { } next } && now < next)
                     return null;
-                if (current.State == "leased" && current.LeaseExpiresAt is { } expiry && now < expiry)
+                if (current is { State: "leased", LeaseExpiresAt: { } expiry } && now < expiry)
                     return null;
             }
 
@@ -87,7 +87,7 @@ internal sealed partial class SessionStartMemoryLeaseStore {
         if (budget <= TimeSpan.Zero) return false;
         var started = _time.GetTimestamp();
         try {
-            using var gate = await AcquireAsync(RemainingBudget(budget, started), ct);
+            await using var gate = await AcquireAsync(RemainingBudget(budget, started), ct);
             if (gate is null) return false;
             EnsureSafeRoot();
             var path = RecordPath(handle.Key);
@@ -132,7 +132,7 @@ internal sealed partial class SessionStartMemoryLeaseStore {
         if (budget <= TimeSpan.Zero || maxEntries <= 0) return;
         var started = _time.GetTimestamp();
         try {
-            using var gate = await AcquireAsync(RemainingBudget(budget, started), ct);
+            await using var gate = await AcquireAsync(RemainingBudget(budget, started), ct);
             if (gate is null) return;
             EnsureSafeRoot();
             SweepUnderLock(RemainingBudget(budget, started), maxEntries, force: true);
@@ -326,9 +326,9 @@ internal sealed partial class SessionStartMemoryLeaseStore {
     }
 
     static bool IsSweepExpired(SessionStartMemoryStoreRecord value, DateTimeOffset now) =>
-        value.State == "completed" && value.CompletedAt is { } completed &&
+        value is { State: "completed", CompletedAt: { } completed } &&
         now - completed >= SessionStartMemoryConstants.Retention ||
-        value.State == "retry_pending" && value.NextAttemptAt is { } retry &&
+        value is { State: "retry_pending", NextAttemptAt: { } retry } &&
         now - retry >= SessionStartMemoryConstants.Retention;
 
     static TimeSpan Backoff(long attempt) => attempt switch {
@@ -344,7 +344,7 @@ internal sealed partial class SessionStartMemoryLeaseStore {
 
     static void SetOwnerOnly(string path) {
         if (OperatingSystem.IsWindows()) return;
-        try { File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { }
+        try { File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { /* ignored */ }
     }
 
     static bool IsOperational(Exception ex) => ex is IOException or UnauthorizedAccessException or

@@ -435,7 +435,7 @@ public class TerminalTabViewModelTests {
             await vm.CurrentRunForTesting!;
 
             await Assert.That(vm.State.Phase).IsEqualTo(TerminalSessionPhase.Failed);
-            await Assert.That(vm.State.Detail).IsEqualTo("boom");
+            await Assert.That(vm.State.Detail).IsEqualTo("Couldn’t open the terminal.");
         });
     }
 
@@ -595,7 +595,7 @@ public class TerminalTabViewModelTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task Surface_swap_and_state_mutations_happen_on_the_ui_thread() {
-        var (surfaceCreatedOnUi, stateChangedOnUi, failure) = await AvaloniaSession.DispatchAsync(async () => {
+        var (surfaceCreatedOnUi, stateChangedOnUi, failure) = await DispatchAsync(async () => {
             var (daemon, factory, time, _, _) = await BuildConnectingAsync();
             Dispatcher.UIThread.RunJobs();
 

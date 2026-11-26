@@ -10,7 +10,7 @@ public class CodexCreatedPullRequestAdapterTests {
     static string Json(string value) => JsonSerializer.Serialize(value);
 
     static string FunctionCall(string callId, string cmd) =>
-        $$$"""{"timestamp":"2026-05-07T13:40:01.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":{{Json("{\"cmd\":" + Json(cmd) + ",\"workdir\":\"/work/app\",\"yield_time_ms\":1000}")}},"call_id":"{{{callId}}}"}}""";
+        $$$"""{"timestamp":"2026-05-07T13:40:01.000Z","type":"response_item","payload":{"type":"function_call","name":"exec_command","arguments":{{{Json("{\"cmd\":" + Json(cmd) + ",\"workdir\":\"/work/app\",\"yield_time_ms\":1000}")}}},"call_id":"{{{callId}}}"}}""";
 
     static string FunctionCallOutput(string callId, string output) =>
         $$$"""{"timestamp":"2026-05-07T13:40:02.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"{{{callId}}}","output":{{{Json(output)}}}}}""";

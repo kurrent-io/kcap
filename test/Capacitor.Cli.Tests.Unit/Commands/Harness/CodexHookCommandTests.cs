@@ -72,14 +72,14 @@ public class CodexHookCommandTests : IDisposable {
         var requests = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-start/codex").UsingPost());
         await Assert.That(requests.Count).IsEqualTo(1);
 
-        var root = JsonDocument.Parse(requests[0].RequestMessage.Body!).RootElement;
+        var root = JsonElement.Parse(requests[0].RequestMessage.Body!);
         await Assert.That(root.GetProperty("session_id").GetString()).IsEqualTo("019e032205fc7570be6575719c3ea861");
         await Assert.That(root.GetProperty("home_dir").GetString()).IsNotNull();
 
         // The approval policy is frozen at session start, under the key PreToolUse reads it by.
         await Assert.That(new PolicySnapshotStore(Config.Root).TryLoad("019e032205fc7570be6575719c3ea861")).IsNotNull();
 
-        await Assert.That(JsonDocument.Parse(Stdout).RootElement.GetProperty("continue").GetBoolean()).IsTrue();
+        await Assert.That(JsonElement.Parse(Stdout).GetProperty("continue").GetBoolean()).IsTrue();
     }
 
     // Codex 'Stop' fires at turn end, not session end: the hook POSTs /hooks/stop for the idle-wait
@@ -106,7 +106,7 @@ public class CodexHookCommandTests : IDisposable {
 
         var stopRequests = _server.FindLogEntries(Request.Create().WithPath("/hooks/stop").UsingPost());
         await Assert.That(stopRequests.Count).IsEqualTo(1);
-        var body = JsonDocument.Parse(stopRequests[0].RequestMessage.Body!).RootElement;
+        var body = JsonElement.Parse(stopRequests[0].RequestMessage.Body!);
         await Assert.That(body.GetProperty("session_id").GetString()).IsEqualTo("abc");
         await Assert.That(body.GetProperty("transcript_path").GetString()).IsEqualTo("/tmp/rollout.jsonl");
         await Assert.That(body.GetProperty("cwd").GetString()).IsEqualTo("/tmp");
@@ -143,7 +143,7 @@ public class CodexHookCommandTests : IDisposable {
         sw.Stop();
         await Assert.That(exit).IsEqualTo(0);
 
-        await Assert.That(JsonDocument.Parse(Stdout).RootElement.GetProperty("continue").GetBoolean()).IsTrue();
+        await Assert.That(JsonElement.Parse(Stdout).GetProperty("continue").GetBoolean()).IsTrue();
         await Assert.That(sw.Elapsed).IsLessThan(TimeSpan.FromSeconds(5));
     }
 
@@ -169,7 +169,7 @@ public class CodexHookCommandTests : IDisposable {
         sw.Stop();
         await Assert.That(exit).IsEqualTo(0);
 
-        await Assert.That(JsonDocument.Parse(Stdout).RootElement.GetProperty("continue").GetBoolean()).IsTrue();
+        await Assert.That(JsonElement.Parse(Stdout).GetProperty("continue").GetBoolean()).IsTrue();
         await Assert.That(sw.Elapsed).IsLessThan(TimeSpan.FromSeconds(5));
     }
 
@@ -181,7 +181,7 @@ public class CodexHookCommandTests : IDisposable {
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(_stderr.ToString()).Contains("session-start/codex spooled, not sent");
-        await Assert.That(JsonDocument.Parse(Stdout).RootElement.GetProperty("continue").GetBoolean()).IsTrue();
+        await Assert.That(JsonElement.Parse(Stdout).GetProperty("continue").GetBoolean()).IsTrue();
     }
 
     // A scheme-less server URL is refused before any client is built, and the hook still answers.
@@ -199,7 +199,7 @@ public class CodexHookCommandTests : IDisposable {
         var exit = await RunAsync(payload, serverUrl: "localhost:5108");
         await Assert.That(exit).IsEqualTo(0);
 
-        await Assert.That(JsonDocument.Parse(Stdout).RootElement.GetProperty("continue").GetBoolean()).IsTrue();
+        await Assert.That(JsonElement.Parse(Stdout).GetProperty("continue").GetBoolean()).IsTrue();
     }
 
     // With no bridge the request is recorded on /hooks/permission-record and stdout carries no
@@ -323,7 +323,7 @@ public class CodexHookCommandTests : IDisposable {
         var exit = await RunAsync(payload, hostedAppServer: hostedAppServer);
 
         await Assert.That(exit).IsEqualTo(0);
-        var output = JsonDocument.Parse(Stdout).RootElement.GetProperty("hookSpecificOutput");
+        var output = JsonElement.Parse(Stdout).GetProperty("hookSpecificOutput");
         await Assert.That(output.GetProperty("permissionDecision").GetString()).IsEqualTo("deny");
     }
 
@@ -398,7 +398,7 @@ public class CodexHookCommandTests : IDisposable {
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(_server.LogEntries.Count).IsEqualTo(0);
-        await Assert.That(JsonDocument.Parse(Stdout).RootElement.GetProperty("continue").GetBoolean()).IsTrue();
+        await Assert.That(JsonElement.Parse(Stdout).GetProperty("continue").GetBoolean()).IsTrue();
     }
 
     // An envelope-sourced hosted session's transcript comes from the daemon, so the hook spawns no watcher.
@@ -419,7 +419,7 @@ public class CodexHookCommandTests : IDisposable {
         var stopRequests = _server.FindLogEntries(Request.Create().WithPath("/hooks/stop").UsingPost());
         await Assert.That(stopRequests.Count).IsEqualTo(1);
 
-        await Assert.That(JsonDocument.Parse(Stdout).RootElement.GetProperty("continue").GetBoolean()).IsTrue();
+        await Assert.That(JsonElement.Parse(Stdout).GetProperty("continue").GetBoolean()).IsTrue();
     }
 
     /// The positive control for the suppression above: without the marker the watcher spawns.
@@ -624,7 +624,7 @@ public class CodexHookCommandTests : IDisposable {
             skip: true);
 
         await Assert.That(exit).IsEqualTo(0);
-        await Assert.That(JsonDocument.Parse(Stdout).RootElement.GetProperty("continue").GetBoolean()).IsTrue();
+        await Assert.That(JsonElement.Parse(Stdout).GetProperty("continue").GetBoolean()).IsTrue();
         await Assert.That(_server.LogEntries.Count).IsEqualTo(0);
     }
 

@@ -19,14 +19,20 @@ public class LocalServerTaskUnitTests {
         var unit  = Unit();
         var lines = LocalServerTaskUnit.Wrapper(unit, Marker).Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
 
-        await Assert.That(lines).Contains(@"set ""KCAP_LOCAL_ROOT=C:\Users\u\.kcap\local""");
-        await Assert.That(lines).Contains(@"set ""Local__Port=51234""");
+        await Assert.That(lines).Contains("""
+            set "KCAP_LOCAL_ROOT=C:\Users\u\.kcap\local"
+            """);
+        await Assert.That(lines).Contains("""
+            set "Local__Port=51234"
+            """);
         await Assert.That(lines[Array.IndexOf(lines, ":run")..]).IsEquivalentTo(new[] {
             ":run",
-            $@"if exist ""{Marker}"" exit /b 0",
-            $@"""{unit.ServerBinary}"" >>""{unit.OutputLog}"" 2>&1",
+            $"""if exist "{Marker}" exit /b 0""",
+            $"""
+            "{unit.ServerBinary}" >>"{unit.OutputLog}" 2>&1
+            """,
             "if %ERRORLEVEL% EQU 0 exit /b 0",
-            $@"call ""%SystemRoot%\System32\PING.EXE"" -n {WindowsTaskUnit.RelaunchPauseSeconds + 1} 127.0.0.1 >nul",
+            $"""call "%SystemRoot%\System32\PING.EXE" -n {WindowsTaskUnit.RelaunchPauseSeconds + 1} 127.0.0.1 >nul""",
             "goto run",
         }, CollectionOrdering.Matching);
     }
@@ -48,7 +54,7 @@ public class LocalServerTaskUnitTests {
 
     [Test]
     public async Task The_task_runs_the_wrapper_headless_at_normal_priority() {
-        var xml = LocalServerTaskUnit.TaskXml(Unit(), Wrapper, @"CORP\u");
+        var xml = LocalServerTaskUnit.TaskXml(Wrapper, @"CORP\u");
         var ns  = XNamespace.Get("http://schemas.microsoft.com/windows/2004/02/mit/task");
 
         await Assert.That(XDocument.Parse(xml).Descendants(ns + "Priority").Single().Value).IsEqualTo("5");

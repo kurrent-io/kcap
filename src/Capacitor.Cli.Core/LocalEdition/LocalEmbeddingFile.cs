@@ -32,7 +32,7 @@ public static partial class LocalEmbeddingFile {
                 { Provider: OllamaProvider }                                    => null,
                 { Provider: NoProvider, Builtin: { ModelSet: { Length: > 0 } set } builtin } => LocalEmbeddingSetting.Builtin(set) with { Pending = builtin.Pending },
                 { Provider: NoProvider } wire                                   => LocalEmbeddingSetting.Declined with { Pending = wire.Pending },
-                { Provider: { Length: > 0 } }                                   => LocalEmbeddingSetting.Unknown,
+                { Provider.Length: > 0 }                                         => LocalEmbeddingSetting.Unknown,
                 _                                                               => null,
             };
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException) {

@@ -205,6 +205,14 @@ public class TranscriptIdsTests {
     }
 
     [Test]
+    public async Task Grok_bot_entry_is_the_v5_uuid_of_scope_key_and_event_type() {
+        var id = TranscriptIds.GrokBotEntry("sess:agent", "t1s1:response", "UserMessageReceived");
+
+        await Assert.That(id).IsEqualTo(TranscriptIds.Uuid5(new Guid("c6ddbf36-6838-4a55-918c-e18b7701c2b0"), "sess:agent:t1s1:response:UserMessageReceived"));
+        await Assert.That(id.Version).IsEqualTo(5);
+    }
+
+    [Test]
     public async Task OpenCode_hashes_the_utf8_key_and_suffixes_a_tool_part_for_its_call_and_result() {
         await Assert.That(TranscriptIds.OpenCode("prt_tool1")).IsEqualTo(new Guid(XxHash128.Hash(Encoding.UTF8.GetBytes("prt_tool1"))));
         await Assert.That(TranscriptIds.OpenCodeToolCall("prt_tool1")).IsEqualTo(TranscriptIds.OpenCode("prt_tool1:call"));
@@ -243,12 +251,18 @@ public class TranscriptIdsTests {
     [Arguments("kiro-usage", "daa9f1c9-0ac4-0c62-afc0-c8890fdecf69")]
     // kcap-server's v1 Muse Assistant baseline stores its corpus prompt under this id.
     [Arguments("muse-assistant-item", "23b0d476-54ea-576b-9f36-a771325e04b7")]
+    [Arguments("grok-bot-entry", "b6a99703-9f4b-5871-9b2a-186a2c602893")]
+    [Arguments("grok-bot-answer", "29cb17e3-7902-5c71-b3a1-e4734b4fcf6c")]
     // The four OpenCode ids from a message, a part and a tool part are the ones kcap-server stored for its corpus.
     [Arguments("opencode-message", "62a73d5f-a531-3bc5-f777-dcfa427bd75f")]
     [Arguments("opencode-part", "f4fadcc6-a417-b1da-6f1b-27d3b0f64760")]
     [Arguments("opencode-tool-call", "22531010-9c94-6693-c170-3ac13e3186b8")]
     [Arguments("opencode-tool-result", "62150ae9-7860-c64a-0f74-fc2feecd1481")]
     [Arguments("opencode-text-key", "adc1e9b5-1b07-7f3e-c779-cfaa5e523818")]
+    // An OpenCode v2 text part, and a tool call and its result, recorded from OpenCode 2.3.2.
+    [Arguments("opencode-v2-content", "8b2b59ef-a86b-02c5-84e6-5a870012eb0d")]
+    [Arguments("opencode-v2-call", "3d708028-f8f0-1158-aa74-3a7ae76c0877")]
+    [Arguments("opencode-v2-result", "6b5ed700-91e1-a8b3-0035-9c7605563bd7")]
     [Arguments("antigravity-step", "a2cb583b-f936-f782-f8cb-76217f4cb360")]
     // kcap-server's Antigravity normalizer gives this planner's call, and this usage row, the same ids.
     [Arguments("antigravity-call", "fce1d18b-62bb-9031-2a74-08d3c9b9c0a4")]
@@ -290,11 +304,16 @@ public class TranscriptIdsTests {
         "kiro-fallback"     => TranscriptIds.KiroFallback("{\"kind\":\"Prompt\"}", "user"),
         "kiro-usage"        => TranscriptIds.KiroUsage("sess:agent", "msg-1"),
         "muse-assistant-item" => TranscriptIds.MuseAssistantItem("66c0235eaa090568f04da9bf3d2675f2", "7c1e9d2a-0b3f-4e55-8a61-2f9d0c4b7e10", 12),
+        "grok-bot-entry"      => TranscriptIds.GrokBotEntry("a1b2c3d4e5f60718293a4b5c6d7e8f90", "t1u", "UserMessageReceived"),
+        "grok-bot-answer"     => TranscriptIds.GrokBotEntry("a1b2c3d4e5f60718293a4b5c6d7e8f90", "t1s1:response", "UserMessageReceived"),
         "opencode-message"     => TranscriptIds.OpenCode("msg_ef5f2a28200171s67y5GODESjO"),
         "opencode-part"        => TranscriptIds.OpenCode("prt_ef5f2a5070014eRszLgUFChcFr"),
         "opencode-tool-call"   => TranscriptIds.OpenCodeToolCall("prt_tool1"),
         "opencode-tool-result" => TranscriptIds.OpenCodeToolResult("prt_tool1"),
         "opencode-text-key"    => TranscriptIds.OpenCode("hello"),
+        "opencode-v2-content"  => TranscriptIds.OpenCodeContent("msg_1f72deebf001W8aQjHceRaA0tX", 0),
+        "opencode-v2-call"     => TranscriptIds.OpenCodeCall("msg_1f72deebf001W8aQjHceRaA0tX", "chatcmpl-tool-b20214b65a82fb5e"),
+        "opencode-v2-result"   => TranscriptIds.OpenCodeCallResult("msg_1f72deebf001W8aQjHceRaA0tX", "chatcmpl-tool-b20214b65a82fb5e"),
         "antigravity-step"        => TranscriptIds.AntigravityStep(AntigravityPlanner),
         "antigravity-call"        => TranscriptIds.Sibling(TranscriptIds.AntigravityStep(AntigravityPlanner), "call:0"),
         "antigravity-usage"       => TranscriptIds.AntigravityUsage("sess:agent", 3),

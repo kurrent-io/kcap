@@ -118,7 +118,7 @@ public class LocalBundleManifestTests {
         var names = Enum.GetValues<LocalInstallFailureCode>().Select(c => c.Wire()).ToList();
 
         await Assert.That(names.Distinct().Count()).IsEqualTo(names.Count);
-        await Assert.That(names.Count).IsEqualTo(22);
+        await Assert.That(names.Count).IsEqualTo(23);
         await Assert.That(names.All(n => n.All(ch => char.IsAsciiLetterLower(ch) || ch == '_'))).IsTrue();
         await Assert.That(LocalInstallFailureCode.BundleNotPublished.Wire()).IsEqualTo("bundle_not_published");
         await Assert.That(LocalInstallFailureCode.SocketPathTooLong.Wire()).IsEqualTo("socket_path_too_long");
@@ -126,5 +126,6 @@ public class LocalBundleManifestTests {
         await Assert.That(LocalInstallFailureCode.Cancelled.Wire()).IsEqualTo("cancelled");
         await Assert.That(LocalInstallFailureCode.ServerMissing.Wire()).IsEqualTo("server_missing");
         await Assert.That(LocalInstallFailureCode.ServiceMissing.Wire()).IsEqualTo("service_missing");
+        await Assert.That(LocalInstallFailureCode.RecoveryRestartFailed.Wire()).IsEqualTo("recovery_restart_failed");
     }
 }

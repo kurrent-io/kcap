@@ -28,15 +28,15 @@ public class MuseUserInputBridgeTests {
 
     [Test]
     public async Task Multiple_selection_mode_is_multi_select() {
-        var p = JsonDocument.Parse(
-            """{"toolName":"t","toolCallId":"c","questions":[{"id":"q","header":"H","question":"Q?","selection":{"mode":"multiple"},"options":[{"label":"A"},{"label":"B"}]}]}""").RootElement;
+        var p = JsonElement.Parse(
+            """{"toolName":"t","toolCallId":"c","questions":[{"id":"q","header":"H","question":"Q?","selection":{"mode":"multiple"},"options":[{"label":"A"},{"label":"B"}]}]}""");
 
         await Assert.That(MuseUserInputBridge.ToInteraction("a", "s", p).IsMultiSelect).IsTrue();
     }
 
     static JsonElement MultiParams() =>
-        JsonDocument.Parse(
-            """{"toolName":"t","toolCallId":"c","questions":[{"id":"q","header":"H","question":"Q?","selection":{"mode":"multiple"},"options":[{"label":"A"},{"label":"B"}]}]}""").RootElement;
+        JsonElement.Parse(
+            """{"toolName":"t","toolCallId":"c","questions":[{"id":"q","header":"H","question":"Q?","selection":{"mode":"multiple"},"options":[{"label":"A"},{"label":"B"}]}]}""");
 
     [Test]
     [Arguments("Blue", null)]

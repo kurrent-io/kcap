@@ -11,7 +11,7 @@ public static class SkillsLedgerValidation {
         row.Path.Length == 0 ? "it records no path"
         : row.Root.Length == 0 ? "it records no skills root"
         : Defined(row) is { } undefined ? undefined
-        : row.Origin == SkillOrigin.Legacy && row.Anchor is not null
+        : row is { Origin: SkillOrigin.Legacy, Anchor: not null }
             ? "a legacy row is authorised by its vendor root, so it may not record an anchor"
         : Shape(row) ?? Cause(row) ?? Evidence(row);
 
@@ -46,9 +46,9 @@ public static class SkillsLedgerValidation {
     static string? Evidence(OwnedSkillRow row) =>
         row.IdentityRetired is not null && row.Cause != SkillDeletionCause.Retired
             ? "a retired account is recorded against a deletion no account change ordered"
-        : row.Cause == SkillDeletionCause.Retired && row.IdentityRetired is null
+        : row is { Cause: SkillDeletionCause.Retired, IdentityRetired: null }
             ? "a retired deletion does not say whose files it is for"
-        : row.Inherited is { Length: > 0 } && row.Confirmed is null
+        : row is { Inherited.Length: > 0, Confirmed: null }
             ? "a receipt was inherited onto a row that holds none of its own"
         : null;
 }

@@ -751,37 +751,13 @@ internal sealed class CursorImportSource : IImportSource {
     }
 
     /// <summary>
-    /// ingest one Cursor subagent child under its parent's <c>AgentSubsession</c>
-    /// stream. Mirrors <c>SessionImporter.SendAgentLifecycle</c>: <c>subagent-start</c>
-    /// (session_id=parent, agent_id=child) → transcript batches routed with <c>agent_id</c>=child
-    /// (resumed from the subsession watermark so re-imports don't repost the whole child) →
-    /// <c>subagent-stop</c>. Called from the parent's <see cref="ImportSessionAsync"/> BEFORE the
-    /// parent's session-end. Returns <c>(false, _)</c> on a hard failure (start/transcript/stop
-    /// POST failed); a missing child transcript is skipped non-fatally (<c>(true, false)</c>). No
-    /// standalone session lifecycle is emitted for the child, so it never becomes a top-level
-    /// session card.
-    ///
-    /// <para>
-    /// also reports whether this call actually POSTed new transcript
-    /// bytes for the child (<c>SentContent</c>) — the caller needs that to know real new work
-    /// happened even when the PARENT's own <c>sent</c> count is zero (e.g. an AlreadyLoaded
-    /// parent attaching a previously-unloaded child).
-    /// </para>
-    ///
-    /// <para>
-    /// a fail-open resend — the child subsession watermark
-    /// probe itself threw, so <c>startLine</c> resets to 0 and the whole child is reposted — is
-    /// INDETERMINATE, not proof of "no new content". Treating a probe failure as "definitely a
-    /// duplicate resend" (<c>SentContent = false</c>) breaks when the child is genuinely NEW and
-    /// the watermark endpoint merely 500s transiently: that full resend really does POST new
-    /// content, yet the caller would be told nothing new happened and count new work as already
-    /// loaded. So a posted resend counts as content that MAY be new (<c>SentContent = true</c>),
-    /// same as the probe-succeeded path. The cost is a cosmetic double-count for an
-    /// already-complete child that gets fail-open-resent (its AlreadyLoaded parent counted in both
-    /// Loaded and AlreadyLoaded). <c>SentContent</c> drives counting and the succeeded/skipped
-    /// report, not privacy: <c>--private</c> captures every routed Cursor session regardless of
-    /// outcome.
-    /// </para>
+    /// Ingests one Cursor subagent child under its parent's <c>AgentSubsession</c> stream: subagent-start,
+    /// transcript batches from the subsession watermark, subagent-stop, before the parent's session-end.
+    /// The child gets no standalone lifecycle, so it never becomes a top-level session. A missing child
+    /// transcript is skipped, not fatal.
+    /// <para><c>SentContent</c> tells the caller new child bytes were posted even when the parent sent
+    /// nothing. A full resend after a failed watermark probe counts as sent, because the child may really
+    /// be new; the cost is a cosmetic double count for a complete child.</para>
     /// </summary>
     async Task<(bool Success, bool SentContent)> SendSubagentLifecycleAsync(
             string            parentSessionId,

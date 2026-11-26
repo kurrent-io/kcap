@@ -26,7 +26,7 @@ public class CopilotMoveTests {
     static string[] Corpus() => File.ReadAllLines(Path.Combine(SourceDir(), "Fixtures", "e66918ea.jsonl"));
 
     static string Marker(string sessionId) =>
-        $$$"""{"type":"{{{CopilotTranscriptEvents.MovedFromMarker}}}","data":{"sessionId":"{{{sessionId}}}"},"id":"00000000-0000-4000-8000-000000000501","timestamp":"2026-11-18T17:53:40.900Z","parentId":null}""";
+        $$"""{"type":"{{CopilotTranscriptEvents.MovedFromMarker}}","data":{"sessionId":"{{sessionId}}"},"id":"00000000-0000-4000-8000-000000000501","timestamp":"2026-11-18T17:53:40.900Z","parentId":null}""";
 
     static string[] WithMarker(string sessionId) {
         var lines = Corpus().ToList();

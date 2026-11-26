@@ -824,8 +824,6 @@ public record SessionEvalCompletedPayloadV3 {
     public List<EvalFactSnapshotPayload> FactsUsed { get; init; } = [];
 }
 
-enum HistorySessionStatus { New, Partial, AlreadyLoaded }
-
 class SessionMetadata {
     public string?         Cwd            { get; set; }
     public string?         Model          { get; set; }
@@ -1195,6 +1193,8 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(EvalRetrospectiveCompleted))]
 [JsonSerializable(typeof(EvalRetrospectiveFailed))]
 [JsonSerializable(typeof(DaemonConnect))]
+[JsonSerializable(typeof(DaemonCapabilitiesUpdate))]
+[JsonSerializable(typeof(DaemonCapabilitiesUpdateResponse))]
 [JsonSerializable(typeof(UnattendedVendorCapability))]
 [JsonSerializable(typeof(IReadOnlyList<UnattendedVendorCapability>))]
 [JsonSerializable(typeof(LiveAgentInfo))]
@@ -1358,6 +1358,8 @@ public sealed record CurationApplyResponse {
 [JsonSerializable(typeof(Setup.Intelligence.IntelligenceSetupRequest))]
 [JsonSerializable(typeof(Setup.Intelligence.IntelligenceSetupResponse))]
 [JsonSerializable(typeof(Setup.Intelligence.IntelligenceSetupError))]
+[JsonSerializable(typeof(Setup.Intelligence.IntelligenceSettings))]
+[JsonSerializable(typeof(Setup.Intelligence.IntelligencePreferencesRequest))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     UseStringEnumConverter = true
@@ -2508,11 +2510,16 @@ public readonly record struct ReportAgentTerminalDialogArgs(
 /// <param name="StopReason">The code of the daemon's own termination verdict, when it ended the agent.
 /// A server that predates it ignores the field.</param>
 /// <param name="ActiveCount">The daemon's ActiveCount, read with <paramref name="ActiveCountVersion"/>.</param>
+/// <param name="WorktreeRemoved">True when the teardown removed the worktree the daemon made for the agent, so nothing
+/// is left to resume in place; false when it kept it; null when the teardown did not try (no worktree of the daemon's,
+/// a pending resume, or a shutdown, which reports before it) or the removal failed. A server that predates it ignores
+/// the field.</param>
 public readonly record struct AgentUnregistered(
         string  AgentId,
         int?    ActiveCount        = null,
         long?   ActiveCountVersion = null,
-        string? StopReason         = null
+        string? StopReason         = null,
+        bool?   WorktreeRemoved    = null
     );
 
 public readonly record struct LaunchFailed(

@@ -9,7 +9,25 @@ using ReactiveUI.Reactive;
 namespace Capacitor.App.ViewModels;
 
 /// One row of the Chat tab. Matched by DataTemplates on the concrete type.
-public abstract class ChatItemViewModel : ReactiveObject;
+public abstract class ChatItemViewModel : ReactiveObject {
+    /// The topic this row sits inside, if any; the chat draws its rail beside the row.
+    public ChatTopicItem? Topic { get; internal set; }
+
+    /// Whether the user marked this row as where a new topic starts.
+    public bool StartsTopic { get; internal set => this.RaiseAndSetIfChanged(ref field, value); }
+
+    /// Where a message row came from in its transcript; null for any other row, and for one built outside a feed.
+    public ChatMessageKey? Key { get; init; }
+
+    /// The bookmark marking this whole message, if the user took one.
+    public ChatBookmark? Bookmark { get; internal set => this.RaiseAndSetIfChanged(ref field, value); }
+
+    /// The agent's reply this row is part of; null outside one, and for a reply with no text to copy.
+    public AssistantReply? Reply { get; internal set => this.RaiseAndSetIfChanged(ref field, value); }
+
+    /// Whether this is the reply's last row, after which its time and Copy sit.
+    public bool EndsReply { get; internal set => this.RaiseAndSetIfChanged(ref field, value); }
+}
 
 public sealed class UserTurnItem(string text, IReadOnlyList<UserAttachment>? attachments = null, SenderLabel? sender = null,
     ChatTimestamp? time = null, bool undelivered = false) : ChatItemViewModel {
@@ -110,6 +128,10 @@ public sealed partial class SystemNoteItem : ChatItemViewModel, IExpandableItem 
         _isExpanded = !IsCollapsible;
         ToggleCommand = ReactiveCommand.Create(Toggle);
     }
+
+    /// Whether the agent answers this note as a turn of its own, as it does a finished background task
+    /// or another agent's message; such a note ends the reply before it.
+    public bool StartsTurn { get; init; }
 
     public string Text { get; }
     public string Label { get; }
@@ -275,35 +297,32 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
     public bool DetailIsProse => Category == ToolCategory.Question;
     public bool DetailIsPath { get; } = detailIsPath;
 
-    string? _filePath;
     Action<string>? _openFile;
-    bool _isConfirmingOpen;
-    bool _fileMissing;
 
     /// The file the detail names, set only where it lives on this machine.
-    public string? FilePath => _filePath;
+    public string? FilePath { get; private set; }
     public bool CanOpenFile => _openFile is not null;
 
     /// The warning strip is up: nothing opens until it is confirmed.
     public bool IsConfirmingOpen {
-        get => _isConfirmingOpen;
-        private set => this.RaiseAndSetIfChanged(ref _isConfirmingOpen, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public bool FileMissing {
-        get => _fileMissing;
-        private set => this.RaiseAndSetIfChanged(ref _fileMissing, value);
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public void EnableOpenFile(string path, Action<string> open) {
-        _filePath = path;
+        FilePath = path;
         _openFile = open;
         this.RaisePropertyChanged(nameof(FilePath));
         this.RaisePropertyChanged(nameof(CanOpenFile));
     }
 
     public void RequestOpenFile() {
-        if (_filePath is not { } path) return;
+        if (FilePath is not { } path) return;
         FileMissing = !File.Exists(path) && !Directory.Exists(path);
         IsConfirmingOpen = true;
     }
@@ -313,7 +332,7 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
     /// The existence check repeats here: the file can go between the warning and the confirm.
     public void ConfirmOpenFile() {
         IsConfirmingOpen = false;
-        if (_filePath is not { } path || _openFile is not { } open) return;
+        if (FilePath is not { } path || _openFile is not { } open) return;
         if (!File.Exists(path) && !Directory.Exists(path)) return;
         open(path);
     }
@@ -436,12 +455,11 @@ public sealed class ToolCallItem(string name, string detail, ToolCategory catego
     /// pulsing status pill so a live row is never blank.
     public bool IsRunning => _outcome == ToolOutcome.Running && !_isAwaitingPermission && !_sessionOver;
 
-    string? _previewPath;
     public string? PreviewPath {
-        get => _previewPath;
+        get;
         set {
-            if (_previewPath == value) return;
-            _previewPath = value;
+            if (field == value) return;
+            field = value;
             this.RaisePropertyChanged();
             this.RaisePropertyChanged(nameof(HasPreview));
         }
@@ -482,8 +500,7 @@ public sealed class ToolGroupItem : ChatItemViewModel, IExpandableItem {
 
     public ReactiveCommand<Unit, Unit> ToggleCommand { get; }
 
-    string _summary = "";
-    public string Summary { get => _summary; private set => this.RaiseAndSetIfChanged(ref _summary, value); }
+    public string Summary { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
     bool _hasSummary;
     public bool HasSummary { get => _hasSummary; private set => this.RaiseAndSetIfChanged(ref _hasSummary, value); }
@@ -491,21 +508,23 @@ public sealed class ToolGroupItem : ChatItemViewModel, IExpandableItem {
     /// Summary chrome only when folding would hide something — a single call is the row itself.
     public bool ShowsSummaryHeader => _hasSummary && _calls.Count > 1;
 
-    /// Lone-call cards have no summary phrase, so a kind chip names what the callout is.
-    public bool ShowsKindChip => _calls.Count == 1;
+    /// A plain header for a group the summary cannot name: a lone call, or calls none of which has
+    /// settled. Neutral wording, since an unsettled call may be waiting on permission or never resolve.
+    public bool ShowsKindChip => _calls.Count == 1 || (_calls.Count > 1 && !_hasSummary);
 
-    public string KindChip =>
-        _calls.Count == 1 ? _calls[0].Chip ?? ToolSummary.ChipLabel(_calls[0].Category) : "";
+    public string KindChip => _calls.Count switch {
+        1 => _calls[0].Chip ?? ToolSummary.ChipLabel(_calls[0].Category),
+        > 1 when !_hasSummary => $"{_calls.Count} tool calls",
+        _ => "",
+    };
 
     public LucideIconKind? HeaderIconKind {
         get {
+            if (_calls.Count == 0) return null;
             if (_calls.Count == 1) return ToolCategoryIcons.ForCategory(_calls[0].Category);
-            var firstSettled = _calls.FirstOrDefault(c => c.IsSettled);
-            if (firstSettled is null) return null;
             // Match the categories named by Summary; live rows are shown separately.
-            var category = _calls.Any(c => c.IsSettled && c.Category != firstSettled.Category)
-                ? ToolCategory.Other
-                : firstSettled.Category;
+            var named = _hasSummary ? _calls.Where(c => c.IsSettled).ToList() : _calls.ToList();
+            var category = named.Any(c => c.Category != named[0].Category) ? ToolCategory.Other : named[0].Category;
             return ToolCategoryIcons.ForCategory(category);
         }
     }
@@ -513,19 +532,17 @@ public sealed class ToolGroupItem : ChatItemViewModel, IExpandableItem {
     bool _hasFailure;
     public bool HasFailure { get => _hasFailure; private set => this.RaiseAndSetIfChanged(ref _hasFailure, value); }
 
-    bool _packsWithCard;
     /// A live card answering this group sits in the next row; the view drops the paragraph gap
     /// so the two read as one block.
     public bool PacksWithCard {
-        get => _packsWithCard;
-        set => this.RaiseAndSetIfChanged(ref _packsWithCard, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
-    bool _suppressedForPendingQuestion;
     /// While a question prompt is open, the centered card owns the turn — hide this system bubble.
     public bool SuppressedForPendingQuestion {
-        get => _suppressedForPendingQuestion;
-        set => this.RaiseAndSetIfChanged(ref _suppressedForPendingQuestion, value);
+        get;
+        set => this.RaiseAndSetIfChanged(ref field, value);
     }
 
     public ToolGroupItem() {
@@ -586,7 +603,7 @@ public sealed class ToolGroupItem : ChatItemViewModel, IExpandableItem {
         HasFailure = failed;
         HasSummary = settled.Count > 0;
         this.RaisePropertyChanged(nameof(ShowsSummaryHeader));
-        this.RaisePropertyChanged(nameof(HeaderIconKind));
+        RefreshLoneChrome();
         NotifyVisible();
     }
 

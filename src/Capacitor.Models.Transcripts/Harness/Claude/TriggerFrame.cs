@@ -69,9 +69,11 @@ public static partial class TriggerFrame {
         "This is from another Claude session, not your user." + Decide,
     ];
 
-    [GeneratedRegex(@"^\s*<(?<tag>ci-monitor-event|cross-session-message)(?<attributes>\s(?:[^>""]|""[^""]*"")*)?>(?<body>(?:(?!</?\k<tag>[\s>]).)*)(?:</\k<tag>>\s*)?$", RegexOptions.Singleline)]
+    [GeneratedRegex("""^\s*<(?<tag>ci-monitor-event|cross-session-message)(?<attributes>\s(?:[^>"]|"[^"]*")*)?>(?<body>(?:(?!</?\k<tag>[\s>]).)*)(?:</\k<tag>>\s*)?$""", RegexOptions.Singleline)]
     private static partial Regex Frame();
 
-    [GeneratedRegex(@"\sfrom-name=""([^""]+)""")]
+    [GeneratedRegex("""
+        \sfrom-name="([^"]+)"
+        """)]
     private static partial Regex SenderName();
 }

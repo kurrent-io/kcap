@@ -62,7 +62,8 @@ public class PendingAcpInteractionRegistryTests {
         registry.Resolve("req-4", new AcpInteractionDecision("cancel", null, null, null, null, null)); // the server's echo
 
         var reused = registry.AwaitDecisionAsync("req-4", CancellationToken.None);
-        await Assert.That(await Task.WhenAny(reused, Task.Delay(200)) == reused).IsFalse()
+        var resolved = await reused.FinishedWithinAsync(TimeSpan.FromMilliseconds(200), TimeProvider.System);
+        await Assert.That(resolved).IsFalse()
             .Because("the stale cancel must not resolve a later request that reuses the id");
 
         registry.Resolve("req-4", new AcpInteractionDecision("allow", null, null, null, null, null));
@@ -91,7 +92,8 @@ public class PendingAcpInteractionRegistryTests {
         registry.Resolve("req-a", cancel);          // the echo for the second abandonment must still be dropped
         var reused = registry.AwaitDecisionAsync("req-a", CancellationToken.None);
 
-        await Assert.That(await Task.WhenAny(reused, Task.Delay(200)) == reused).IsFalse()
+        var resolved = await reused.FinishedWithinAsync(TimeSpan.FromMilliseconds(200), TimeProvider.System);
+        await Assert.That(resolved).IsFalse()
             .Because("an evicted mark would have buffered the stale cancel and resolved the reused id with it");
     }
 }

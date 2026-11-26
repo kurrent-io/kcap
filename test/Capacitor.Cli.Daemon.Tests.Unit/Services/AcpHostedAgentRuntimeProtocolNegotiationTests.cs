@@ -19,7 +19,7 @@ public class AcpHostedAgentRuntimeProtocolNegotiationTests {
 
     /// <summary>Minimal <see cref="IAcpProcess"/> stand-in — these tests never exercise process exit/terminate.</summary>
     sealed class FakeAcpProcess : IAcpProcess {
-        public int  Pid       { get; init; } = 4242;
+        public int  Pid       { get; } = 4242;
         public bool HasExited { get; private set; }
         public int? ExitCode  { get; private set; }
 
@@ -37,8 +37,8 @@ public class AcpHostedAgentRuntimeProtocolNegotiationTests {
 
     sealed class Harness : IAsyncDisposable {
         public FakeAcpAgent          Fake    { get; }
-        public AcpConnection         Conn    { get; }
-        public FakeAcpProcess        Process { get; }
+        AcpConnection         Conn    { get; }
+        FakeAcpProcess        Process { get; }
         public AcpHostedAgentRuntime Runtime { get; }
         public CancellationTokenSource Cts   { get; } = new();
 
@@ -163,7 +163,7 @@ public class AcpHostedAgentRuntimeProtocolNegotiationTests {
     }
 
     static readonly JsonElement MalformedInit =
-        JsonDocument.Parse("""{"protocolVersion":"not-a-number","agentCapabilities":{"loadSession":true}}""").RootElement.Clone();
+        JsonElement.Parse("""{"protocolVersion":"not-a-number","agentCapabilities":{"loadSession":true}}""");
 
     [Test]
     public async Task Diagnostics_Cursor_ProtocolMismatch_ExactMessage() {

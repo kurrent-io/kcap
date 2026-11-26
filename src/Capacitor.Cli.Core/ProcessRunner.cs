@@ -129,17 +129,53 @@ public sealed class ProcessRunner(TimeProvider time, Func<int, bool>? interrupt 
 
             if (overflow.IsCancellationRequested) {
                 await KillAndAwaitAsync(process).ConfigureAwait(false);
-                await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
-                return new ProcessResult(process.ExitCode, stdoutTask.Result, stderrTask.Result, TimedOut: false);
+                var (_, oOut, oErr) = await DrainAfterKillAsync(stdoutTask, stderrTask, ct).ConfigureAwait(false);
+                return new ProcessResult(process.ExitCode, oOut, oErr, TimedOut: false);
             }
 
             await KillAndAwaitAsync(process, options.TimeoutKill == TimeoutKillScope.Tree).ConfigureAwait(false);
-            await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
-            return new ProcessResult(process.ExitCode, stdoutTask.Result, stderrTask.Result, TimedOut: true);
+            var (_, tOut, tErr) = await DrainAfterKillAsync(stdoutTask, stderrTask, ct).ConfigureAwait(false);
+            return new ProcessResult(process.ExitCode, tOut, tErr, TimedOut: true);
         }
 
-        await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
-        return new ProcessResult(process.ExitCode, stdoutTask.Result, stderrTask.Result, TimedOut: false);
+        // The child exited. A descendant that inherited the pipe can hold it open, so bound the drain
+        // by the same deadline and cancellation that bound the exit wait rather than wait unbounded.
+        var (drained, stdout, stderr) = await DrainBoundedAsync(stdoutTask, stderrTask, waitCts.Token).ConfigureAwait(false);
+        if (drained)
+            return new ProcessResult(process.ExitCode, stdout, stderr, TimedOut: false);
+
+        if (ct.IsCancellationRequested) {
+            if (options.CancelMode == CancelMode.KillTree)
+                await KillAndAwaitAsync(process).ConfigureAwait(false);
+            throw new OperationCanceledException(ct);
+        }
+
+        // The deadline elapsed while a lingering descendant held the pipe; free what we can and report it.
+        await KillAndAwaitAsync(process).ConfigureAwait(false);
+        return new ProcessResult(process.ExitCode, "", "", TimedOut: timeoutCts?.IsCancellationRequested == true);
+    }
+
+    // Awaits both drains, abandoning (and observing) them when `bound` fires before they finish. The
+    // reads themselves take CancellationToken.None, so a detached child never blocks on a full pipe.
+    static async Task<(bool Drained, string Out, string Err)> DrainBoundedAsync(
+            Task<string> stdoutTask, Task<string> stderrTask, CancellationToken bound) {
+        try {
+            await Task.WhenAll(stdoutTask, stderrTask).WaitAsync(bound).ConfigureAwait(false);
+            return (true, stdoutTask.Result, stderrTask.Result);
+        } catch (OperationCanceledException) when (bound.IsCancellationRequested) {
+            Observe(stdoutTask);
+            Observe(stderrTask);
+            return (false, "", "");
+        }
+    }
+
+    // After a tree kill the child's pipes close at once; this only bounds a descendant that escaped
+    // the kill still holding the write end, so it never delays the ordinary case.
+    async Task<(bool Drained, string Out, string Err)> DrainAfterKillAsync(
+            Task<string> stdoutTask, Task<string> stderrTask, CancellationToken ct) {
+        using var grace = new CancellationTokenSource(DrainGrace, time);
+        using var bound = CancellationTokenSource.CreateLinkedTokenSource(ct, grace.Token);
+        return await DrainBoundedAsync(stdoutTask, stderrTask, bound.Token).ConfigureAwait(false);
     }
 
     // CreateNoWindow: the desktop app is a GUI process, and on Windows a console child of one gets a
@@ -161,6 +197,10 @@ public sealed class ProcessRunner(TimeProvider time, Func<int, bool>? interrupt 
     const int TailLimit = 500;
 
     static readonly TimeSpan DefaultInterruptGrace = TimeSpan.FromSeconds(10);
+
+    // Only an escaped descendant holding an inherited pipe reaches this wait; a killed tree closes its
+    // pipes at once, so the ordinary post-kill drain finishes far inside it.
+    static readonly TimeSpan DrainGrace = TimeSpan.FromSeconds(5);
 
     public async Task<StreamingResult> RunStreamingAsync(string fileName, string[] args, RunOptions options,
             Action<StreamedLine> onLine, CancellationToken ct) {
@@ -197,7 +237,7 @@ public sealed class ProcessRunner(TimeProvider time, Func<int, bool>? interrupt 
         using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts?.Token ?? CancellationToken.None, graceExpired.Token);
 
         var grace = options.InterruptGrace > TimeSpan.Zero ? options.InterruptGrace : DefaultInterruptGrace;
-        using var interruptRegistration = options.Interrupt.Register(() => {
+        await using var interruptRegistration = options.Interrupt.Register(() => {
             try {
                 if (process.HasExited) return;
                 // Undelivered (always so on Windows), there is no cleanup to wait for.

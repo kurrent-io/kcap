@@ -9,7 +9,7 @@ public class WatchCreatedPullRequestTests {
     static readonly TimeSpan Budget = TimeSpan.FromSeconds(10);
 
     static string CreatedLine(int number) =>
-        $$$"""{"type":"user","toolUseResult":{"stdout":"","gitOperation":{"pr":{"number":{{{number}}},"url":"https://github.com/kurrent-io/kcap-cli/pull/{{{number}}}","action":"created"""
+        $$"""{"type":"user","toolUseResult":{"stdout":"","gitOperation":{"pr":{"number":{{number}},"url":"https://github.com/kurrent-io/kcap-cli/pull/{{number}}","action":"created"""
       + "\"}}}}";
 
     static void Observe(WatchState state, string line) =>

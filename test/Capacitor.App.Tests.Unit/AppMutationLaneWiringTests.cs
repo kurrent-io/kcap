@@ -133,10 +133,12 @@ public class AppMutationLaneWiringTests {
     [Arguments("stale_txn_marker", "repair")]
     [Arguments("running_without_daemon_pid", "repair")]
     [Arguments("daemon_running_outside_service", "repair")]
+    [Arguments("profile_switched_restart_app", "refused")]
     public async Task Attention_surfaces_use_human_copy_not_the_wire_token(string token, string kind) {
         var surface = new FakeLifecycleSurface();
         MutationOutcome outcome = kind switch {
             "failed" => new MutationOutcome.Failed(1, token, RecoverySurface.Attention),
+            "refused" => new MutationOutcome.Refused(token, RecoverySurface.Attention),
             "storage" => new MutationOutcome.Refused(token, RecoverySurface.Storage),
             _ => new MutationOutcome.AttentionRepair(token),
         };

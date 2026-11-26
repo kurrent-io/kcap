@@ -15,4 +15,9 @@ public sealed class SenderLabel(MessageKeys keys, DateTimeOffset? sentAt) : Reac
     }
 
     public bool HasTitle => _title is not null;
+
+    public bool IsOtherParticipant {
+        get;
+        internal set => this.RaiseAndSetIfChanged(ref field, value);
+    }
 }

@@ -113,7 +113,6 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
     internal const int StopQueueAlarmRearmBelow = 128;
     internal static readonly TimeSpan StopQueueAlarmMinInterval = TimeSpan.FromSeconds(60);
 
-    readonly string _epoch;
     readonly Func<string, AgentLiveness> _readLiveness;
     readonly Func<string, bool> _isKnownStopTarget;
     readonly Func<CommandAck, Task> _sendAck;
@@ -171,7 +170,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
             ILogger logger, TimeProvider time, int cacheBound = 256,
             Func<string, bool>? isKnownStopTarget = null,
             Task? startBarrier = null) {
-        _epoch = epoch; _readLiveness = readLiveness; _sendAck = sendAck; _sendRejected = sendRejected;
+        Epoch = epoch; _readLiveness = readLiveness; _sendAck = sendAck; _sendRejected = sendRejected;
         _logger = logger; _cacheBound = cacheBound;
         _isKnownStopTarget = isKnownStopTarget ?? (_ => false);
         _time = time;
@@ -179,7 +178,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
         _laneTask = Task.Run(RunLaneAsync);
     }
 
-    public string Epoch => _epoch;
+    public string Epoch { get; }
     public long HighestAcceptedSeq { get { lock (_lock) return _highestAcceptedSeq; } }
     public long LastProcessedSeq   { get { lock (_lock) return _lastProcessedSeq; } }
 
@@ -212,7 +211,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
         // unobserved, and any synchronous work in the delegate ran inside this processor's critical
         // section — which is the section the whole change is trying to keep narrow.
         if (acceptedReplay)
-            SendContained(() => _sendAck(new CommandAck(_epoch, item.Seq, item.CommandId, CommandAckState.Accepted)),
+            SendContained(() => _sendAck(new(Epoch, item.Seq, item.CommandId, CommandAckState.Accepted)),
                 item.Seq, "accepted ack");
 
         // Recovery path: the server retransmitting a command whose terminal ack it never received.
@@ -228,7 +227,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
         acceptedReplay = false;
         rejection = null;
 
-        if (!string.Equals(item.Epoch, _epoch, StringComparison.Ordinal))
+        if (!string.Equals(item.Epoch, Epoch, StringComparison.Ordinal))
             return RejectLocked(item, CommandRejectedReason.StaleEpoch, out rejection); // never touches THIS epoch's lane
 
         if (_cache.TryGetValue(item.Seq, out var existing))
@@ -507,7 +506,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
         var live   = _readLiveness(outcome.AgentId ?? agentId);
         var reason = outcome.RejectReason is { } r ? RejectReasonWireToken(r) : null;
 
-        return new CommandAck(_epoch, seq, commandId, CommandAckState.Processed,
+        return new(Epoch, seq, commandId, CommandAckState.Processed,
             outcome.Kind, live, outcome.AgentId ?? agentId, outcome.SessionId, reason);
     }
 
@@ -759,7 +758,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
             }
 
             // An execution-time terminal rejection (daemon_capacity / semantic).
-            if (outcome.Kind == CommandOutcomeKind.LaunchRejected && outcome.RejectReason is { } r)
+            if (outcome is { Kind: CommandOutcomeKind.LaunchRejected, RejectReason: { } r })
                 rejection = r;
 
             lock (_lock) {
@@ -859,7 +858,7 @@ internal sealed class SequencedCommandProcessor : IAsyncDisposable {
     /// off the hub, so it takes <c>_lock</c> itself.</summary>
     public void AckPrefix(AckProcessedPrefix ack) {
         lock (_lock) {
-            if (!string.Equals(ack.Epoch, _epoch, StringComparison.Ordinal)) return; // stale epoch — not our lane
+            if (!string.Equals(ack.Epoch, Epoch, StringComparison.Ordinal)) return; // stale epoch — not our lane
             if (ack.UpToSeq > _lastProcessedSeq) return;                              // over-ahead of the processed prefix
             if (ack.UpToSeq <= _lastAckedPrefix) return;                              // regressing / duplicate ack
             _lastAckedPrefix = ack.UpToSeq;

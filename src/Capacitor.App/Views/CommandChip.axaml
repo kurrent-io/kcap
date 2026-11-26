@@ -9,7 +9,7 @@
             <!-- Scrolls rather than wraps: a break at a flag's hyphen reads as a different command. -->
             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" VerticalAlignment="Center">
                 <SelectableTextBlock Text="{Binding #Root.Text}" TextWrapping="NoWrap" Margin="0,4"
-                                     FontFamily="{StaticResource OnboardingMonoFont}" FontSize="12"
+                                     FontFamily="{StaticResource OnboardingMonoFont}" FontSize="{StaticResource KcapFontSizeSmall}"
                                      Foreground="{StaticResource KcapTextBrush}" />
             </ScrollViewer>
             <Button x:Name="CopyButton" Grid.Column="1" Classes="kcapGhost kcapIcon" Padding="5" MinHeight="0"

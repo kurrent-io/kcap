@@ -38,12 +38,10 @@ public sealed class HandoffOutcomeViewModel {
             { State: "interrupted" }                      => InterruptedNote,
             { State: "refused", Detail: "source_active" } => SourceActiveNote,
             { State: "unauthorized" }                     => partly ? SignInPartlyNote : SignInNote,
-            { State: "failed", Detail: { Length: > 0 } code } when partly => $"Only part of the previous session's work was carried over ({code}).",
-            { State: "refused" or "failed", Detail: { Length: > 0 } code } => Refusal(code),
-            { State: "refused" or "failed" }              => "Couldn't carry over the previous session's work.",
+            { State: "failed" } when partly              => "Only part of the previous session's work was carried over. Check what was transferred before continuing.",
+            { State: "refused", Detail: "server_unsupported" } => "This server can't carry over the previous session's work. Open the original session to find what you need.",
+            { State: "refused" or "failed" }              => "Couldn't carry over the previous session's work. Check the original session for anything you still need.",
             _                                             => null,
         };
     }
-
-    static string Refusal(string code) => $"Couldn't carry over the previous session's work ({code}).";
 }

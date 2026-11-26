@@ -12,6 +12,9 @@ public class UninstallRunViewModelTests {
         public bool Trashed = true;
         public bool SupportRemoved = true;
         public Exception? SupportFailure;
+        public bool Command = true;
+
+        public bool CommandInstalled => Command;
 
         public Task<IReadOnlyList<string>> RemoveLinksAsync(CancellationToken ct) {
             calls.Add("links");
@@ -38,7 +41,7 @@ public class UninstallRunViewModelTests {
         var calls   = new List<string>();
         var cli     = new FakeKcapCli { UninstallBehavior = _ => Task.FromResult(Exit(0)) };
         var removal = new FakeRemoval(calls);
-        var vm      = new UninstallRunViewModel(cli, removal, purgeLocal, () => calls.Add("quit"), action => action());
+        var vm      = new UninstallRunViewModel(cli, removal, purgeLocal, () => calls.Add("quit"));
         return (vm, cli, removal, calls);
     }
 
@@ -47,7 +50,7 @@ public class UninstallRunViewModelTests {
         var calls = new List<string>();
         var prepared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var cli = new FakeKcapCli { UninstallBehavior = _ => { calls.Add("cli"); return Task.FromResult(Exit(1)); } };
-        var vm = new UninstallRunViewModel(cli, new FakeRemoval(calls), false, () => calls.Add("quit"), action => action(),
+        var vm = new UninstallRunViewModel(cli, new FakeRemoval(calls), false, () => calls.Add("quit"),
             async () => { calls.Add("prepare"); await prepared.Task; calls.Add("prepared"); });
 
         var operation = vm.RunAsync();
@@ -69,7 +72,7 @@ public class UninstallRunViewModelTests {
     public async Task Failed_preparation_keeps_the_app_and_never_starts_cleanup() {
         var calls = new List<string>();
         var cli = new FakeKcapCli();
-        var vm = new UninstallRunViewModel(cli, new FakeRemoval(calls), false, () => { }, action => action(),
+        var vm = new UninstallRunViewModel(cli, new FakeRemoval(calls), false, () => { },
             () => Task.FromException(new InvalidOperationException("A local operation could not settle.")));
 
         await vm.RunAsync();
@@ -86,7 +89,7 @@ public class UninstallRunViewModelTests {
     public async Task A_failed_ui_disposal_drains_remaining_services_but_prevents_cleanup() {
         var calls = new List<string>();
         var cli = new FakeKcapCli();
-        var vm = new UninstallRunViewModel(cli, new FakeRemoval(calls), false, () => { }, action => action(),
+        var vm = new UninstallRunViewModel(cli, new FakeRemoval(calls), false, () => { },
             () => App.DisposeUiForUninstallAsync(
                 [System.Reactive.Disposables.Disposable.Create(() => throw new InvalidOperationException("dispose failed")),
                  System.Reactive.Disposables.Disposable.Create(() => calls.Add("remaining-ui"))],
@@ -112,7 +115,8 @@ public class UninstallRunViewModelTests {
 
         await Assert.That(vm.State).IsEqualTo(UninstallRunState.Failed);
         await Assert.That(calls).IsEmpty();
-        await Assert.That(vm.Lines).Contains("could not stop the daemon");
+        await Assert.That(vm.Description).Contains("The app is still installed");
+        await Assert.That(vm.Lines).DoesNotContain("could not stop the daemon");
         await Assert.That(await vm.RetryCommand.CanExecute.FirstAsync()).IsTrue();
         await Assert.That(await vm.CloseCommand.CanExecute.FirstAsync()).IsTrue();
     }
@@ -125,7 +129,7 @@ public class UninstallRunViewModelTests {
 
         await vm.RunAsync();
 
-        await Assert.That(vm.Lines).Contains("kcap CLI not found");
+        await Assert.That(vm.Description).Contains("Reinstall kcap");
     }
 
     [Test]
@@ -165,8 +169,8 @@ public class UninstallRunViewModelTests {
         await Assert.That(string.Join(",", calls)).IsEqualTo("links,support,trash");
         await Assert.That(vm.IsFinished).IsTrue();
         await Assert.That(vm.Receipt.Select(i => i.Text)).IsEquivalentTo([
-            "Removed kcap from your coding agents’ user settings",
-            "Removed kcap’s background services",
+            "kcap is out of your coding agents’ user settings",
+            "No kcap background service is left",
             "Removed your kcap settings and sign-in",
             "Removed the kcap command the app installed",
             "Moved the kcap app to the Trash",
@@ -192,7 +196,7 @@ public class UninstallRunViewModelTests {
         await failed.RunAsync();
 
         await Assert.That(finished.Description)
-            .IsEqualTo("kcap’s background services and coding-agent integrations have been removed. The app is in the Trash.");
+            .IsEqualTo("kcap is out of your coding agents, and none of its background services is left. The app is in the Trash.");
         await Assert.That(finished.Lines).Contains("Moved the app to the Trash.");
         await Assert.That(failed.Description).IsEqualTo("The app could not be moved to the Trash. See the details below to finish.");
     }
@@ -254,6 +258,68 @@ public class UninstallRunViewModelTests {
 
         await Assert.That(nothingFound.Receipt.Any(i => i.Text.Contains("local server"))).IsFalse();
         await Assert.That(purged.Receipt.Any(i => i.Text.Contains("local server"))).IsTrue();
+    }
+
+    [Test]
+    public async Task A_confirmed_purge_is_visible_after_link_cleanup_fails() {
+        var (vm, cli, removal, _) = Build(purgeLocal: true);
+        cli.UninstallBehavior = onLine => {
+            onLine(new StreamedLine(ProcessStreamKind.Stdout, "Purged the local server in /home/me/.local/share/kcap/local."));
+            return Task.FromResult(Exit(0));
+        };
+        removal.LeftLinks = ["/usr/local/bin/kcap"];
+
+        await vm.RunAsync();
+
+        await Assert.That(vm.State).IsEqualTo(UninstallRunState.Failed);
+        await Assert.That(vm.Lines).Contains("Deleted the local server and every session it recorded.");
+        await Assert.That(string.Join("\n", vm.Lines)).DoesNotContain("/home/me");
+
+        cli.UninstallBehavior = _ => Task.FromResult(Exit(0));
+        await vm.RunAsync();
+
+        await Assert.That(vm.Lines).Contains("Deleted the local server and every session it recorded.");
+    }
+
+    /// A zero exit proves nothing is left, not that something was there.
+    [Test]
+    public async Task Receipt_says_removed_or_kept_only_for_what_was_there_before_the_run() {
+        var calls   = new List<string>();
+        var cli     = new FakeKcapCli { UninstallBehavior = _ => Task.FromResult(Exit(0)) };
+        var removal = new FakeRemoval(calls) { Command = false };
+        var vm      = new UninstallRunViewModel(cli, removal, false, () => { }, keepConfig: true, hasSettings: () => false);
+
+        await vm.RunAsync();
+
+        await Assert.That(vm.Receipt.Select(i => i.Text)).IsEquivalentTo([
+            "kcap is out of your coding agents’ user settings",
+            "No kcap background service is left",
+            "Moved the kcap app to the Trash",
+        ], TUnit.Assertions.Enums.CollectionOrdering.Matching);
+    }
+
+    /// The first attempt can remove the settings and the command before it fails; the retry then finds neither.
+    [Test]
+    public async Task Receipt_after_a_retry_still_names_what_the_first_attempt_found() {
+        var calls    = new List<string>();
+        var attempts = 0;
+        var settings = true;
+        var removal  = new FakeRemoval(calls);
+        var cli      = new FakeKcapCli {
+            UninstallBehavior = _ => {
+                settings = false;
+                removal.Command = false;
+                return Task.FromResult(Exit(attempts++ == 0 ? 1 : 0));
+            },
+        };
+        var vm = new UninstallRunViewModel(cli, removal, false, () => { }, hasSettings: () => settings);
+
+        await vm.RunAsync();
+        await vm.RunAsync();
+
+        await Assert.That(vm.State).IsEqualTo(UninstallRunState.Finished);
+        await Assert.That(vm.Receipt.Select(i => i.Text)).Contains("Removed your kcap settings and sign-in");
+        await Assert.That(vm.Receipt.Select(i => i.Text)).Contains("Removed the kcap command the app installed");
     }
 
     [Test]

@@ -44,6 +44,76 @@ public class WindowsSingleInstanceLockTests {
         await Assert.That(second).IsNull();
     }
 
+    /// Windows starts the uninstall as a second launch; the copy already running is the one that can ask first.
+    [Test]
+    public async Task A_launch_that_came_to_uninstall_asks_the_running_copy_for_its_uninstall_not_its_window() {
+        var name = UniqueName();
+        var asked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var shown = false;
+        using var held = new ManualResetEventSlim();
+        using var exit = new ManualResetEventSlim();
+        var owner = OnOwnThread(() => {
+            var guard = WindowsSingleInstanceLock.TryAcquire(name, TimeSpan.Zero);
+            if (guard is not null) {
+                guard.UninstallRequested += () => asked.TrySetResult();
+                guard.ShowRequested += () => shown = true;
+            }
+            held.Set();
+            exit.Wait();
+            return guard;
+        });
+        held.Wait();
+
+        var second = await OnOwnThread(() => WindowsSingleInstanceLock.TryAcquire(name, TimeSpan.Zero, uninstall: true));
+        await asked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        exit.Set();
+        using var first = await owner;
+
+        await Assert.That(second).IsNull();
+        await Assert.That(shown).IsFalse();
+    }
+
+    /// The copy that holds the lock subscribes only once its app is up, and the launch that asked does not wait for it.
+    [Test]
+    public async Task An_uninstall_asked_for_before_the_running_copy_listens_reaches_its_first_listener() {
+        var name = UniqueName();
+        var asked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var held = new ManualResetEventSlim();
+        using var listen = new ManualResetEventSlim();
+        using var exit = new ManualResetEventSlim();
+        var owner = OnOwnThread(() => {
+            var guard = WindowsSingleInstanceLock.TryAcquire(name, TimeSpan.Zero);
+            held.Set();
+            listen.Wait();
+            if (guard is not null) guard.UninstallRequested += () => asked.TrySetResult();
+            exit.Wait();
+            return guard;
+        });
+        held.Wait();
+
+        try {
+            var second = await OnOwnThread(() => WindowsSingleInstanceLock.TryAcquire(name, TimeSpan.Zero, uninstall: true));
+            // Only once the lock's own wait has taken the signal is the request one a late listener could miss. Taking
+            // it here instead means that wait has not run yet, so it is put back. Its callback may still be queued when
+            // the listener is added, and that order delivers too: HeldRequestTests pins the held one on its own.
+            using (var signal = EventWaitHandle.OpenExisting($@"Local\{name}.uninstall")) {
+                for (var attempt = 0; attempt < 250 && signal.WaitOne(0); attempt++) {
+                    signal.Set();
+                    await Task.Delay(20);
+                }
+            }
+            listen.Set();
+            await asked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+            await Assert.That(second).IsNull();
+        } finally {
+            // A failure above must not leave the owner thread waiting on events this method is about to dispose.
+            listen.Set();
+            exit.Set();
+            using var first = await owner;
+        }
+    }
+
     [Test]
     public async Task A_relaunch_waits_for_the_old_copy_to_exit_and_then_takes_the_lock() {
         var name = UniqueName();

@@ -3,8 +3,8 @@ using System.Globalization;
 namespace Capacitor.App.ViewModels;
 
 /// Identity is the Id, minted at staging: two pastes of the same bytes are two chips, and a send
-/// clears the chips it sent, not every chip that looks like them. Receipts hold ids, never this
-/// object, so the bytes live only in a tray or a retained launch draft.
+/// clears the chips it sent, not every chip that looks like them. The send keeps this object, so a
+/// refusal can put the same chip back.
 public sealed class StagedAttachment(string fileName, string contentType, ReadOnlyMemory<byte> bytes) {
     public Guid Id { get; } = Guid.NewGuid();
     public string FileName { get; } = fileName;

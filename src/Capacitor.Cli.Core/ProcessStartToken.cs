@@ -5,50 +5,18 @@ using System.Runtime.InteropServices;
 namespace Capacitor.Cli.Core;
 
 /// <summary>
-/// A machine-local token identifying a specific process <i>incarnation</i>,
-/// stable across separate reader processes. Stored on the second line of the
-/// daemon PID file and compared to tell a live daemon apart from a recycled
-/// PID.
-///
-/// <para><b>Why not just <see cref="Process.StartTime"/>?</b> On Linux that
-/// value is NOT stable across processes: .NET derives it from a per-call
-/// boot-time estimate (wall clock minus uptime), so two processes reading the
-/// <i>same</i> PID get tick values that differ by milliseconds-to-seconds and
-/// drift as the realtime clock is adjusted (NTP). The daemon wrote its own
-/// start time, and the CLI's <c>status</c>/<c>stop</c>/<c>doctor</c> — separate
-/// processes — recomputed a slightly different value, so an exact-tick equality
-/// check classified every <i>live</i> daemon as a stale PID file.</para>
-///
-/// <para>On Linux the token is <c>lx:&lt;boot_id&gt;:&lt;starttime&gt;</c> where
-/// <c>starttime</c> is field 22 of <c>/proc/&lt;pid&gt;/stat</c> (clock ticks
-/// since boot — kernel-stored, never recomputed, byte-identical for every
-/// reader) and <c>boot_id</c> is the per-boot UUID from
-/// <c>/proc/sys/kernel/random/boot_id</c>. The boot id disambiguates the
-/// otherwise boot-relative starttime so a PID file that survives a reboot can't
-/// match an unrelated process that happens to reuse the PID and tick offset.</para>
-///
-/// <para>On macOS the token is
-/// <c>mac:&lt;kern.bootsessionuuid&gt;:&lt;p_uniqueid&gt;</c>: <c>p_uniqueid</c> is
-/// a kernel-assigned, monotonically-increasing per-process counter (never reused
-/// within a boot session) read via the private <c>proc_pidinfo</c> flavor
-/// <c>PROC_PIDUNIQIDENTIFIERINFO</c> (17), and <c>kern.bootsessionuuid</c> scopes it
-/// to the current boot session so a value can't collide across reboots. This
-/// duplicates (rather than reuses) the SAME vendored capture
-/// <c>pty_shim.c</c>'s <c>pty_capture_mac_identity</c> uses natively, because
-/// <c>Capacitor.Cli</c> (the CLI binary) calls <see cref="ForPid"/> without the
-/// daemon's native shim present. A cross-implementation
-/// consistency test guards the two vendored copies from drifting apart.</para>
-///
-/// <para>On Windows <see cref="Process.StartTime"/> is an absolute timestamp
-/// already identical across processes (and across reboots), so the token stays
-/// <c>tk:&lt;ticks&gt;</c>.</para>
-///
-/// <para>The <c>scheme:</c> prefix lets <see cref="Matches"/> distinguish "a
-/// different incarnation" (same scheme, different value — conclusive) from "a
-/// token I can't compare" (a legacy PID file that stored bare
-/// <see cref="Process.StartTime"/> ticks with no prefix, encountered mid-upgrade
-/// while the old daemon is still running). The latter returns null so callers
-/// fall back to a weaker image-name check instead of stranding a live daemon.</para>
+/// A machine-local token identifying a process incarnation, identical for every reader process.
+/// Stored on the second line of the daemon PID file to tell a live daemon from a recycled PID.
+/// <para>Not <see cref="Process.StartTime"/>: on Linux .NET derives it from a per-call boot-time
+/// estimate, so two processes read different values for the same PID.</para>
+/// <para>Linux: <c>lx:&lt;boot_id&gt;:&lt;starttime&gt;</c>, field 22 of <c>/proc/&lt;pid&gt;/stat</c>
+/// scoped by the boot id. macOS: <c>mac:&lt;kern.bootsessionuuid&gt;:&lt;p_uniqueid&gt;</c>, read via
+/// <c>PROC_PIDUNIQIDENTIFIERINFO</c>; this duplicates <c>pty_shim.c</c>'s capture because the CLI has no
+/// native shim, and a consistency test keeps the two in step. Windows: <c>tk:&lt;ticks&gt;</c>, since
+/// its start time is already absolute.</para>
+/// <para>A PID file written by an older daemon stores bare ticks with no <c>scheme:</c> prefix;
+/// <see cref="Matches"/> returns null for it so callers fall back to an image-name check instead of
+/// stranding a live daemon.</para>
 /// </summary>
 public static partial class ProcessStartToken {
     /// <summary>Token for the calling process, or null if it can't be read.</summary>
@@ -151,40 +119,14 @@ public static partial class ProcessStartToken {
         }
     }
 
-    // ── macOS: PROC_PIDUNIQIDENTIFIERINFO (flavor 17) is #ifdef PRIVATE in the public SDK's
-    // sys/proc_info.h — proc_pidinfo() itself IS public, the flavor/struct are not declared.
+    // ── macOS: PROC_PIDUNIQIDENTIFIERINFO (flavor 17) is private in the SDK headers.
     //
-    // The struct's TOTAL size is not a stable, documented ABI: empirically probing THIS kernel
-    // (varying the requested buffer size, then comparing getpid() vs a freshly forked child vs
-    // pid 1) shows that any requested size below 56 bytes is refused outright (returns 0, never a
-    // truncated fill) while 56+ always returns exactly 56 — and neither 56 nor any other commonly
-    // cited historical total matches across OS versions. What DOES hold up across that same probe
-    // is the field layout at the FRONT of the struct: the first 16 bytes are a per-process UUID,
-    // the next 8 bytes (offset 16) are a monotonic unique-id counter (a freshly forked child's
-    // value is exactly the parent's + 1), and the following 8 bytes (offset 24) in the child equal
-    // the PARENT's offset-16 value (consistent with "parent's unique id") — including the pid-1
-    // sentinel case (uniqueid=1, puniqueid=0). This is the historically-cited prefix layout
-    // (p_uuid[16], p_uniqueid, p_puniqueid) for the three fields that matter.
-    //
-    // Rather than assert an exact total size that has ALREADY been observed to vary, this reads a
-    // buffer generously larger than any known/plausible total (256 bytes) and only requires the
-    // fixed-offset PREFIX to be present (a short/negative/zero-length read is uncapturable), so a
-    // future OS growing the reserved tail keeps working with no code change. This is the SAME
-    // buffer size and prefix-only read pty_shim.c's native pty_capture_mac_identity settled on
-    // (see that file's design note above PTY_UNIQIDENTIFIERINFO_BUFSIZE) — the two vendored copies
-    // must read the identical bytes at the identical offsets for a live pid, or the daemon's
-    // native capture (at spawn) and this re-deriver (at reap-comparison time) would disagree about
-    // the SAME process's identity. A cross-implementation consistency test
-    // (ProcessStartTokenTests.ForPid_OnMacOS_MatchesNativeShimCaptureForSelf,
-    // UnixPtyProcessSpawnTests.Spawn_produces_a_running_process_with_a_captured_identity) is the
-    // regression guard against the two copies drifting apart.
-    //
-    // Verified on this dev box (macOS, arm64) only — the exact prefix offsets should ideally be
-    // cross-checked against whatever OS version the release macOS runner actually uses (per
-    // pty_shim.c's own flagged caveat: not gated in CI at all today — ci.yml has no macOS runner,
-    // and release.yml only build-time-smokes the shim, it doesn't run these tests). The capture
-    // already fails closed (null, never a wrong value) if this assumption is ever violated, so
-    // this is a functionality risk (a spare/uncapturable result), never a false-proof risk.
+    // The struct's total size varies across OS versions; only its prefix is stable: p_uuid[16], then
+    // p_uniqueid at offset 16, then p_puniqueid at 24. So this reads a generous 256-byte buffer and
+    // requires only the prefix. pty_shim.c's pty_capture_mac_identity must read the same bytes at the
+    // same offsets, or the daemon's spawn-time capture and this reap-time read disagree about one
+    // process; ProcessStartTokenTests.ForPid_OnMacOS_MatchesNativeShimCaptureForSelf guards it. CI has
+    // no macOS leg running it. A violated assumption yields null, never a wrong value.
     const int ProcPidUniqIdentifierInfo   = 17;
     const int UniqIdentifierInfoBufSize   = 256; // matches pty_shim.c's PTY_UNIQIDENTIFIERINFO_BUFSIZE
     const int UniqIdentifierInfoPrefixLen = 32;  // p_uuid[16] + p_uniqueid(8) + p_puniqueid(8) — the only verified-stable prefix

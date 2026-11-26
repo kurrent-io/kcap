@@ -193,7 +193,7 @@ public static class VsCodeChatSessionLog {
 
     static string? Key(JsonNode segment) => Str(segment);
 
-    static long? Index(JsonNode segment) => Int(segment) is { } n && n >= 0 && n < int.MaxValue ? n : null;
+    static long? Index(JsonNode segment) => Int(segment) is { } n and >= 0 and < int.MaxValue ? n : null;
 
     static JsonNode? Detach(JsonObject entry, string name) {
         var value = entry[name];
@@ -253,7 +253,7 @@ public static class VsCodeChatSessionLog {
 
         long? completionTokens = null;
         if (request["completionTokens"] is { } tokens) {
-            if (Int(tokens) is { } n && n >= 0) completionTokens = n;
+            if (Int(tokens) is { } n and >= 0) completionTokens = n;
             else skipped.Add($"requests[{index}].completionTokens is not a count");
         }
 
@@ -265,7 +265,7 @@ public static class VsCodeChatSessionLog {
 
         long? sentAt = null;
         if (request["timestamp"] is { } sentNode) {
-            if (Int(sentNode) is { } ms && ms >= 0) sentAt = ms;
+            if (Int(sentNode) is { } ms and >= 0) sentAt = ms;
             else skipped.Add($"requests[{index}].timestamp is not a time");
         }
 

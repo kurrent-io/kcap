@@ -34,7 +34,7 @@ public partial class ChatTabViewModelTests {
 
     sealed class Harness {
         public FakeDaemonClientService Daemon { get; } = new();
-        public FakeTerminalAttachClientFactory Factory { get; } = new();
+        FakeTerminalAttachClientFactory Factory { get; } = new();
         public FakeTimeProvider Time { get; } = new();
         public RecordingOpener Opener { get; } = new();
         public FakePermissionService Permissions { get; } = new();
@@ -90,15 +90,14 @@ public partial class ChatTabViewModelTests {
         public override string? SenderUserId => "u2";
         public TaskCompletionSource<ChatSendOutcome>? Pending;
         public int Disposals;
-        public bool CanAttachValue = true;
         /// Off for a channel whose send has already gone out when the tab is torn down.
         public bool HonoursCancellation = true;
         public List<(string Text, IReadOnlyList<string> Ids, CancellationToken Ct)> Sends { get; } = [];
         public override SendAvailability Availability => Pending is null ? SendAvailability.Ready : SendAvailability.Sending;
         public override bool CanAcceptText => Pending is null;
         public override string Hint => "scripted";
-        public override bool CanAttach => CanAttachValue;
-        public override string? AttachHint => CanAttachValue ? null : "attachments need the daemon updated";
+        public override bool CanAttach => true;
+        public override string? AttachHint => null;
         public bool CanResubmitValue;
         public bool ResubmitResult = true;
         public int Resubmits;

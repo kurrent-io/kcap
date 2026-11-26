@@ -21,7 +21,6 @@ public sealed class PlanSectionViewModel : ReactiveObject {
     readonly AvaloniaList<PlanTaskRow> _tasks = [];
     readonly AvaloniaList<PlanTaskRow> _inProgress = [];
     readonly ITimer _settle;
-    IReadOnlyList<PlanTaskCount> _counts = [];
     bool _tornDown;
     bool _serverDown;
     bool _unreachable;
@@ -42,18 +41,27 @@ public sealed class PlanSectionViewModel : ReactiveObject {
     public bool HasInProgress => _inProgress.Count > 0;
     /// Whether the section has task rows to show: every task expanded, only the in-progress ones collapsed.
     public bool ShowsBody => IsExpanded ? HasPlan : HasInProgress;
-    public int DoneCount => _tasks.Count(task => task.IsSettled);
-    /// What the expanded header says; collapsed, the header shows Counts.
-    public string HeaderText => $"{DoneCount} of {_tasks.Count} done";
-    /// Pending, in progress, done: one entry per state something is in, so the numbers add up
-    /// to the list.
-    public IReadOnlyList<PlanTaskCount> Counts => _counts;
+    /// Completed or skipped: the server's rule for whether the plan's work is finished.
+    public int SettledCount => _tasks.Count(task => task.IsSettled);
+    public int CompletedCount => _tasks.Count(task => task.IsCompleted);
+    public int SkippedCount => _tasks.Count(task => task.State == PlanTaskState.Skipped);
+    /// What the expanded header says; collapsed, the header shows Counts. A skipped task is
+    /// settled but not done, so it is named apart rather than counted as done.
+    public string HeaderText {
+        get {
+            var done = $"{CompletedCount} of {_tasks.Count} done";
+            var skipped = SkippedCount;
+            return skipped > 0 ? $"{done} · {skipped} skipped" : done;
+        }
+    }
+    /// Pending, in progress, done, skipped: one entry per state something is in, so the numbers
+    /// add up to the list.
+    public IReadOnlyList<PlanTaskCount> Counts { get; private set; } = [];
 
-    bool _isExpanded;
     public bool IsExpanded {
-        get => _isExpanded;
+        get;
         private set {
-            this.RaiseAndSetIfChanged(ref _isExpanded, value);
+            this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsBody));
         }
     }
@@ -167,14 +175,16 @@ public sealed class PlanSectionViewModel : ReactiveObject {
         this.RaisePropertyChanged(nameof(HasTasks));
         this.RaisePropertyChanged(nameof(HasInProgress));
         this.RaisePropertyChanged(nameof(ShowsBody));
-        this.RaisePropertyChanged(nameof(DoneCount));
+        this.RaisePropertyChanged(nameof(SettledCount));
+        this.RaisePropertyChanged(nameof(CompletedCount));
+        this.RaisePropertyChanged(nameof(SkippedCount));
         this.RaisePropertyChanged(nameof(HeaderText));
     }
 
     void SyncCounts() {
         var counts = CountStates();
-        if (!counts.SequenceEqual(_counts)) {
-            _counts = counts;
+        if (!counts.SequenceEqual(Counts)) {
+            Counts = counts;
             this.RaisePropertyChanged(nameof(Counts));
         }
     }
@@ -186,11 +196,11 @@ public sealed class PlanSectionViewModel : ReactiveObject {
     }
 
     PlanTaskCount[] CountStates() {
-        var done = DoneCount;
         PlanTaskCount[] states = [
-            new(PlanTaskState.Pending, _tasks.Count - _inProgress.Count - done),
+            new(PlanTaskState.Pending, _tasks.Count - _inProgress.Count - SettledCount),
             new(PlanTaskState.InProgress, _inProgress.Count, _inProgress.Count > 0 && !_activity.SessionOver),
-            new(PlanTaskState.Completed, done),
+            new(PlanTaskState.Completed, CompletedCount),
+            new(PlanTaskState.Skipped, SkippedCount),
         ];
         return [.. states.Where(state => state.Count > 0)];
     }

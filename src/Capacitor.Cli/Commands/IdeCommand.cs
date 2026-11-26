@@ -23,6 +23,9 @@ public sealed class IdeCommand(
     /// <summary>How long shutdown waits for the server connection and the daemon client to close before exiting anyway.</summary>
     static readonly TimeSpan CloseBudget = TimeSpan.FromSeconds(3);
 
+    /// <summary>How long shutdown waits for a write already in flight before leaving the writer to the process exit.</summary>
+    static readonly TimeSpan WriteDrain = TimeSpan.FromSeconds(1);
+
     static readonly Task<MutationOutcome> Refused =
         Task.FromResult<MutationOutcome>(new MutationOutcome.Refused("daemon_changes_refused", RecoverySurface.None));
 
@@ -32,7 +35,7 @@ public sealed class IdeCommand(
         Console.SetOut(Console.Error);
 
         using var reader = new StreamReader(Console.OpenStandardInput(), Encoding.UTF8);
-        await using var writer = new StreamWriter(stdout, new UTF8Encoding(false));
+        var writer = new StreamWriter(stdout, new UTF8Encoding(false));
         using var loop = new IdeRpcLoop(reader, writer);
 
         var daemon = DaemonClientService.CreateResolved(daemons, profiles.Resolution, time, (_, _) => Refused);
@@ -71,6 +74,9 @@ public sealed class IdeCommand(
                 ("server connection", lane.DisposeAsync),
                 ("daemon client", daemon.DisposeAsync),
             ], CloseBudget, time, Console.Error);
+            // A step left closing past the budget can still notify. A write stuck on a peer that stopped reading keeps
+            // the writer, which the process exit frees: disposing it under that write would throw out of the command.
+            if (await loop.CloseAsync(WriteDrain)) await writer.DisposeAsync();
         }
 
         return 0;

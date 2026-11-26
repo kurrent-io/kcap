@@ -1,12 +1,9 @@
-using System.Text;
 using System.Text.Json;
 
 namespace Capacitor.Models.Transcripts.Harness.Claude;
 
 public sealed class ClaudeLineSignals : ILineSignalReader {
     public static readonly ClaudeLineSignals Instance = new();
-
-    const int MaxTitleLength = 200;
 
     public LineSignals Read(string line, string sessionId, string? agentId) {
         try {
@@ -42,34 +39,6 @@ public sealed class ClaudeLineSignals : ILineSignalReader {
             _              => (null, "auto", false),
         };
 
-        return field is not null && Normalize(root.Str(field)) is { } title ? new TitleSighting(kind, title, null, legacy) : null;
-    }
-
-    // Collapses whitespace runs to one space and caps the title at 200 characters, as the server stores it.
-    static string? Normalize(string? raw) {
-        if (raw is null) return null;
-
-        var sb     = new StringBuilder(Math.Min(raw.Length, MaxTitleLength));
-        var lastWs = true;
-
-        foreach (var ch in raw) {
-            if (sb.Length >= MaxTitleLength) break;
-
-            if (char.IsControl(ch) || char.IsWhiteSpace(ch)) {
-                if (!lastWs) sb.Append(' ');
-                lastWs = true;
-                continue;
-            }
-
-            sb.Append(ch);
-            lastWs = false;
-        }
-
-        // A cut after a high surrogate would leave it unpaired.
-        if (sb.Length >= MaxTitleLength && char.IsHighSurrogate(sb[^1])) sb.Length--;
-
-        var title = sb.ToString().TrimEnd();
-
-        return title.Length == 0 ? null : title;
+        return field is not null && HarnessTitleText.Normalize(root.Str(field)) is { } title ? new TitleSighting(kind, title, null, legacy) : null;
     }
 }

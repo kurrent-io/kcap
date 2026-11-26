@@ -16,15 +16,21 @@ Options for publish:
   --title <T>                      Name shown in listings and the browser tab.
                                    Defaults to the file's own name.
   --description <D>                One line saying what the page is for.
+  --kind <K>                       prd, adr, design, report or other. With
+                                   --update, changes the page's kind
+  --work-item <key|id>             Links the page to a work item, by issue
+                                   key or work item id, repeatable. A new
+                                   page only; any the server could not link
+                                   are named on stderr
   --session <id>                   A session this page came out of,
                                    repeatable. Defaults to KCAP_SESSION_ID when
                                    set, so an agent's publish is attributed to
                                    its own session without ceremony.
   --update <pageId>                Publish a new version of an existing
                                    page. The URL does not change, so a link
-                                   you already shared stays good. Content and
-                                   --session only; a title cannot be changed
-                                   after publishing.
+                                   you already shared stays good. Content,
+                                   --kind and --session only; a title cannot
+                                   be changed after publishing.
 
 SHARING
 
@@ -47,6 +53,7 @@ LIMITS
 EXAMPLES
 
   kcap page publish plan.html --title "Migration plan"
+  kcap page publish plan.html --kind design --work-item PROJ-123
   kcap page publish plan.html --update art_01J9...
   kcap page list --mine
   kcap page search retention numbers

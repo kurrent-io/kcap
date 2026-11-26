@@ -247,7 +247,8 @@ public class WorkspaceViewModelTests {
             await Assert.That(vm.IsArtefactsActive).IsTrue();
 
             gate.SetResult(Ready());
-            await (vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask);
+            // The tab stays while either read is loading, so both must have settled before it can go.
+            await Task.WhenAll(vm.Artefacts.PendingReadForTesting ?? Task.CompletedTask, vm.Artefacts.PendingPagesForTesting ?? Task.CompletedTask);
             await Assert.That(vm.ShowsArtefactsTab).IsFalse();
             await Assert.That(vm.ActiveTab).IsEqualTo(WorkspaceTab.Chat);
             await vm.TeardownAsync();
@@ -1122,7 +1123,7 @@ public class WorkspaceViewModelTests {
             SessionRunMonitor? monitor = null;
             using var commands = new SessionRunActivity((key, report, ended, handoff) =>
                 monitor = new SessionRunMonitor(key, report, ended, daemon, directory, access,
-                    (_, _) => Task.FromResult(new SessionDetailFetch(null)), lane, time, handoff));
+                    FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(null))), lane, time, handoff));
             IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = commands.Running.Subscribe(running => latest = running);
             var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), time, commands: commands);
@@ -1160,7 +1161,7 @@ public class WorkspaceViewModelTests {
     }
 
     static string Notification(string taskId, string? callId, string summary) {
-        var call = callId is null ? "" : $$"""<tool-use-id>{{callId}}</tool-use-id>\n""";
+        var call = callId is null ? "" : $"""<tool-use-id>{callId}</tool-use-id>\n""";
         return $$$"""{"type":"user","origin":{"kind":"task-notification"},"message":{"role":"user","content":"<task-notification>\n<task-id>{{{taskId}}}</task-id>\n{{{call}}}<status>completed</status>\n<summary>{{{summary}}}</summary>\n</task-notification>"}}""" + "\n";
     }
 
@@ -1179,7 +1180,7 @@ public class WorkspaceViewModelTests {
             SessionRunMonitor? monitor = null;
             using var runs = new SessionRunActivity((key, report, ended, handoff) =>
                 monitor = new SessionRunMonitor(key, report, ended, daemon, directory, access,
-                    (_, _) => Task.FromResult(new SessionDetailFetch(null)), lane, time, handoff));
+                    FakeSessionEvents.Paged(_ => Task.FromResult(new SessionDetailFetch(null))), lane, time, handoff));
             IReadOnlyDictionary<string, RunningWork> latest = new Dictionary<string, RunningWork>();
             using var subscription = runs.Running.Subscribe(running => latest = running);
             var vm = Build(daemon, NewActions(new ScriptedLocalControlOps(), new RecordingNotifier(), new RecordingOpener()), new FakeTerminalAttachClientFactory(), time, commands: runs);

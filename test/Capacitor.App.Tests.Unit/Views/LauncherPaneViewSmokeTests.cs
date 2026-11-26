@@ -30,16 +30,6 @@ namespace Capacitor.App.Tests.Unit.Views;
 public class LauncherPaneViewSmokeTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
-    [Test]
-    public async Task Folder_access_accepts_a_picker_path_through_a_symlink() {
-        Skip.When(OperatingSystem.IsWindows(), "Unix folder picker aliases; Windows symlinks require privileges");
-        var repository = Directory.CreateDirectory(Tmp.PathTo("repository")).FullName;
-        var alias = Tmp.PathTo("alias");
-        Directory.CreateSymbolicLink(alias, repository);
-        await Assert.That(LauncherPaneView.IsSameRepositoryFolder(alias + Path.DirectorySeparatorChar, repository)).IsTrue();
-        await Assert.That(LauncherPaneView.IsSameRepositoryFolder(Tmp.PathTo("other"), repository)).IsFalse();
-    }
-
     /// A row's ▶ and menu show under the pointer, on the picked row and while the menu is open, not on the focus a click
     /// leaves behind.
     [Test]
@@ -350,7 +340,6 @@ public class LauncherPaneViewSmokeTests {
                 WarningVisible: warning.IsEffectivelyVisible,
                 TextTop: Top(text, banner),
                 AlignedLeft: Math.Abs(Left(button, banner) - Left(text, banner)) < 1,
-                Primary: button.Classes.Contains("kcapPrimary"),
                 Gap: gap);
 
             start.OnNext(false);
@@ -375,7 +364,6 @@ public class LauncherPaneViewSmokeTests {
         await Assert.That(idle.WarningVisible).IsTrue();
         await Assert.That(idle.TextTop).IsLessThan(22);
         await Assert.That(idle.AlignedLeft).IsTrue();
-        await Assert.That(idle.Primary).IsTrue();
         await Assert.That(idle.Gap).IsGreaterThanOrEqualTo(13);
         await Assert.That(idle.Gap).IsLessThanOrEqualTo(15);
         await Assert.That(busy.BarVisible).IsTrue();
@@ -691,7 +679,10 @@ public class LauncherPaneViewSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task StartErrorText_visibility_follows_StartError() {
+    [Arguments("Daemon 'kcap-dev' is at capacity.", "Daemon 'kcap-dev' is at capacity. " + HomeViewModel.AtCapacityAdvice)]
+    [Arguments("Unable to load shared library 'libpty_shim' or one of its dependencies.\nDYLD_PRINT_LIBRARIES\ndlopen(/Applications/kcap.app/Contents/MacOS/libpty_shim.dylib)",
+        HomeViewModel.TerminalComponentUnavailable)]
+    public async Task Start_error_shows_readable_copy_until_the_next_success(string failure, string expected) {
         var (visibleBefore, visibleAfterFailure, errorMessage, visibleAfterSuccess) = await AvaloniaSession.DispatchAsync(async () => {
             var (vm, _, launch, tmp) = Build();
             using var _tmp = tmp;
@@ -704,7 +695,7 @@ public class LauncherPaneViewSmokeTests {
             var before = errorText.IsVisible;
 
             await vm.SelectRepositoryAsync("/repos/kcap-cli");
-            launch.Next = new LaunchOutcome(false, null, "Daemon 'kcap-dev' is at capacity.");
+            launch.Next = new LaunchOutcome(false, null, failure);
             await vm.StartCommand.Execute();
             Dispatcher.UIThread.RunJobs();
             var afterFailure = errorText.IsVisible;
@@ -724,7 +715,7 @@ public class LauncherPaneViewSmokeTests {
 
         await Assert.That(visibleBefore).IsFalse();
         await Assert.That(visibleAfterFailure).IsTrue();
-        await Assert.That(errorMessage).IsEqualTo("Daemon 'kcap-dev' is at capacity.");
+        await Assert.That(errorMessage).IsEqualTo(expected);
         await Assert.That(visibleAfterSuccess).IsFalse();
     }
 
@@ -744,7 +735,7 @@ public class LauncherPaneViewSmokeTests {
             Dispatcher.UIThread.RunJobs();
             window.UpdateLayout();
             var ring = goal.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "PART_BorderElement");
-            var result = (ring.BorderThickness, ring.Background is null || ring.Background is Avalonia.Media.ISolidColorBrush { Color.A: 0 });
+            var result = (ring.BorderThickness, ring.Background is null or Avalonia.Media.ISolidColorBrush { Color.A: 0 });
             window.Close();
             Dispatcher.UIThread.RunJobs();
             vm.Dispose();
@@ -844,8 +835,6 @@ public class LauncherPaneViewSmokeTests {
             await Assert.That(vm.CanAttach).IsTrue();
 
             var card = Find<Border>(window, "GoalCard")!;
-            var resting = card.BorderBrush;
-            await Assert.That(resting).IsNotNull();
 
             var transfer = new DataTransfer();
             var item = new DataTransferItem();
@@ -854,10 +843,7 @@ public class LauncherPaneViewSmokeTests {
 
             card.RaiseEvent(new DragEventArgs(DragDrop.DragOverEvent, transfer, card, new Point(6, 6), KeyModifiers.None));
             Settle(window);
-            // The highlight is a class the card's own style answers; a local brush on the card
-            // would outrank it and the drag would look the same as no drag.
             await Assert.That(card.Classes.Contains("dragOver")).IsTrue();
-            await Assert.That(card.BorderBrush).IsNotSameReferenceAs(resting);
 
             card.RaiseEvent(new DragEventArgs(DragDrop.DropEvent, transfer, card, new Point(6, 6), KeyModifiers.None));
             await (view.PendingIntakeForTesting ?? Task.CompletedTask);
@@ -865,7 +851,6 @@ public class LauncherPaneViewSmokeTests {
 
             await Assert.That(vm.Tray.Items.Select(f => f.FileName)).IsEquivalentTo(["dropped.png"]);
             await Assert.That(card.Classes.Contains("dragOver")).IsFalse();
-            await Assert.That(card.BorderBrush).IsSameReferenceAs(resting);
 
             window.Close();
             Dispatcher.UIThread.RunJobs();
@@ -1123,7 +1108,7 @@ public class LauncherPaneViewSmokeTests {
             var menu = view.OpenMenuForTesting!;
             var content = (Control)menu.Content!;
             List<string> Picks() => content.GetVisualDescendants().OfType<Button>()
-                .Select(b => AutomationProperties.GetName(b))
+                .Select(AutomationProperties.GetName)
                 .Where(n => n is not null && names.Any(name => n.StartsWith(name, StringComparison.Ordinal))).ToList()!;
             for (var i = 0; i < 200 && Picks().Count == 0; i++) {
                 await Task.Delay(10);
@@ -1196,7 +1181,7 @@ public class LauncherPaneViewSmokeTests {
     /// A connected local daemon the server lists under accounts/1, a repository chosen, and a
     /// snapshot of two Claude accounts: home in the default directory, work in its own.
     sealed class AccountRig : IDisposable {
-        public FakeDaemonClientService Daemon { get; } = new();
+        FakeDaemonClientService Daemon { get; } = new();
         public FakeRemoteAgents Remote { get; } = new();
         public BehaviorSubject<AccountsSnapshotDto?> Snapshots { get; } = new(null);
         public RecordingLaunchClient Launch { get; } = new();
@@ -1272,7 +1257,7 @@ public class LauncherPaneViewSmokeTests {
             var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
             Settle(window);
 
-            await Assert.That(AccountHeader(agent)!.Classes.Contains("sectionMeta")).IsTrue();
+            await Assert.That(AccountHeader(agent)!.IsEffectivelyVisible).IsTrue();
             var home = NamedRow(agent, "home, selected")!;
             var work = NamedRow(agent, "work")!;
             var modelDefault = NamedRow(agent, "Default — Claude Code chooses, Claude Code, selected")!;
@@ -1283,11 +1268,6 @@ public class LauncherPaneViewSmokeTests {
             await Assert.That(Texts(home).Select(t => t.Text ?? "")).IsEquivalentTo(["home", "Default", "/u/.claude"], CollectionOrdering.Matching);
             await Assert.That(Texts(work).Select(t => t.Text ?? "")).IsEquivalentTo(["work", "/u/.claude-work", "Needs repair"], CollectionOrdering.Matching);
 
-            var pill = home.GetVisualDescendants().OfType<StatusBadge>().Single(b => b.Text == "Default");
-            await Assert.That(pill.Background).IsSameReferenceAs(view.FindResource("KcapSurfaceRaisedBrush"));
-            await Assert.That(pill.BorderBrush).IsSameReferenceAs(view.FindResource("KcapBorderBrush"));
-            await Assert.That(Texts(pill).Single().Foreground).IsSameReferenceAs(view.FindResource("KcapMutedBrush"));
-            await Assert.That(Texts(work).Single(t => t.Text == "Needs repair").Foreground).IsSameReferenceAs(view.FindResource("KcapWarningBrush"));
 
             static bool Checked(Button row) => row.GetVisualDescendants().OfType<AppIcon>()
                 .Single(i => i.Kind == LucideIconKind.Check).IsVisible;
@@ -1398,9 +1378,8 @@ public class LauncherPaneViewSmokeTests {
             await Assert.That(Shows(agent, "5h")).IsTrue();
 
             var expiredFill = NamedRow(agent, "d2")!.GetVisualDescendants().OfType<Border>()
-                .Single(b => b.Width == 46 && b.Child is Border).Child as Border;
+                .Single(b => b is { Width: 46, Child: Border }).Child as Border;
             await Assert.That(expiredFill!.Width).IsEqualTo(46);
-            await Assert.That(expiredFill.Background).IsSameReferenceAs(view.FindResource("KcapBorderStrongBrush"));
 
             rig.Remote.DrawableDaemonAccountsSubject.OnNext([]);
             await UntilAsync(() => !Shows(agent, "42%"), "the bar dropped", window);

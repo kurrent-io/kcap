@@ -7,10 +7,8 @@ using ReactiveUI.Reactive;
 namespace Capacitor.App.ViewModels;
 
 public sealed class SearchHitViewModel : ReactiveObject {
-    bool _isHighlighted;
-    bool _isOpening;
 
-    SearchHitViewModel() { }
+    SearchHitViewModel(string? vendor = null) => Vendor = vendor;
 
     public required string SessionId { get; init; }
     public required SearchMode Kind { get; init; }
@@ -23,13 +21,15 @@ public sealed class SearchHitViewModel : ReactiveObject {
     public string? OwnerName { get; init; }
     public string? OwnerInitials { get; init; }
     public string? OwnerAvatarUrl { get; init; }
+    /// The coding tool, when the hit knows it: a row leads with its vendor mark, as in the rail.
+    public string? Vendor { get; }
     /// An avatar with no owner to name stays out of the control view rather than reading as an unnamed element.
     public AccessibilityView OwnerAvatarView => string.IsNullOrEmpty(OwnerName) ? AccessibilityView.Raw : AccessibilityView.Content;
     public required string WhenText { get; init; }
     public required PinPresentation Presentation { get; init; }
 
-    public bool IsHighlighted { get => _isHighlighted; set => this.RaiseAndSetIfChanged(ref _isHighlighted, value); }
-    public bool IsOpening { get => _isOpening; set => this.RaiseAndSetIfChanged(ref _isOpening, value); }
+    public bool IsHighlighted { get; set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool IsOpening { get; set => this.RaiseAndSetIfChanged(ref field, value); }
 
     public static SearchHitViewModel ForSession(SessionSearchHitDto hit, DateTimeOffset now) {
         var title = SearchSnippet.Parse(hit.Snippet);
@@ -84,7 +84,7 @@ public sealed class SearchHitViewModel : ReactiveObject {
         var owner = string.IsNullOrWhiteSpace(source.OwnerName) ? null : source.OwnerName;
         var ownerId = source.OwnerUserId
             ?? (source.Origin is AgentOrigin.Local or AgentOrigin.Pending ? viewerUserId : null);
-        return new SearchHitViewModel {
+        return new SearchHitViewModel(row.HasVendor ? row.Vendor : null) {
             SessionId = row.Key,
             Kind = SearchMode.Sidebar,
             Title = title,

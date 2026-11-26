@@ -12,7 +12,19 @@ internal sealed class IdeRpcLoop(TextReader reader, TextWriter writer) : IDispos
     readonly SemaphoreSlim _writeGate = new(1, 1);
     volatile bool _closed;
 
-    public void Dispose() => _writeGate.Dispose();
+    /// <summary>Closes the loop. The gate holds no handle and is not disposed: a writer still queued on a disposed gate
+    /// would never return.</summary>
+    public void Dispose() => _closed = true;
+
+    /// <summary>Drops every write from here on, then waits up to <paramref name="wait"/> for one already writing. True
+    /// once nothing is writing, so the writer can be disposed; false when a write is stuck on a peer that stopped
+    /// reading, and disposing the writer under it would throw out of the command.</summary>
+    public async Task<bool> CloseAsync(TimeSpan wait) {
+        _closed = true;
+        if (!await _writeGate.WaitAsync(wait)) return false;
+        _writeGate.Release();
+        return true;
+    }
 
     /// <summary>Register before <see cref="RunAsync"/>; the table is not guarded against concurrent change.</summary>
     public void Handle(string method, Func<JsonObject?, CancellationToken, Task<JsonNode?>> handler) =>
@@ -92,11 +104,7 @@ internal sealed class IdeRpcLoop(TextReader reader, TextWriter writer) : IDispos
     /// closed its end closes the loop; later writes are dropped.</summary>
     async Task WriteAsync(JsonObject message) {
         var line = message.ToJsonString() + "\n";
-        try {
-            await _writeGate.WaitAsync();
-        } catch (ObjectDisposedException) {
-            return;
-        }
+        await _writeGate.WaitAsync();
 
         try {
             if (_closed) return;

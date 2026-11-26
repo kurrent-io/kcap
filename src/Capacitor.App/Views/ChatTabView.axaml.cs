@@ -1,3 +1,4 @@
+using System.Reactive.Disposables;
 using System.Reactive.Linq;
 using System.Windows.Input;
 using Avalonia;
@@ -23,6 +24,7 @@ public partial class ChatTabView : UserControl {
     readonly HashSet<MarkdownView> _selectedMarkdown = [];
     IDisposable? _sendSubscription;
     ChatFindViewModel? _find;
+    ChatTopics? _topics;
     MarkdownView? _currentFindView;
     ScrollViewer? _scroll;
     TextPresenter? _composerPresenter;
@@ -32,7 +34,6 @@ public partial class ChatTabView : UserControl {
     /// layout, so it covers exactly the scroll changes that gesture produced — an expansion click
     /// or a wheel notch — and not the appends that land later.
     bool _readerGesture;
-    int _listInputVersion;
     bool _thumbDragging;
     bool _dragSelecting;
     bool _edgeScrollQueued;
@@ -80,6 +81,7 @@ public partial class ChatTabView : UserControl {
         ChatItems.AddHandler(Thumb.DragStartedEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
         ChatItems.AddHandler(Thumb.DragDeltaEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
         ChatItems.AddHandler(Thumb.DragCompletedEvent, OnChatThumbDrag, RoutingStrategies.Bubble, handledEventsToo: true);
+        ChatTranscriptKeyboard.Attach(ChatItems);
         ColumnSizing = ChatColumnSizing.Attach(this, ChatItems, ComposerColumn, ChatColumnLeftHandle, ChatColumnRightHandle, ChatLaneHandle);
         // The handles overlay the list rather than sit inside it, so a wheel over one needs its own route.
         foreach (var handle in new Control[] { ChatColumnLeftHandle, ChatColumnRightHandle, ChatLaneHandle }) {
@@ -103,6 +105,9 @@ public partial class ChatTabView : UserControl {
         };
     }
 
+    void OnScalingChanged(object? sender, EventArgs e) =>
+        (ChatItems.ItemsPanelRoot as ChatVirtualizingPanel)?.InvalidateReadingMeasurements();
+
     internal ChatColumnSizing ColumnSizing { get; }
 
     public static readonly StyledProperty<double> LaneWidthProperty =
@@ -114,6 +119,10 @@ public partial class ChatTabView : UserControl {
         set => SetValue(LaneWidthProperty, value);
     }
 
+    /// Where a message's text bookmarks to, when it can.
+    internal ChatBookmarks? BookmarksFor(Control text) =>
+        DataContext is ChatTabViewModel { ShowsMarks: true } chat && text.DataContext is ChatItemViewModel ? chat.Bookmarks : null;
+
     internal Task? PendingIntakeForTesting => _composer.PendingIntakeForTesting;
 
     /// Paired with the visual tree rather than the constructor: a tab swap detaches and re-attaches
@@ -122,11 +131,13 @@ public partial class ChatTabView : UserControl {
         base.OnAttachedToVisualTree(e);
         ObserveSending();
         ObserveFind();
+        ObserveTopics();
         RestoreFind();
         _pointerRoot = TopLevel.GetTopLevel(this);
         _pointerRoot?.AddHandler(PointerReleasedEvent, OnPrimaryReleased, RoutingStrategies.Tunnel, handledEventsToo: true);
         _pointerRoot?.AddHandler(PointerCaptureLostEvent, OnPrimaryCaptureLost, handledEventsToo: true);
         if (_pointerRoot is Window window) window.Deactivated += OnWindowDeactivated;
+        if (_pointerRoot is not null) _pointerRoot.ScalingChanged += OnScalingChanged;
     }
 
     /// The window reuses this view for every session it opens, so the reading position belongs to
@@ -146,6 +157,7 @@ public partial class ChatTabView : UserControl {
         base.OnDataContextChanged(e);
         ObserveSending();
         ObserveFind();
+        ObserveTopics();
         RestoreFind();
     }
 
@@ -160,6 +172,8 @@ public partial class ChatTabView : UserControl {
         _sendSubscription = null;
         if (_find is not null) _find.Navigated -= OnFindNavigated;
         _find = null;
+        if (_topics is not null) _topics.Revealing -= OnTopicRevealing;
+        _topics = null;
         _currentFindView?.SetCurrentFind(-1);
         _currentFindView = null;
         _primaryPointer = null;
@@ -167,6 +181,7 @@ public partial class ChatTabView : UserControl {
         _pointerRoot?.RemoveHandler(PointerReleasedEvent, OnPrimaryReleased);
         _pointerRoot?.RemoveHandler(PointerCaptureLostEvent, OnPrimaryCaptureLost);
         if (_pointerRoot is Window window) window.Deactivated -= OnWindowDeactivated;
+        if (_pointerRoot is not null) _pointerRoot.ScalingChanged -= OnScalingChanged;
         _pointerRoot = null;
         base.OnDetachedFromVisualTree(e);
     }
@@ -174,10 +189,17 @@ public partial class ChatTabView : UserControl {
     void ObserveSending() {
         _sendSubscription?.Dispose();
         _sendSubscription = DataContext is ChatTabViewModel vm
-            ? Observable.FromEvent(h => vm.TurnSubmitted += h, h => vm.TurnSubmitted -= h)
-                .Subscribe(_ => ResumeFollowing())
+            ? new CompositeDisposable(
+                Observable.FromEvent(h => vm.TurnSubmitted += h, h => vm.TurnSubmitted -= h).Subscribe(_ => ResumeFollowing()),
+                Observable.FromEvent(h => vm.Drafted += h, h => vm.Drafted -= h).Subscribe(_ => FocusDraft()))
             : null;
     }
+
+    // Posted, so a draft made from a menu is focused after the menu hands focus back.
+    void FocusDraft() => Dispatcher.UIThread.Post(() => {
+        ComposerInput.Focus();
+        ComposerInput.CaretIndex = ComposerInput.Text?.Length ?? 0;
+    }, DispatcherPriority.Input);
 
     void ResumeFollowing() {
         DropToggleAnchor();
@@ -195,15 +217,16 @@ public partial class ChatTabView : UserControl {
         _scroll?.ScrollToEnd();
     }
 
-    internal int ListInputVersion => _listInputVersion;
+    internal int ListInputVersion { get; private set; }
     internal bool IsSmoothScrolling => _smoothFrameQueued || Math.Abs(_smoothRemaining) > 0.5;
     internal bool CanPreserveReadingPosition => !_followTail && _anchorItem is null && _thumbFraction is null;
+    internal bool ShouldAnchorReadingLayout => CanPreserveReadingPosition || ListTextBoxOwnsFocus();
 
     void OnReaderGesture(object? sender, RoutedEventArgs e) {
         if (e is PointerPressedEventArgs pressed && _primaryPointer is null
             && pressed.GetCurrentPoint(ChatItems).Properties.PointerUpdateKind == PointerUpdateKind.LeftButtonPressed)
             _primaryPointer = pressed.Pointer;
-        _listInputVersion++;
+        ListInputVersion++;
         // A TextBox in the list (Other…, free-text) is editing, not reading: arming follow-tail
         // would ScrollToEnd and recycle its virtualizing row, which drops the caret.
         if (OriginatesFromTextBox(e)) {
@@ -211,6 +234,8 @@ public partial class ChatTabView : UserControl {
             return;
         }
         if (e.RoutedEvent == PointerWheelChangedEvent || e.RoutedEvent == ScrollGestureEvent) DropToggleAnchor();
+        if (e.RoutedEvent == PointerWheelChangedEvent || e.RoutedEvent == ScrollGestureEvent || e is KeyEventArgs)
+            (DataContext as ChatTabViewModel)?.Topics.ReleaseCurrent();
         if (e.RoutedEvent == PointerWheelChangedEvent || e.RoutedEvent == ScrollGestureEvent || e is KeyEventArgs) _thumbFraction = null;
         if (e.RoutedEvent == ScrollGestureEvent || e.RoutedEvent == PointerPressedEvent || e is KeyEventArgs) CancelSmoothScroll();
         // A press, or Enter or Space, inside a pending card is answering it — an option, Next, a step
@@ -255,7 +280,13 @@ public partial class ChatTabView : UserControl {
     void OnChatWheelChanged(object? sender, PointerWheelEventArgs e) {
         if (e.Handled || e.KeyModifiers != KeyModifiers.None || OriginatesFromTextBox(e)) return;
         EnsureChatScroll();
-        if (_scroll is null || DefersToInnerScroll(e)) return;
+        if (_scroll is null) return;
+        if (InnerScrollUnder(e) is { } inner) {
+            // An inner viewer keeps the wheel even at its end, so a flick's momentum does not carry on into the chat.
+            CancelSmoothScroll();
+            if (!CanScrollToward(inner, e.Delta.Y)) e.Handled = true;
+            return;
+        }
         var delta = -e.Delta.Y * WheelStep;
         if (Math.Abs(delta) < 0.01) return;
         e.Handled = true;
@@ -326,20 +357,21 @@ public partial class ChatTabView : UserControl {
         _lastSmoothFrame = default;
     }
 
-    // A markdown row hosts a ScrollViewer whose scrolling is disabled. Only an inner viewer
-    // that can still move in this direction owns the notch.
-    bool DefersToInnerScroll(PointerWheelEventArgs e) {
-        if (e.Source is not Visual visual) return false;
+    // A markdown row hosts a ScrollViewer whose scrolling is disabled; only one with somewhere to
+    // scroll owns the wheel.
+    ScrollViewer? InnerScrollUnder(PointerWheelEventArgs e) {
+        if (e.Source is not Visual visual) return null;
         foreach (var inner in visual.GetSelfAndVisualAncestors().OfType<ScrollViewer>()) {
-            if (ReferenceEquals(inner, _scroll)) return false;
+            if (ReferenceEquals(inner, _scroll)) return null;
             if (inner.VerticalScrollBarVisibility == ScrollBarVisibility.Disabled) continue;
-            var range = inner.Extent.Height - inner.Viewport.Height;
-            if (range <= 1) continue;
-            var towardStart = e.Delta.Y > 0;
-            if (towardStart ? inner.Offset.Y <= 0.5 : inner.Offset.Y >= range - 0.5) continue;
-            return true;
+            if (inner.Extent.Height - inner.Viewport.Height > 1) return inner;
         }
-        return false;
+        return null;
+    }
+
+    static bool CanScrollToward(ScrollViewer inner, double wheelDeltaY) {
+        var range = inner.Extent.Height - inner.Viewport.Height;
+        return wheelDeltaY > 0 ? inner.Offset.Y > 0.5 : inner.Offset.Y < range - 0.5;
     }
 
     void OnChatThumbDrag(object? sender, RoutedEventArgs e) {
@@ -372,6 +404,13 @@ public partial class ChatTabView : UserControl {
         }
         ToolTip.SetTip(control, "Copied");
         ToolTip.SetIsOpen(control, true);
+        LiveAnnouncer.Polite(control, "Copied");
+    }
+
+    // Set before the menu hides: hidden, a row leaves the tree and its bindings let go.
+    void OnSendModeClick(object? sender, RoutedEventArgs e) {
+        if (DataContext is ChatTabViewModel vm && sender is Button { Tag: ChatSendMode mode }) vm.SendMode = mode;
+        SendModeButton.Flyout?.Hide();
     }
 
     // Click is raised before the command flips the group, so a keyboard toggle (no pointer press
@@ -418,10 +457,50 @@ public partial class ChatTabView : UserControl {
     }
 
     void OnToolSummaryClick(object? sender, RoutedEventArgs e) {
+        EnsureChatScroll();
+        // A topic unfolding at the bottom of the chat keeps the chat at the bottom, as new rows would.
+        if (sender is Control { DataContext: ChatTopicItem } && _scroll is { } scroll
+            && scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - BottomTolerance) {
+            _followTail = true;
+            CancelSmoothScroll();
+            DropToggleAnchor();
+            Dispatcher.UIThread.Post(() => _scroll?.ScrollToEnd(), DispatcherPriority.Background);
+            return;
+        }
         _followTail = false;
         CancelSmoothScroll();
         if (_anchorItem is null) CaptureToggleAnchor(sender);
         ArmToggleRestore();
+    }
+
+    internal void ShowingAtTop(ChatItemViewModel? row) => (DataContext as ChatTabViewModel)?.Topics.ShowingAtTop(row);
+
+    void OnTopicNameClick(object? sender, RoutedEventArgs e) {
+        e.Handled = true;
+        if (sender is Button { DataContext: ChatTopicItem topic }) topic.IsRenaming = true;
+    }
+
+    void OnTopicNameFieldChanged(object? sender, AvaloniaPropertyChangedEventArgs e) {
+        if (e.Property != IsVisibleProperty || sender is not TextBox { IsVisible: true } field) return;
+        Dispatcher.UIThread.Post(() => {
+            field.Focus();
+            field.SelectAll();
+        });
+    }
+
+    // The field sits inside the topic's fold button, which would take Enter and Space as a click.
+    // Handling Space also stops the platform sending its text, so the field types it itself.
+    void OnTopicNameKeyDown(object? sender, KeyEventArgs e) {
+        if (sender is not TextBox { DataContext: ChatTopicItem topic } field
+            || e.Key is not (Key.Enter or Key.Space or Key.Escape)) return;
+        e.Handled = true;
+        if (e.Key == Key.Enter) topic.Rename(field.Text);
+        else if (e.Key == Key.Escape) topic.IsRenaming = false;
+        else field.SelectedText = " ";
+    }
+
+    void OnTopicNameLostFocus(object? sender, RoutedEventArgs e) {
+        if (sender is TextBox { DataContext: ChatTopicItem { IsRenaming: true } topic } field) topic.Rename(field.Text);
     }
 
     void OnToolRowGotFocus(object? sender, FocusChangedEventArgs e) {
@@ -461,6 +540,9 @@ public partial class ChatTabView : UserControl {
         _scroll.LayoutUpdated -= OnAnchorLayout;
         _scroll.LayoutUpdated += OnAnchorLayout;
         Dispatcher.UIThread.Post(() => {
+            // Measured before the change is laid out, the row has not moved yet, which would
+            // read as already restored and let the anchor go.
+            ChatItems.UpdateLayout();
             _anchorLaidOut = true;
             RestoreToggleAnchor();
         }, DispatcherPriority.Render);
@@ -528,18 +610,26 @@ public partial class ChatTabView : UserControl {
         if (_anchorSummary is { } cached && ReferenceEquals(cached.DataContext, item)
             && cached.GetVisualAncestors().Any(ancestor => ReferenceEquals(ancestor, ChatItems))) return cached;
         _anchorSummary = ChatItems.ContainerFromItem(item)?.GetVisualDescendants().OfType<Button>()
-            .FirstOrDefault(button => button.Classes.Contains("toolSummary") && ReferenceEquals(button.DataContext, item));
+            .FirstOrDefault(button => KeepsPlace(button) && ReferenceEquals(button.DataContext, item));
         return _anchorSummary;
     }
 
     static Button? ToolSummaryOf(object? source) {
-        if (source is Button button && button.Classes.Contains("toolSummary")) return button;
-        return source is Visual visual
-            ? visual.GetVisualAncestors().OfType<Button>().FirstOrDefault(b => b.Classes.Contains("toolSummary"))
-            : null;
+        if (source is Button button && KeepsPlace(button)) return button;
+        return source is Visual visual ? visual.GetVisualAncestors().OfType<Button>().FirstOrDefault(KeepsPlace) : null;
     }
 
+    // A message's topic toggle adds or drops the header above it, and stays under the pointer like a
+    // fold button so a second click undoes the first.
+    static bool KeepsPlace(Button button) => button.Classes.Contains("toolSummary") || button.Classes.Contains("topicHere");
+
     void OnScrollChanged(object? sender, ScrollChangedEventArgs e) {
+        if (ChatItems.ItemsPanelRoot is ChatVirtualizingPanel { ReadingLayoutAnchorPending: true }) return;
+        // Only the reader's own scrolling asks for older rows: the offset an insertion moves is still
+        // near the top until the panel shifts it. A transcript shorter than the view pages until it fills.
+        if (sender is ScrollViewer reading && reading.Offset.Y <= reading.Viewport.Height
+            && (_readerGesture || reading.Extent.Height <= reading.Viewport.Height)
+            && DataContext is ChatTabViewModel { Items.Count: > 0 } chat) chat.RequestOlder();
         if (_restoringAnchor || _anchorItem is not null) return;
         if (sender is not ScrollViewer scroll) return;
         // A dragged thumb owns its position even when discovering row heights changes the range.
@@ -660,6 +750,16 @@ public partial class ChatTabView : UserControl {
         if (_selectedMarkdown.Remove(view)) RefreshSelectionFollowTail();
     }
 
+    internal Visual? CapturedTranscriptElement => _primaryPointer?.Captured as Visual;
+
+    internal void ReleaseRecycledMarkdown(MarkdownView view) {
+        if (_dragView == view) {
+            _dragView = null;
+            _dragSelecting = false;
+        }
+        if (_currentFindView == view) _currentFindView = null;
+    }
+
     bool SelectionHeld() => _selectedMarkdown.Any(static view => view.IsEffectivelyVisible);
 
     static bool OriginatesFromMarkdown(RoutedEventArgs e) =>
@@ -758,13 +858,60 @@ public partial class ChatTabView : UserControl {
     }
 
     bool TryInterrupt() {
-        if (DataContext is not ChatTabViewModel chat || !chat.CanInterruptWithEscape
+        if (DataContext is not ChatTabViewModel { CanInterruptWithEscape: true } chat
             || !((ICommand)chat.InterruptCommand).CanExecute(null)) return false;
         chat.InterruptCommand.Execute().Subscribe();
         return true;
     }
 
     public void FocusComposer() => ComposerInput.Focus();
+
+    void ObserveTopics() {
+        if (_topics is not null) _topics.Revealing -= OnTopicRevealing;
+        _topics = (DataContext as ChatTabViewModel)?.Topics;
+        if (_topics is not null) {
+            _topics.Revealing += OnTopicRevealing;
+            OnTopicRevealing();
+        }
+    }
+
+    // Posted: the request can come with a switch back to the chat tab, which lays the list out first.
+    void OnTopicRevealing() {
+        var topics = _topics;
+        Dispatcher.UIThread.Post(() => {
+            if (ReferenceEquals(topics, _topics) && topics?.TakeReveal() is { } reveal) ShowRow(reveal.Row, reveal.Quote);
+        }, DispatcherPriority.Loaded);
+    }
+
+    /// Scrolls a row, such as a topic's header, to the top of the transcript, and selects
+    /// <paramref name="quote"/> in it, scrolling on to the quote if it falls below the view.
+    void ShowRow(ChatItemViewModel target, string? quote = null) {
+        if (ChatItems.Items is not { } items) return;
+        var index = items.IndexOf(target);
+        if (index < 0) return;
+        DropToggleAnchor();
+        CancelSmoothScroll();
+        _thumbFraction = null;
+        _followTail = false;
+        EnsureChatScroll();
+        if (_scroll is null) return;
+        ChatItems.ScrollIntoView(index);
+        ChatItems.UpdateLayout();
+        if (ChatItems.ContainerFromIndex(index) is not { } row || row.TranslatePoint(default, _scroll) is not { } top) return;
+        var max = Math.Max(0, _scroll.Extent.Height - _scroll.Viewport.Height);
+        _scroll.Offset = new Vector(_scroll.Offset.X, Math.Clamp(_scroll.Offset.Y + top.Y - RevealGap, 0, max));
+        foreach (var held in _selectedMarkdown.ToArray()) held.ClearSelection();
+        if (quote is null) return;
+        foreach (var text in row.GetVisualDescendants().OfType<MarkdownView>()) {
+            if (text.Highlight(quote) is not { } found) continue;
+            ChatItems.UpdateLayout();
+            if (text.TranslatePoint(found.Position, _scroll) is { } at && at.Y + found.Height > _scroll.Viewport.Height - RevealGap)
+                _scroll.Offset = new Vector(_scroll.Offset.X, Math.Clamp(_scroll.Offset.Y + at.Y - _scroll.Viewport.Height / 3, 0, max));
+            return;
+        }
+    }
+
+    const double RevealGap = 8;
 
     void ObserveFind() {
         if (_find is not null) _find.Navigated -= OnFindNavigated;

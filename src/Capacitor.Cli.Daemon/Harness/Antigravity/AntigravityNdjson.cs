@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Capacitor.Cli.Core;
+using Capacitor.Models.Transcripts.Harness.Antigravity;
 
 namespace Capacitor.Cli.Daemon.Harness.Antigravity;
 
@@ -70,11 +71,6 @@ internal sealed record AntigravityEvent(
 /// caller/runtime-owned downstream, the same split <c>AcpEventTranslator</c> uses for the ACP path
 /// (<c>AcpTranscriptForwarder</c> reassigns the real monotonic seq on send). A <see langword="null"/>
 /// <c>TimestampIso</c> is harmless: the server falls back to "now".
-///
-/// <b>Still out of scope here</b>: surfacing a tool's soft-denial as a <c>system_note</c> is added
-/// by a later, separately-scoped task (a sibling plan's "surface soft-denials as system_note" task,
-/// which extends this same file) — an <c>ERROR</c> tool step maps only to a <c>tool_result</c> below,
-/// nothing more.
 /// </summary>
 internal static class AntigravityNdjson {
     /// <summary>
@@ -215,10 +211,6 @@ internal sealed class AntigravityStepAccumulator {
         public string?  State;
         public bool     HasUsage;
         public long?    InputTokens;
-        public long?    OutputTokens;
-        public long?    ThinkingTokens;
-        public long?    CacheReadTokens;
-        public long?    TotalTokens;
         public bool     IsTool;
         public bool     ToolCallEmitted;
         public string?  ToolName;
@@ -247,12 +239,8 @@ internal sealed class AntigravityStepAccumulator {
 
         if (evt.InputTokens is not null || evt.OutputTokens is not null || evt.ThinkingTokens is not null
                 || evt.CacheReadTokens is not null || evt.TotalTokens is not null) {
-            buf.HasUsage        = true;
-            buf.InputTokens     = evt.InputTokens;
-            buf.OutputTokens    = evt.OutputTokens;
-            buf.ThinkingTokens  = evt.ThinkingTokens;
-            buf.CacheReadTokens = evt.CacheReadTokens;
-            buf.TotalTokens     = evt.TotalTokens;
+            buf.HasUsage    = true;
+            buf.InputTokens = evt.InputTokens;
         }
 
         if (buf.StepType == "tool") {
@@ -270,9 +258,11 @@ internal sealed class AntigravityStepAccumulator {
     /// step's buffer once it reaches terminal (<c>DONE</c> or <c>ERROR</c>).
     ///
     /// A <c>tool</c> step contributes a <c>tool_call</c> the first time it has a name (regardless of
-    /// state — this is the one non-terminal emission) and, once terminal, a <c>tool_result</c>
-    /// carrying <c>output</c> (<c>ToolIsError: false</c>) or the error's <c>message</c> (prefixed
-    /// with its <c>type</c> when present, <c>ToolIsError: true</c>). Any other step contributes, only
+    /// state — this is the one non-terminal emission), under the name and input
+    /// <see cref="AntigravityToolNames"/> translates it to, and, once terminal, always a
+    /// <c>tool_result</c>: the error's <c>message</c> (prefixed with its <c>type</c>), or the output
+    /// without its timestamp header, empty when there was none. It is an error for an <c>ERROR</c>
+    /// step and for a command that exited non-zero or failed to run. Any other step contributes, only
     /// once terminal, an <c>assistant_text</c> when it accumulated any text and a <c>usage</c> when
     /// its terminal event carried a usage block — a content-free terminal step (e.g. a bare
     /// <c>user_input</c> marker) yields neither. A step still <c>ACTIVE</c> (and not a tool call) is
@@ -292,12 +282,13 @@ internal sealed class AntigravityStepAccumulator {
             var buf      = _steps[index];
             var terminal = buf.State is "DONE" or "ERROR";
 
-            if (buf.IsTool && !buf.ToolCallEmitted && buf.ToolName is not null) {
+            if (buf is { IsTool: true, ToolCallEmitted: false, ToolName: { } nativeName }) {
+                var (name, input) = AntigravityToolNames.Translate(nativeName, buf.ToolInputJson);
                 (envelopes ??= []).Add(new AcpEventEnvelope(
                     Kind: AcpEventKind.ToolCall,
                     ToolCallId: index.ToString(),
-                    ToolName: buf.ToolName,
-                    ToolInputJson: buf.ToolInputJson));
+                    ToolName: name,
+                    ToolInputJson: input));
                 buf.ToolCallEmitted = true;
             }
 
@@ -305,23 +296,7 @@ internal sealed class AntigravityStepAccumulator {
 
             (done ??= []).Add(index);
 
-            if (buf.IsTool) {
-                if (buf.ToolOutput is not null) {
-                    (envelopes ??= []).Add(new AcpEventEnvelope(
-                        Kind: AcpEventKind.ToolResult,
-                        ToolCallId: index.ToString(),
-                        ToolResult: buf.ToolOutput,
-                        ToolIsError: false));
-                } else if (buf.ToolErrorMessage is not null) {
-                    (envelopes ??= []).Add(new AcpEventEnvelope(
-                        Kind: AcpEventKind.ToolResult,
-                        ToolCallId: index.ToString(),
-                        ToolResult: buf.ToolErrorType is { Length: > 0 } type
-                            ? $"{type}: {buf.ToolErrorMessage}"
-                            : buf.ToolErrorMessage,
-                        ToolIsError: true));
-                }
-            }
+            if (buf.IsTool) (envelopes ??= []).Add(ToolResult(index, buf));
 
             if (buf.Text.Length > 0) {
                 (envelopes ??= []).Add(new AcpEventEnvelope(
@@ -340,5 +315,45 @@ internal sealed class AntigravityStepAccumulator {
         if (done is not null) foreach (var index in done) _steps.Remove(index);
 
         return envelopes ?? [];
+    }
+
+    // Every terminal tool step settles its call, even one that reported no output: an unsettled call
+    // reads as still running for the rest of the session.
+    static AcpEventEnvelope ToolResult(long index, StepBuffer buf) {
+        string text;
+        bool   isError;
+        if (buf.ToolErrorMessage is { } message) {
+            text    = buf.ToolErrorType is { Length: > 0 } type ? $"{type}: {message}" : message;
+            isError = true;
+        } else {
+            text    = WithoutTimestampHeader(buf.ToolOutput ?? "");
+            isError = buf.State == "ERROR" || (buf.ToolName == "run_command" && CommandFailed(text));
+        }
+
+        return new AcpEventEnvelope(
+            Kind: AcpEventKind.ToolResult,
+            ToolCallId: index.ToString(),
+            ToolResult: text,
+            ToolIsError: isError);
+    }
+
+    // agy opens a command's output with "Created At:" / "Completed At:" lines, sometimes twice over.
+    static string WithoutTimestampHeader(string output) {
+        var rest = output.AsSpan();
+        while (rest.StartsWith("Created At:") || rest.StartsWith("Completed At:")) {
+            var newline = rest.IndexOf('\n');
+            rest = newline < 0 ? [] : rest[(newline + 1)..];
+        }
+        return rest.Length == output.Length ? output : rest.ToString();
+    }
+
+    // The status line leads the body, so a command whose own output prints the same words does not count.
+    static bool CommandFailed(string text) {
+        if (text.StartsWith("Command failed to run:", StringComparison.Ordinal)) return true;
+        const string exited = "Command exited with code ";
+        if (!text.StartsWith(exited, StringComparison.Ordinal)) return false;
+        var code = text.AsSpan(exited.Length);
+        var end  = code.IndexOf('.');
+        return end > 0 && int.TryParse(code[..end], out var exitCode) && exitCode != 0;
     }
 }

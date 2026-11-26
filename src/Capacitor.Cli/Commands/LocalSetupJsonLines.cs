@@ -39,15 +39,22 @@ static class LocalSetupJsonLines {
         LocalInstallEvent.EmbeddingBuiltinDownloading d => new() { Event = "embeddings_builtin_downloading", Bytes = d.Bytes },
         LocalInstallEvent.EmbeddingBuiltinProgress p    => new() { Event = "embeddings_builtin_progress", Received = p.Received, Bytes = p.Bytes },
         LocalInstallEvent.EmbeddingBuiltinConfigured c  => new() { Event = "embeddings_configured", Provider = "builtin", ReplacedModel = c.Replaced },
-        LocalInstallEvent.EmbeddingBuiltinRemoved r     => new() { Event = "embeddings_builtin_removed", Path = r.Directory, Bytes = r.Freed, Message = r.Message },
+        LocalInstallEvent.EmbeddingBuiltinRemoved r     => new() { Event = "embeddings_builtin_removed", Path = r.Directory, Bytes = r.Freed, BytesLeft = r.Left, Message = r.Message },
         LocalInstallEvent.WindowsServiceDeclined      => new() { Event = "windows_service_declined" },
         LocalInstallEvent.WindowsServiceUnavailable u => new() { Event = "windows_service_unavailable", Message = u.Message },
         LocalInstallEvent.Fetched f                   => new() { Event = "fetched", Version = f.Version, Path = f.Path },
         _                                    => throw new ArgumentOutOfRangeException(nameof(e), e, null),
     });
 
-    public static string Failed(LocalInstallFailureCode code, string message, bool? switched = null) =>
-        Render(new() { Event = "failed", Code = code.Wire(), Message = message, Switched = switched });
+    public static string Failed(LocalInstallFailureCode code, string message, bool? switched = null, ClientCopy? blockingClient = null) =>
+        Render(new() {
+            Event = "failed",
+            Code = code.Wire(),
+            Message = message,
+            Switched = switched,
+            Path = blockingClient?.Path,
+            ClientIsDesktopApp = blockingClient is null ? null : blockingClient.Kind == ClientCopyKind.DesktopApp,
+        });
 
     /// <summary>The failure an exception escaping the installer stands for. The install itself throws only
     /// <see cref="LocalInstallFailure"/>; anything else came from building the installer or its preflight.</summary>

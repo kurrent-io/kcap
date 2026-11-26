@@ -21,7 +21,7 @@ public class AcpInteractionBridgePresetTests {
         var kindProp = toolKind is null ? "" : $",\"kind\":\"{toolKind}\"";
         var json     = $$"""{"sessionId":"{{AcpSessionId}}","toolCall":{"toolCallId":"call-1","title":"Run ls"{{kindProp}}},"options":[{{optsJson}}]}""";
 
-        return JsonDocument.Parse(json).RootElement.Clone();
+        return JsonElement.Parse(json);
     }
 
     static AcpLaunchPermissionPreset Preset(string token) {
@@ -38,7 +38,7 @@ public class AcpInteractionBridgePresetTests {
         var notices   = new List<AcpAutoApprovalNotice>();
 
         var bridge = new AcpInteractionBridge(
-            requestInteraction: (req, ct) => { forwarded = true; return Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)); },
+            requestInteraction: (_, _) => { forwarded = true; return Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)); },
             agentId: AgentId,
             logger: NullLogger.Instance,
             unattendedPolicy: policy,
@@ -151,7 +151,7 @@ public class AcpInteractionBridgePresetTests {
         const string frame = $$"""{"sessionId":"{{AcpSessionId}}","message":"Proceed?","mode":"form","requestedSchema":{{schema}}}""";
 
         var result = await bridge.HandleAsync(
-            new AcpRequest(1, "elicitation/create", JsonDocument.Parse(frame).RootElement.Clone()), CancellationToken.None);
+            new AcpRequest(1, "elicitation/create", JsonElement.Parse(frame)), CancellationToken.None);
 
         await Assert.That(forwarded).IsTrue();
         await Assert.That(notices).IsEmpty();
@@ -198,7 +198,7 @@ public class AcpInteractionBridgePresetTests {
     [Test]
     public async Task A_throwing_audit_sink_does_not_affect_the_returned_selection() {
         var bridge = new AcpInteractionBridge(
-            requestInteraction: (req, ct) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)),
+            requestInteraction: (_, _) => Task.FromResult(new AcpInteractionDecision("cancel", null, null, null, null, null)),
             agentId: AgentId,
             logger: NullLogger.Instance,
             preset: Preset(AcpPermissionPresets.Explore),

@@ -29,7 +29,7 @@ public partial class InstallLocationWindow : Window {
             MoveButton.Content = _actionLabel;
             var detail = selected?.Detail ?? "Its command-line tool and background service need a permanent location.";
             Explanation.Text = selected is null ? $"{where} {detail}" : detail;
-            InstallBadge.IsVisible = selected is null || selected.Action == ApplicationsInstallAction.Install && !selected.Migrates;
+            InstallBadge.IsVisible = selected is null or { Action: ApplicationsInstallAction.Install, Migrates: false };
             UpdateBadge.IsVisible = selected?.Action == ApplicationsInstallAction.Update || selected?.Migrates == true;
             ReadyBadge.IsVisible = selected is { Action: ApplicationsInstallAction.OpenInstalled, Migrates: false };
             ConflictBadge.IsVisible = selected?.Action == ApplicationsInstallAction.Blocked;
@@ -90,10 +90,13 @@ public partial class InstallLocationWindow : Window {
                 if (outcome.PermissionDenied && userApplicationsDirectory is not null && selectDestination is not null
                         && selectedDirectory != userApplicationsDirectory && keepable?.Contains(userApplicationsDirectory) != false)
                     OfferUserInstall(userApplicationsDirectory);
-                else
-                    ShowError(outcome.Error);
+                else {
+                    Console.Error.WriteLine($"kcap: could not change the install location: {outcome.Error}");
+                    ShowError("Couldn’t change where kcap is installed. Check that the selected folder is writable and try again.");
+                }
             } catch (Exception ex) {
-                ShowError(ex.Message);
+                Console.Error.WriteLine($"kcap: could not change the install location: {ex.Message}");
+                ShowError("Couldn’t change where kcap is installed. Try again.");
             } finally {
                 SetMoving(false);
             }

@@ -100,7 +100,7 @@ internal sealed record ImportPlan(string ServerUrl, IReadOnlyList<ImportPlanLeve
         if (repos.Count == 0) return null;
 
         DateOnly? since = null;
-        if (el.Prop("since") is { } sinceEl && !sinceEl.IsNull) {
+        if (el.Prop("since") is { IsNull: false } sinceEl) {
             if (!sinceEl.IsString
              || !DateOnly.TryParseExact(sinceEl.GetString(), DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed))
                 return null;
@@ -108,7 +108,7 @@ internal sealed record ImportPlan(string ServerUrl, IReadOnlyList<ImportPlanLeve
         }
 
         List<HarnessId>? vendors = null;
-        if (el.Prop("vendors") is { } vendorsEl && !vendorsEl.IsNull) {
+        if (el.Prop("vendors") is { IsNull: false } vendorsEl) {
             if (!vendorsEl.IsArray) return null;
             vendors = [];
             foreach (var v in vendorsEl.EnumerateArray()) {

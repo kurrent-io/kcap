@@ -74,7 +74,7 @@ public sealed class AgentAttachClient : IAsyncDisposable {
         cols = Math.Clamp(cols, 1, ushort.MaxValue);
         rows = Math.Clamp(rows, 1, ushort.MaxValue);
         _lifetime = new CancellationTokenSource();
-        using var reg = ct.Register(() => { if (TryClaim(CancelledSentinel)) _lifetime.Cancel(); });
+        await using var reg = ct.Register(() => { if (TryClaim(CancelledSentinel)) _lifetime.Cancel(); });
         try {
             _socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
             // The internal token, not the caller's: DetachAsync's no-stream-yet path cancels
@@ -231,9 +231,9 @@ public sealed class AgentAttachClient : IAsyncDisposable {
     // The daemon's attach loop ends only on EOF from this side. Shutting down the send side is what
     // guarantees it sees one: on Windows AF_UNIX a bare close does not reliably wake a pending peer read.
     void CloseTransport() {
-        try { _socket?.Shutdown(SocketShutdown.Send); } catch { }
-        try { _stream?.Dispose(); } catch { }
-        try { _socket?.Dispose(); } catch { }
+        try { _socket?.Shutdown(SocketShutdown.Send); } catch { /* ignored */ }
+        try { _stream?.Dispose(); } catch { /* ignored */ }
+        try { _socket?.Dispose(); } catch { /* ignored */ }
     }
 
     public async Task SendInputAsync(byte[] bytes) {

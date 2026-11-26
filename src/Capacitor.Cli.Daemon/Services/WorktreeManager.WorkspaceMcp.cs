@@ -52,36 +52,16 @@ public partial class WorktreeManager {
     ];
 
     /// <summary>
-    /// Removes <see cref="WorkspaceMcpConfigPaths"/> from a freshly created worktree, returning what was
-    /// removed. Called once at creation, before any agent can be launched into the tree.
-    ///
-    /// <para><b>Why this exists at the worktree layer.</b> Worktrees are placed under the repo's own
-    /// <c>.capacitor/</c> precisely so they INHERIT the repo's workspace trust (see
-    /// <see cref="CreateAsync"/>) — that is what stops an agent stalling on a trust prompt. The same
-    /// inheritance is what makes a config file committed to the branch under review load as trusted. So the
-    /// exposure is created here and is fixed here, once, rather than in each vendor's argv where a new
-    /// vendor starts unprotected.</para>
-    ///
-    /// <para><b>Never follow a link; remove the ROUTING ENTRY instead.</b> Resolving each path physically
-    /// and skipping anything landing outside the worktree fails open: a branch committing <c>.kiro</c> as a
-    /// symlink pointing outside keeps its symlink and the vendor follows it anyway. This walks components
-    /// WITHOUT following, and unlinks the first component that is a link. Removing a link never touches its
-    /// target, so the operator's own <c>~/.gemini</c> is safe by construction rather than by a containment
-    /// check (which would also have to infer case sensitivity, wrong on a case-sensitive APFS volume), and
-    /// the branch's routing into it is gone.</para>
-    ///
-    /// <para><b>Fail closed.</b> A path that is present but cannot be removed throws. Continuing would hand
-    /// the vendor a tree it executes; a launch that fails loudly is strictly better than one that runs
-    /// branch-controlled code. Absence from the returned list is NOT a report of failure, which is why this
-    /// throws rather than relying on the caller to notice.</para>
-    ///
-    /// <para><b>Residual, accepted:</b> between the link check and the delete, a concurrent process could
-    /// swap a component. Closing it needs <c>unlinkat</c>-style handle semantics that .NET does not expose.
-    /// The window is narrow here specifically: this runs at creation, before any agent exists in this
-    /// worktree, so an attacker needs an already-compromised process on the host — which has this authority
-    /// regardless.</para>
+    /// Removes <see cref="WorkspaceMcpConfigPaths"/> from a new worktree, before any agent can launch into
+    /// it, and returns what was removed.
+    /// <para>Worktrees sit under the repo's <c>.capacitor/</c> to inherit its workspace trust, which also
+    /// makes a branch-committed vendor config load as trusted. Fixing it here covers every vendor.</para>
+    /// <para>Walks components without following links and unlinks the first link, never its target, so a
+    /// branch symlinking <c>.kiro</c> outside the tree loses the link and the operator's files are untouched.
+    /// A resolve-and-check approach fails open and would have to guess case sensitivity.</para>
+    /// <para>Throws if a present path cannot be removed. A component swapped between check and delete is an
+    /// accepted residual: .NET has no <c>unlinkat</c>, and no agent exists in the tree yet.</para>
     /// </summary>
-    /// <exception cref="WorkspaceMcpNeutralizationException">A listed path exists and could not be removed.</exception>
     internal static IReadOnlyList<string> NeutralizeWorkspaceMcpConfig(string worktreePath) {
         var removed = new List<string>();
 
