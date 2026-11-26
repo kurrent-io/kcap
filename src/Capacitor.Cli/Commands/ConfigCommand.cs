@@ -221,6 +221,8 @@ public sealed class ConfigCommand(
             "disable_relative_worktrees_nudge" => throw new ArgumentException($"Invalid value for disable_relative_worktrees_nudge: '{value}'. Must be true or false."),
             "disable_harness_nudge" when bool.TryParse(value, out var b) => profile with { DisableHarnessNudge = b },
             "disable_harness_nudge" => throw new ArgumentException($"Invalid value for disable_harness_nudge: '{value}'. Must be true or false."),
+            "disable_repo_instructions_upload" when bool.TryParse(value, out var b) => profile with { DisableRepoInstructionsUpload = b },
+            "disable_repo_instructions_upload" => throw new ArgumentException($"Invalid value for disable_repo_instructions_upload: '{value}'. Must be true or false."),
             "use_provider_api_key" when bool.TryParse(value, out var b) => profile with { UseProviderApiKey = b },
             "use_provider_api_key" => throw new ArgumentException($"Invalid value for use_provider_api_key: '{value}'. Must be true or false."),
             "default_visibility" when value is "private" or "project" or "org_public" or "public" => profile with { DefaultVisibility = value },
@@ -272,6 +274,7 @@ public sealed class ConfigCommand(
         Console.Error.WriteLine("  disable_coordination_notices  Skip injecting coordination notices (others' overlapping work) at SessionStart (true/false)");
         Console.Error.WriteLine("  disable_harness_nudge       Skip new-harness setup nudges (in-session + CLI stderr) (true/false)");
         Console.Error.WriteLine("  disable_relative_worktrees_nudge  Skip the SessionStart nudge to use relative worktree links in a sandbox (true/false)");
+        Console.Error.WriteLine("  disable_repo_instructions_upload  Skip uploading the repo's CLAUDE.md, AGENTS.md and GEMINI.md (origin/HEAD, with imports) for evals (true/false)");
         Console.Error.WriteLine("  use_provider_api_key        Keep ANTHROPIC_API_KEY/OPENAI_API_KEY in headless agent spawns (true/false)");
         Console.Error.WriteLine("  excluded_repos              Excluded repos, comma-separated (owner/repo,local~/folder)");
         Console.Error.WriteLine("  allowed_repos               Capture only these repos, comma-separated (owner/repo,local~/folder); empty allows all");

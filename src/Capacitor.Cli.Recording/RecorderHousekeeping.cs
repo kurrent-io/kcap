@@ -23,6 +23,7 @@ using Capacitor.Cli.Recording.Harness.Muse;
 using Capacitor.Cli.Recording.Harness.OpenCode;
 using Capacitor.Cli.Recording.Harness.Titles;
 using Capacitor.Cli.Recording.PrDetection;
+using Capacitor.Cli.Recording.RepoInstructions;
 
 namespace Capacitor.Cli.Recording;
 
@@ -42,6 +43,8 @@ public sealed class RecorderHousekeeping(
     readonly SubagentScanContext _scans = new(host, config, profiles, http, time, RecorderHost.Guarded(unguardedLog));
 
     IHarnessTitleStore? _titleStore;
+
+    RepoInstructionsUploader? _repoInstructions;
 
     readonly List<MistralVibeSubagent> _vibeSubagents = [];
     readonly GrokSubagentTracker       _grokSubagents = new();
@@ -104,6 +107,11 @@ public sealed class RecorderHousekeeping(
 
         if (skipTitle) {
             state.TitleGenerated = true;
+        }
+
+        if (agentId is null) {
+            _repoInstructions = new RepoInstructionsUploader(sessionId, Url, config, () => profiles.Effective, http,
+                RepoInstructionsDigestCache.Default(config), time, _log, carry: post => CarriedAsync(post));
         }
 
         // Detect repository info upfront if cwd is provided (session watchers only, not agents)
@@ -173,6 +181,8 @@ public sealed class RecorderHousekeeping(
 
             state.LastRepoDetection = time.GetUtcNow();
         }
+
+        if (_repoInstructions is { Done: false } uploader) await uploader.TickAsync(state.Repository, PrimaryRoot(state, cwd), _beat, ct);
 
         if (state.Commits is not CommitObservation.Uncovered && time.GetUtcNow() - state.LastCoverageCheck > TimeSpan.FromSeconds(60)) {
             state.Commits           = state.Commits.Rechecked(await host.CoversCommitsAsync(sessionId, cwd));
@@ -327,6 +337,9 @@ public sealed class RecorderHousekeeping(
         subagentCheckouts.FeedInto(secondaryRoots, final);
         if (secondaryRoots.Roots.Count > knownRoots) log($"Probing secondary checkouts for a PR: {string.Join(", ", secondaryRoots.Roots)}");
     }
+
+    internal static string? PrimaryRoot(WatchState state, string? cwd) =>
+        state.RepositoryFromEvidence ? state.EvidenceScanner?.AttributedRoot : cwd is null ? null : GitRepository.FindRoot(cwd);
 
     // An evidence-derived repo (from RepoEvidenceScanner, for a session launched outside any
     // checkout) has no cwd to re-probe, so a periodic cwd-based refresh finding nothing must

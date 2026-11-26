@@ -27,6 +27,11 @@ public sealed class RepoEvidenceScanner<TRepo>(
     public TRepo? ReadFallback { get; private set; }
     public bool   Done => Attributed is not null;
 
+    /// <summary>The checkout root <see cref="Attributed"/> was resolved from.</summary>
+    public string? AttributedRoot { get; private set; }
+
+    string? _readFallbackRoot;
+
     public async Task<TRepo?> OnLineAsync(string vendor, string jsonlLine) {
         if (Done || vendor != "claude") return null;
 
@@ -41,11 +46,11 @@ public sealed class RepoEvidenceScanner<TRepo>(
                 if (repo is null || !SafeIsComplete(repo)) continue;
 
                 if (kind == RepoEvidenceKind.Mutation) {
-                    Attributed = repo;
+                    (Attributed, AttributedRoot) = (repo, root);
                     return repo;
                 }
 
-                ReadFallback ??= repo;
+                if (ReadFallback is null) (ReadFallback, _readFallbackRoot) = (repo, root);
             }
         } catch {
             // fail-open: a bad line must never break watching or import
@@ -56,7 +61,7 @@ public sealed class RepoEvidenceScanner<TRepo>(
 
     public async Task<TRepo?> PromoteReadFallbackAsync() {
         if (Done || ReadFallback is null) return null;
-        Attributed = ReadFallback;
+        (Attributed, AttributedRoot) = (ReadFallback, _readFallbackRoot);
         return Attributed;
     }
 
