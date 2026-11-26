@@ -125,8 +125,8 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<Unit, Unit> OpenSettingsCommand   { get; }
     public ReactiveCommand<Unit, Unit> RetryListCommand      { get; }
 
-    /// <summary>The signed-in account changed, or no one is signed in: whatever was loaded for the previous account,
-    /// the settings window included, no longer applies.</summary>
+    /// <summary>The connection dropped or the signed-in account changed: what was loaded may belong to another account by
+    /// the time the next request goes out, so the settings window included no longer applies.</summary>
     public event Action? AccountChanged;
 
     public InboxBellViewModel(IInboxApi api, IObservable<ServerLaneStatus> status, IObservable<Unit> changed,
@@ -157,7 +157,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         var connected = status.State == ServerLaneState.Connected;
         var otherAccount = connected && status.Subject is { } subject && _subject is { } previous && subject != previous;
         if (connected && status.Subject is not null) _subject = status.Subject;
-        if (status.State == ServerLaneState.SignedOut || otherAccount) AccountChanged?.Invoke();
+        if ((_connected && !connected) || otherAccount) AccountChanged?.Invoke();
         if (connected == _connected && !otherAccount) return;
         OnConnectedChanged(connected);
     }

@@ -431,17 +431,18 @@ public class InboxBellViewModelTests {
     });
 
     [Test]
-    public async Task Signing_out_or_reconnecting_as_someone_else_counts_as_an_account_change() => await AvaloniaSession.RunOnUiAsync(async () => {
+    public async Task A_dropped_connection_or_another_account_counts_as_an_account_change() => await AvaloniaSession.RunOnUiAsync(async () => {
         using var rig = new Rig().Start();
         rig.Status.OnNext(new(ServerLaneState.Connected, Subject: "alice"));
-        rig.Status.OnNext(new(ServerLaneState.Retrying));
         rig.Status.OnNext(new(ServerLaneState.Connected, Subject: "alice"));
         await Assert.That(rig.AccountChanges).IsEqualTo(0);
 
+        rig.Status.OnNext(new(ServerLaneState.Retrying));
+        rig.Status.OnNext(new(ServerLaneState.Connected, Subject: "alice"));
         rig.Status.OnNext(new(ServerLaneState.Connected, Subject: "bob"));
         rig.Status.OnNext(new(ServerLaneState.SignedOut));
 
-        await Assert.That(rig.AccountChanges).IsEqualTo(2);
+        await Assert.That(rig.AccountChanges).IsEqualTo(3);
     });
 
     [Test]
