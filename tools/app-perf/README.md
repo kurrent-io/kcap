@@ -18,7 +18,9 @@ python3 seed_sessions.py 20 200 1500
 `seed_sessions.py` writes Claude transcripts shaped like real work (prompt, text, three tool calls with results,
 reply) and imports them with `kcap import --claude`: about nine events a turn, so `20 200 1500` gives sessions of
 184, 1,804 and 13,505 events. Give the guest's terminal Screen Recording permission once; macOS asks for it on the
-first `screencapture` and ignores synthetic clicks on that prompt.
+first `screencapture` and ignores synthetic clicks on that prompt. `click` and `type` post events, which Screen Recording
+does not cover: whatever runs them needs Accessibility too (System Settings > Privacy & Security > Accessibility). The
+Tart base image grants both to `tart-guest-agent`, so commands run through `tart exec` already have them.
 
 Stamp every build with the same version, so swapping one bundle for another does not start the post-update flow,
 and discard the first launch after a swap anyway: it may finish an update and hold the main window on purpose.
