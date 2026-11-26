@@ -79,7 +79,7 @@ public sealed class InboxItemViewModel : ReactiveObject {
         LinkExternal = dto.LinkExternal;
 
         var canAnswer = this.WhenAnyValue(x => x.IsAnswering, busy => !busy);
-        Buttons = (dto.Buttons ?? []).Select(b => new InboxButtonViewModel(b.Answer, b.Label, b.Style == "primary", b.Style == "danger",
+        Buttons = (dto.Buttons ?? []).Select(b => new InboxButtonViewModel(b.Answer, b.Label, b.Detail, b.Style == "primary", b.Style == "danger",
             ReactiveCommand.CreateFromTask(() => AnswerAsync(b.Answer, null), canAnswer))).ToList();
         MarkReadCommand  = ReactiveCommand.CreateFromTask(() => markRead(this));
         DismissCommand   = ReactiveCommand.CreateFromTask(() => dismiss(this));

@@ -22,7 +22,7 @@ public class InboxApiTests {
               "link_label":"Open session","link_external":false,"detail":null,"viewer_context":null,
               "headline":[{"text":"reviewer","style":"strong","url":null,"external":false},{"text":" PR","style":"plain","url":"https://github.com/o/r/pull/1","external":true}],
               "lines":[[{"text":"a.cs","style":"code","url":null,"external":false}]],"quote":"Run tests?",
-              "buttons":[{"answer":"allow","label":"Allow","style":"primary"},{"answer":"deny","label":"Deny","style":"danger"}],
+              "buttons":[{"answer":"allow","label":"Allow","style":"primary","detail":"Runs it once"},{"answer":"deny","label":"Deny","style":"danger"}],
               "reply_label":"Reply"}],
              "next_cursor":null,"unread_count":7}
             """);
@@ -38,6 +38,7 @@ public class InboxApiTests {
         await Assert.That(item.Headline![1].External).IsTrue();
         await Assert.That(item.Lines![0][0].Style).IsEqualTo("code");
         await Assert.That(item.Buttons!.Select(b => b.Style)).IsEquivalentTo(["primary", "danger"]);
+        await Assert.That(item.Buttons![0].Detail).IsEqualTo("Runs it once");
         await Assert.That(item.ReplyLabel).IsEqualTo("Reply");
         await Assert.That(item.LinkLabel).IsEqualTo("Open session");
         await Assert.That(item.Chips.Single()).IsEqualTo("Take over");

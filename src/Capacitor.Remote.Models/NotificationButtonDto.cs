@@ -7,4 +7,5 @@ public sealed record NotificationButtonDto {
     [JsonPropertyName("answer")] public string Answer { get; init; } = "";
     [JsonPropertyName("label")]  public string Label  { get; init; } = "";
     [JsonPropertyName("style")]  public string Style  { get; init; } = "default";
+    [JsonPropertyName("detail")] public string? Detail { get; init; }
 }

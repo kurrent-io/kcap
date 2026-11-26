@@ -142,7 +142,7 @@
                                             </ItemsControl.ItemsPanel>
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate x:DataType="inbox:InboxButtonViewModel">
-                                                    <Button Content="{Binding Label}" Command="{Binding Command}" Margin="0,0,6,4"
+                                                    <Button Content="{Binding Label}" Command="{Binding Command}" Margin="0,0,6,4" ToolTip.Tip="{Binding Detail}"
                                                             Classes="kcapGhost" Classes.kcapPrimary="{Binding IsPrimary}" Classes.kcapDanger="{Binding IsDanger}" />
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
