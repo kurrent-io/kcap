@@ -116,25 +116,6 @@ public class InboxSettingsViewModelTests {
     });
 
     [Test]
-    public async Task Signing_in_as_someone_else_drops_the_loaded_rows_and_a_signed_out_flip_writes_nothing() => await AvaloniaSession.RunOnUiAsync(async () => {
-        var api = new FakeInboxApi { Prefs = Prefs("connected", true, Type("pass_received")) };
-        var status = new System.Reactive.Subjects.BehaviorSubject<Capacitor.Client.ServerLaneStatus>(new(Capacitor.Client.ServerLaneState.Connected, Subject: "alice"));
-        using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: false, () => { }, status);
-        var alicesRow = settings.Types.Single();
-
-        status.OnNext(new(Capacitor.Client.ServerLaneState.SignedOut));
-        await Assert.That(settings.CanWrite).IsFalse();
-        alicesRow.Enabled = false;
-        await Assert.That(api.Calls.Any(c => c.StartsWith("pref", StringComparison.Ordinal))).IsFalse();
-
-        api.Prefs = Prefs("connected", true, Type("work_overlap"));
-        status.OnNext(new(Capacitor.Client.ServerLaneState.Connected, Subject: "bob"));
-
-        await Assert.That(settings.CanWrite).IsTrue();
-        await Assert.That(settings.Types.Single().Type).IsEqualTo("work_overlap");
-    });
-
-    [Test]
     public async Task Quick_tell_agent_toggles_send_in_order_and_end_on_the_last_choice() => await AvaloniaSession.RunOnUiAsync(async () => {
         var api = new FakeInboxApi { Prefs = Prefs("connected", true, Type("pass_received")), Controls = new(InboxReadKind.Ready, new() { AgentOptedOut = false }) };
         using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: true, () => { });
@@ -151,60 +132,6 @@ public class InboxSettingsViewModelTests {
         await Assert.That(api.Calls.Where(c => c.StartsWith("opt-out", StringComparison.Ordinal)))
             .IsEquivalentTo(["opt-out True", "opt-out True"], TUnit.Assertions.Enums.CollectionOrdering.Matching);
         await Assert.That(settings.TellAgent).IsFalse();
-    });
-
-    [Test]
-    public async Task A_pass_control_answer_from_before_a_sign_in_change_is_not_shown() => await AvaloniaSession.RunOnUiAsync(async () => {
-        var api = new FakeInboxApi { Prefs = Prefs("connected", true, Type("pass_received")), Controls = new(InboxReadKind.Ready, new() { AgentOptedOut = false }) };
-        var status = new System.Reactive.Subjects.BehaviorSubject<Capacitor.Client.ServerLaneStatus>(new(Capacitor.Client.ServerLaneState.Connected, Subject: "alice"));
-        using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: true, () => { }, status);
-        var gate = new TaskCompletionSource();
-        api.ControlsGate = gate;
-
-        api.WritesChangeControls = false;
-        settings.TellAgent = false;
-        status.OnNext(new(Capacitor.Client.ServerLaneState.Connected, Subject: "bob"));
-        api.ControlsGate = null;
-        gate.SetResult();
-        await Task.Yield();
-
-        await Assert.That(settings.TellAgent).IsTrue();
-    });
-
-    [Test]
-    public async Task Signing_out_during_the_first_load_stops_the_spinner() => await AvaloniaSession.RunOnUiAsync(async () => {
-        var api = new FakeInboxApi { Prefs = Prefs("connected", true, Type("pass_received")) };
-        var gate = new TaskCompletionSource();
-        api.PrefsGate = gate;
-        var status = new System.Reactive.Subjects.BehaviorSubject<Capacitor.Client.ServerLaneStatus>(new(Capacitor.Client.ServerLaneState.Connected, Subject: "alice"));
-        using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: false, () => { }, status);
-        await Assert.That(settings.IsLoading).IsTrue();
-
-        status.OnNext(new(Capacitor.Client.ServerLaneState.SignedOut));
-
-        await Assert.That(settings.IsLoading).IsFalse();
-        gate.SetResult();
-    });
-
-    [Test]
-    public async Task A_completed_sign_in_closes_writes_until_that_accounts_settings_load() => await AvaloniaSession.RunOnUiAsync(async () => {
-        var api = new FakeInboxApi { Prefs = Prefs("connected", true, Type("pass_received")) };
-        var signIn = new System.Reactive.Subjects.Subject<RxUnit>();
-        var status = new System.Reactive.Subjects.BehaviorSubject<Capacitor.Client.ServerLaneStatus>(new(Capacitor.Client.ServerLaneState.Connected, Subject: "alice"));
-        using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: false, () => { }, status, signIn);
-        var row = settings.Types.Single();
-        var gate = new TaskCompletionSource();
-        api.PrefsGate = gate;
-
-        signIn.OnNext(RxUnit.Default);
-        row.Enabled = false;
-
-        await Assert.That(settings.CanWrite).IsFalse();
-        await Assert.That(api.Calls.Any(c => c.StartsWith("pref", StringComparison.Ordinal))).IsFalse();
-        api.PrefsGate = null;
-        gate.SetResult();
-        await Task.Yield();
-        await Assert.That(settings.CanWrite).IsTrue();
     });
 
     [Test]
@@ -255,40 +182,20 @@ public class InboxSettingsViewModelTests {
     });
 
     [Test]
-    public async Task A_stalled_write_from_the_previous_account_does_not_hold_back_the_next() => await AvaloniaSession.RunOnUiAsync(async () => {
+    public async Task A_failed_re_read_keeps_what_was_shown_and_offers_a_retry() => await AvaloniaSession.RunOnUiAsync(async () => {
         var api = new FakeInboxApi { Prefs = Prefs("connected", true, Type("pass_received")) };
-        var signIn = new System.Reactive.Subjects.Subject<RxUnit>();
-        using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: false, () => { }, null, signIn);
-        var stalled = new TaskCompletionSource();
-        api.PutGate = stalled;
-        settings.Types.Single().Enabled = false;
-        api.PutGate = null;
+        using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: false, () => { });
 
-        signIn.OnNext(RxUnit.Default);
-        await Task.Yield();
+        api.Prefs = InboxRead<NotificationPrefsDto>.Failed;
+        settings.Reload();
 
-        await Assert.That(settings.CanWrite).IsTrue();
-        await Assert.That(api.PrefsReads).IsEqualTo(2);
-        stalled.SetResult();
-    });
+        await Assert.That(settings.IsLoaded).IsTrue();
+        await Assert.That(settings.Types.Single().Type).IsEqualTo("pass_received");
+        await Assert.That(settings.RefreshError).IsNotNull();
 
-    [Test]
-    public async Task A_stalled_tell_agent_write_from_the_previous_account_does_not_hold_back_the_next() => await AvaloniaSession.RunOnUiAsync(async () => {
-        var api = new FakeInboxApi { Prefs = Prefs("connected", true, Type("pass_received")), Controls = new(InboxReadKind.Ready, new() { AgentOptedOut = false }) };
-        var signIn = new System.Reactive.Subjects.Subject<RxUnit>();
-        using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: true, () => { }, null, signIn);
-        var stalled = new TaskCompletionSource();
-        api.ControlsGate = stalled;
-        settings.TellAgent = false;
-        api.ControlsGate = null;
-
-        signIn.OnNext(RxUnit.Default);
-        await Task.Yield();
-        settings.TellAgent = !settings.TellAgent;
-        await Task.Yield();
-
-        await Assert.That(api.Calls.Count(c => c.StartsWith("opt-out", StringComparison.Ordinal))).IsEqualTo(2);
-        stalled.SetResult();
+        api.Prefs = Prefs("connected", true, Type("pass_received"));
+        await settings.RetryCommand.Execute();
+        await Assert.That(settings.RefreshError).IsNull();
     });
 
     [Test]

@@ -32,6 +32,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     // Rows with an answer in flight: a card that replaces one of them stays busy until that answer settles.
     readonly HashSet<string> _answering = new(StringComparer.Ordinal);
     bool _connected;
+    string? _subject;
     // Advances on every connect and disconnect, so a read begun under one connection never lands under the next.
     int _epoch;
     bool _refreshRunning;
@@ -124,8 +125,12 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<Unit, Unit> OpenSettingsCommand   { get; }
     public ReactiveCommand<Unit, Unit> RetryListCommand      { get; }
 
+    /// <summary>The signed-in account changed, or no one is signed in: whatever was loaded for the previous account,
+    /// the settings window included, no longer applies.</summary>
+    public event Action? AccountChanged;
+
     public InboxBellViewModel(IInboxApi api, IObservable<ServerLaneStatus> status, IObservable<Unit> changed,
-            Action<string> open, Action openSettings, TimeProvider? time = null) {
+            Action<string> open, Action openSettings, TimeProvider? time = null, IObservable<Unit>? signInCompleted = null) {
         _api  = api;
         _open = open;
         _time = time ?? TimeProvider.System;
@@ -139,21 +144,31 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
             Refresh();
         });
 
-        status.Select(s => s.State == ServerLaneState.Connected).DistinctUntilChanged()
-            .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(OnConnectedChanged).DisposeWith(_disposables);
+        status.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(OnStatus).DisposeWith(_disposables);
+        // New credentials are saved before the lane reconnects, so the sign-in itself starts the bell over.
+        signInCompleted?.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(_ => {
+            AccountChanged?.Invoke();
+            OnConnectedChanged(_connected);
+        }).DisposeWith(_disposables);
         changed.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(_ => Refresh()).DisposeWith(_disposables);
+    }
+
+    void OnStatus(ServerLaneStatus status) {
+        var connected = status.State == ServerLaneState.Connected;
+        var otherAccount = connected && status.Subject is { } subject && _subject is { } previous && subject != previous;
+        if (connected && status.Subject is not null) _subject = status.Subject;
+        if (status.State == ServerLaneState.SignedOut || otherAccount) AccountChanged?.Invoke();
+        if (connected == _connected && !otherAccount) return;
+        OnConnectedChanged(connected);
     }
 
     void OnConnectedChanged(bool connected) {
         _connected = connected;
         _epoch++;
-        if (connected) {
-            _ = AdmitAsync(_epoch);
-            return;
-        }
         _admitQueued = false;
         _admitAgain = false;
         Hide();
+        if (connected) _ = AdmitAsync(_epoch);
     }
 
     // A push that lands while admission runs may postdate what admission read, so it costs one more pass afterwards.

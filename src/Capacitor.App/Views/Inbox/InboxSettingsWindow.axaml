@@ -22,6 +22,13 @@
                 </StackPanel>
                 <ScrollViewer IsVisible="{Binding IsLoaded}" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Spacing="12">
+                        <Border x:Name="InboxRefreshError" Background="{StaticResource KcapWarningDimBrush}" CornerRadius="8" Padding="12,8"
+                                IsVisible="{Binding RefreshError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Classes="kcapGhost" Content="Retry" Command="{Binding RetryCommand}" />
+                                <TextBlock Text="{Binding RefreshError}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                            </DockPanel>
+                        </Border>
                         <Border x:Name="InboxSlackSection" Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
                                 BorderThickness="1" CornerRadius="8" Padding="12,10">
                             <StackPanel Spacing="6">
@@ -41,7 +48,7 @@
                             <TextBlock Grid.Column="1" Classes="kcapHint" Text="IN-APP" HorizontalAlignment="Center" />
                             <TextBlock Grid.Column="2" Classes="kcapHint" Text="SLACK" HorizontalAlignment="Center" />
                         </Grid>
-                        <ItemsControl x:Name="InboxTypeRows" ItemsSource="{Binding Types}" IsEnabled="{Binding CanWrite}">
+                        <ItemsControl x:Name="InboxTypeRows" ItemsSource="{Binding Types}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="inbox:InboxTypeRowViewModel">
                                     <Border BorderThickness="0,0,0,1" BorderBrush="{StaticResource KcapBorderBrush}" Padding="0,9">
@@ -75,7 +82,7 @@
                                     <Button Classes="kcapGhost" Content="Retry" Command="{Binding RetryCommand}" HorizontalAlignment="Left"
                                             IsVisible="{Binding PassesError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                 </StackPanel>
-                                <StackPanel Spacing="8" IsVisible="{Binding PassesLoaded}" IsEnabled="{Binding CanWrite}">
+                                <StackPanel Spacing="8" IsVisible="{Binding PassesLoaded}">
                                 <Grid ColumnDefinitions="*,72">
                                     <StackPanel Spacing="2">
                                         <TextBlock Classes="kcapLabel" Text="Tell my coding agent" />

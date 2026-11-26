@@ -25,12 +25,15 @@ public class InboxBellViewModelTests {
         public readonly FakeInboxApi Api = new();
         public readonly BehaviorSubject<ServerLaneStatus> Status = new(new(ServerLaneState.Dormant));
         public readonly Subject<RxUnit> Changed = new();
+        public readonly Subject<RxUnit> SignIn = new();
+        public int AccountChanges;
         public readonly List<string> Opened = [];
         public int SettingsOpened;
         public InboxBellViewModel Bell = null!;
 
         public Rig Start() {
-            Bell = new(Api, Status, Changed, Opened.Add, () => SettingsOpened++, new FakeTimeProvider(Now));
+            Bell = new(Api, Status, Changed, Opened.Add, () => SettingsOpened++, new FakeTimeProvider(Now), SignIn);
+            Bell.AccountChanged += () => AccountChanges++;
             return this;
         }
 
@@ -407,6 +410,38 @@ public class InboxBellViewModelTests {
 
         await Assert.That(rig.Bell.ListFailed).IsFalse();
         await Assert.That(rig.Bell.Items.Single().LogicalId).IsEqualTo("n1");
+    });
+
+    [Test]
+    public async Task A_completed_sign_in_starts_the_bell_over_for_the_new_account() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1"));
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        await Assert.That(rig.Bell.Items.Count).IsEqualTo(1);
+
+        rig.Api.Count = new(InboxReadKind.Ready, new() { Count = 3 });
+        rig.SignIn.OnNext(RxUnit.Default);
+
+        await Assert.That(rig.AccountChanges).IsEqualTo(1);
+        await Assert.That(rig.Bell.IsOpen).IsFalse();
+        await Assert.That(rig.Bell.Items.Count).IsEqualTo(0);
+        await Assert.That(rig.Bell.UnreadCount).IsEqualTo(3);
+        await Assert.That(rig.Bell.IsVisible).IsTrue();
+    });
+
+    [Test]
+    public async Task Signing_out_or_reconnecting_as_someone_else_counts_as_an_account_change() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Status.OnNext(new(ServerLaneState.Connected, Subject: "alice"));
+        rig.Status.OnNext(new(ServerLaneState.Retrying));
+        rig.Status.OnNext(new(ServerLaneState.Connected, Subject: "alice"));
+        await Assert.That(rig.AccountChanges).IsEqualTo(0);
+
+        rig.Status.OnNext(new(ServerLaneState.Connected, Subject: "bob"));
+        rig.Status.OnNext(new(ServerLaneState.SignedOut));
+
+        await Assert.That(rig.AccountChanges).IsEqualTo(2);
     });
 
     [Test]

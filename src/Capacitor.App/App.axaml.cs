@@ -2758,13 +2758,15 @@ public partial class App : Application {
                     return;
                 }
                 var settingsVm = new InboxSettingsViewModel(inbox, inboxChanged, inboxBell?.PassesOffered == true,
-                    () => { if (appServerUrl is { Length: > 0 } server) openUrl?.Invoke(server); }, lane.Status, inboxSignInCompleted);
+                    () => { if (appServerUrl is { Length: > 0 } server) openUrl?.Invoke(server); });
                 var settingsWindow = new InboxSettingsWindow { DataContext = settingsVm };
                 inboxSettings = settingsWindow;
                 settingsWindow.Closed += (_, _) => { inboxSettings = null; settingsVm.Dispose(); };
                 if (railOwner is { } owner) settingsWindow.Show(owner);
                 else settingsWindow.Show();
-            }, time);
+            }, time, inboxSignInCompleted);
+            // One settings window serves one account; reopening it reads the account signed in now.
+            inboxBell.AccountChanged += () => inboxSettings?.Close();
         }
         vm = new MainWindowViewModel(
             service, shutdownToken, activity, time, startAction, lifecycleStatus, home: home,
