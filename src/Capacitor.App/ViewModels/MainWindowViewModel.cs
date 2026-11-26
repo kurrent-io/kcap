@@ -240,6 +240,9 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
 
     /// Fires when New session is pressed while the launcher is already showing.
     public IObservable<Unit> LauncherNudges => _launcherNudges.AsObservable();
+    readonly Subject<Unit> _pageDockChanging = new();
+    /// Raised just before the open page docks beside its main chat or expands over the main area, at the user's asking.
+    public IObservable<Unit> PageDockChanging => _pageDockChanging.AsObservable();
 
     /// Null without a server sessions service.
     public SessionSearchViewModel? Search { get; }
@@ -1104,6 +1107,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
         item.MainChat = _mainSessions.Get(item.WorkItemId);
         item.Dock = dock => {
             if (Page != item) return;
+            if ((DockedPage is not null) != dock) _pageDockChanging.OnNext(Unit.Default);
             if (dock) DockMainChat(item);
             else SetPageDocked(false);
         };

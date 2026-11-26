@@ -11,7 +11,7 @@ using Capacitor.App.ViewModels;
 namespace Capacitor.App.Views;
 
 /// Holds a still of the content pane over a session switch until the incoming chat has laid out
-/// its first read, then fades it out. A new workspace fills in over several Background-priority
+/// its first read, or over a page docking or expanding until it has laid out, then fades it out. A new workspace fills in over several Background-priority
 /// dispatches, each run after a render, so without the still every half-built state is painted in turn.
 public sealed class WorkspaceSwitchCover {
     static readonly TimeSpan MaxHold = TimeSpan.FromMilliseconds(400);
@@ -35,9 +35,11 @@ public sealed class WorkspaceSwitchCover {
         }
         vm.PropertyChanging += OnChanging;
         var swaps = vm.WhenAnyValue(x => x.CurrentWorkspace).Skip(1).Subscribe(workspace => Hold(workspace, vm.Time));
+        var docks = vm.PageDockChanging.Subscribe(_ => CoverNextLayout());
         return Disposable.Create(() => {
             vm.PropertyChanging -= OnChanging;
             swaps.Dispose();
+            docks.Dispose();
             Hide();
         });
     }
@@ -53,6 +55,12 @@ public sealed class WorkspaceSwitchCover {
         still.Render(_pane);
         _still.Source = still;
         _cover.IsVisible = true;
+    }
+
+    // For a change made right after this returns that draws in one layout pass.
+    void CoverNextLayout() {
+        Capture();
+        if (_cover.IsVisible) AfterLayout(++_generation);
     }
 
     void Hold(ISessionWorkspace? workspace, TimeProvider time) {
