@@ -187,11 +187,36 @@ public class CodexApprovalBridgeTests {
         await Assert.That(decision).IsEqualTo("accept");
     }
 
+    /// Codex 0.163.0's approval for an escalated <c>exec_command</c>, as it sent it: it names the app-server's own
+    /// host as the <c>local</c> environment.
+    [Test]
+    public async Task A_command_approval_codex_sends_for_its_own_host_shows_the_script_it_runs() {
+        var (shown, decision) = await Show(CommandMethod, """
+            {"kind":"command","threadId":"01a216ef-9fda-7af0-be13-5298273d89f8","turnId":"01a216ef-9ff9-7521-98a6-f510652ca35b",
+             "itemId":"call_scripted_1","startedAtMs":1795681132581,"environmentId":"local","reason":"Check the permission card",
+             "command":"/bin/zsh -lc 'touch kcap-permission-check'","cwd":"/wt",
+             "commandActions":[{"type":"unknown","command":"touch kcap-permission-check"}],
+             "proposedExecpolicyAmendment":["touch","kcap-permission-check"],
+             "availableDecisions":["accept",{"acceptWithExecpolicyAmendment":{"execpolicy_amendment":["touch","kcap-permission-check"]}},"cancel"]}
+            """);
+
+        await Assert.That(shown.ToolName).IsEqualTo("Bash");
+        await Assert.That(Input(shown, "command")).IsEqualTo("touch kcap-permission-check");
+        await Assert.That(Input(shown, "cwd")).IsEqualTo("/wt");
+        await Assert.That(Input(shown, "description")).IsEqualTo("Check the permission card");
+        await Assert.That(decision).IsEqualTo("accept");
+    }
+
     /// Input for a running command, a network grant or another environment asks for more than the command text says.
     [Test]
     [Arguments("""{"threadId":"thread-1","itemId":"item-1","command":"cat","kind":"writeStdin"}""")]
     [Arguments("""{"threadId":"thread-1","itemId":"item-1","command":"curl x","networkApprovalContext":{"host":"x","protocol":"https"}}""")]
     [Arguments("""{"threadId":"thread-1","itemId":"item-1","command":"ls","environmentId":"remote"}""")]
+    [Arguments("""{"threadId":"thread-1","itemId":"item-1","command":"ls","environmentId":"devbox"}""")]
+    [Arguments("""{"threadId":"thread-1","itemId":"item-1","command":"ls","environmentId":"LOCAL"}""")]
+    [Arguments("""{"threadId":"thread-1","itemId":"item-1","command":"ls","environmentId":1}""")]
+    [Arguments("""{"kind":"writeStdin","threadId":"thread-1","itemId":"item-1","command":"cat","environmentId":"local"}""")]
+    [Arguments("""{"threadId":"thread-1","itemId":"item-1","command":"curl x","environmentId":"local","networkApprovalContext":{"host":"x","protocol":"https"}}""")]
     public async Task A_command_approval_asking_for_more_than_its_command_is_shown_as_it_came(string paramsJson) {
         var (shown, _) = await Show(CommandMethod, paramsJson);
 
