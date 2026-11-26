@@ -121,12 +121,16 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         }
     }
     string? _mainChat;
+    // The main chat's session as of the last rebuild: MainChat names its agent until the session is known.
+    string? _mainSession;
     /// The main chat's session id, or its hosted agent's id until the session is known; null when there is none.
     public string? MainChat {
         get => _mainChat;
         set {
+            if (_mainChat == value) return;
             this.RaiseAndSetIfChanged(ref _mainChat, value);
             RaiseModes();
+            Rebuild();
         }
     }
     bool _expanded;
@@ -284,8 +288,6 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
     }
 
     public IReadOnlyList<RowMenuItem> MenuFor(WorkItemPageSession session) {
-        // The main chat stays on its work item until another is chosen; the server refuses its removal too.
-        if (SessionIds.SameSession(MainChat, session.SessionId)) return [];
         var items = new List<RowMenuItem>();
         if (ChooseMainChat is { } choose)
             items.Add(new(LucideIconKind.MessageSquare, "Use as main chat", () => choose(session.SessionId)));
@@ -566,6 +568,7 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
         var rows = new Dictionary<string, AgentRow>(StringComparer.Ordinal);
         foreach (var row in _directory.Rows.Items)
             if (row.SessionId is { Length: > 0 } id) rows.TryAdd(id, row);
+        _mainSession = MainChat is { } main ? rows.Values.FirstOrDefault(row => row.Id == main)?.SessionId ?? main : null;
 
         Title = read.WorkItem.Title;
         Goal = string.IsNullOrWhiteSpace(read.Goal) ? null : read.Goal.Trim();
@@ -615,9 +618,11 @@ public sealed class WorkItemPageViewModel : ReactiveObject, IPage {
             else _flipped.Add(key);
         }, isComposing);
 
-    // Newest first, as the server orders them, so a moved session sits where the reread will put it.
+    // Newest first, as the server orders them, so a moved session sits where the reread will put it. The main chat is
+    // talked to beside the page, so no list shows it.
     IEnumerable<string> Placed(string containerId, IEnumerable<string> read, IReadOnlyList<WorkItemPartSessionDto> named) =>
         read.Where(id => !_sessionMoves.ContainsKey(id)).Concat(_sessionMoves.Where(move => move.Value.To == containerId).Select(move => move.Key))
+            .Where(id => !SessionIds.SameSession(_mainSession, id))
             .OrderByDescending(id => named.FirstOrDefault(session => session.SessionId == id)?.LastActivityAt)
             .ThenBy(id => id, StringComparer.Ordinal);
 

@@ -1,7 +1,9 @@
 using System.Reactive.Linq;
+using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
 using Capacitor.App.ViewModels.Pages;
 using Capacitor.Remote.Models;
+using DynamicData;
 
 namespace Capacitor.App.Tests.Unit.ViewModels.Pages;
 
@@ -56,23 +58,28 @@ public class WorkItemPageViewModelTests {
         await Assert.That(page.Message).IsEqualTo("Couldn't save the goal");
     });
 
-    /// The main chat's row offers neither another main chat nor its removal, while any other session offers both; the
-    /// server's main chat reaches a window that starts listening after the read, and a choice is recorded on the server.
+    /// No list shows the main chat, under its agent's id before its session is known as after; another chosen in its
+    /// place leaves the lists, the old one comes back, and the choice is recorded on the server. The server's main
+    /// chat reaches a window that starts listening after the read.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task The_main_chat_cant_be_removed_and_another_session_can_take_its_place() => AvaloniaSession.WithImmediateRxScheduler(async () => {
-        var api = new FakeWorkItemPageApi { Parts = [FakeWorkItemPageApi.Part("p1", "open", "s1", "s2")], MainSessionId = "s1" };
+    public Task No_list_shows_the_main_chat() => AvaloniaSession.WithImmediateRxScheduler(async () => {
+        var api = new FakeWorkItemPageApi { Parts = [FakeWorkItemPageApi.Part("p1", "open", "s1", "s2")], SessionIds = ["s3"], MainSessionId = "s1" };
         using var directory = new FakeAgentDirectory();
+        directory.Rows.AddOrUpdate(AgentRow.FromLocal(new("agent-3", "agent", "claude", "/repo", "Running", null, null, null,
+            DateTime.UtcNow, null, null, SessionId: "s3"), new RepoIdentity("path:/repo", "repo")));
         using var page = Page(api, directory);
         string? read = null;
         page.MainChatRead = id => read = id;
-        page.ChooseMainChat = _ => { };
         page.MainChat = read;
-        string[] Labels(string id) => [.. page.MenuFor(page.Groups.Single().Parts.Single().Sessions.Single(s => s.SessionId == id)).Select(item => item.Label)];
+        string[] Listed() => [.. page.Groups.SelectMany(group => group.Parts.SelectMany(part => part.Sessions).Concat(group.Sessions))
+            .Select(session => session.SessionId)];
 
         await Assert.That(read).IsEqualTo("s1");
-        await Assert.That(Labels("s1")).IsEmpty();
-        await Assert.That(Labels("s2")).IsEquivalentTo(["Use as main chat", "Remove from work item"]);
+        await Assert.That(Listed()).IsEquivalentTo(["s2", "s3"]);
+
+        page.MainChat = "agent-3";
+        await Assert.That(Listed()).IsEquivalentTo(["s1", "s2"]);
 
         await page.RecordMainChatAsync("s2");
         await Assert.That(api.Calls).IsEquivalentTo(["main w1 s2"]);
