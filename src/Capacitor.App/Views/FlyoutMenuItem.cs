@@ -4,7 +4,6 @@ using Avalonia.Interactivity;
 
 namespace Capacitor.App.Views;
 
-/// A button inside a flyout that runs its command and closes the menu.
 public static class FlyoutMenuItem {
     // The command and its parameter are read before the menu hides: closed, its content leaves the
     // tree and its bindings let go of them.
