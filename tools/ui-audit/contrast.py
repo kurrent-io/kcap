@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""WCAG contrast table for the desktop app's Light and Dark themes in src/Capacitor.App/Design/Themes.axaml.
+"""WCAG contrast table for the desktop app's Light and Dark themes in src/Capacitor.App/Design/Themes.axaml,
+each painted over the brushes in Palette.axaml beside it.
 
 Exits non-zero when a text pair falls below 4.5:1 or a non-text pair below 3:1.
-Usage: python3 tools/ui-audit/contrast.py [path/to/palette.axaml]  (a path audits that palette alone)
+Usage: python3 tools/ui-audit/contrast.py [path/to/Themes.axaml]
 """
 import re
 import sys
@@ -10,7 +11,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-AXAML = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "src/Capacitor.App/Design/Palette.axaml"
+THEMES = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "src/Capacitor.App/Design/Themes.axaml"
+AXAML = THEMES.with_name("Palette.axaml")
 
 SURFACES = ["KcapCanvasBrush", "KcapSurfaceBrush", "KcapSurfaceRaisedBrush"]
 TEXT = ["KcapTextBrush", "KcapMutedBrush", "KcapFaintBrush", "KcapPlaceholderBrush"]
@@ -108,11 +110,8 @@ if __name__ == "__main__":
     opacities = {entry.attrib[key]: float(entry.attrib["Opacity"])
                  for entry in ET.parse(AXAML).getroot().iter() if key in entry.attrib and "Opacity" in entry.attrib}
     edges = [*EDGES, "KcapChoiceBorderBrush", "KcapTopicRailBrush"]
-    if len(sys.argv) > 1:
-        sys.exit(audit(base, opacities, edges))
-    # The app always paints one of the themes over the palette's brushes.
     result = 0
-    for variant in ET.parse(AXAML.with_name("Themes.axaml")).getroot():
+    for variant in ET.parse(THEMES).getroot():
         print(f"\n{variant.attrib[key]}")
         overrides = {entry.attrib[key]: entry.text.strip() for entry in variant}
         result |= audit(base | overrides, opacities, edges)

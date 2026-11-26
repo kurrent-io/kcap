@@ -372,6 +372,10 @@ public partial class App : Application {
 
     public override void Initialize() {
         AvaloniaXamlLoader.Load(this);
+        // The themed brushes are declared without colors. A fixed Light start keeps the headless tests
+        // independent of the machine's theme; the app paints the saved or system scheme before its first window.
+        if (!new DesktopPalette(this).TryApply(DesktopTheme.Light))
+            throw new InvalidOperationException("The Light theme in Design/Themes.axaml is missing a palette entry.");
         ScrollReveal.Register();
         ProgressiveDisclosureViewModel.Shared.Restore(_progressiveDisclosure, _appState);
         LineSelection.Install();

@@ -864,7 +864,7 @@ public class SettingsWindowSmokeTests {
             await Assert.That((await state.LoadAsync()).DesktopColorScheme).IsEqualTo(lightAvailable ? "light" : "dark");
         } finally {
             window.Close();
-            palette.TryApply(DesktopTheme.Dark);
+            palette.TryApply(DesktopTheme.Light);
         }
     });
 

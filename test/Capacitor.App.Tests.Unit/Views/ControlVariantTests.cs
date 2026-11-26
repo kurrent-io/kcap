@@ -169,7 +169,7 @@ public class ControlVariantTests {
             await Assert.That(Contrast(Over(Solid(frame.BorderBrush), surface.Color), surface.Color)).IsGreaterThanOrEqualTo(3.0);
         } finally {
             window.Close();
-            palette.TryApply(DesktopTheme.Dark);
+            palette.TryApply(DesktopTheme.Light);
         }
     });
 
@@ -212,7 +212,7 @@ public class ControlVariantTests {
                 }
             } finally {
                 palette.SetHigherContrast(false);
-                palette.TryApply(DesktopTheme.Dark);
+                palette.TryApply(DesktopTheme.Light);
             }
         });
 

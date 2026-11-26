@@ -29,6 +29,7 @@
     <SolidColorBrush x:Key="KcapClaudeBrandBrush" Color="#D97757" />
     <SolidColorBrush x:Key="KcapMistralBrandBrush" Color="#FA520F" />
     <SolidColorBrush x:Key="KcapMuseAssistantBrandBrush" Color="#2F6FE0" />
-    <SolidColorBrush x:Key="KcapGrokBrandBrush" Color="#E2E2E0" />
+    <!-- Themed: colored from Themes.axaml. -->
+    <SolidColorBrush x:Key="KcapGrokBrandBrush" />
     <SolidColorBrush x:Key="KcapMuseBrandBrush" Color="#4B93FF" />
 </ResourceDictionary>

@@ -2867,7 +2867,7 @@ public class ChatTabViewSmokeTests {
             } finally {
                 await host.CloseAsync();
                 AppearanceScope.ResetReading(reading);
-                palette.TryApply(DesktopTheme.Dark);
+                palette.TryApply(DesktopTheme.Light);
             }
         });
 

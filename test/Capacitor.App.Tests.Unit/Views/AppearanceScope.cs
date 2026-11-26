@@ -8,7 +8,7 @@ using Avalonia.VisualTree;
 namespace Capacitor.App.Tests.Unit.Views;
 
 /// Paints a theme and the default reading preferences for one test, and puts the test app back in
-/// its resting state (Dark, no reading layout) afterwards.
+/// its resting state (Light, no reading layout) afterwards.
 internal sealed class AppearanceScope : IDisposable {
     readonly DesktopPalette _palette = new(Application.Current!);
     readonly DesktopReadingResources _reading = new(Application.Current!);
@@ -20,7 +20,7 @@ internal sealed class AppearanceScope : IDisposable {
 
     public void Dispose() {
         ResetReading(_reading);
-        _palette.TryApply(DesktopTheme.Dark);
+        _palette.TryApply(DesktopTheme.Light);
     }
 
     /// Default preferences, and no reading-layout revision for a later test's transcript to react to.

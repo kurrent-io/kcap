@@ -4,7 +4,6 @@ using System.Reactive.Subjects;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
-using Avalonia.Markup.Xaml;
 using Avalonia.Media;
 using Avalonia.Styling;
 using Capacitor.App.Services;
@@ -92,7 +91,7 @@ public class DesktopColorSchemeSettingsTests {
             await Assert.That(input.SelectedText).IsEqualTo("the fa");
         } finally {
             window.Close();
-            palette.TryApply(DesktopTheme.Dark);
+            palette.TryApply(DesktopTheme.Light);
         }
     });
 
@@ -130,23 +129,7 @@ public class DesktopColorSchemeSettingsTests {
                 }
             }
         } finally {
-            palette.TryApply(DesktopTheme.Dark);
-        }
-    });
-
-    /// <summary>
-    /// A window shown before a theme is painted, a startup dialog among them, shows the palette's own
-    /// colors: they must be the Dark theme's, or it flashes another palette until the first paint.
-    /// </summary>
-    [Test]
-    public Task The_palette_starts_in_the_dark_theme() => AvaloniaSession.RunOnUiAsync(async () => {
-        var dark = (ResourceDictionary)Application.Current!.FindResource(DesktopPalette.DarkTheme)!;
-        var declared = new[] { "Palette", "Brand" }
-            .Select(name => (ResourceDictionary)AvaloniaXamlLoader.Load(new Uri($"avares://kcap-desktop/Design/{name}.axaml")))
-            .ToArray();
-        foreach (var key in dark.Keys) {
-            var brush = declared.Select(dictionary => dictionary.TryGetValue(key, out var value) ? value : null).OfType<SolidColorBrush>().Single();
-            await Assert.That(brush.Color).IsEqualTo((Color)dark[key]!);
+            palette.TryApply(DesktopTheme.Light);
         }
     });
 
@@ -186,7 +169,7 @@ public class DesktopColorSchemeSettingsTests {
             await Assert.That(app.RequestedThemeVariant).IsEqualTo(ThemeVariant.Dark);
         } finally {
             light.Remove("MissingPreviewBrush");
-            palette.TryApply(DesktopTheme.Dark);
+            palette.TryApply(DesktopTheme.Light);
         }
     });
 
