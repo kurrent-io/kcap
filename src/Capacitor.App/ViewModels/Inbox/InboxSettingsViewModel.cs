@@ -133,6 +133,7 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
         _pendingWrites.Clear();
         _writing.Clear();
         _pendingTellAgent = null;
+        _tellWriting = false;
         // Writes still in flight belong to the previous account: they no longer hold back this account's read.
         _mutations = 0;
         IsLoading = false;
@@ -246,13 +247,14 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
         _pendingTellAgent = tell;
         if (_tellWriting) return;
         _tellWriting = true;
+        var account = _account;
         try {
-            while (!_disposed && _pendingTellAgent is { } next) {
+            while (!_disposed && account == _account && _pendingTellAgent is { } next) {
                 _pendingTellAgent = null;
                 await ControlsAsync(() => _api.SetAgentOptOutAsync(!next, _lifetime.Token));
             }
         } finally {
-            _tellWriting = false;
+            if (account == _account) _tellWriting = false;
         }
     }
 

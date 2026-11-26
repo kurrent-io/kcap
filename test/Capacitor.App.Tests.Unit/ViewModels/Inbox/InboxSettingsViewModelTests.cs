@@ -273,6 +273,25 @@ public class InboxSettingsViewModelTests {
     });
 
     [Test]
+    public async Task A_stalled_tell_agent_write_from_the_previous_account_does_not_hold_back_the_next() => await AvaloniaSession.RunOnUiAsync(async () => {
+        var api = new FakeInboxApi { Prefs = Prefs("connected", true, Type("pass_received")), Controls = new(InboxReadKind.Ready, new() { AgentOptedOut = false }) };
+        var signIn = new System.Reactive.Subjects.Subject<RxUnit>();
+        using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: true, () => { }, null, signIn);
+        var stalled = new TaskCompletionSource();
+        api.ControlsGate = stalled;
+        settings.TellAgent = false;
+        api.ControlsGate = null;
+
+        signIn.OnNext(RxUnit.Default);
+        await Task.Yield();
+        settings.TellAgent = !settings.TellAgent;
+        await Task.Yield();
+
+        await Assert.That(api.Calls.Count(c => c.StartsWith("opt-out", StringComparison.Ordinal))).IsEqualTo(2);
+        stalled.SetResult();
+    });
+
+    [Test]
     public async Task A_failed_first_load_offers_a_retry() => await AvaloniaSession.RunOnUiAsync(async () => {
         var api = new FakeInboxApi { Prefs = InboxRead<NotificationPrefsDto>.Failed };
         using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: false, () => { });
