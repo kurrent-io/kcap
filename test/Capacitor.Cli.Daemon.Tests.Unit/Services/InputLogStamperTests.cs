@@ -13,6 +13,7 @@ public class InputLogStamperTests {
 
     static readonly Guid First  = Guid.Parse("50000000-0000-4000-8000-000000000001");
     static readonly Guid Second = Guid.Parse("50000000-0000-4000-8000-000000000002");
+    const string Agent  = "5000000000004000800000000000000a";
 
     [TempDir] public required TempDir Tmp { get; init; }
 
@@ -46,14 +47,14 @@ public class InputLogStamperTests {
     [Test]
     public async Task Identical_texts_from_two_senders_are_told_apart_by_position() {
         var log = Log();
-        Write(log, InputAuthor.Dispatch(First), "run the tests");
+        Write(log, InputAuthor.Dispatch(First, Agent), "run the tests");
         Write(log, InputAuthor.Owner, "run the tests");
         var stamper = Stamper(log);
 
-        await Assert.That(stamper.StampFor(2, Person(2, "run the tests"))).IsEqualTo(new LineStamp(2, First, IsLocal: false));
+        await Assert.That(stamper.StampFor(2, Person(2, "run the tests"))).IsEqualTo(new LineStamp(2, First, Agent, IsLocal: false));
         await Assert.That(stamper.StampFor(3, Reply(3))).IsNull();
         await Assert.That(stamper.StampFor(4, ToolResult(4))).IsNull();
-        await Assert.That(stamper.StampFor(5, Person(5, "run the tests"))).IsEqualTo(new LineStamp(5, null, IsLocal: true));
+        await Assert.That(stamper.StampFor(5, Person(5, "run the tests"))).IsEqualTo(new LineStamp(5, null, null, IsLocal: true));
         await Assert.That(log.IsSuspended).IsFalse();
     }
 
@@ -62,13 +63,13 @@ public class InputLogStamperTests {
     [Arguments(false)]
     public async Task A_row_with_no_matching_entry_goes_unstamped_and_suspends(bool anEntryWaits) {
         var log = Log();
-        if (anEntryWaits) Write(log, InputAuthor.Dispatch(First), "run the tests");
+        if (anEntryWaits) Write(log, InputAuthor.Dispatch(First, Agent), "run the tests");
         var stamper = Stamper(log);
 
         await Assert.That(stamper.StampFor(2, Person(2, "typed at the terminal"))).IsNull();
         await Assert.That(log.IsSuspended).IsTrue();
 
-        Write(log, InputAuthor.Dispatch(Second), "typed at the terminal");
+        Write(log, InputAuthor.Dispatch(Second, Agent), "typed at the terminal");
         await Assert.That(stamper.StampFor(4, Person(4, "run the tests"))).IsNull();
         await Assert.That(stamper.StampFor(5, Person(5, "typed at the terminal"))).IsNull();
     }
@@ -78,15 +79,15 @@ public class InputLogStamperTests {
     [Test]
     public async Task A_replayed_row_takes_its_stamp_from_the_match_record_and_consumes_no_entry() {
         var log = Log();
-        Write(log, InputAuthor.Dispatch(First), "run the tests");
-        Write(log, InputAuthor.Dispatch(Second), "run the tests");
-        await Assert.That(Stamper(log).StampFor(2, Person(2, "run the tests"))).IsEqualTo(new LineStamp(2, First, IsLocal: false));
+        Write(log, InputAuthor.Dispatch(First, Agent), "run the tests");
+        Write(log, InputAuthor.Dispatch(Second, Agent), "run the tests");
+        await Assert.That(Stamper(log).StampFor(2, Person(2, "run the tests"))).IsEqualTo(new LineStamp(2, First, Agent, IsLocal: false));
 
         var replay = Stamper(Log());
 
-        await Assert.That(replay.StampFor(2, Person(2, "run the tests"))).IsEqualTo(new LineStamp(2, First, IsLocal: false));
-        await Assert.That(replay.StampFor(2, Person(2, "run the tests"))).IsEqualTo(new LineStamp(2, First, IsLocal: false));
-        await Assert.That(replay.StampFor(4, Person(4, "run the tests"))).IsEqualTo(new LineStamp(4, Second, IsLocal: false));
+        await Assert.That(replay.StampFor(2, Person(2, "run the tests"))).IsEqualTo(new LineStamp(2, First, Agent, IsLocal: false));
+        await Assert.That(replay.StampFor(2, Person(2, "run the tests"))).IsEqualTo(new LineStamp(2, First, Agent, IsLocal: false));
+        await Assert.That(replay.StampFor(4, Person(4, "run the tests"))).IsEqualTo(new LineStamp(4, Second, Agent, IsLocal: false));
     }
 
     [Test]
@@ -94,15 +95,15 @@ public class InputLogStamperTests {
         var log = Log();
         Write(log, InputAuthor.Owner, "look at the failing test");
 
-        await Assert.That(Stamper(log).StampFor(2, Person(2, "look at the failing test"))).IsEqualTo(new LineStamp(2, null, IsLocal: true));
+        await Assert.That(Stamper(log).StampFor(2, Person(2, "look at the failing test"))).IsEqualTo(new LineStamp(2, null, null, IsLocal: true));
     }
 
     [Test]
     public async Task A_row_read_before_its_write_is_marked_still_matches() {
         var log      = Log();
-        var position = log.AppendPending(InputAuthor.Dispatch(First), "run the tests");
+        var position = log.AppendPending(InputAuthor.Dispatch(First, Agent), "run the tests");
 
-        await Assert.That(Stamper(log).StampFor(2, Person(2, "run the tests"))).IsEqualTo(new LineStamp(2, First, IsLocal: false));
+        await Assert.That(Stamper(log).StampFor(2, Person(2, "run the tests"))).IsEqualTo(new LineStamp(2, First, Agent, IsLocal: false));
 
         log.MarkWritten(position);
         await Assert.That(log.IsSuspended).IsFalse();
@@ -119,15 +120,15 @@ public class InputLogStamperTests {
         await Assert.That(redacted).IsNotEqualTo(raw);
 
         var log = Log();
-        Write(log, InputAuthor.Dispatch(First), text);
+        Write(log, InputAuthor.Dispatch(First, Agent), text);
         var stamper = Stamper(log);
 
-        await Assert.That(stamper.StampFor(2, raw)).IsEqualTo(new LineStamp(2, First, IsLocal: false));
-        await Assert.That(stamper.StampFor(2, raw)).IsEqualTo(new LineStamp(2, First, IsLocal: false));
+        await Assert.That(stamper.StampFor(2, raw)).IsEqualTo(new LineStamp(2, First, Agent, IsLocal: false));
+        await Assert.That(stamper.StampFor(2, raw)).IsEqualTo(new LineStamp(2, First, Agent, IsLocal: false));
 
         File.Delete(LogPath);
         var fromRedacted = Log();
-        Write(fromRedacted, InputAuthor.Dispatch(First), text);
+        Write(fromRedacted, InputAuthor.Dispatch(First, Agent), text);
 
         await Assert.That(Stamper(fromRedacted).StampFor(2, redacted)).IsNull();
         await Assert.That(fromRedacted.IsSuspended).IsTrue();
@@ -144,14 +145,14 @@ public class InputLogStamperTests {
         }.ToJsonString();
 
         await Assert.That(stamper.StampFor(2, command)).IsNull();
-        await Assert.That(stamper.StampFor(3, Person(3, "carry on"))).IsEqualTo(new LineStamp(3, null, IsLocal: true));
+        await Assert.That(stamper.StampFor(3, Person(3, "carry on"))).IsEqualTo(new LineStamp(3, null, null, IsLocal: true));
         await Assert.That(log.IsSuspended).IsFalse();
     }
 
     [Test]
     public async Task Acknowledged_lines_lose_their_match_records() {
         var log = Log();
-        Write(log, InputAuthor.Dispatch(First), "run the tests");
+        Write(log, InputAuthor.Dispatch(First, Agent), "run the tests");
         var stamper = Stamper(log);
         await Assert.That(stamper.StampFor(2, Person(2, "run the tests"))).IsNotNull();
 

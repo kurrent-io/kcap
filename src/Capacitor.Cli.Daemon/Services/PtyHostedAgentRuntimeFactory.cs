@@ -167,7 +167,7 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
         long? inlineEntry = null;
         if (launchPrompt is null && ctx.InputLog is { } inputLog && launcherCtx.Prompt is { Length: > 0 } inline
          && args.Contains(inline) && PersonRows.IsPersonText(inline, ctx.Vendor))
-            inlineEntry = inputLog.AppendPending(ctx.LaunchDispatchId is { } id ? InputAuthor.Dispatch(id) : InputAuthor.Daemon, inline);
+            inlineEntry = inputLog.AppendPending(ctx.LaunchDispatchId is { } id ? InputAuthor.Dispatch(id, ctx.AgentId) : InputAuthor.Daemon, inline);
 
         var pty = ptyFactory.Spawn(launcher.CliPath, args, ctx.Worktree.Path, env, ctx.Cols, ctx.Rows, removeEnv);
         if (inlineEntry is { } written) ctx.InputLog!.MarkWritten(written);
@@ -177,7 +177,8 @@ internal sealed partial class PtyHostedAgentRuntimeFactory(
             bracketedPasteMeansComposerUp: launcher.BracketedPasteMeansComposerUp,
             awaitsSessionStart: hooksReachDaemon && launcher.SessionStartMeansComposerUp,
             confirmsLaunchPrompt: hooksReachDaemon,
-            inputLog: ctx.InputLog);
+            inputLog: ctx.InputLog,
+            agentId: ctx.AgentId);
 
         if (launchPrompt is not null) {
             runtime.DeliverLaunchPrompt(launchPrompt, ctx.LaunchDispatchId);

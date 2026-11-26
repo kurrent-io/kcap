@@ -59,7 +59,7 @@ internal sealed partial class InputLog {
     public long AppendPending(InputAuthor author, string text) {
         lock (_gate) {
             var position = _nextPosition++;
-            _entries.Add(new InputLogEntry(position, author.DispatchId, author.IsOwner, TextHash(text), Written: false, _time.GetUtcNow()));
+            _entries.Add(new InputLogEntry(position, author.DispatchId, author.AgentId, author.IsOwner, TextHash(text), Written: false, _time.GetUtcNow()));
             Persist();
 
             return position;
@@ -90,7 +90,7 @@ internal sealed partial class InputLog {
     public LineStamp? Match(int lineNumber, string rawLine, string? personText) {
         lock (_gate) {
             if (_matches.Find(match => match.Line == lineNumber) is { } placed) {
-                if (placed.LineHash == Hash(rawLine)) return Stamp(lineNumber, placed.DispatchId, placed.Local);
+                if (placed.LineHash == Hash(rawLine)) return Stamp(lineNumber, placed.DispatchId, placed.AgentId, placed.Local);
 
                 return SuspendWithNoStamp("a line already placed came back changed");
             }
@@ -102,10 +102,10 @@ internal sealed partial class InputLog {
             if (next.TextHash != TextHash(personText)) return SuspendWithNoStamp("a person-authored row is not the next message");
 
             _entries.RemoveAt(0);
-            _matches.Add(new InputLogMatch(lineNumber, Hash(rawLine), next.DispatchId, next.Local));
+            _matches.Add(new InputLogMatch(lineNumber, Hash(rawLine), next.DispatchId, next.AgentId, next.Local));
             Persist();
 
-            return Stamp(lineNumber, next.DispatchId, next.Local);
+            return Stamp(lineNumber, next.DispatchId, next.AgentId, next.Local);
         }
     }
 
@@ -171,8 +171,8 @@ internal sealed partial class InputLog {
         return true;
     }
 
-    static LineStamp? Stamp(int lineNumber, Guid? dispatchId, bool local) =>
-        dispatchId is null && !local ? null : new LineStamp(lineNumber, dispatchId, local);
+    static LineStamp? Stamp(int lineNumber, Guid? dispatchId, string? agentId, bool local) =>
+        dispatchId is null && !local ? null : new LineStamp(lineNumber, dispatchId, agentId, local);
 
     static string TextHash(string text) => Hash(text.TrimEnd('\r', '\n'));
 

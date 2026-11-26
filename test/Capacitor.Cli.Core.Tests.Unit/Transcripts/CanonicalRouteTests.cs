@@ -258,12 +258,12 @@ public class CanonicalRouteTests {
         var raw      = Raw(0, User(1), Assistant(2, 1));
         var route    = Route();
 
-        var sent  = route.Encode(raw, new Dictionary<int, LineStamp> { [0] = new(0, dispatch, IsLocal: false) }, Received);
+        var sent  = route.Encode(raw, new Dictionary<int, LineStamp> { [0] = new(0, dispatch, "a1", IsLocal: false) }, Received);
         var again = route.Encode(raw, null, Received);
 
         await Assert.That(again).IsSameReferenceAs(sent);
         await Assert.That(again.Events.Select(e => e.Stamp))
-            .IsEquivalentTo([new CanonicalBatchStamp(dispatch, Local: false), null], CollectionOrdering.Matching);
+            .IsEquivalentTo([new CanonicalBatchStamp(dispatch, "a1", Local: false), null], CollectionOrdering.Matching);
     }
 
     [Test]

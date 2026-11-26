@@ -570,11 +570,12 @@ public class TranscriptRecorderTests {
     }
 
     static readonly Guid Dispatch = Guid.Parse("30000000-0000-4000-8000-000000000001");
+    const string Agent = "40000000000040008000000000000001";
 
     [Test]
     public async Task Stamps_reach_the_canonical_batch_from_the_recorder() {
         var path    = Tmp.CreateFile("t.jsonl", Jsonl(Session[..4]));
-        var stamper = new FakeStamper(new(0, Dispatch, IsLocal: false), new(2, null, IsLocal: true));
+        var stamper = new FakeStamper(new(0, Dispatch, Agent, IsLocal: false), new(2, null, null, IsLocal: true));
         _transport.SupportsCanonical = true;
         using var recorder = Recorder(path, stamper: stamper);
         using var stop     = new CancellationTokenSource();
@@ -585,7 +586,7 @@ public class TranscriptRecorderTests {
         await run;
 
         await Assert.That(_transport.CanonicalBatches.SelectMany(batch => batch.Events).Select(e => (e.Line, e.Stamp))).IsEquivalentTo([
-            (0, new CanonicalBatchStamp(Dispatch, Local: false)), (1, null), (2, new CanonicalBatchStamp(null, Local: true)), (3, null),
+            (0, new CanonicalBatchStamp(Dispatch, Agent, Local: false)), (1, null), (2, new CanonicalBatchStamp(null, null, Local: true)), (3, null),
         ], CollectionOrdering.Matching);
         await Assert.That(stamper.Asked).IsEquivalentTo([0, 1, 2, 3], CollectionOrdering.Matching);
     }
@@ -597,7 +598,7 @@ public class TranscriptRecorderTests {
     [Arguments(true)]
     public async Task A_raw_send_carries_no_stamp(bool refusedAsUnsupported) {
         var path    = Tmp.CreateFile("t.jsonl", Jsonl(Session[..2]));
-        var stamper = new FakeStamper(new LineStamp(0, Dispatch, IsLocal: false));
+        var stamper = new FakeStamper(new LineStamp(0, Dispatch, Agent, IsLocal: false));
         _transport.SupportsCanonical = refusedAsUnsupported;
         _transport.CanonicalRefusals = refusedAsUnsupported ? 1 : 0;
         using var recorder = Recorder(path, stamper: stamper);
@@ -620,7 +621,7 @@ public class TranscriptRecorderTests {
         var path = Tmp.CreateFile("t.jsonl", Jsonl(Session[..2]));
         var log  = new ConcurrentQueue<string>();
         _transport.SupportsCanonical = true;
-        using var recorder = Recorder(path, stamper: new FakeStamper(new(0, Dispatch, IsLocal: false), new(1, null, IsLocal: true)), log: log.Enqueue);
+        using var recorder = Recorder(path, stamper: new FakeStamper(new(0, Dispatch, Agent, IsLocal: false), new(1, null, null, IsLocal: true)), log: log.Enqueue);
         using var stop     = new CancellationTokenSource();
 
         var run = recorder.RunAsync(stop.Token);
@@ -629,7 +630,7 @@ public class TranscriptRecorderTests {
         await run;
 
         await Assert.That(_transport.CanonicalBatches.SelectMany(batch => batch.Events).Select(e => e.Stamp))
-            .IsEquivalentTo([new CanonicalBatchStamp(Dispatch, Local: false), null], CollectionOrdering.Matching);
+            .IsEquivalentTo([new CanonicalBatchStamp(Dispatch, Agent, Local: false), null], CollectionOrdering.Matching);
         await Assert.That(log.Where(line => line.Contains("stamp", StringComparison.Ordinal)))
             .IsEquivalentTo(["Line 1's stamp went on no user message; dropped"], CollectionOrdering.Matching);
     }
