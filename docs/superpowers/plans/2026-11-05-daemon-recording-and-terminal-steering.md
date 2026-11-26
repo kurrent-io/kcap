@@ -376,9 +376,10 @@ A stamp travels only on the canonical route (`docs/superpowers/specs/2026-11-16-
   - `An_unstamped_row_still_goes_to_the_matcher`
   - `A_local_row_goes_to_the_owner_and_consumes_no_pending_dispatch`: identical text, remote dispatch pending, local row first, then the stamped row links to its dispatch only
   - `A_replayed_stamped_row_does_not_attribute_twice`, and `A_second_row_stamped_with_a_credited_dispatch_is_credited_too`
-  - `A_stamped_row_finds_its_dispatch_after_a_restart`: the dispatch is in its stream but no longer in the pending queue
-  - `A_stamp_naming_a_dispatch_its_agents_stream_lacks_is_ignored`
-  - `A_stamped_wake_up_credits_its_sender_and_settles_it`
+  - `A_rebuilt_projector_credits_a_stamped_row_from_the_stream_alone`: the dispatch is in its stream, but nothing is pending and no live agent is known
+  - `A_stamp_naming_a_dispatch_its_agents_stream_lacks_is_ignored`: sent to another agent of the session, or named with an agent that has no stream
+  - `A_stamped_wake_up_credits_its_sender_and_settles_it`, as a unique match
+  - `A_stamp_whose_stream_cannot_be_read_is_ignored`
   - `A_replayed_unstamped_row_consumes_no_other_dispatch`, and the same for a burst and a wake-up
   - `A_stamp_naming_another_sessions_dispatch_is_ignored`, and that dispatch stays pending there
   - `A_stamp_naming_an_attached_agents_dispatch_is_ignored`
