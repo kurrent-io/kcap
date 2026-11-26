@@ -305,7 +305,7 @@ public class ServerRecorderTransportTests {
             Vendor      = "claude",
             Lines       = ["""{"type":"user","uuid":"30000000-0000-4000-8000-000000000001","timestamp":"2026-11-16T08:00:00Z","message":{"role":"user","content":"hi"}}"""],
             LineNumbers = [3],
-        }, DateTimeOffset.UtcNow);
+        }, null, DateTimeOffset.UtcNow);
 
         await transport.ConnectAsync(A, CancellationToken.None).WithinDeadlineAsync("the connect");
 

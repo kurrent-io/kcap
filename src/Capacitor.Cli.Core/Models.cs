@@ -63,9 +63,9 @@ public record TranscriptBatch {
     public string? TranscriptPath { get; init; }
 }
 
-/// <summary>Who wrote a transcript line, when the recorder can place it: the dispatch that produced it, or a person
-/// at the terminal.</summary>
-public sealed record LineStamp(int LineNumber, Guid? DispatchId, bool IsLocal);
+/// <summary>Who wrote a transcript line, when the recorder can place it: the dispatch that produced it, with the agent it
+/// was sent to, or a person at the terminal.</summary>
+public sealed record LineStamp(int LineNumber, Guid? DispatchId, string? AgentId, bool IsLocal);
 
 public record ErrorEntry(
         string         SessionId,
@@ -1818,6 +1818,9 @@ public readonly record struct LaunchAgentCommand(
         // Continue an ended session from this start. Sent only to a daemon advertising
         // DaemonConnect.SupportsHandoffLaunch; a daemon that cannot carry it refuses the launch.
         Handoff.HandoffLaunch? Handoff = null,
+        // The dispatch the server appends for the launch prompt, so the daemon can stamp the prompt's row with it. Null
+        // from an older server, and on every launch the daemon builds itself: a resume's prompt is the daemon's own
+        Guid?             LaunchDispatchId = null,
         // Resume an ended session natively in its own directory. Sent only to a daemon advertising
         // DaemonConnect.SupportsResumeInPlace; a daemon that cannot carry it refuses the launch.
         Resume.ResumeInPlaceLaunch? ResumeInPlace = null

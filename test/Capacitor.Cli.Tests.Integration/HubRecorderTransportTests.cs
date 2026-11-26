@@ -108,7 +108,7 @@ public class HubRecorderTransportTests {
             Vendor      = "claude",
             Lines       = ["""{"type":"user","uuid":"30000000-0000-4000-8000-000000000001","timestamp":"2026-11-16T08:00:00Z","message":{"role":"user","content":"hi"}}"""],
             LineNumbers = [line],
-        }, DateTimeOffset.UtcNow);
+        }, null, DateTimeOffset.UtcNow);
 
     [Test]
     public async Task A_canonical_batch_reaches_the_hub_and_its_answer_is_read() {

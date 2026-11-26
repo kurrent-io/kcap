@@ -49,7 +49,7 @@ public class CanonicalRouteTests {
         const string title = """{"type":"session_title","title":"Fix the build","time":1795148348000}""";
         const string v2    = """{"id":"msg_2","type":"user","time":{"created":1795148349000},"text":"from v2"}""";
 
-        var batch = CanonicalRoute.For("opencode", "ses_1", null, true)!.Encode(Raw(0, v1, title, v2) with { SessionId = "ses_1", Vendor = "opencode" }, Received);
+        var batch = CanonicalRoute.For("opencode", "ses_1", null, true)!.Encode(Raw(0, v1, title, v2) with { SessionId = "ses_1", Vendor = "opencode" }, null, Received);
 
         await Assert.That(batch.Vendor).IsEqualTo("opencode");
         await Assert.That(batch.Events.Select(e => (e.Line, e.EventId))).IsEquivalentTo(
@@ -68,7 +68,7 @@ public class CanonicalRouteTests {
     public async Task A_route_sends_the_servers_ids_for_a_dashed_session(string? agentId, string? canonicalAgentId) {
         const string image = """{"type":"user","uuid":"10000000-0000-4000-8000-000000000001","timestamp":"2026-11-16T08:00:01Z","message":{"content":[{"type":"text","text":"look"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}}]}}""";
 
-        var batch = CanonicalRoute.For("claude", Session, agentId, true)!.Encode(Raw(0, image) with { AgentId = agentId }, Received);
+        var batch = CanonicalRoute.For("claude", Session, agentId, true)!.Encode(Raw(0, image) with { AgentId = agentId }, null, Received);
 
         await Assert.That(batch.SessionId).IsEqualTo("5cdc4fccff9e4fdc8d93cf47ff5a140a");
         await Assert.That(batch.AgentId).IsEqualTo(canonicalAgentId);
@@ -115,15 +115,15 @@ public class CanonicalRouteTests {
         var lines = new[] { User(1), Assistant(2, 1), User(3, 2) };
 
         var whole = Route();
-        whole.Encode(Raw(0, lines[0], lines[1]), Received);
+        whole.Encode(Raw(0, lines[0], lines[1]), null, Received);
         whole.Acknowledged();
-        var expected = Events(whole.Encode(Raw(2, lines[2]), Received));
+        var expected = Events(whole.Encode(Raw(2, lines[2]), null, Received));
 
         var path     = Tmp.CreateFile("t.jsonl", string.Join('\n', lines) + "\n");
         var replayed = Route();
 
         await Assert.That(await replayed.ReplayAsync(path, 2, CancellationToken.None)).IsTrue();
-        await Assert.That(Events(replayed.Encode(Raw(2, lines[2]), Received))).IsEquivalentTo(expected);
+        await Assert.That(Events(replayed.Encode(Raw(2, lines[2]), null, Received))).IsEquivalentTo(expected);
     }
 
     static string AssistantUsing(int n, int parent, int inputTokens, string text) =>
@@ -140,16 +140,16 @@ public class CanonicalRouteTests {
         var next      = AssistantUsing(3, parent: 2, inputTokens: 7, "short");
 
         var live = Route();
-        live.Encode(Raw(0, User(1), CaptureLoss), Received);
+        live.Encode(Raw(0, User(1), CaptureLoss), null, Received);
         live.Acknowledged();
-        var sent = live.Encode(Raw(2, next), Received);
+        var sent = live.Encode(Raw(2, next), null, Received);
 
         var path     = Tmp.CreateFile("t.jsonl", $"{User(1)}\n{oversized}\n{next}\n");
         var replayed = Route();
 
         await Assert.That(await replayed.ReplayAsync(path, 2, CancellationToken.None)).IsTrue();
         await Assert.That(sent.Events.Single().Usage).IsNotNull();
-        await Assert.That(Events(replayed.Encode(Raw(2, next), Received))).IsEquivalentTo(Events(sent));
+        await Assert.That(Events(replayed.Encode(Raw(2, next), null, Received))).IsEquivalentTo(Events(sent));
     }
 
     /// A readable line a rewrite could take past the record limit, carrying a usage of 7 input tokens.
@@ -175,9 +175,9 @@ public class CanonicalRouteTests {
         using var replay  = new CancellationTokenSource();
 
         var live = Route();
-        live.Encode(Raw(0, User(1), large), Received);
+        live.Encode(Raw(0, User(1), large), null, Received);
         live.Acknowledged();
-        var sent = live.Encode(Raw(2, next), Received);
+        var sent = live.Encode(Raw(2, next), null, Received);
 
         var path     = Tmp.CreateFile("t.jsonl", $"{User(1)}\n{large}\n{next}\n");
         var replayed = CanonicalRoute.For("claude", Session, null, true, (line, ct) => {
@@ -188,7 +188,7 @@ public class CanonicalRouteTests {
 
         await Assert.That(await replayed.ReplayAsync(path, 2, replay.Token)).IsTrue();
         await Assert.That(sent.Events.Single().Usage).IsNull();
-        await Assert.That(Events(replayed.Encode(Raw(2, next), Received))).IsEquivalentTo(Events(sent));
+        await Assert.That(Events(replayed.Encode(Raw(2, next), null, Received))).IsEquivalentTo(Events(sent));
         await Assert.That(asked).IsEquivalentTo([(large, replay.Token)]);
     }
 
@@ -198,16 +198,16 @@ public class CanonicalRouteTests {
         var next = AssistantUsing(3, parent: 2, inputTokens: 7, "short");
 
         var live = Route();
-        live.Encode(Raw(0, User(1), CaptureLoss), Received);
+        live.Encode(Raw(0, User(1), CaptureLoss), null, Received);
         live.Acknowledged();
-        var sent = live.Encode(Raw(2, next), Received);
+        var sent = live.Encode(Raw(2, next), null, Received);
 
         var path     = Tmp.CreateFile("t.jsonl", $"{User(1)}\n{Large(2, 1)}\n{next}\n");
         var replayed = CanonicalRoute.For("claude", Session, null, true, (_, _) => LineCapture.Lost)!;
 
         await Assert.That(await replayed.ReplayAsync(path, 2, CancellationToken.None)).IsTrue();
         await Assert.That(sent.Events.Single().Usage).IsNotNull();
-        await Assert.That(Events(replayed.Encode(Raw(2, next), Received))).IsEquivalentTo(Events(sent));
+        await Assert.That(Events(replayed.Encode(Raw(2, next), null, Received))).IsEquivalentTo(Events(sent));
     }
 
     /// <summary>A replay the caller stops while a large line is being redacted is stopped, as between lines, not
@@ -238,17 +238,32 @@ public class CanonicalRouteTests {
         var (first, second) = (Raw(0, User(1), Assistant(2, 1)), Raw(2, User(3, 2)));
 
         var uninterrupted = Route();
-        uninterrupted.Encode(first, Received);
+        uninterrupted.Encode(first, null, Received);
         uninterrupted.Acknowledged();
-        var expected = Events(uninterrupted.Encode(second, Received));
+        var expected = Events(uninterrupted.Encode(second, null, Received));
 
         var route  = Route();
-        var once   = route.Encode(first, Received);
-        var again  = route.Encode(first, Received);
+        var once   = route.Encode(first, null, Received);
+        var again  = route.Encode(first, null, Received);
         route.Acknowledged();
 
         await Assert.That(Events(again)).IsEquivalentTo(Events(once));
-        await Assert.That(Events(route.Encode(second, Received))).IsEquivalentTo(expected);
+        await Assert.That(Events(route.Encode(second, null, Received))).IsEquivalentTo(expected);
+    }
+
+    /// <summary>Projecting is not repeatable, so the stamps a send asks with again cannot change the batch</summary>
+    [Test]
+    public async Task A_route_rebuilt_from_its_cache_keeps_its_stamps() {
+        var dispatch = Guid.Parse("30000000-0000-4000-8000-000000000001");
+        var raw      = Raw(0, User(1), Assistant(2, 1));
+        var route    = Route();
+
+        var sent  = route.Encode(raw, new Dictionary<int, LineStamp> { [0] = new(0, dispatch, "a1", IsLocal: false) }, Received);
+        var again = route.Encode(raw, null, Received);
+
+        await Assert.That(again).IsSameReferenceAs(sent);
+        await Assert.That(again.Events.Select(e => e.Stamp))
+            .IsEquivalentTo([new CanonicalBatchStamp(dispatch, "a1", Local: false), null], CollectionOrdering.Matching);
     }
 
     [Test]
@@ -257,9 +272,9 @@ public class CanonicalRouteTests {
         var line  = $$$"""{"type":"assistant","uuid":"{{{Id(2)}}}","timestamp":"2026-11-16T08:00:02Z","message":{"model":"claude-x","content":[{"type":"tool_use","id":"t1","name":"X","input":{"a":{{{deep}}}}}]}}""";
         var route = Route();
 
-        await Assert.That(() => route.Encode(Raw(0, line), Received)).Throws<CanonicalEncodingException>();
+        await Assert.That(() => route.Encode(Raw(0, line), null, Received)).Throws<CanonicalEncodingException>();
         await Assert.That(route.Active).IsFalse();
-        await Assert.That(() => route.Encode(Raw(0, User(1)), Received)).Throws<InvalidOperationException>();
+        await Assert.That(() => route.Encode(Raw(0, User(1)), null, Received)).Throws<InvalidOperationException>();
     }
 
     [Test]

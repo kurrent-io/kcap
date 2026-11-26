@@ -3342,7 +3342,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                 RequestedTransport: resume?.Entry.Transport,
                 ExpectedRuntimeTransport: cmd.ExpectedRuntimeTransport,
                 PersistenceProbe: () => _agents.TryGetValue(agentId, out var bound) ? bound.AcpForwarder?.Forwarder : null,
-                Account: account
+                Account: account,
+                LaunchDispatchId: cmd.LaunchDispatchId
             );
 
             HostedRuntimeStart start;
@@ -3357,6 +3358,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             // The process's first hook can run before anything after the start has, so the claim comes first.
             var knownSession = pinnedSessionId ?? cmd.ResumeSessionId ?? resume?.Entry.VendorSession;
             recording = await ClaimRecordingAsync(agentId, cmd.Vendor, knownSession, isPrivate, worktree, account, skipTitle: knownSession != pinnedSessionId);
+            if (recording is not null) runtimeCtx = runtimeCtx with { InputLog = _recorder!.InputLogForNewProcess(recording) };
 
             // Make this launch describable for the duration of the handshake below: the AgentInstance
             // does not exist until StartAsync returns, so without this the out-of-cycle report each
@@ -5243,8 +5245,9 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
     /// write depends on — the borrowed-snapshot refresh, attachment downloads, and the reap-claim
     /// checks that decide whether a condemned agent may still be written to — happens inside the
     /// agent's own delivery section.</summary>
+    /// <param name="fromOwner">The session's owner sent it from a local surface, which only the owner can reach</param>
     internal async Task<InputDeliveryOutcome> DeliverInputAsync(
-            AgentInstance agent, string text, string[]? attachmentIds, Guid? dispatchId = null, bool onlyIfWaiting = false) {
+            AgentInstance agent, string text, string[]? attachmentIds, Guid? dispatchId = null, bool fromOwner = false, bool onlyIfWaiting = false) {
         // Refused before the section, so nothing is downloaded for a message that was never going to
         // be delivered. The ids are re-validated here whichever lane they arrived on: the local frame
         // checks them too, but a server dispatch reaches this method directly. A borrowed cwd is the
@@ -5407,6 +5410,8 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
                         if (agent.BorrowedSnapshotSource is not null) await written;
                     } else if (agent.BorrowedSnapshotSource is not null)
                         await agent.Runtime.SendUserInputAndWaitForWriteAsync(message);
+                    else if (fromOwner)
+                        await agent.Runtime.SendOwnerInputAsync(message);
                     else
                         await agent.Runtime.SendUserInputAsync(message);
                 } catch (InputNotAdmittedException ex) {

@@ -464,9 +464,9 @@ public class SessionImporterProgressTests : IDisposable {
             canonical: new IngestCapability(client, _server.Url!, TimeProvider.System), startLine: 3, strict: true);
 
         var uninterrupted = CanonicalRoute.For("claude", "s1", null, true)!;
-        uninterrupted.Encode(new() { SessionId = "s1", Lines = lines[..3], LineNumbers = [0, 1, 2] }, DateTimeOffset.UnixEpoch);
+        uninterrupted.Encode(new() { SessionId = "s1", Lines = lines[..3], LineNumbers = [0, 1, 2] }, null, DateTimeOffset.UnixEpoch);
         uninterrupted.Acknowledged();
-        var expected = uninterrupted.Encode(new() { SessionId = "s1", Lines = [lines[3]], LineNumbers = [3] }, DateTimeOffset.UnixEpoch);
+        var expected = uninterrupted.Encode(new() { SessionId = "s1", Lines = [lines[3]], LineNumbers = [3] }, null, DateTimeOffset.UnixEpoch);
 
         await Assert.That(TranscriptPosts()).IsEquivalentTo([CanonicalRoute.HttpPath]);
         var sent = JsonDocument.Parse(_server.LogEntries.Single(e => e.RequestMessage.Path == CanonicalRoute.HttpPath).RequestMessage.Body!);

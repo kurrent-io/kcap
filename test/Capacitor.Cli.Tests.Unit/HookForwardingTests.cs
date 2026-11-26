@@ -223,9 +223,9 @@ public class InlineDrainTests : IDisposable {
         await Watchers.InlineDrainAsync(sessionId, transcriptPath, null);
 
         var uninterrupted = CanonicalRoute.For("claude", sessionId, null, true)!;
-        uninterrupted.Encode(new() { SessionId = sessionId, Lines = lines[..40], LineNumbers = [.. Enumerable.Range(0, 40)] }, DateTimeOffset.UnixEpoch);
+        uninterrupted.Encode(new() { SessionId = sessionId, Lines = lines[..40], LineNumbers = [.. Enumerable.Range(0, 40)] }, null, DateTimeOffset.UnixEpoch);
         uninterrupted.Acknowledged();
-        var expected = uninterrupted.Encode(new() { SessionId = sessionId, Lines = lines[40..], LineNumbers = [.. Enumerable.Range(40, 5)] }, DateTimeOffset.UnixEpoch);
+        var expected = uninterrupted.Encode(new() { SessionId = sessionId, Lines = lines[40..], LineNumbers = [.. Enumerable.Range(40, 5)] }, null, DateTimeOffset.UnixEpoch);
 
         await Assert.That(Posts()).IsEquivalentTo([CanonicalRoute.HttpPath]);
 

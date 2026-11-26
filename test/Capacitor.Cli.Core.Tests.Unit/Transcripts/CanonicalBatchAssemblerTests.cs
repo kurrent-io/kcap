@@ -49,7 +49,7 @@ public class CanonicalBatchAssemblerTests {
         var user      = User(1, "hi");
         var assistant = Assistant(2, "hello", parent: 1, usage: 10);
 
-        var batch = Claude().Assemble(Raw(0, user, assistant), Received);
+        var batch = Claude().Assemble(Raw(0, user, assistant), null, Received);
 
         var context  = ClaudeTranscriptEvents.Instance.CreateContext(Session, null);
         var expected = ClaudeTranscriptEvents.Instance.Project(user, 0, Received, context).Events
@@ -65,7 +65,7 @@ public class CanonicalBatchAssemblerTests {
 
     [Test]
     public async Task A_line_without_events_is_still_covered() {
-        var batch = Claude().Assemble(Raw(4, """{"type":"progress","uuid":"p"}"""), Received);
+        var batch = Claude().Assemble(Raw(4, """{"type":"progress","uuid":"p"}"""), null, Received);
 
         await Assert.That(batch.Lines.Length).IsEqualTo(1);
         await Assert.That(batch.Lines[0]).IsEqualTo(new CanonicalBatchLine(4, "p", null, "progress", null));
@@ -74,7 +74,7 @@ public class CanonicalBatchAssemblerTests {
 
     [Test]
     public async Task A_truncated_line_between_good_lines_is_covered_and_produces_nothing() {
-        var batch = Claude().Assemble(Raw(0, User(1, "hi"), $$"""{"type":"user","uuid":"{{Id(2)}}","mess""", Assistant(3, "hello", 1, 10)), Received);
+        var batch = Claude().Assemble(Raw(0, User(1, "hi"), $$"""{"type":"user","uuid":"{{Id(2)}}","mess""", Assistant(3, "hello", 1, 10)), null, Received);
 
         await Assert.That(batch.Lines.Select(l => l.Number)).IsEquivalentTo([0, 1, 2], CollectionOrdering.Matching);
         await Assert.That(batch.Lines[1]).IsEqualTo(new CanonicalBatchLine(1, null, null, null, null));
@@ -90,7 +90,7 @@ public class CanonicalBatchAssemblerTests {
     [Arguments("""{"type":"redacted_oversize_line","reason":"line exceeded SecretRedactor size limit"}""")]
     [Arguments("""{"type":"redacted_unparsable_line","reason":"redacted line was no longer valid JSON"}""")]
     public async Task A_capture_loss_line_travels_verbatim(string marker) {
-        var batch = Claude().Assemble(Raw(0, Assistant(1, "a", null, 10), marker, Assistant(3, "b", 1, 10)), Received);
+        var batch = Claude().Assemble(Raw(0, Assistant(1, "a", null, 10), marker, Assistant(3, "b", 1, 10)), null, Received);
 
         await Assert.That(batch.CaptureLoss!).IsEquivalentTo([new CanonicalBatchCaptureLoss(1, marker)], CollectionOrdering.Matching);
         await Assert.That(batch.Lines.Select(l => l.Number)).IsEquivalentTo([0, 1, 2], CollectionOrdering.Matching);
@@ -100,7 +100,7 @@ public class CanonicalBatchAssemblerTests {
 
     [Test]
     public async Task A_line_that_only_mentions_a_capture_loss_type_is_projected() {
-        var batch = Claude().Assemble(Raw(0, User(1, "is kcap_capture_loss a redacted_oversize_line?")), Received);
+        var batch = Claude().Assemble(Raw(0, User(1, "is kcap_capture_loss a redacted_oversize_line?")), null, Received);
 
         await Assert.That(batch.CaptureLoss).IsNull();
         await Assert.That(batch.Events.Length).IsEqualTo(1);
@@ -110,7 +110,7 @@ public class CanonicalBatchAssemblerTests {
     public async Task An_image_line_carries_its_bytes_message_id_and_block_index() {
         byte[] png = [0x89, 0x50, 0x4E, 0x47], gif = [0x47, 0x49, 0x46];
 
-        var batch = Claude().Assemble(Raw(0, Image(1, Convert.ToBase64String(png), Convert.ToBase64String(gif))), Received);
+        var batch = Claude().Assemble(Raw(0, Image(1, Convert.ToBase64String(png), Convert.ToBase64String(gif))), null, Received);
 
         var message     = batch.Events.Single();
         var attachments = message.Attachments!;
@@ -126,7 +126,7 @@ public class CanonicalBatchAssemblerTests {
         var bytes = new byte[5 * 1024 * 1024 / 4 * 3];
         new Random(2638).NextBytes(bytes);
 
-        var batch = Claude().Assemble(Raw(0, Image(1, Convert.ToBase64String(bytes))), Received);
+        var batch = Claude().Assemble(Raw(0, Image(1, Convert.ToBase64String(bytes))), null, Received);
 
         await Assert.That(batch.Events.Length).IsEqualTo(1);
         var json = JsonSerializer.Serialize(batch, CapacitorJsonContext.Default.CanonicalTranscriptBatch);
@@ -138,7 +138,7 @@ public class CanonicalBatchAssemblerTests {
     public async Task A_title_and_a_turn_end_are_reported_with_their_lines() {
         const string title = $$"""{"type":"custom-title","customTitle":"Renamed","sessionId":"{{Session}}"}""";
 
-        var batch = Claude().Assemble(Raw(10, User(1, "hi"), title, Assistant(3, "hello", 1, 10), TurnEnd(4), User(5, "next", 4)), Received);
+        var batch = Claude().Assemble(Raw(10, User(1, "hi"), title, Assistant(3, "hello", 1, 10), TurnEnd(4), User(5, "next", 4)), null, Received);
 
         await Assert.That(batch.Titles!).IsEquivalentTo([new CanonicalBatchTitle("rename", "Renamed", null, false, 11)], CollectionOrdering.Matching);
         await Assert.That(batch.TurnEndLine).IsEqualTo(13);
@@ -160,11 +160,11 @@ public class CanonicalBatchAssemblerTests {
             Assistant(9, "e", 8, 30),
         ];
 
-        var continuous = Claude().Assemble(Raw(0, lines), Received);
+        var continuous = Claude().Assemble(Raw(0, lines), null, Received);
 
         var resumed = Claude();
         for (var i = 0; i < 5; i++) resumed.Replay(lines[i], i, Received);
-        var tail = resumed.Assemble(Raw(5, lines[5..]), Received);
+        var tail = resumed.Assemble(Raw(5, lines[5..]), null, Received);
 
         await Assert.That(continuous.Events.Single(e => e.Line == 4).Usage).IsNotNull();
         await Assert.That(continuous.Events.Single(e => e.Line == 5).Usage).IsNull();
@@ -185,16 +185,16 @@ public class CanonicalBatchAssemblerTests {
 
     [Test]
     public async Task Acknowledged_events_make_a_later_usage_a_backfill_not_a_stamp() {
-        var stamped = Codex().Assemble(Raw(0, CodexText, CodexTokens), Received);
+        var stamped = Codex().Assemble(Raw(0, CodexText, CodexTokens), null, Received);
 
         await Assert.That(stamped.Events.Select(e => e.Type)).IsEquivalentTo([nameof(AssistantTextGenerated)], CollectionOrdering.Matching);
         await Assert.That(stamped.Events[0].Usage!.Value.GetProperty("input_tokens").GetString()).IsEqualTo("60");
         await Assert.That(stamped.Events[0].UsageIsEcho).IsFalse();
 
         var assembler = Codex();
-        var text      = assembler.Assemble(Raw(0, CodexText), Received).Events.Single();
+        var text      = assembler.Assemble(Raw(0, CodexText), null, Received).Events.Single();
         assembler.Acknowledged();
-        var backfill = assembler.Assemble(Raw(1, CodexTokens), Received).Events.Single();
+        var backfill = assembler.Assemble(Raw(1, CodexTokens), null, Received).Events.Single();
 
         await Assert.That(backfill.Type).IsEqualTo(CanonicalEventTypes.CodexUsageBackfilled);
         await Assert.That(backfill.Line).IsEqualTo(1);
@@ -212,10 +212,10 @@ public class CanonicalBatchAssemblerTests {
     [Test]
     public async Task A_usage_split_across_an_acknowledgement_stamps_echoes_and_backfills_the_acknowledged() {
         var assembler = Codex();
-        var thinking  = assembler.Assemble(Raw(0, CodexThinking), Received).Events.Single();
+        var thinking  = assembler.Assemble(Raw(0, CodexThinking), null, Received).Events.Single();
         assembler.Acknowledged();
 
-        var batch = assembler.Assemble(Raw(1, CodexText, CodexTokens), Received);
+        var batch = assembler.Assemble(Raw(1, CodexText, CodexTokens), null, Received);
 
         await Assert.That(batch.Events.Select(e => e.Type))
             .IsEquivalentTo([nameof(AssistantTextGenerated), CanonicalEventTypes.CodexUsageBackfilled], CollectionOrdering.Matching);
@@ -239,14 +239,14 @@ public class CanonicalBatchAssemblerTests {
     [Test]
     public async Task An_exec_end_waits_for_its_output_past_a_batch_that_stored_nothing() {
         var sent = Codex();
-        await Assert.That(sent.Assemble(Raw(0, CodexExecEnd), Received).Events).IsEmpty();
+        await Assert.That(sent.Assemble(Raw(0, CodexExecEnd), null, Received).Events).IsEmpty();
         sent.Acknowledged();
 
         var replayed = Codex();
         replayed.Replay(CodexExecEnd, 0, Received);
 
         foreach (var assembler in new[] { sent, replayed }) {
-            var exec = Exec(assembler.Assemble(Raw(1, CodexOutput), Received).Events.Single())!.Value;
+            var exec = Exec(assembler.Assemble(Raw(1, CodexOutput), null, Received).Events.Single())!.Value;
             await Assert.That(exec.GetProperty("exit_code").GetDouble()).IsEqualTo(2d);
             await Assert.That(exec.GetProperty("duration_ms").GetDouble()).IsEqualTo(1500d);
             await Assert.That(exec.GetProperty("stdout").GetString()).IsEqualTo("out");
@@ -256,10 +256,10 @@ public class CanonicalBatchAssemblerTests {
     [Test]
     public async Task An_exec_end_is_forgotten_after_an_acknowledged_batch_that_stored_something() {
         var assembler = Codex();
-        assembler.Assemble(Raw(0, CodexText, CodexExecEnd), Received);
+        assembler.Assemble(Raw(0, CodexText, CodexExecEnd), null, Received);
         assembler.Acknowledged();
 
-        await Assert.That(Exec(assembler.Assemble(Raw(2, CodexOutput), Received).Events.Single())).IsNull();
+        await Assert.That(Exec(assembler.Assemble(Raw(2, CodexOutput), null, Received).Events.Single())).IsNull();
     }
 
     static double? TaskDuration(CanonicalBatchEvent e) =>
@@ -270,13 +270,13 @@ public class CanonicalBatchAssemblerTests {
     public async Task An_amendment_lands_on_a_target_in_its_batch_and_is_dropped_otherwise() {
         var taskComplete = CodexEvent("""{"type":"task_complete","duration_ms":4200}""");
 
-        var together = Codex().Assemble(Raw(0, CodexThinking, CodexText, CodexTokens, taskComplete), Received);
+        var together = Codex().Assemble(Raw(0, CodexThinking, CodexText, CodexTokens, taskComplete), null, Received);
         await Assert.That(TaskDuration(together.Events[0])).IsEqualTo(4200d);
 
         var assembler = Codex();
-        var first     = assembler.Assemble(Raw(0, CodexThinking, CodexText, CodexTokens), Received);
+        var first     = assembler.Assemble(Raw(0, CodexThinking, CodexText, CodexTokens), null, Received);
         assembler.Acknowledged();
-        var later = assembler.Assemble(Raw(3, taskComplete), Received);
+        var later = assembler.Assemble(Raw(3, taskComplete), null, Received);
 
         await Assert.That(TaskDuration(first.Events[0])).IsNull();
         await Assert.That(later.Events).IsEmpty();
@@ -290,7 +290,7 @@ public class CanonicalBatchAssemblerTests {
             Repository = new() { Branch = "main" }, Strict = true, ObservedCommits = [], MoreFollows = true,
         };
 
-        var json = JsonSerializer.Serialize(Claude().Assemble(raw, Received), CapacitorJsonContext.Default.CanonicalTranscriptBatch);
+        var json = JsonSerializer.Serialize(Claude().Assemble(raw, null, Received), CapacitorJsonContext.Default.CanonicalTranscriptBatch);
 
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
@@ -305,6 +305,71 @@ public class CanonicalBatchAssemblerTests {
         var back = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.CanonicalTranscriptBatch)!;
         await Assert.That(back.Titles!.Single().Line).IsEqualTo(2);
         await Assert.That(back.CaptureLoss!.Single().Raw).IsEqualTo(CaptureLoss);
+        await Assert.That(JsonSerializer.Serialize(back, CapacitorJsonContext.Default.CanonicalTranscriptBatch)).IsEqualTo(json);
+    }
+
+    static readonly Guid Dispatch = Guid.Parse("30000000-0000-4000-8000-000000000001");
+    const string Agent = "40000000000040008000000000000001";
+
+    static Dictionary<int, LineStamp> Stamps(params LineStamp[] stamps) => stamps.ToDictionary(s => s.LineNumber);
+
+    /// <summary>Line 3 is a sibling of the unanswered prompt on line 2, so its retraction comes ahead of its own message.
+    /// The server dedups by event id, so stamping must leave the ids as they were</summary>
+    [Test]
+    public async Task A_stamp_goes_on_its_lines_user_message() {
+        var raw = Raw(0, User(1, "hi"), Assistant(2, "hello", 1, 10), User(3, "first", 2), User(4, "second", 2));
+
+        var batch = Claude().Assemble(raw, Stamps(new(0, null, null, IsLocal: true), new(3, Dispatch, Agent, IsLocal: false)), Received);
+
+        await Assert.That(batch.Events.Select(e => (e.Line, e.Type, e.Stamp))).IsEquivalentTo([
+            (0, nameof(UserMessageReceived), new CanonicalBatchStamp(null, null, Local: true)),
+            (1, nameof(AssistantTextGenerated), null),
+            (2, nameof(UserMessageReceived), null),
+            (3, CanonicalEventTypes.UserMessageRetracted, null),
+            (3, nameof(UserMessageReceived), new CanonicalBatchStamp(Dispatch, Agent, Local: false)),
+        ], CollectionOrdering.Matching);
+        await Assert.That(batch.Events.Select(e => e.EventId))
+            .IsEquivalentTo(Claude().Assemble(raw, null, Received).Events.Select(e => e.EventId), CollectionOrdering.Matching);
+    }
+
+    [Test]
+    public async Task A_stamp_on_a_line_with_no_user_message_is_dropped() {
+        var truncated = $$"""{"type":"user","uuid":"{{Id(4)}}","mess""";
+
+        var batch = Claude().Assemble(Raw(0, User(1, "hi"), CaptureLoss, Assistant(3, "hello", 1, 10), truncated),
+            Stamps(new(1, Dispatch, Agent, false), new(2, null, null, true), new(3, Dispatch, Agent, false)), Received);
+
+        await Assert.That(batch.Events.Select(e => e.Line)).IsEquivalentTo([0, 2], CollectionOrdering.Matching);
+        await Assert.That(batch.Events.Where(e => e.Stamp is not null)).IsEmpty();
+    }
+
+    /// <summary>The server drops a stamp naming both senders or neither, the empty dispatch, or a dispatch without its
+    /// agent, so none is sent</summary>
+    [Test]
+    public async Task A_stamp_the_server_would_drop_is_not_sent() {
+        var batch = Claude().Assemble(Raw(0, User(1, "a"), User(2, "b", 1), User(3, "c", 2), User(4, "d", 3), User(5, "e", 4)),
+            Stamps(new(0, Dispatch, Agent, true), new(1, null, null, false), new(2, Guid.Empty, Agent, false), new(3, Dispatch, null, false),
+                new(4, Dispatch, "", false)), Received);
+
+        await Assert.That(batch.Events.Where(e => e.Stamp is not null)).IsEmpty();
+    }
+
+    [Test]
+    public async Task A_stamped_batch_keeps_format_1() {
+        var batch = Claude().Assemble(Raw(0, User(1, "hi"), Assistant(2, "hello", 1, 10), User(3, "next", 2)),
+            Stamps(new(0, Dispatch, Agent, false), new(2, null, null, true)), Received);
+
+        var json = JsonSerializer.Serialize(batch, CapacitorJsonContext.Default.CanonicalTranscriptBatch);
+
+        using var document = JsonDocument.Parse(json);
+        var root   = document.RootElement;
+        var events = root.GetProperty("events");
+        await Assert.That(root.GetProperty("format").GetInt32()).IsEqualTo(1);
+        await Assert.That(events[0].GetProperty("stamp").GetRawText()).IsEqualTo($$"""{"dispatch_id":"{{Dispatch}}","agent_id":"{{Agent}}"}""");
+        await Assert.That(events[1].TryGetProperty("stamp", out _)).IsFalse();
+        await Assert.That(events[2].GetProperty("stamp").GetRawText()).IsEqualTo("""{"local":true}""");
+
+        var back = JsonSerializer.Deserialize(json, CapacitorJsonContext.Default.CanonicalTranscriptBatch)!;
         await Assert.That(JsonSerializer.Serialize(back, CapacitorJsonContext.Default.CanonicalTranscriptBatch)).IsEqualTo(json);
     }
 

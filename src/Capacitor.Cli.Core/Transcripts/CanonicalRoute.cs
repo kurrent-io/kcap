@@ -80,17 +80,18 @@ public sealed class CanonicalRoute {
         }
     }
 
-    /// <summary>The canonical form of a raw batch. Asking again for the same lines before <see cref="Acknowledged"/>,
-    /// as after a failed send, returns the batch already built, because projecting is not repeatable.</summary>
+    /// <summary>The canonical form of a raw batch, each of <paramref name="stamps"/> on its line's user message. Asking
+    /// again for the same lines before <see cref="Acknowledged"/>, as after a failed send, returns the batch already
+    /// built, with the stamps it was built with, because projecting is not repeatable</summary>
     /// <exception cref="CanonicalEncodingException">The batch could not be projected. The route is inactive and the
     /// caller sends the batch raw.</exception>
-    public CanonicalTranscriptBatch Encode(TranscriptBatch raw, DateTimeOffset receivedAt) {
+    public CanonicalTranscriptBatch Encode(TranscriptBatch raw, IReadOnlyDictionary<int, LineStamp>? stamps, DateTimeOffset receivedAt) {
         if (!Active) throw new InvalidOperationException("The route has fallen back to raw lines");
 
         if (_last is not null && raw.LineNumbers is { } numbers && numbers.AsSpan().SequenceEqual(_lastNumbers)) return _last;
 
         try {
-            _last        = _assembler.Assemble(raw, receivedAt);
+            _last        = _assembler.Assemble(raw, stamps, receivedAt);
             _lastNumbers = raw.LineNumbers;
 
             return _last;

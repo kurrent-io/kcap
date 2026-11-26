@@ -63,7 +63,7 @@ public class AgentOrchestratorRecordingTests {
                     Config = config;
                     if (serverRecords is { } answer) Probe.Report(answer);
 
-                    return new DaemonRecorder(
+                    return Recorder = new DaemonRecorder(
                         config, new CapacitorServer(config.ServerUrl, config.ConfigRoot, Resolutions.None(config.ConfigRoot)), Probe,
                         () => {
                             Connections++;
@@ -73,6 +73,8 @@ public class AgentOrchestratorRecordingTests {
                         (_, _, _, _) => new FakeRecorderHousekeeping(), TimeProvider.System, NullLogger<DaemonRecorder>.Instance);
                 });
         }
+
+        public DaemonRecorder Recorder { get; private set; } = null!;
 
         public string Checkout { get; }
         public StartingFactory Factory { get; }
@@ -288,6 +290,35 @@ public class AgentOrchestratorRecordingTests {
         await WaitHarness.PollUntilAsync(() => f.Orch.SnapshotAgentsForTitles().Count == 0);
 
         await Assert.That(f.Server.EndSessionReasons).IsEmpty();
+    }
+
+    /// <summary>A session the daemon records gets a log its runtime writes and its recorder stamps from. One it doesn't
+    /// record gets neither, so nothing changes while recording is off</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Only_a_recorded_launch_gets_an_input_log(bool recording) {
+        await using var f = new Fixture(Tmp, new StartingFactory(), on: recording);
+        await f.Orch.HandleLaunchAgentForTest(f.Launch());
+        if (recording) await WaitHarness.PollUntilAsync(() => f.Transport.Connects == 1);
+
+        var session = SessionIds.Canonical(f.Factory.Context!.PinnedSessionId)!;
+        var logs    = Path.Combine(f.Config.Store.StateDirectory(f.Config.Name), "input-logs");
+        var source  = new Capacitor.Cli.Recording.RecordingSource(session, null, f.TranscriptOf(session, null), "claude", f.Factory.Context.Worktree.Path);
+
+        await Assert.That(f.Factory.Context.InputLog is not null).IsEqualTo(recording);
+        await Assert.That(Directory.Exists(logs) && Directory.GetFiles(logs).Length > 0).IsEqualTo(recording);
+        await Assert.That(f.Recorder.StamperFor(source) is InputLogStamper).IsEqualTo(recording);
+    }
+
+    [Test]
+    public async Task A_launch_hands_its_runtime_the_dispatch_the_server_minted_for_its_prompt() {
+        var minted = Guid.Parse("a0000000-0000-4000-8000-000000000001");
+        await using var f = new Fixture(Tmp, new StartingFactory());
+
+        await f.Orch.HandleLaunchAgentForTest(f.Launch() with { LaunchDispatchId = minted });
+
+        await Assert.That(f.Factory.Context!.LaunchDispatchId).IsEqualTo(minted);
     }
 
     static DisableSessionAckDto AckOf(LocalFrame reply) => JsonSerializer.Deserialize(reply.Text, RecordingIpcJsonContext.Default.DisableSessionAckDto)!;

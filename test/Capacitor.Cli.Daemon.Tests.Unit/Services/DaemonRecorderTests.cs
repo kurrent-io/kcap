@@ -1171,6 +1171,87 @@ public class DaemonRecorderTests {
         await Assert.That(recorder.ActiveKeys).Contains(source.Key);
     }
 
+    string InputLogPath(string key = Session) => Path.Combine(Daemons.Store.StateDirectory(Name), "input-logs", $"{key}.json");
+
+    /// <summary>Only a hosted agent's own transcript holds rows made from messages this daemon wrote, and only a launch
+    /// that opened its log has written any. A subagent, a terminal session, or a hosted session a hook handed over, gets
+    /// nothing to stamp from</summary>
+    [Test]
+    public async Task Only_a_launched_agents_own_source_stamps_from_an_input_log() {
+        await using var recorder = NewRecorder();
+        var hosted     = Source(Transcript(Prompt, Reply));
+        var subagent   = Source(Tmp.CreateFile("sub.jsonl", Prompt + "\n"), subagent: "a1");
+        var terminal   = Terminal(Tmp.CreateFile("term.jsonl", Prompt + "\n"), session: "fedcba9876543210fedcba9876543210");
+        var handedOver = Source(Tmp.CreateFile("handed.jsonl", Prompt + "\n")) with { SessionId = "00112233445566778899aabbccddeeff" };
+
+        await Assert.That(await recorder.ClaimAsync(hosted, CancellationToken.None)).IsTrue();
+        var log = recorder.InputLogForNewProcess(hosted);
+        recorder.StartForAgent(hosted);
+        await recorder.TryRecordAsync(subagent, CancellationToken.None);
+        await recorder.TryRecordAsync(terminal, CancellationToken.None);
+        await recorder.TryRecordAsync(handedOver, CancellationToken.None);
+
+        await Assert.That(recorder.StamperFor(hosted.Recording)).IsTypeOf<InputLogStamper>();
+        await Assert.That(recorder.StamperFor(subagent.Recording)).IsTypeOf<NoStamps>();
+        await Assert.That(recorder.StamperFor(terminal.Recording)).IsTypeOf<NoStamps>();
+        await Assert.That(recorder.StamperFor(handedOver.Recording)).IsTypeOf<NoStamps>();
+        await Assert.That(File.Exists(InputLogPath(handedOver.Key))).IsFalse();
+        await Assert.That(log.IsSuspended).IsFalse();
+    }
+
+    /// <summary>A launch starts its process's log after what the transcript already holds: those lines are the last
+    /// process's, which can add no row now</summary>
+    [Test]
+    public async Task A_new_process_stamps_from_the_line_after_what_its_transcript_holds() {
+        await using var recorder = NewRecorder();
+        var source = Source(Transcript(Prompt, Reply));
+        await recorder.ClaimAsync(source, CancellationToken.None);
+
+        var log = recorder.InputLogForNewProcess(source);
+
+        await Assert.That(log.Compares(1)).IsFalse();
+        await Assert.That(log.Compares(2)).IsTrue();
+    }
+
+    [Test]
+    public async Task A_finished_agents_input_log_is_deleted() {
+        await using var recorder = NewRecorder();
+        var source = Source(Transcript(Prompt, Reply));
+        await recorder.ClaimAsync(source, CancellationToken.None);
+        recorder.InputLogForNewProcess(source);
+        recorder.StartForAgent(source);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+        await Assert.That(File.Exists(InputLogPath())).IsTrue();
+
+        await recorder.FinishAgentAsync("agent-1", TimeSpan.FromSeconds(30)).WithinDeadlineAsync("the agent's finish");
+        await WaitHarness.PollUntilAsync(() => List.Load().Count == 0);
+
+        await Assert.That(File.Exists(InputLogPath())).IsFalse();
+    }
+
+    /// <summary>A source that lost its claim, or that a shutdown left for the next boot, may still have lines to replay
+    /// through its match records</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task A_lost_or_stopped_sources_input_log_stays(bool lost) {
+        await using var recorder = NewRecorder();
+        var source = Source(Transcript(Prompt, Reply));
+        await recorder.ClaimAsync(source, CancellationToken.None);
+        recorder.InputLogForNewProcess(source);
+        recorder.StartForAgent(source);
+        await WaitHarness.PollUntilAsync(() => Transport.Batches.Count > 0);
+
+        if (lost) {
+            Claims.Release(source.Key);
+            await WaitHarness.PollUntilAsync(() => recorder.ActiveKeys.Count == 0 && List.Load().Count == 0);
+        } else {
+            await recorder.StopAsync(_ => true, CancellationToken.None).WithinDeadlineAsync("the stop");
+        }
+
+        await Assert.That(File.Exists(InputLogPath())).IsTrue();
+    }
+
     /// <summary>A restart would otherwise take a source back from the hook that finished it.</summary>
     [Test]
     public async Task A_lost_source_leaves_the_persisted_list() {

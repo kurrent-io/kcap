@@ -34,7 +34,7 @@ public class TranscriptPostTests {
         using var server = new Server((_, _) => Reply(HttpStatusCode.OK));
         var route   = Route();
         var batch   = Batch(0, 2);
-        var encoded = route.Encode(batch, Received);
+        var encoded = route.Encode(batch, null, Received);
 
         using var response = await Send(server, batch, route);
 
@@ -42,7 +42,7 @@ public class TranscriptPostTests {
         await Assert.That(server.Paths).IsEquivalentTo([CanonicalRoute.HttpPath]);
         await Assert.That(server.Bodies[0]).IsEqualTo(CanonicalJson(encoded));
         // Acknowledged, the route no longer holds the batch for a resend.
-        await Assert.That(route.Encode(batch, Received)).IsNotSameReferenceAs(encoded);
+        await Assert.That(route.Encode(batch, null, Received)).IsNotSameReferenceAs(encoded);
     }
 
     /// <summary>A refusal a retry would not change is a verdict on the canonical encoding, not on the lines, which the
@@ -88,14 +88,14 @@ public class TranscriptPostTests {
         using var server = new Server((_, _) => Reply(status));
         var route   = Route();
         var batch   = Batch(0, 2);
-        var encoded = route.Encode(batch, Received);
+        var encoded = route.Encode(batch, null, Received);
 
         using var response = await Send(server, batch, route);
 
         await Assert.That(response.StatusCode).IsEqualTo(status);
         await Assert.That(server.Paths).IsEquivalentTo([CanonicalRoute.HttpPath]);
         await Assert.That(route.Active).IsTrue();
-        await Assert.That(route.Encode(batch, Received)).IsSameReferenceAs(encoded);
+        await Assert.That(route.Encode(batch, null, Received)).IsSameReferenceAs(encoded);
     }
 
     [Test]

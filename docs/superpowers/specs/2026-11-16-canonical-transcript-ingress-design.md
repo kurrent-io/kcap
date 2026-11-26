@@ -156,6 +156,8 @@ Fields the server owns. The ingress sets or removes them whatever the client sen
 
 An event may carry an optional `stamp` object. Format 1 servers ignore it. The terminal steering work defines its content, its validation and the metadata key it is stored under; it must not need a new format number.
 
+Its definition is in Part 2 of `2026-11-05-daemon-recording-and-terminal-steering-design.md`, under Placement and Trust
+
 ## Verification
 
 - **Parity through the wire.** `LibraryParityTests` gains a mode that runs lines → shared client path → serialized canonical batch → the real ingress, and compares stored events with the same golden baselines and the same exemptions. This is the proof of criterion 1 for Claude, and it must include title events, turn-end confirmation and question events.
