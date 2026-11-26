@@ -89,11 +89,16 @@ public sealed class InboxItemViewModel : ReactiveObject {
         OpenUrlCommand   = ReactiveCommand.Create<string>(open);
     }
 
-    /// <summary>Takes over the answer sentence and the unsent reply of the card this one replaces.</summary>
-    public void Carry(string? note, string? replyText) {
+    /// <summary>Takes over the answer sentence, the unsent reply and an answer still in flight from the card this one
+    /// replaces.</summary>
+    public void Carry(string? note, string? replyText, bool answering) {
         Note ??= note;
         ReplyText ??= replyText;
+        if (answering) IsAnswering = true;
     }
+
+    /// <summary>Ends the answer this card took over from the card it replaced.</summary>
+    public void AnswerSettled() => IsAnswering = false;
 
     async Task AnswerAsync(string answer, string? text) {
         if (IsAnswering) return;

@@ -343,6 +343,29 @@ public class InboxBellViewModelTests {
     });
 
     [Test]
+    public async Task A_card_that_replaces_one_mid_answer_stays_busy_until_the_answer_settles() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1", type: "agent_prompt") with { Buttons = [new() { Answer = "allow", Label = "Allow", Style = "primary" }] });
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = true, Message = "Approved" });
+        var gate = new TaskCompletionSource();
+        rig.Api.AnswerGate = gate;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        rig.Bell.Items.Single().Buttons.Single().Command.Execute(null);
+        rig.Changed.OnNext(RxUnit.Default);
+        var replacement = rig.Bell.Items.Single();
+        await Assert.That(replacement.IsAnswering).IsTrue();
+        await Assert.That(replacement.Buttons.Single().Command.CanExecute(null)).IsFalse();
+
+        gate.SetResult();
+        await Task.Yield();
+
+        await Assert.That(rig.Bell.Items.Single().IsAnswering).IsFalse();
+        await Assert.That(rig.Api.Calls.Count(c => c.StartsWith("answer", StringComparison.Ordinal))).IsEqualTo(1);
+    });
+
+    [Test]
     public async Task Delete_all_acts_only_once_confirmed() => await AvaloniaSession.RunOnUiAsync(async () => {
         using var rig = new Rig().Start();
         rig.Api.Page = PageOf(1, Item("n1"));

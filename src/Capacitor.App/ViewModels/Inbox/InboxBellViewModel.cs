@@ -29,6 +29,8 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     readonly Dictionary<string, long> _dismissing = new(StringComparer.Ordinal);
     // A card's answer sentence, kept across the re-reads that replace the card.
     readonly Dictionary<string, string> _notes = new(StringComparer.Ordinal);
+    // Rows with an answer in flight: a card that replaces one of them stays busy until that answer settles.
+    readonly HashSet<string> _answering = new(StringComparer.Ordinal);
     bool _connected;
     // Advances on every connect and disconnect, so a read begun under one connection never lands under the next.
     int _epoch;
@@ -165,6 +167,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         ListLoaded = false;
         _notes.Clear();
         _dismissing.Clear();
+        _answering.Clear();
         Replace([]);
     }
 
@@ -238,7 +241,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     // A re-read replaces every card; the one it replaces hands over what the person has typed and the last answer's sentence.
     InboxItemViewModel Card(NotificationItemDto dto, DateTimeOffset now, InboxItemViewModel? previous) {
         var card = new InboxItemViewModel(dto, now, _api.Resolve, MarkReadAsync, DismissAsync, AnswerAsync, Open);
-        card.Carry(_notes.GetValueOrDefault(dto.LogicalId), previous?.ReplyText);
+        card.Carry(_notes.GetValueOrDefault(dto.LogicalId), previous?.ReplyText, _answering.Contains(dto.LogicalId));
         return card;
     }
 
@@ -261,7 +264,14 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     async Task<InboxAnswerOutcome> AnswerAsync(InboxItemViewModel item, string answer, string? text) {
         const string couldNotSend = "Couldn't send that answer. Try again, or answer it in kcap";
         var epoch = _epoch;
-        var read = await Guard(_api.AnswerAsync(item.LogicalId, answer, text, _lifetime.Token));
+        _answering.Add(item.LogicalId);
+        InboxRead<NotificationAnswerResponseDto>? read;
+        try {
+            read = await Guard(_api.AnswerAsync(item.LogicalId, answer, text, _lifetime.Token));
+        } finally {
+            _answering.Remove(item.LogicalId);
+            foreach (var card in _items.Where(i => i.LogicalId == item.LogicalId && !ReferenceEquals(i, item))) card.AnswerSettled();
+        }
         var answered = read is { Kind: InboxReadKind.Ready, Value: { } outcome } ? new InboxAnswerOutcome(outcome.Accepted, outcome.Message)
             : new InboxAnswerOutcome(false, couldNotSend);
         var note = answered.Note;
