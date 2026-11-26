@@ -366,6 +366,32 @@ public class InboxBellViewModelTests {
     });
 
     [Test]
+    public async Task An_answer_from_a_previous_connection_does_not_settle_one_in_flight_now() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1", type: "agent_prompt") with { Buttons = [new() { Answer = "allow", Label = "Allow", Style = "primary" }] });
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = true, Message = "Approved" });
+        var first = new TaskCompletionSource();
+        rig.Api.AnswerGate = first;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        rig.Bell.Items.Single().Buttons.Single().Command.Execute(null);
+
+        rig.Status.OnNext(new(ServerLaneState.SignedOut));
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        var second = new TaskCompletionSource();
+        rig.Api.AnswerGate = second;
+        rig.Bell.Items.Single().Buttons.Single().Command.Execute(null);
+        rig.Changed.OnNext(RxUnit.Default);
+
+        first.SetResult();
+        await Task.Yield();
+
+        await Assert.That(rig.Bell.Items.Single().IsAnswering).IsTrue();
+        second.SetResult();
+    });
+
+    [Test]
     public async Task Delete_all_acts_only_once_confirmed() => await AvaloniaSession.RunOnUiAsync(async () => {
         using var rig = new Rig().Start();
         rig.Api.Page = PageOf(1, Item("n1"));

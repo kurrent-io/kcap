@@ -269,8 +269,11 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         try {
             read = await Guard(_api.AnswerAsync(item.LogicalId, answer, text, _lifetime.Token));
         } finally {
-            _answering.Remove(item.LogicalId);
-            foreach (var card in _items.Where(i => i.LogicalId == item.LogicalId && !ReferenceEquals(i, item))) card.AnswerSettled();
+            // An answer begun under another connection settles nothing here: its row was cleared with that connection.
+            if (!_disposed && epoch == _epoch) {
+                _answering.Remove(item.LogicalId);
+                foreach (var card in _items.Where(i => i.LogicalId == item.LogicalId && !ReferenceEquals(i, item))) card.AnswerSettled();
+            }
         }
         var answered = read is { Kind: InboxReadKind.Ready, Value: { } outcome } ? new InboxAnswerOutcome(outcome.Accepted, outcome.Message)
             : new InboxAnswerOutcome(false, couldNotSend);
