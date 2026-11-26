@@ -464,6 +464,28 @@ public class InboxBellViewModelTests {
     });
 
     [Test]
+    public async Task A_dismissal_from_an_earlier_connection_does_not_undo_one_made_since() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1"));
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        var stale = new TaskCompletionSource();
+        rig.Api.DismissGate = stale;
+        var first = rig.Bell.Items.Single().DismissCommand.Execute().ToTask();
+
+        rig.Status.OnNext(new(ServerLaneState.Retrying));
+        rig.Api.DismissGate = null;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        await rig.Bell.Items.Single().DismissCommand.Execute();
+        stale.SetResult();
+        await first;
+        rig.Bell.Refresh();
+
+        await Assert.That(rig.Bell.Items).IsEmpty();
+    });
+
+    [Test]
     public async Task Delete_all_acts_only_once_confirmed() => await AvaloniaSession.RunOnUiAsync(async () => {
         using var rig = new Rig().Start();
         rig.Api.Page = PageOf(1, Item("n1"));

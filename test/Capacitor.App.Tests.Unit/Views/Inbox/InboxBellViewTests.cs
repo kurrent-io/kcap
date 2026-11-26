@@ -48,8 +48,11 @@ public class InboxBellViewTests {
             Dispatcher.UIThread.RunJobs();
             await Assert.That(bell.IsOpen).IsTrue();
             var panel = (InboxPanelView)flyout.Content!;
+            // The card's own binding is what is under test: a synthesized pointer click into the popup does not land
+            // reliably on every headless platform.
             var markRead = panel.GetVisualDescendants().OfType<Button>().First(b => AutomationProperties.GetName(b) == "Mark read");
-            MainWindowSmokeTests.ClickFlyoutButton(markRead);
+            await Assert.That(markRead.IsEffectivelyVisible).IsTrue();
+            markRead.Command!.Execute(markRead.CommandParameter);
             Dispatcher.UIThread.RunJobs();
             await Assert.That(api.Calls).Contains("read n1@2");
 

@@ -310,7 +310,11 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
             this.RaisePropertyChanged(nameof(IsEmpty));
             if (item.IsUnread) UnreadCount = Math.Max(0, UnreadCount - 1);
         }
-        if (await Guard(_api.DismissAsync(item.LogicalId, item.Version, _account.Token)) is not true) _dismissing.Remove(item.LogicalId);
+        var epoch = _epoch;
+        var dismissed = await Guard(_api.DismissAsync(item.LogicalId, item.Version, _account.Token));
+        // A dismissal from an earlier connection settles nothing in this one, which may hold its own for the same row.
+        if (_disposed || epoch != _epoch) return;
+        if (!dismissed) _dismissing.Remove(item.LogicalId);
         Refresh();
     }
 
