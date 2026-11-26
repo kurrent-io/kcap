@@ -1945,15 +1945,27 @@ public class PtyHostedAgentRuntimeTests {
     }
 
     static readonly Guid Dispatched = Guid.Parse("70000000-0000-4000-8000-000000000001");
+    const string Agent = "70000000000040008000000000000002";
 
     static InputLogState? Stored(string path) =>
         System.Text.Json.JsonSerializer.Deserialize(File.ReadAllText(path), InputLogJsonContext.Default.InputLogState);
+
+    /// <summary>A dispatch's entry names the agent it was sent to, which only the launch knows, so a recorded runtime
+    /// without it is refused rather than left to stamp dispatches the server cannot find</summary>
+    [Test]
+    public async Task A_recorded_runtime_must_name_its_agent() {
+        using var tmp = new TempDir();
+        var log = new InputLog(tmp.PathTo("log.json"), TimeProvider.System);
+
+        await Assert.That(() => new PtyHostedAgentRuntime("claude", new RecordingPty(), TimeProvider.System, inputLog: log))
+            .Throws<ArgumentException>();
+    }
 
     [Test]
     public async Task Each_message_goes_into_the_log_as_its_sender_wrote_it() {
         using var tmp = new TempDir();
         var log     = new InputLog(tmp.PathTo("log.json"), TimeProvider.System);
-        var runtime = new PtyHostedAgentRuntime("claude", new RecordingPty(), TimeProvider.System, inputLog: log);
+        var runtime = new PtyHostedAgentRuntime("claude", new RecordingPty(), TimeProvider.System, inputLog: log, agentId: Agent);
 
         await await runtime.SendDispatchedInputAsync("run the tests", Dispatched);
         await runtime.SendOwnerInputAsync("look at the failure");
@@ -1961,8 +1973,8 @@ public class PtyHostedAgentRuntimeTests {
         await runtime.StartCompaction(Guid.NewGuid()).Written!;
 
         await Assert.That(Stored(tmp.PathTo("log.json"))!.Entries!.All(entry => entry.Written)).IsTrue();
-        await Assert.That(log.Match(1, "line 1", "run the tests")).IsEqualTo(new Core.LineStamp(1, Dispatched, IsLocal: false));
-        await Assert.That(log.Match(2, "line 2", "look at the failure")).IsEqualTo(new Core.LineStamp(2, null, IsLocal: true));
+        await Assert.That(log.Match(1, "line 1", "run the tests")).IsEqualTo(new Core.LineStamp(1, Dispatched, Agent, IsLocal: false));
+        await Assert.That(log.Match(2, "line 2", "look at the failure")).IsEqualTo(new Core.LineStamp(2, null, null, IsLocal: true));
         await Assert.That(log.Match(3, "line 3", "carry on where you left off")).IsNull();
         await Assert.That(log.Match(4, "line 4", "/compact")).IsNull();
         await Assert.That(log.IsSuspended).IsFalse();
@@ -1977,7 +1989,7 @@ public class PtyHostedAgentRuntimeTests {
         var path       = tmp.PathTo("log.json");
         var pendingAtWrite = new List<bool>();
         var runtime = new PtyHostedAgentRuntime("claude", new MidWritePtyProcess(() => pendingAtWrite.Add(Stored(path)!.Entries!.Any(entry => !entry.Written))),
-            TimeProvider.System, inputLog: new InputLog(path, TimeProvider.System));
+            TimeProvider.System, inputLog: new InputLog(path, TimeProvider.System), agentId: Agent);
 
         await runtime.SendUserInputAsync("run the tests");
 
@@ -1991,7 +2003,7 @@ public class PtyHostedAgentRuntimeTests {
     public async Task A_raw_chunk_with_a_newline_suspends(string typed) {
         using var tmp = new TempDir();
         var log     = new InputLog(tmp.PathTo("log.json"), TimeProvider.System);
-        var runtime = new PtyHostedAgentRuntime("claude", new RecordingPty(), TimeProvider.System, inputLog: log);
+        var runtime = new PtyHostedAgentRuntime("claude", new RecordingPty(), TimeProvider.System, inputLog: log, agentId: Agent);
 
         await runtime.SendRawInputAsync(System.Text.Encoding.UTF8.GetBytes(typed));
 
@@ -2002,7 +2014,7 @@ public class PtyHostedAgentRuntimeTests {
     public async Task A_special_key_Enter_suspends() {
         using var tmp = new TempDir();
         var log     = new InputLog(tmp.PathTo("log.json"), TimeProvider.System);
-        var runtime = new PtyHostedAgentRuntime("claude", new RecordingPty(), TimeProvider.System, inputLog: log);
+        var runtime = new PtyHostedAgentRuntime("claude", new RecordingPty(), TimeProvider.System, inputLog: log, agentId: Agent);
 
         await runtime.SendSpecialKeyAsync("Escape");
         await runtime.SendSpecialKeyAsync("ArrowDown");
@@ -2019,7 +2031,7 @@ public class PtyHostedAgentRuntimeTests {
     public async Task A_raw_chunk_without_a_newline_does_not_suspend(string typed) {
         using var tmp = new TempDir();
         var log     = new InputLog(tmp.PathTo("log.json"), TimeProvider.System);
-        var runtime = new PtyHostedAgentRuntime("claude", new RecordingPty(), TimeProvider.System, inputLog: log);
+        var runtime = new PtyHostedAgentRuntime("claude", new RecordingPty(), TimeProvider.System, inputLog: log, agentId: Agent);
 
         await runtime.SendRawInputAsync(System.Text.Encoding.UTF8.GetBytes(typed));
 
@@ -2032,7 +2044,7 @@ public class PtyHostedAgentRuntimeTests {
     public async Task A_raw_Enter_never_makes_an_entry() {
         using var tmp = new TempDir();
         var log     = new InputLog(tmp.PathTo("log.json"), TimeProvider.System);
-        var runtime = new PtyHostedAgentRuntime("claude", new RecordingPty(), TimeProvider.System, inputLog: log);
+        var runtime = new PtyHostedAgentRuntime("claude", new RecordingPty(), TimeProvider.System, inputLog: log, agentId: Agent);
 
         await runtime.SendRawInputAsync("run the tests\r"u8.ToArray());
         await runtime.SendSpecialKeyAsync("Enter");
@@ -2047,14 +2059,14 @@ public class PtyHostedAgentRuntimeTests {
         using var tmp = new TempDir();
         var failing = new InputLog(tmp.PathTo("failing.json"), TimeProvider.System);
         var broken  = new PtyHostedAgentRuntime("claude", new MidWritePtyProcess(() => throw new IOException("The pipe is being closed.")),
-            TimeProvider.System, inputLog: failing);
+            TimeProvider.System, inputLog: failing, agentId: Agent);
 
         await Assert.That(async () => await broken.SendUserInputAsync("run the tests")).Throws<IOException>();
         await Assert.That(failing.IsSuspended).IsTrue();
 
         var unstarted = new InputLog(tmp.PathTo("unstarted.json"), TimeProvider.System);
         var exited    = new ClosablePty(exitedAfter: _ => true);
-        var gone      = new PtyHostedAgentRuntime("claude", exited, TimeProvider.System, inputLog: unstarted);
+        var gone      = new PtyHostedAgentRuntime("claude", exited, TimeProvider.System, inputLog: unstarted, agentId: Agent);
 
         await Assert.That(async () => await gone.SendUserInputAsync("run the tests")).Throws<IOException>();
         await Assert.That(exited.Writes).IsEmpty();
@@ -2066,7 +2078,7 @@ public class PtyHostedAgentRuntimeTests {
     public async Task A_text_no_person_row_would_carry_makes_no_entry() {
         using var tmp = new TempDir();
         var log     = new InputLog(tmp.PathTo("log.json"), TimeProvider.System);
-        var runtime = new PtyHostedAgentRuntime("claude", new RecordingPty(), TimeProvider.System, inputLog: log);
+        var runtime = new PtyHostedAgentRuntime("claude", new RecordingPty(), TimeProvider.System, inputLog: log, agentId: Agent);
 
         await runtime.SendUserInputAsync("<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n</task-notification>");
         await runtime.SendUserInputAsync("run the tests");
@@ -2083,14 +2095,14 @@ public class PtyHostedAgentRuntimeTests {
         using var tmp = new TempDir();
         var log     = new InputLog(tmp.PathTo("log.json"), TimeProvider.System);
         var pty     = new RecordingScriptedPtyProcess();
-        var runtime = new PtyHostedAgentRuntime("claude", pty, TimeProvider.System, inputLog: log);
+        var runtime = new PtyHostedAgentRuntime("claude", pty, TimeProvider.System, inputLog: log, agentId: Agent);
 
         runtime.DeliverLaunchPrompt("build it", dispatched ? Dispatched : null);
         _ = PumpAsync(runtime);
         pty.Emit("banner");
         await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(10));
 
-        await Assert.That(log.Match(0, "line 0", "build it")).IsEqualTo(dispatched ? new Core.LineStamp(0, Dispatched, IsLocal: false) : null);
+        await Assert.That(log.Match(0, "line 0", "build it")).IsEqualTo(dispatched ? new Core.LineStamp(0, Dispatched, Agent, IsLocal: false) : null);
         await Assert.That(log.IsSuspended).IsFalse();
         pty.Exit();
     }
@@ -2099,7 +2111,7 @@ public class PtyHostedAgentRuntimeTests {
     public async Task A_graceful_stop_holding_the_lane_writes_its_exit_as_the_daemons_own_text() {
         using var tmp = new TempDir();
         var log     = new InputLog(tmp.PathTo("log.json"), TimeProvider.System);
-        var runtime = new PtyHostedAgentRuntime("claude", new RecordingPty(), TimeProvider.System, inputLog: log);
+        var runtime = new PtyHostedAgentRuntime("claude", new RecordingPty(), TimeProvider.System, inputLog: log, agentId: Agent);
 
         await runtime.RequestGracefulStopAsync();
 

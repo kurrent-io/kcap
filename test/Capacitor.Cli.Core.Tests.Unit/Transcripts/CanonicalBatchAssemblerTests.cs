@@ -309,6 +309,7 @@ public class CanonicalBatchAssemblerTests {
     }
 
     static readonly Guid Dispatch = Guid.Parse("30000000-0000-4000-8000-000000000001");
+    const string Agent = "40000000000040008000000000000001";
 
     static Dictionary<int, LineStamp> Stamps(params LineStamp[] stamps) => stamps.ToDictionary(s => s.LineNumber);
 
@@ -318,14 +319,14 @@ public class CanonicalBatchAssemblerTests {
     public async Task A_stamp_goes_on_its_lines_user_message() {
         var raw = Raw(0, User(1, "hi"), Assistant(2, "hello", 1, 10), User(3, "first", 2), User(4, "second", 2));
 
-        var batch = Claude().Assemble(raw, Stamps(new(0, null, IsLocal: true), new(3, Dispatch, IsLocal: false)), Received);
+        var batch = Claude().Assemble(raw, Stamps(new(0, null, null, IsLocal: true), new(3, Dispatch, Agent, IsLocal: false)), Received);
 
         await Assert.That(batch.Events.Select(e => (e.Line, e.Type, e.Stamp))).IsEquivalentTo([
-            (0, nameof(UserMessageReceived), new CanonicalBatchStamp(null, Local: true)),
+            (0, nameof(UserMessageReceived), new CanonicalBatchStamp(null, null, Local: true)),
             (1, nameof(AssistantTextGenerated), null),
             (2, nameof(UserMessageReceived), null),
             (3, CanonicalEventTypes.UserMessageRetracted, null),
-            (3, nameof(UserMessageReceived), new CanonicalBatchStamp(Dispatch, Local: false)),
+            (3, nameof(UserMessageReceived), new CanonicalBatchStamp(Dispatch, Agent, Local: false)),
         ], CollectionOrdering.Matching);
         await Assert.That(batch.Events.Select(e => e.EventId))
             .IsEquivalentTo(Claude().Assemble(raw, null, Received).Events.Select(e => e.EventId), CollectionOrdering.Matching);
@@ -336,17 +337,19 @@ public class CanonicalBatchAssemblerTests {
         var truncated = $$"""{"type":"user","uuid":"{{Id(4)}}","mess""";
 
         var batch = Claude().Assemble(Raw(0, User(1, "hi"), CaptureLoss, Assistant(3, "hello", 1, 10), truncated),
-            Stamps(new(1, Dispatch, false), new(2, null, true), new(3, Dispatch, false)), Received);
+            Stamps(new(1, Dispatch, Agent, false), new(2, null, null, true), new(3, Dispatch, Agent, false)), Received);
 
         await Assert.That(batch.Events.Select(e => e.Line)).IsEquivalentTo([0, 2], CollectionOrdering.Matching);
         await Assert.That(batch.Events.Where(e => e.Stamp is not null)).IsEmpty();
     }
 
-    /// <summary>The server refuses the whole batch for a stamp naming both or neither, or the empty dispatch</summary>
+    /// <summary>The server drops a stamp naming both senders or neither, the empty dispatch, or a dispatch without its
+    /// agent, so none is sent</summary>
     [Test]
-    public async Task A_stamp_the_server_would_refuse_is_not_sent() {
-        var batch = Claude().Assemble(Raw(0, User(1, "a"), User(2, "b", 1), User(3, "c", 2)),
-            Stamps(new(0, Dispatch, true), new(1, null, false), new(2, Guid.Empty, false)), Received);
+    public async Task A_stamp_the_server_would_drop_is_not_sent() {
+        var batch = Claude().Assemble(Raw(0, User(1, "a"), User(2, "b", 1), User(3, "c", 2), User(4, "d", 3), User(5, "e", 4)),
+            Stamps(new(0, Dispatch, Agent, true), new(1, null, null, false), new(2, Guid.Empty, Agent, false), new(3, Dispatch, null, false),
+                new(4, Dispatch, "", false)), Received);
 
         await Assert.That(batch.Events.Where(e => e.Stamp is not null)).IsEmpty();
     }
@@ -354,7 +357,7 @@ public class CanonicalBatchAssemblerTests {
     [Test]
     public async Task A_stamped_batch_keeps_format_1() {
         var batch = Claude().Assemble(Raw(0, User(1, "hi"), Assistant(2, "hello", 1, 10), User(3, "next", 2)),
-            Stamps(new(0, Dispatch, false), new(2, null, true)), Received);
+            Stamps(new(0, Dispatch, Agent, false), new(2, null, null, true)), Received);
 
         var json = JsonSerializer.Serialize(batch, CapacitorJsonContext.Default.CanonicalTranscriptBatch);
 
@@ -362,7 +365,7 @@ public class CanonicalBatchAssemblerTests {
         var root   = document.RootElement;
         var events = root.GetProperty("events");
         await Assert.That(root.GetProperty("format").GetInt32()).IsEqualTo(1);
-        await Assert.That(events[0].GetProperty("stamp").GetRawText()).IsEqualTo($$"""{"dispatch_id":"{{Dispatch}}"}""");
+        await Assert.That(events[0].GetProperty("stamp").GetRawText()).IsEqualTo($$"""{"dispatch_id":"{{Dispatch}}","agent_id":"{{Agent}}"}""");
         await Assert.That(events[1].TryGetProperty("stamp", out _)).IsFalse();
         await Assert.That(events[2].GetProperty("stamp").GetRawText()).IsEqualTo("""{"local":true}""");
 

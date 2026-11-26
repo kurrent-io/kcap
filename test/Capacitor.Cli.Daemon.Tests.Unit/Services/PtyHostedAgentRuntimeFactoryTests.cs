@@ -300,7 +300,7 @@ public class PtyHostedAgentRuntimeFactoryTests {
     public async Task A_launch_prompt_row_is_stamped_with_its_minted_dispatch() {
         var (stamp, log, _) = await StampLaunchPromptAsync(Minted);
 
-        await Assert.That(stamp).IsEqualTo(new LineStamp(0, Minted, IsLocal: false));
+        await Assert.That(stamp).IsEqualTo(new LineStamp(0, Minted, "agent-mode-1", IsLocal: false));
         await Assert.That(log.IsSuspended).IsFalse();
     }
 
@@ -378,8 +378,8 @@ public class PtyHostedAgentRuntimeFactoryTests {
             const string command = """{"type":"user","uuid":"80000000-0000-4000-8000-0000000000ba","message":{"content":"<command-message>review</command-message>\n<command-name>/review</command-name>\n<command-args>42</command-args>"}}""";
             const string followUp = """{"type":"user","uuid":"80000000-0000-4000-8000-0000000000bb","origin":{"kind":"human"},"message":{"content":"and the docs"}}""";
 
-            await Assert.That(stamper.StampFor(0, command)).IsEqualTo(dispatched ? new LineStamp(0, Minted, IsLocal: false) : null);
-            await Assert.That(stamper.StampFor(1, followUp)).IsEqualTo(new LineStamp(1, null, IsLocal: true));
+            await Assert.That(stamper.StampFor(0, command)).IsEqualTo(dispatched ? new LineStamp(0, Minted, "agent-mode-1", IsLocal: false) : null);
+            await Assert.That(stamper.StampFor(1, followUp)).IsEqualTo(new LineStamp(1, null, null, IsLocal: true));
             await Assert.That(log.IsSuspended).IsFalse();
         } finally {
             process.Exit();

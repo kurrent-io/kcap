@@ -23,6 +23,7 @@ namespace Capacitor.Cli.Daemon.Services;
 /// <see cref="NoteTurnRelayed"/> reports its turn; an unreported message gets its Enter once more.
 /// <paramref name="inputLog"/>: the session is recorded here, so each message it writes goes into the log, in the
 /// order of the writes, and anything else that could submit suspends stamping
+/// <paramref name="agentId"/>: the agent this runtime writes for, which a dispatch's entry names; required with a log
 /// </summary>
 internal sealed partial class PtyHostedAgentRuntime(
         string vendor, IPtyProcess pty, TimeProvider time, bool approvalsDisabled = false,
@@ -30,7 +31,12 @@ internal sealed partial class PtyHostedAgentRuntime(
         bool bracketedPasteMeansComposerUp = false,
         bool awaitsSessionStart = false,
         bool confirmsLaunchPrompt = false,
-        InputLog? inputLog = null) : IHostedAgentRuntime {
+        InputLog? inputLog = null,
+        string? agentId = null) : IHostedAgentRuntime {
+    readonly string? _agentId = inputLog is null || agentId is { Length: > 0 }
+        ? agentId
+        : throw new ArgumentException("A recorded session's runtime names the agent its dispatches go to", nameof(agentId));
+
     /// <summary>
     /// Delays (relative to the previous write) before each carriage return on the spray submit path.
     /// A single CR right after a paste is unreliable: codex's TUI suppresses Enter-as-submit for a
@@ -224,7 +230,7 @@ internal sealed partial class PtyHostedAgentRuntime(
     internal void DeliverLaunchPrompt(string prompt, Guid? dispatchId = null) {
         if (LaunchPromptDelivery is not null) throw new InvalidOperationException("The launch prompt is already queued.");
 
-        LaunchPromptDelivery = DeliverLaunchPromptAsync(prompt, dispatchId is { } id ? InputAuthor.Dispatch(id) : InputAuthor.Daemon);
+        LaunchPromptDelivery = DeliverLaunchPromptAsync(prompt, dispatchId is { } id ? Dispatched(id) : InputAuthor.Daemon);
     }
 
     async Task<LaunchPromptOutcome> DeliverLaunchPromptAsync(string prompt, InputAuthor author) {
@@ -523,7 +529,7 @@ internal sealed partial class PtyHostedAgentRuntime(
         Task dialogShown;
         lock (_dialogGate) dialogShown = _dialogShown.Task;
 
-        var (write, held) = Enqueue(text, InputAuthor.Dispatch(dispatchId));
+        var (write, held) = Enqueue(text, Dispatched(dispatchId));
 
         if (held) return write;
 
@@ -732,6 +738,9 @@ internal sealed partial class PtyHostedAgentRuntime(
     // row would carry gets no entry, since its row would never be compared and the entry would wait at the head.
     long? Pending(InputAuthor author, string text) =>
         inputLog is { } log && PersonRows.IsPersonText(text, vendor) ? log.AppendPending(author, text) : null;
+
+    // With no log nothing is written for the author, so it needs no agent.
+    InputAuthor Dispatched(Guid dispatchId) => _agentId is { } agent ? InputAuthor.Dispatch(dispatchId, agent) : InputAuthor.Daemon;
 
     // A paste that never started has no row coming. One that started and then failed may still produce one, or may sit
     // in the composer until something else submits it, so nobody can say which row is whose after it.

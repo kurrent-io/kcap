@@ -63,9 +63,9 @@ public record TranscriptBatch {
     public string? TranscriptPath { get; init; }
 }
 
-/// <summary>Who wrote a transcript line, when the recorder can place it: the dispatch that produced it, or a person
-/// at the terminal.</summary>
-public sealed record LineStamp(int LineNumber, Guid? DispatchId, bool IsLocal);
+/// <summary>Who wrote a transcript line, when the recorder can place it: the dispatch that produced it, with the agent it
+/// was sent to, or a person at the terminal.</summary>
+public sealed record LineStamp(int LineNumber, Guid? DispatchId, string? AgentId, bool IsLocal);
 
 public record ErrorEntry(
         string         SessionId,
