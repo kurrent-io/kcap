@@ -60,20 +60,25 @@
     </UserControl.Styles>
     <Grid RowDefinitions="Auto,*">
         <Border x:Name="SelectorBar" IsVisible="{Binding HasAny}" PointerEntered="OnSelectorBarUsed" PointerMoved="OnSelectorBarUsed" GotFocus="OnSelectorBarUsed" Background="Transparent" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1" Padding="16,8">
-            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*,Auto" ColumnSpacing="6">
+            <!-- Docked, the browser action keeps its place, and the left-aligned grid's star column lets a long title trim. -->
+            <DockPanel>
+            <Button x:Name="OpenInBrowser" DockPanel.Dock="Right" Margin="12,0,0,0" Classes="kcapGhost" Content="Open in browser"
+                    IsVisible="{Binding PageViewer, Converter={x:Static ObjectConverters.IsNotNull}}"
+                    Command="{Binding PageViewer.OpenInBrowserCommand, FallbackValue={x:Null}}" />
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="6" HorizontalAlignment="Left">
                 <Button x:Name="PreviousItem" Classes="kcapGhost kcapIcon" Command="{Binding PreviousCommand}" IsVisible="{Binding CanChoose}"
                         AutomationProperties.Name="Previous" ToolTip.Tip="Previous" VerticalAlignment="Center">
                     <views:AppIcon Kind="ChevronLeft" Size="14" />
                 </Button>
                 <Button x:Name="ItemSelector" Grid.Column="1" Classes="artefactSelector" IsVisible="{Binding CanChoose}"
                         AutomationProperties.Name="{Binding CurrentTitle}" ToolTip.Tip="{Binding CurrentTitle}">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <TextBlock Text="{Binding CurrentTitle}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" MaxWidth="420"
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                        <TextBlock x:Name="SelectorTitle" Text="{Binding CurrentTitle}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" MaxWidth="420"
                                    TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Foreground="{StaticResource KcapTextBrush}" />
-                        <TextBlock Text="{Binding CurrentKind}" FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapFaintBrush}"
+                        <TextBlock Grid.Column="1" Text="{Binding CurrentKind}" FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapFaintBrush}"
                                    VerticalAlignment="Center" />
-                        <views:AppIcon Kind="ChevronDown" Size="12" VerticalAlignment="Center" />
-                    </StackPanel>
+                        <views:AppIcon Grid.Column="2" Kind="ChevronDown" Size="12" VerticalAlignment="Center" />
+                    </Grid>
                     <Button.Flyout>
                         <Flyout Placement="BottomEdgeAlignedLeft" VerticalOffset="6" FlyoutPresenterClasses="kcapPanel"
                                 Opened="OnMenuOpened">
@@ -146,23 +151,21 @@
                         </Flyout>
                     </Button.Flyout>
                 </Button>
-                <StackPanel x:Name="CurrentItemLabel" Grid.Column="1" Orientation="Horizontal" Spacing="8" IsVisible="{Binding !CanChoose}"
-                            Margin="4,0" VerticalAlignment="Center">
+                <Grid x:Name="CurrentItemLabel" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="{Binding !CanChoose}"
+                      Margin="4,0" VerticalAlignment="Center">
                     <TextBlock Text="{Binding CurrentTitle}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" MaxWidth="420"
                                TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Foreground="{StaticResource KcapTextBrush}" />
-                    <TextBlock Text="{Binding CurrentKind}" FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapFaintBrush}"
+                    <TextBlock Grid.Column="1" Text="{Binding CurrentKind}" FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapFaintBrush}"
                                VerticalAlignment="Center" />
-                </StackPanel>
+                </Grid>
                 <Button x:Name="NextItem" Grid.Column="2" Classes="kcapGhost kcapIcon" Command="{Binding NextCommand}" IsVisible="{Binding CanChoose}"
                         AutomationProperties.Name="Next" ToolTip.Tip="Next" VerticalAlignment="Center">
                     <views:AppIcon Kind="ChevronRight" Size="14" />
                 </Button>
                 <TextBlock x:Name="ItemPosition" Grid.Column="3" Text="{Binding Position}" FontSize="{StaticResource KcapFontSizeSmall}"
                            Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" Margin="4,0,0,0" />
-                <Button x:Name="OpenInBrowser" Grid.Column="5" Classes="kcapGhost" Content="Open in browser"
-                        IsVisible="{Binding PageViewer, Converter={x:Static ObjectConverters.IsNotNull}}"
-                        Command="{Binding PageViewer.OpenInBrowserCommand, FallbackValue={x:Null}}" />
             </Grid>
+            </DockPanel>
         </Border>
         <Panel Grid.Row="1">
             <ContentControl x:Name="DocumentReaderHost" Content="{Binding Reader}">

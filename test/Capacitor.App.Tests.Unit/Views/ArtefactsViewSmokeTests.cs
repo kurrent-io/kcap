@@ -1,4 +1,5 @@
 using System.Reactive.Linq;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -170,6 +171,39 @@ public class ArtefactsViewSmokeTests {
 
         await Assert.That(previous.IsEffectivelyEnabled).IsTrue();
         elsewhere.Close();
+        window.Close();
+        await vm.TeardownAsync();
+    });
+
+    /// In a narrow tab a long title trims, so the arrows, the position and the browser action stay inside it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_long_title_trims_in_a_narrow_tab_and_keeps_the_bar_inside_it() => RunOnUiAsync(async () => {
+        var now = DateTimeOffset.UtcNow;
+        var title = string.Concat(Enumerable.Repeat("A very long page title ", 12));
+        var source = new FakePlanArtifactSource();
+        source.EnqueuePages(new SessionPagesRead(SessionPlansReadKind.Ready, [
+            new ArtefactDto("01ec", title, "u1", "org", 1, now, true, null, null, "https://kurrent.kcap.ai/pages/01ec"),
+            new ArtefactDto("02fd", "Rollout notes", "u1", "org", 1, now, true, null, null, "https://kurrent.kcap.ai/pages/02fd"),
+        ]));
+        var vm = new ArtefactsTabViewModel(source, new PlanActivity(), TimeProvider.System, opener: new RecordingOpener(),
+            pageContent: new FakePageContentSource(), webView: new FixedWebViewAvailability(true), inAppPages: () => true);
+        var window = new Window { Content = new ArtefactsView { DataContext = vm }, Width = 520, Height = 400 };
+        window.Show();
+        vm.SwitchSession(Session, "/repo");
+        await (vm.PendingPagesForTesting ?? Task.CompletedTask);
+        await vm.OpenPageCommand.Execute(vm.Pages[0]);
+        await (vm.PendingPageLoadForTesting ?? Task.CompletedTask);
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+
+        foreach (var name in new[] { "NextItem", "ItemPosition", "OpenInBrowser" }) {
+            var control = Find<Control>(window, name);
+            var right = control.TranslatePoint(new Point(control.Bounds.Width, 0), window)!.Value.X;
+            await Assert.That(right).IsLessThanOrEqualTo(window.Bounds.Width);
+        }
+        var shown = Find<TextBlock>(window, "SelectorTitle");
+        await Assert.That(shown.Bounds.Width).IsLessThan(300);
         window.Close();
         await vm.TeardownAsync();
     });
