@@ -4,6 +4,7 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
 using Capacitor.App.Views;
+using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.Pages;
 using Capacitor.Cli.Core.Plans;
@@ -129,6 +130,46 @@ public class ArtefactsViewSmokeTests {
         Dispatcher.UIThread.RunJobs();
 
         await Assert.That(next.IsEffectivelyEnabled).IsFalse();
+        window.Close();
+        await vm.TeardownAsync();
+    });
+
+    /// A switch turned on elsewhere enables an arrow that was off once the window is active again, with no
+    /// pointer or focus inside the bar: the flip is made in Settings or a terminal, which take the focus.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task Reactivating_the_window_rereads_the_in_app_switch() => RunOnUiAsync(async () => {
+        var now = DateTimeOffset.UtcNow;
+        var inApp = false;
+        var source = new FakePlanArtifactSource();
+        source.Enqueue(new PlanArtifactsRead(SessionPlansReadKind.Ready, new PlanArtifactsResponseDto { Artifacts = [new PlanArtifactDto {
+            ArtifactId = "d1", Kind = "plan", Title = "docs/p.md", Source = "declared", SessionId = Session, Path = "docs/p.md", Content = "# p",
+            ContentState = "ok", IsComplete = true, IsConfirmed = true, ContentHash = "h1", Version = 1, DiscoveredAt = now,
+            Confidence = "high", Reason = "declared",
+        }] }));
+        source.EnqueuePages(new SessionPagesRead(SessionPlansReadKind.Ready, [
+            new ArtefactDto("01ec", "Release checklist", "u1", "org", 1, now, true, null, null, "https://kurrent.kcap.ai/pages/01ec"),
+        ]));
+        var vm = new ArtefactsTabViewModel(source, new PlanActivity(), TimeProvider.System, opener: new RecordingOpener(),
+            pageContent: new FakePageContentSource(), webView: new FixedWebViewAvailability(true), inAppPages: () => inApp);
+        var window = new Window { Content = new ArtefactsView { DataContext = vm }, Width = 900, Height = 600 };
+        var elsewhere = new Window { Width = 200, Height = 200 };
+        window.Show();
+        vm.SwitchSession(Session, "/repo");
+        await Task.WhenAll(vm.PendingReadForTesting ?? Task.CompletedTask, vm.PendingPagesForTesting ?? Task.CompletedTask);
+        await vm.SelectCommand.Execute(vm.Documents[0]);
+        Dispatcher.UIThread.RunJobs();
+        var previous = Find<Button>(window, "PreviousItem");
+        await Assert.That(previous.IsEffectivelyEnabled).IsFalse();
+
+        elsewhere.Show();
+        elsewhere.Activate();
+        inApp = true;
+        window.Activate();
+        Dispatcher.UIThread.RunJobs();
+
+        await Assert.That(previous.IsEffectivelyEnabled).IsTrue();
+        elsewhere.Close();
         window.Close();
         await vm.TeardownAsync();
     });
