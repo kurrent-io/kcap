@@ -85,7 +85,8 @@ public sealed class InboxApi(ICapacitorHttpClient? http, ProfileContext? profile
                 if (status is not (AuthStatus.Ok or AuthStatus.NoAuthRequired)) return InboxRead<T>.SignedOut;
                 using var response = await send(client).ConfigureAwait(false);
                 if (response.StatusCode is HttpStatusCode.Unauthorized) return InboxRead<T>.SignedOut;
-                if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed) return InboxRead<T>.Unavailable;
+                if (response.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Forbidden or HttpStatusCode.MethodNotAllowed)
+                    return InboxRead<T>.Unavailable;
                 if (!response.IsSuccessStatusCode) return InboxRead<T>.Failed;
                 if (type is null) return new(InboxReadKind.Ready);
                 var body = await response.Content.ReadFromJsonAsync(type, ct).ConfigureAwait(false);

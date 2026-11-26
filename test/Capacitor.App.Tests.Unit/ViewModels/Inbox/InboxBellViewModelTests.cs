@@ -392,6 +392,24 @@ public class InboxBellViewModelTests {
     });
 
     [Test]
+    public async Task A_failed_first_list_read_offers_a_retry_instead_of_spinning() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = InboxRead<NotificationPageDto>.Failed;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        await Assert.That(rig.Bell.ListFailed).IsTrue();
+        await Assert.That(rig.Bell.IsLoading).IsFalse();
+        await Assert.That(rig.Bell.IsEmpty).IsFalse();
+
+        rig.Api.Page = PageOf(1, Item("n1"));
+        await rig.Bell.RetryListCommand.Execute();
+
+        await Assert.That(rig.Bell.ListFailed).IsFalse();
+        await Assert.That(rig.Bell.Items.Single().LogicalId).IsEqualTo("n1");
+    });
+
+    [Test]
     public async Task Delete_all_acts_only_once_confirmed() => await AvaloniaSession.RunOnUiAsync(async () => {
         using var rig = new Rig().Start();
         rig.Api.Page = PageOf(1, Item("n1"));

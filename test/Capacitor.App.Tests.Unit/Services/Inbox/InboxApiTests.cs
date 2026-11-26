@@ -92,6 +92,7 @@ public class InboxApiTests {
         Json(server, Request.Create().WithPath("/api/passes/mutes/u9").UsingDelete(),
             """{"muted_sender_ids":[],"muted_senders":[],"agent_opted_out":true}""");
         server.Given(Request.Create().WithPath("/api/notifications/unread-count").UsingGet()).RespondWith(Response.Create().WithStatusCode(404));
+        server.Given(Request.Create().WithPath("/api/passes/controls").UsingGet()).RespondWith(Response.Create().WithStatusCode(403));
         var (http, profiles, provider) = await WireMockLane.BuildAsync(server, Config.Root);
         await using var _ = provider;
         var api = new InboxApi(http, profiles);
@@ -104,6 +105,7 @@ public class InboxApiTests {
         await Assert.That(surfaces.Notifications).IsFalse();
         await Assert.That((await api.UnmuteAsync("u9", CancellationToken.None)).Value!.AgentOptedOut).IsTrue();
         await Assert.That((await api.UnreadCountAsync(CancellationToken.None)).Kind).IsEqualTo(InboxReadKind.Unavailable);
+        await Assert.That((await api.PassControlsAsync(CancellationToken.None)).Kind).IsEqualTo(InboxReadKind.Unavailable);
     }
 
     [Test]

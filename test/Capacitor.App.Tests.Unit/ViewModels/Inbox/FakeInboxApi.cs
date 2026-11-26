@@ -17,6 +17,10 @@ sealed class FakeInboxApi : IInboxApi {
     public TaskCompletionSource? AnswerGate { get; set; }
     /// <summary>When set, surfaces reads wait on it, so a test can push during admission.</summary>
     public TaskCompletionSource? SurfacesGate { get; set; }
+    /// <summary>When set, preference writes wait on it.</summary>
+    public TaskCompletionSource? PutGate { get; set; }
+    /// <summary>When set, preference reads wait on it.</summary>
+    public TaskCompletionSource? PrefsGate { get; set; }
 
     public int CountReads, PageReads, DismissAllCalls, PrefsReads;
     public readonly List<string> Calls = [];
@@ -52,13 +56,18 @@ sealed class FakeInboxApi : IInboxApi {
         return Answer;
     }
 
-    public Task<InboxRead<NotificationPrefsDto>> PrefsAsync(CancellationToken ct) {
+    public async Task<InboxRead<NotificationPrefsDto>> PrefsAsync(CancellationToken ct) {
         PrefsReads++;
-        return Task.FromResult(Prefs);
+        var prefs = Prefs;
+        if (PrefsGate is { } gate) await gate.Task;
+        return prefs;
     }
 
-    public Task<bool> PutPrefAsync(string type, bool enabled, bool slackEnabled, CancellationToken ct) =>
-        Record($"pref {type} {enabled} {slackEnabled}", true);
+    public async Task<bool> PutPrefAsync(string type, bool enabled, bool slackEnabled, CancellationToken ct) {
+        Calls.Add($"pref {type} {enabled} {slackEnabled}");
+        if (PutGate is { } gate) await gate.Task;
+        return true;
+    }
 
     public Task<InboxRead<PassControlsDto>> PassControlsAsync(CancellationToken ct) => Task.FromResult(Controls);
 

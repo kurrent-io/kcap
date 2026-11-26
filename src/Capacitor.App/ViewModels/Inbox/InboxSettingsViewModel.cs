@@ -18,7 +18,15 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
     readonly CancellationTokenSource _lifetime = new();
     readonly AvaloniaList<InboxTypeRowViewModel> _types = new();
     readonly AvaloniaList<InboxMutedSenderViewModel> _muted = new();
+    // Every reload and every write advances it, so a read begun before a write never lands over what the write set.
     int _generation;
+    int _mutations;
+    bool _connected = true;
+    string? _subject;
+    // Per type, the switches to send next: a write in flight is followed by only the newest pair, so the server ends on
+    // the person's last choice whatever order the requests would have completed in.
+    readonly Dictionary<string, (bool Enabled, bool SlackEnabled)> _pendingWrites = new(StringComparer.Ordinal);
+    readonly HashSet<string> _writing = new(StringComparer.Ordinal);
     bool _disposed;
 
     public IAvaloniaReadOnlyList<InboxTypeRowViewModel> Types => _types;
@@ -62,22 +70,61 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
 
     public bool HasMutedSenders => _muted.Count > 0;
 
+    /// <summary>The pass controls loaded: until then the section shows their error and a retry, never default values.</summary>
+    public bool PassesLoaded {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    }
+
+    public string? PassesError {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    }
+
+    /// <summary>False while no one is signed in: a switch flipped then would write for whoever signs in next.</summary>
+    public bool CanWrite {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = true;
+
     bool _applyingControls;
 
     public ReactiveCommand<Unit, Unit> RetryCommand            { get; }
     public ReactiveCommand<Unit, Unit> OpenChatAccountsCommand { get; }
 
-    public InboxSettingsViewModel(IInboxApi api, IObservable<Unit> changed, bool passesOffered, Action openChatAccounts) {
+    public InboxSettingsViewModel(IInboxApi api, IObservable<Unit> changed, bool passesOffered, Action openChatAccounts,
+            IObservable<ServerLaneStatus>? status = null) {
         _api = api;
         PassesOffered = passesOffered;
         RetryCommand = ReactiveCommand.Create(Reload);
         OpenChatAccountsCommand = ReactiveCommand.Create(openChatAccounts);
         changed.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(_ => Reload()).DisposeWith(_disposables);
+        status?.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(OnStatus).DisposeWith(_disposables);
         Reload();
     }
 
+    // A sign-in as someone else drops what was loaded for the previous account before anything can be written.
+    void OnStatus(ServerLaneStatus status) {
+        var connected = status.State == ServerLaneState.Connected;
+        var signedInAsOther = connected && _subject is not null && status.Subject is not null && status.Subject != _subject;
+        if (connected && status.Subject is not null) _subject = status.Subject;
+        if (_connected == connected && !signedInAsOther) return;
+        _connected = connected;
+        CanWrite = connected;
+        _generation++;
+        _pendingWrites.Clear();
+        if (signedInAsOther) {
+            IsLoaded = false;
+            PassesLoaded = false;
+            _types.Clear();
+            _muted.Clear();
+            this.RaisePropertyChanged(nameof(HasMutedSenders));
+        }
+        if (connected) Reload();
+    }
+
     public void Reload() {
-        if (_disposed) return;
+        if (_disposed || _mutations > 0) return;
         _ = LoadAsync(++_generation);
     }
 
@@ -93,8 +140,27 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
             return;
         }
         ApplyPrefs(value);
-        if (controls is { Kind: InboxReadKind.Ready, Value: { } c }) ApplyControls(c);
         IsLoaded = true;
+        if (!PassesOffered) return;
+        if (controls is { Kind: InboxReadKind.Ready, Value: { } c }) {
+            ApplyControls(c);
+            PassesLoaded = true;
+            PassesError = null;
+        } else if (!PassesLoaded) {
+            PassesError = "Couldn't load your pass settings.";
+        }
+    }
+
+    // A write invalidates every read already in flight; once the last write settles, one fresh read shows the result.
+    async Task MutateAsync(Func<Task> write) {
+        _generation++;
+        _mutations++;
+        try {
+            await write();
+        } finally {
+            _mutations--;
+        }
+        if (_mutations == 0) Reload();
     }
 
     void ApplyPrefs(NotificationPrefsDto prefs) {
@@ -128,20 +194,35 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
     }
 
     async Task WriteTypeAsync(InboxTypeRowViewModel row, bool enabled, bool slackEnabled) {
-        await Guard(_api.PutPrefAsync(row.Type, enabled, slackEnabled, _lifetime.Token));
-        Reload();
+        if (_disposed) return;
+        if (!_connected) {
+            Reload();
+            return;
+        }
+        _pendingWrites[row.Type] = (enabled, slackEnabled);
+        if (!_writing.Add(row.Type)) return;
+        try {
+            while (!_disposed && _pendingWrites.Remove(row.Type, out var pair))
+                await MutateAsync(() => Guard(_api.PutPrefAsync(row.Type, pair.Enabled, pair.SlackEnabled, _lifetime.Token)));
+        } finally {
+            _writing.Remove(row.Type);
+        }
     }
 
-    async Task SetTellAgentAsync(bool tell) {
-        var read = await Guard(_api.SetAgentOptOutAsync(!tell, _lifetime.Token));
-        if (!_disposed && read is { Kind: InboxReadKind.Ready, Value: { } c }) ApplyControls(c);
-        else Reload();
-    }
+    Task SetTellAgentAsync(bool tell) => ControlsAsync(() => _api.SetAgentOptOutAsync(!tell, _lifetime.Token));
 
-    async Task UnmuteAsync(string senderId) {
-        var read = await Guard(_api.UnmuteAsync(senderId, _lifetime.Token));
-        if (!_disposed && read is { Kind: InboxReadKind.Ready, Value: { } c }) ApplyControls(c);
-        else Reload();
+    Task UnmuteAsync(string senderId) => ControlsAsync(() => _api.UnmuteAsync(senderId, _lifetime.Token));
+
+    Task ControlsAsync(Func<Task<InboxRead<PassControlsDto>>> write) {
+        if (_disposed) return Task.CompletedTask;
+        if (!_connected) {
+            Reload();
+            return Task.CompletedTask;
+        }
+        return MutateAsync(async () => {
+            var read = await Guard(write());
+            if (!_disposed && read is { Kind: InboxReadKind.Ready, Value: { } c }) ApplyControls(c);
+        });
     }
 
     async Task<T?> Guard<T>(Task<T> read) {

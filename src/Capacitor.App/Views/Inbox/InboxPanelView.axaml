@@ -76,6 +76,10 @@
             <StackPanel IsVisible="{Binding IsLoading}" Margin="0,32" HorizontalAlignment="Center">
                 <ProgressBar views:BusyIndicator.IsBusy="{Binding IsLoading}" Width="120" />
             </StackPanel>
+            <StackPanel x:Name="InboxListError" IsVisible="{Binding ListFailed}" Margin="20,32" Spacing="10" HorizontalAlignment="Center">
+                <TextBlock Text="Couldn't load your notifications." HorizontalAlignment="Center" />
+                <Button Classes="kcapPrimary" Content="Try again" Command="{Binding RetryListCommand}" HorizontalAlignment="Center" />
+            </StackPanel>
             <StackPanel x:Name="InboxEmptyState" IsVisible="{Binding IsEmpty}" Margin="20,40" Spacing="4" HorizontalAlignment="Center">
                 <views:AppIcon Kind="Bell" Size="28" Foreground="{StaticResource KcapFaintBrush}" HorizontalAlignment="Center" />
                 <TextBlock Text="You're all caught up" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,6,0,0" />

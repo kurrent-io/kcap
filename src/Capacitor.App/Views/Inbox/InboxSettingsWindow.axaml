@@ -41,7 +41,7 @@
                             <TextBlock Grid.Column="1" Classes="kcapHint" Text="IN-APP" HorizontalAlignment="Center" />
                             <TextBlock Grid.Column="2" Classes="kcapHint" Text="SLACK" HorizontalAlignment="Center" />
                         </Grid>
-                        <ItemsControl x:Name="InboxTypeRows" ItemsSource="{Binding Types}">
+                        <ItemsControl x:Name="InboxTypeRows" ItemsSource="{Binding Types}" IsEnabled="{Binding CanWrite}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="inbox:InboxTypeRowViewModel">
                                     <Border BorderThickness="0,0,0,1" BorderBrush="{StaticResource KcapBorderBrush}" Padding="0,9">
@@ -69,6 +69,13 @@
                                 BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,8,0,0">
                             <StackPanel Spacing="8">
                                 <TextBlock Classes="kcapLabel" Text="Passes" />
+                                <StackPanel Spacing="8" IsVisible="{Binding !PassesLoaded}">
+                                    <TextBlock Classes="kcapHint" Text="{Binding PassesError}" TextWrapping="Wrap"
+                                               IsVisible="{Binding PassesError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                    <Button Classes="kcapGhost" Content="Retry" Command="{Binding RetryCommand}" HorizontalAlignment="Left"
+                                            IsVisible="{Binding PassesError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                </StackPanel>
+                                <StackPanel Spacing="8" IsVisible="{Binding PassesLoaded}" IsEnabled="{Binding CanWrite}">
                                 <Grid ColumnDefinitions="*,72">
                                     <StackPanel Spacing="2">
                                         <TextBlock Classes="kcapLabel" Text="Tell my coding agent" />
@@ -91,6 +98,7 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
+                                </StackPanel>
                             </StackPanel>
                         </Border>
                     </StackPanel>

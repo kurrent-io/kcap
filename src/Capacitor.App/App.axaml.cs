@@ -2756,7 +2756,7 @@ public partial class App : Application {
                     return;
                 }
                 var settingsVm = new InboxSettingsViewModel(inbox, inboxChanged, inboxBell?.PassesOffered == true,
-                    () => { if (appServerUrl is { Length: > 0 } server) openUrl?.Invoke(server); });
+                    () => { if (appServerUrl is { Length: > 0 } server) openUrl?.Invoke(server); }, lane.Status);
                 var settingsWindow = new InboxSettingsWindow { DataContext = settingsVm };
                 inboxSettings = settingsWindow;
                 settingsWindow.Closed += (_, _) => { inboxSettings = null; settingsVm.Dispose(); };

@@ -38,6 +38,8 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     bool _refreshQueued;
     bool _admitQueued;
     bool _admitRunning;
+    // The connection whose admission set _admitRunning; an earlier one finishing late must not clear it.
+    int _admitOwner;
     bool _admitAgain;
     bool _disposed;
 
@@ -77,13 +79,26 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
             this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(IsLoading));
             if (!value) IsConfirmingDeleteAll = false;
-            if (value) Refresh();
+            if (value) {
+                ListFailed = false;
+                Refresh();
+            }
         }
     }
 
     /// <summary>True from the panel opening until the first list read succeeds: an honest spinner while reads keep
     /// failing beats an "all caught up" that may be wrong.</summary>
-    public bool IsLoading => IsOpen && !ListLoaded;
+    public bool IsLoading => IsOpen && !ListLoaded && !ListFailed;
+
+    /// <summary>The panel's first list read failed: it says so and offers a retry, rather than a spinner that never ends or
+    /// an empty inbox that may be wrong.</summary>
+    public bool ListFailed {
+        get;
+        private set {
+            this.RaiseAndSetIfChanged(ref field, value);
+            this.RaisePropertyChanged(nameof(IsLoading));
+        }
+    }
 
     public bool ListLoaded {
         get;
@@ -107,6 +122,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<Unit, Unit> CancelDeleteAllCommand { get; }
     public ReactiveCommand<Unit, Unit> DeleteAllCommand      { get; }
     public ReactiveCommand<Unit, Unit> OpenSettingsCommand   { get; }
+    public ReactiveCommand<Unit, Unit> RetryListCommand      { get; }
 
     public InboxBellViewModel(IInboxApi api, IObservable<ServerLaneStatus> status, IObservable<Unit> changed,
             Action<string> open, Action openSettings, TimeProvider? time = null) {
@@ -118,6 +134,10 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         CancelDeleteAllCommand = ReactiveCommand.Create(() => { IsConfirmingDeleteAll = false; });
         DeleteAllCommand       = ReactiveCommand.CreateFromTask(DeleteAllAsync);
         OpenSettingsCommand    = ReactiveCommand.Create(() => { IsOpen = false; openSettings(); });
+        RetryListCommand       = ReactiveCommand.Create(() => {
+            ListFailed = false;
+            Refresh();
+        });
 
         status.Select(s => s.State == ServerLaneState.Connected).DistinctUntilChanged()
             .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(OnConnectedChanged).DisposeWith(_disposables);
@@ -139,10 +159,11 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     // A push that lands while admission runs may postdate what admission read, so it costs one more pass afterwards.
     async Task AdmitAsync(int epoch) {
         _admitRunning = true;
+        _admitOwner = epoch;
         try {
             await AdmitOnceAsync(epoch);
         } finally {
-            _admitRunning = false;
+            if (_admitOwner == epoch) _admitRunning = false;
         }
         if (!_admitAgain || _disposed || epoch != _epoch) return;
         _admitAgain = false;
@@ -165,6 +186,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         IsOpen = false;
         UnreadCount = 0;
         ListLoaded = false;
+        ListFailed = false;
         _notes.Clear();
         _dismissing.Clear();
         _answering.Clear();
@@ -230,10 +252,14 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
                 Replace(shown.Select(i => Card(i, now, previous.GetValueOrDefault(i.LogicalId))).ToList());
                 UnreadCount = Math.Max(0, page.UnreadCount - hidden.Count(i => i.IsUnread));
                 ListLoaded = true;
+                ListFailed = false;
                 if (admitting) IsVisible = true;
                 break;
             case InboxReadKind.Unavailable or InboxReadKind.SignedOut:
                 Hide();
+                break;
+            case InboxReadKind.Failed when !ListLoaded:
+                ListFailed = true;
                 break;
         }
     }
