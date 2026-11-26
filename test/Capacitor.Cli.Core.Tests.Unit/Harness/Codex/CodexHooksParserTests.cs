@@ -63,10 +63,10 @@ public class CodexHooksParserTests {
     }
 
     [Test]
-    public async Task CodexHookEvents_lists_all_six_events_in_canonical_order() {
+    public async Task CodexHookEvents_lists_all_seven_events_in_canonical_order() {
         var expected = new[] {
             "SessionStart", "UserPromptSubmit", "PreToolUse",
-            "PostToolUse", "PermissionRequest", "Stop"
+            "PostToolUse", "PermissionRequest", "Stop", "SessionEnd",
         };
 
         await Assert.That(CodexHooksParser.CodexHookEvents.Length).IsEqualTo(expected.Length);
