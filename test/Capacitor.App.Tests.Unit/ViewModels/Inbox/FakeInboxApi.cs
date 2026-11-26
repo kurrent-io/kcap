@@ -23,6 +23,8 @@ sealed class FakeInboxApi : IInboxApi {
     public TaskCompletionSource? PrefsGate { get; set; }
     /// <summary>When set, pass-control writes wait on it.</summary>
     public TaskCompletionSource? ControlsGate { get; set; }
+    /// <summary>When set, delete-all waits on it before it is sent, as a request waits for its credentials.</summary>
+    public TaskCompletionSource? DismissAllGate { get; set; }
     /// <summary>False when a write belongs to another account than the one later reads are for.</summary>
     public bool WritesChangeControls { get; set; } = true;
 
@@ -49,9 +51,11 @@ sealed class FakeInboxApi : IInboxApi {
     public Task<bool> DismissAsync(string logicalId, long version, CancellationToken ct) => Record($"dismiss {logicalId}@{version}", DismissResult);
     public Task<bool> MarkAllReadAsync(CancellationToken ct) => Record("read-all", true);
 
-    public Task<bool> DismissAllAsync(CancellationToken ct) {
+    public async Task<bool> DismissAllAsync(CancellationToken ct) {
         DismissAllCalls++;
-        return Record("dismiss-all", true);
+        if (DismissAllGate is { } gate) await gate.Task;
+        ct.ThrowIfCancellationRequested();
+        return await Record("dismiss-all", true);
     }
 
     public async Task<InboxRead<NotificationAnswerResponseDto>> AnswerAsync(string logicalId, string answer, string? text, CancellationToken ct) {

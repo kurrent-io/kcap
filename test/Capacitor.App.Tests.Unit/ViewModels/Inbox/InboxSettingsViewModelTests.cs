@@ -199,6 +199,18 @@ public class InboxSettingsViewModelTests {
     });
 
     [Test]
+    public async Task A_failed_pass_control_refresh_after_load_offers_a_retry() => await AvaloniaSession.RunOnUiAsync(async () => {
+        var api = new FakeInboxApi { Prefs = Prefs("connected", true, Type("pass_received")), Controls = new(InboxReadKind.Ready, new() { AgentOptedOut = false }) };
+        using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: true, () => { });
+
+        api.Controls = InboxRead<PassControlsDto>.Failed;
+        settings.Reload();
+
+        await Assert.That(settings.PassesLoaded).IsTrue();
+        await Assert.That(settings.RefreshError).IsEqualTo("Couldn't refresh your pass settings. What's shown may be out of date.");
+    });
+
+    [Test]
     public async Task A_failed_first_load_offers_a_retry() => await AvaloniaSession.RunOnUiAsync(async () => {
         var api = new FakeInboxApi { Prefs = InboxRead<NotificationPrefsDto>.Failed };
         using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: false, () => { });

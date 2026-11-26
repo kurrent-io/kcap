@@ -446,6 +446,24 @@ public class InboxBellViewModelTests {
     });
 
     [Test]
+    public async Task A_bulk_action_still_on_its_way_out_at_a_sign_in_is_not_sent() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1"));
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        var gate = new TaskCompletionSource();
+        rig.Api.DismissAllGate = gate;
+        await rig.Bell.AskDeleteAllCommand.Execute();
+        var deleting = rig.Bell.DeleteAllCommand.Execute().ToTask();
+
+        rig.SignIn.OnNext(RxUnit.Default);
+        gate.SetResult();
+        await deleting;
+
+        await Assert.That(rig.Api.Calls).DoesNotContain("dismiss-all");
+    });
+
+    [Test]
     public async Task Delete_all_acts_only_once_confirmed() => await AvaloniaSession.RunOnUiAsync(async () => {
         using var rig = new Rig().Start();
         rig.Api.Page = PageOf(1, Item("n1"));

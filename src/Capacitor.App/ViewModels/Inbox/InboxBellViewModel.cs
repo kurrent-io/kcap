@@ -23,6 +23,9 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     readonly Action<string> _open;
     readonly CompositeDisposable _disposables = new();
     readonly CancellationTokenSource _lifetime = new();
+    // Every request runs under the account it was started for; a sign-in or a dropped connection cancels them, so one
+    // still on its way out is not sent with the next account's credentials.
+    CancellationTokenSource _account;
     readonly AvaloniaList<InboxItemViewModel> _items = new();
     // Rows dismissed here, by the version dismissed: kept off the list until a page no longer carries them. A newer
     // version shows the row again, as the server refuses a dismiss of an older one without an error.
@@ -133,6 +136,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
             Action<string> open, Action openSettings, TimeProvider? time = null, IObservable<Unit>? signInCompleted = null) {
         _api  = api;
         _open = open;
+        _account = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _time = time ?? TimeProvider.System;
         MarkAllReadCommand     = ReactiveCommand.CreateFromTask(MarkAllReadAsync);
         AskDeleteAllCommand    = ReactiveCommand.Create(() => { IsConfirmingDeleteAll = true; });
@@ -147,7 +151,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         status.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(OnStatus).DisposeWith(_disposables);
         // New credentials are saved before the lane reconnects, so the sign-in itself starts the bell over.
         signInCompleted?.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(_ => {
-            AccountChanged?.Invoke();
+            RetireAccount();
             OnConnectedChanged(_connected);
         }).DisposeWith(_disposables);
         changed.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(_ => Refresh()).DisposeWith(_disposables);
@@ -157,9 +161,17 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         var connected = status.State == ServerLaneState.Connected;
         var otherAccount = connected && status.Subject is { } subject && _subject is { } previous && subject != previous;
         if (connected && status.Subject is not null) _subject = status.Subject;
-        if ((_connected && !connected) || otherAccount) AccountChanged?.Invoke();
+        if ((_connected && !connected) || otherAccount) RetireAccount();
         if (connected == _connected && !otherAccount) return;
         OnConnectedChanged(connected);
+    }
+
+    void RetireAccount() {
+        var retired = _account;
+        _account = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        retired.Cancel();
+        retired.Dispose();
+        AccountChanged?.Invoke();
     }
 
     void OnConnectedChanged(bool connected) {
@@ -186,7 +198,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     }
 
     async Task AdmitOnceAsync(int epoch) {
-        var surfaces = await Guard(_api.SurfacesAsync(_lifetime.Token));
+        var surfaces = await Guard(_api.SurfacesAsync(_account.Token));
         if (_disposed || epoch != _epoch || surfaces is null) return;
         if (surfaces is not { Kind: InboxReadKind.Ready, Value.Notifications: true }) {
             Hide();
@@ -239,7 +251,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     }
 
     async Task ReadCountAsync(bool admitting, int epoch) {
-        var read = await Guard(_api.UnreadCountAsync(_lifetime.Token));
+        var read = await Guard(_api.UnreadCountAsync(_account.Token));
         if (_disposed || epoch != _epoch || read is null) return;
         switch (read.Kind) {
             case InboxReadKind.Ready:
@@ -253,7 +265,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     }
 
     async Task ReadListAsync(bool admitting, int epoch) {
-        var read = await Guard(_api.InboxAsync(PageSize, _lifetime.Token));
+        var read = await Guard(_api.InboxAsync(PageSize, _account.Token));
         if (_disposed || epoch != _epoch || read is null) return;
         switch (read.Kind) {
             case InboxReadKind.Ready:
@@ -287,7 +299,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     }
 
     async Task MarkReadAsync(InboxItemViewModel item) {
-        await Guard(_api.MarkReadAsync(item.LogicalId, item.Version, _lifetime.Token));
+        await Guard(_api.MarkReadAsync(item.LogicalId, item.Version, _account.Token));
         Refresh();
     }
 
@@ -298,7 +310,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
             this.RaisePropertyChanged(nameof(IsEmpty));
             if (item.IsUnread) UnreadCount = Math.Max(0, UnreadCount - 1);
         }
-        if (await Guard(_api.DismissAsync(item.LogicalId, item.Version, _lifetime.Token)) is not true) _dismissing.Remove(item.LogicalId);
+        if (await Guard(_api.DismissAsync(item.LogicalId, item.Version, _account.Token)) is not true) _dismissing.Remove(item.LogicalId);
         Refresh();
     }
 
@@ -308,7 +320,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         _answering.Add(item.LogicalId);
         InboxRead<NotificationAnswerResponseDto>? read;
         try {
-            read = await Guard(_api.AnswerAsync(item.LogicalId, answer, text, _lifetime.Token));
+            read = await Guard(_api.AnswerAsync(item.LogicalId, answer, text, _account.Token));
         } finally {
             // An answer begun under another connection settles nothing here: its row was cleared with that connection.
             if (!_disposed && epoch == _epoch) {
@@ -330,13 +342,13 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     }
 
     async Task MarkAllReadAsync() {
-        await Guard(_api.MarkAllReadAsync(_lifetime.Token));
+        await Guard(_api.MarkAllReadAsync(_account.Token));
         Refresh();
     }
 
     async Task DeleteAllAsync() {
         IsConfirmingDeleteAll = false;
-        await Guard(_api.DismissAllAsync(_lifetime.Token));
+        await Guard(_api.DismissAllAsync(_account.Token));
         Refresh();
     }
 
@@ -353,10 +365,10 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     }
 
     // Disposal cancels the lifetime token, which ends any read in flight; null means it ended that way.
-    async Task<T?> Guard<T>(Task<T> read) {
+    static async Task<T?> Guard<T>(Task<T> read) {
         try {
             return await read;
-        } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
+        } catch (OperationCanceledException) {
             return default;
         }
     }
@@ -366,6 +378,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         _disposed = true;
         _disposables.Dispose();
         try { _lifetime.Cancel(); } catch (ObjectDisposedException) { }
+        _account.Dispose();
         _lifetime.Dispose();
     }
 }

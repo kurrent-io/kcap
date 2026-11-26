@@ -131,6 +131,8 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
             PassesError = null;
         } else if (!PassesLoaded) {
             PassesError = "Couldn't load your pass settings.";
+        } else {
+            RefreshError = "Couldn't refresh your pass settings. What's shown may be out of date.";
         }
     }
 
