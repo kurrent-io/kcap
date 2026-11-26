@@ -3,6 +3,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Eval;
 using Capacitor.Cli.Core.Eval.Contracts;
 using Capacitor.Cli.Core.Eval.Evidence;
+using Capacitor.Cli.Core.Eval.RepoContext;
 using Capacitor.Cli.Core.Setup;
 using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
@@ -129,6 +130,32 @@ public class EvalEvidenceRouteTests : IDisposable {
     }
 
     static bool NoRunDirectory(string root) => Directory.GetDirectories(root, EvidenceRunContext.DirectoryPrefix + "*").Length == 0;
+
+    /// <summary>The instructions come from this machine's checkout of the session's primary repository.</summary>
+    [Test]
+    public async Task The_repository_instructions_lead_the_judge_and_the_retrospective_prompts() {
+        Skip.When(OperatingSystem.IsWindows(), "the fake claude is a POSIX shell script");
+        var (root, tmp) = TempRoot();
+        using var tmpScope = tmp;
+        ServeCatalog(); ServeScope(cutoff: 1); ServeEvents("hello"); Certify($"{Root}@0");
+        var hash = RepoHashHelper.ComputeRepoHash("acme", "widgets");
+        _stub.Route("GET", "summary", 200, $$"""{"session_id":"{{Sid}}","repositories":[{"repo_hash":"{{hash}}","owner":"acme","repo_name":"widgets","is_primary":true}]}""");
+        var upstream = GitRepo.InitIn(Tmp.CreateDir("upstream"));
+        upstream.CreateFile("CLAUDE.md", "house rules\n");
+        upstream.CommitAll("seed");
+        var checkout = upstream.Clone(Tmp.PathTo("checkout")).Path;
+        var source   = new RepoEvalContextSource(new LocalRepoCheckouts(() => Task.FromResult(new[] { checkout }), _ => "https://github.com/acme/widgets.git"), TimeProvider.System);
+        var dir = Dir("c-repo");
+        using var claude = Claude(dir, Verdict("q1", "e0"));
+
+        await EvalService.RunAsync(_stub.Url, _http, null, TestHarnesses.Under(Home, BinaryProbe.Searching(claude.BinDirectory)), Sid, "sonnet", false, null,
+            new RecordingEvalObserver(), TimeProvider.System, CancellationToken.None, "run-fixed", Questions("q1"), source);
+
+        foreach (var prompt in new[] { Prompt(dir, 0), Prompt(dir, 1) }) {
+            await Assert.That(prompt).StartsWith("## Repository instructions and memories");
+            await Assert.That(prompt).Contains("### CLAUDE.md\nhouse rules\n");
+        }
+    }
 
     [Test]
     public async Task A_fitting_single_run_never_fetches_eval_context_and_persists_certified_coverage_v2() {

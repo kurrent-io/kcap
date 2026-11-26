@@ -26,6 +26,10 @@ public sealed class EvidenceRunSetup : IAsyncDisposable {
     public required Profile?                       Profile                    { get; init; }
     public required HarnessRegistry                Harnesses                  { get; init; }
 
+    /// <summary>The repository-instructions block every judge and retrospective prompt leads with; empty when the session's
+    /// repository has no checkout here.</summary>
+    public string RepoContext { get; init; } = "";
+
     // The harness budget per phase; settable so tests can shorten it.
     internal TimeSpan OneShotTimeout       { get; set; } = EvalService.OneShotQuestionTimeout;
     internal TimeSpan RetrievalTimeout     { get; set; } = EvalService.ToolsPerQuestionTimeout;

@@ -2,6 +2,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Eval;
 using Capacitor.Cli.Core.Eval.Contracts;
+using Capacitor.Cli.Core.Eval.RepoContext;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Http;
 
@@ -13,7 +14,7 @@ namespace Capacitor.Cli.Commands;
 /// terminal report. The eval pipeline itself lives in the Eval library so
 /// the daemon (DEV-1440 milestone 2) can reuse it.
 /// </summary>
-class EvalCommand(ProfileContext profiles, HarnessRegistry harnesses, ICapacitorHttpClient http, TimeProvider time) {
+class EvalCommand(ProfileContext profiles, HarnessRegistry harnesses, ICapacitorHttpClient http, ConfigRoot config, TimeProvider time) {
     /// <summary>Flags Program.cs's eval case must declare value-bearing on <c>ResolveSessionId</c> —
     /// referenced from there and from the arg-parser test, so the two can't drift apart.</summary>
     internal static readonly string[] ValueFlags = ["--model", "--threshold", "--questions", "--skip", "--baseline-out"];
@@ -80,7 +81,7 @@ class EvalCommand(ProfileContext profiles, HarnessRegistry harnesses, ICapacitor
 
         var result = await EvalService.RunAsync(
             baseUrl, httpClient, profiles.Resolution.Profile, harnesses, sessionId, model, chain, thresholdBytes,
-            observer, time, questions: questions
+            observer, time, questions: questions, repoContext: RepoEvalContextSource.For(config, time)
         );
 
         return Report(result, sessionId, baselineWriteFailed: baseline is { WriteFailed: true });

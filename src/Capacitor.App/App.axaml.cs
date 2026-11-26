@@ -2637,7 +2637,7 @@ public partial class App : Application {
         HomeViewModel? homeRef = null;
         var knownRepos = new RepoPathStore(config, time).GetSortedPathsAsync;
         var enabled = nextWorkEnabled ?? (() => false);
-        var checkouts = new LocalRepoCheckouts(knownRepos, new RepoIdentityResolver());
+        var checkouts = new LocalRepoCheckouts(knownRepos);
         var nextWorkBand = nextWork is null ? null : new NextWorkBandViewModel(
             nextWork, time, appServerUrl is { Length: > 0 } seenServer ? new NextWorkSeenStore(appState, seenServer) : null,
             openUrl: openUrl, openSession: sessionId => vm?.OpenSession(sessionId, AgentOrigin.Server), notify: notifier.Notify,
