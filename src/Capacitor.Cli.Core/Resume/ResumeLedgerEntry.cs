@@ -39,6 +39,10 @@ public sealed record ResumeLedgerEntry(
     DateTimeOffset? EndCommittedAt = null,
     string? EndCommittedEpoch = null,
     string? EndCommittedSession = null,
+    // True when the committed end is a soft one, the watcher's idle timeout, which a later turn of the same session
+    // shows the session outlived. Null or false for a real end, and in an entry from an older writer, which a turn never
+    // clears.
+    bool? EndCommittedSoft = null,
     // When the runtime now recorded started; each launch and each resume stamps its own, so a client can
     // tell the runtime it attached to from a successor. Null before the runtime starts.
     DateTimeOffset? StartedAt = null,

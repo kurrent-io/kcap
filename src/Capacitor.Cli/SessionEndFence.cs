@@ -7,11 +7,12 @@ namespace Capacitor.Cli;
 static class SessionEndFence {
     public static bool ShouldHold(
             string? agentId, string? endingEpoch, string? endingSession, Func<string, ResumeLedgerStore?> locate,
-            TimeProvider time, TimeSpan? lockWait = null) =>
-        ResumeEndFence.ShouldHold(agentId, endingEpoch, endingSession, locate, time, lockWait);
+            TimeProvider time, TimeSpan? lockWait = null, bool soft = false) =>
+        ResumeEndFence.ShouldHold(agentId, endingEpoch, endingSession, locate, time, soft, lockWait);
 
-    public static bool ShouldHold(HostedAgent hosted, string? endingSession = null) =>
-        ShouldHold(hosted.AgentId, hosted.DaemonEpoch, endingSession, LocateInEnvironmentStore, TimeProvider.System);
+    /// <param name="soft">The end is the watcher's idle timeout; see <see cref="ResumeEndFence.ShouldHold(string?, string?, string?, Func{string, ResumeLedgerStore?}, TimeProvider, bool, TimeSpan?)"/>.</param>
+    public static bool ShouldHold(HostedAgent hosted, string? endingSession = null, bool soft = false) =>
+        ShouldHold(hosted.AgentId, hosted.DaemonEpoch, endingSession, LocateInEnvironmentStore, TimeProvider.System, soft: soft);
 
     public static bool ShouldHold(ExitedSession exited) => ShouldHold(exited, DaemonStore.FromEnvironment(), TimeProvider.System);
 

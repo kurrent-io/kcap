@@ -44,6 +44,44 @@ public class SessionEndFenceTests {
         await Assert.That(entry.EndCommittedSession).IsEqualTo("session-1");
     }
 
+    /// <summary>The watcher's idle timeout stamps its end as soft, which a later turn of the session may clear.</summary>
+    [Test]
+    public async Task A_soft_end_is_stamped_soft() {
+        var store = Seed(ResumeState.Running);
+
+        await Assert.That(SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-1", _ => store, new FakeTimeProvider(Now), soft: true)).IsFalse();
+
+        var entry = store.TryRead("agent-1")!;
+        await Assert.That(entry.EndCommittedAt).IsEqualTo(Now);
+        await Assert.That(entry.EndCommittedSoft).IsTrue();
+    }
+
+    /// <summary>A real end after a soft one replaces it, so no turn can clear the end that is now on its way.</summary>
+    [Test]
+    public async Task A_real_end_replaces_a_soft_one() {
+        var store = Seed(ResumeState.Running);
+        SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-1", _ => store, new FakeTimeProvider(Now), soft: true);
+
+        await Assert.That(SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-1", _ => store, new FakeTimeProvider(Now.AddMinutes(5)))).IsFalse();
+
+        var entry = store.TryRead("agent-1")!;
+        await Assert.That(entry.EndCommittedAt).IsEqualTo(Now.AddMinutes(5));
+        await Assert.That(entry.EndCommittedSoft).IsNull();
+    }
+
+    /// <summary>A soft end never weakens a real one already stamped.</summary>
+    [Test]
+    public async Task A_soft_end_leaves_a_real_one() {
+        var store = Seed(ResumeState.Running);
+        Hold("agent-1", "epoch-1", store);
+
+        SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-1", _ => store, new FakeTimeProvider(Now.AddMinutes(5)), soft: true);
+
+        var entry = store.TryRead("agent-1")!;
+        await Assert.That(entry.EndCommittedAt).IsEqualTo(Now);
+        await Assert.That(entry.EndCommittedSoft).IsNull();
+    }
+
     [Test]
     public async Task An_end_from_an_earlier_run_holds() {
         await Assert.That(Hold("agent-1", "epoch-1", Seed(ResumeState.Running, runEpoch: "epoch-2"))).IsTrue();

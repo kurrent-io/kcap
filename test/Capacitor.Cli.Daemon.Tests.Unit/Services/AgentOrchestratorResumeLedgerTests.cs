@@ -306,44 +306,90 @@ public class AgentOrchestratorResumeLedgerTests {
     }
 
     /// <summary>The watcher's idle timeout ends a Codex session while its process lives, and the fence stamps that end
-    /// on the entry. A turn afterwards means the session runs on, so the stamp must go, or the next restart leaves the
-    /// agent behind.</summary>
+    /// on the entry as soft. A turn afterwards means the session ran on, so the stamp must go, or the next restart leaves
+    /// the agent behind.</summary>
     [Test]
-    public async Task A_turn_after_a_committed_end_clears_the_end() {
-        await using var orch = Build();
-        var agent = orch.SeedAgentForTest("ledger-reopened");
-        orch.WriteLedger(agent, cmd: null, origin: "local", consent: null);
-        agent.ActivityClock.SetAwaitingInput(true);
-        await EntryOnceAsync(orch, "ledger-reopened", e => e.AwaitingInput == true);
-        var entry = orch.ResumeLedger!.TryRead("ledger-reopened")!;
-        orch.ResumeLedger.Write(entry with {
-            EndCommittedAt = TimeProvider.System.GetUtcNow(), EndCommittedEpoch = "epoch-1", EndCommittedSession = entry.SessionId
-        });
+    public async Task A_turn_after_a_soft_end_clears_the_end() {
+        await using var orch  = Build();
+        var             agent = await SeedWaitingAsync(orch, "ledger-reopened");
+        StampEnd(orch, "ledger-reopened", soft: true);
 
         agent.ActivityClock.SetAwaitingInput(false);
         var reopened = await EntryOnceAsync(orch, "ledger-reopened", e => e.EndCommittedAt is null);
 
+        await Assert.That(reopened.EndCommittedAt).IsNull();
         await Assert.That(reopened.EndCommittedEpoch).IsNull();
         await Assert.That(reopened.EndCommittedSession).IsNull();
-        await Assert.That(reopened.AwaitingInput).IsFalse();
+        await Assert.That(reopened.EndCommittedSoft).IsNull();
     }
 
-    /// <summary>A turn ending is no sign the session runs on: the end it committed stays.</summary>
+    /// <summary>A turn that starts and ends before the write runs leaves the clock waiting again, yet the session ran on:
+    /// the turn's start is kept on the agent, so the write, which reads only the waiting clock, still clears the soft end.</summary>
     [Test]
-    public async Task A_turn_ending_after_a_committed_end_keeps_the_end() {
-        await using var orch = Build();
-        var agent = orch.SeedAgentForTest("ledger-ended");
+    public async Task A_turn_that_ends_before_the_write_still_clears_a_soft_end() {
+        await using var orch  = Build();
+        var             agent = await SeedWaitingAsync(orch, "ledger-fast-turn");
+        StampEnd(orch, "ledger-fast-turn", soft: true);
+
+        // The turn's edges, as they would have come, with the write they queued not yet run.
+        Interlocked.Exchange(ref agent.LastTurnStartedAtTicks, TimeProvider.System.GetUtcNow().UtcTicks);
+        orch.PersistWaiting(agent);
+
+        await Assert.That(agent.ActivityClock.NothingInFlight).IsTrue();
+        await Assert.That(orch.ResumeLedger!.TryRead("ledger-fast-turn")!.EndCommittedAt).IsNull();
+    }
+
+    /// <summary>A real end, such as a Claude SessionEnd, may be on its way to the server: no turn clears it.</summary>
+    [Test]
+    public async Task A_turn_never_clears_a_real_end() {
+        await using var orch      = Build();
+        var             agent     = await SeedWaitingAsync(orch, "ledger-real-end");
+        var             committed = StampEnd(orch, "ledger-real-end", soft: false);
+
+        agent.ActivityClock.SetAwaitingInput(false);
+        await EntryOnceAsync(orch, "ledger-real-end", e => e.AwaitingInput == false);
+        await WritesDrainedAsync(agent);
+
+        await Assert.That(orch.ResumeLedger!.TryRead("ledger-real-end")!.EndCommittedAt).IsEqualTo(committed);
+    }
+
+    /// <summary>A soft end committed after the agent's latest turn started is not outlived by it: a write the turn's end
+    /// queues keeps it.</summary>
+    [Test]
+    public async Task A_soft_end_committed_after_the_turn_started_stays() {
+        await using var orch  = Build();
+        var             agent = orch.SeedAgentForTest("ledger-later-end");
         orch.WriteLedger(agent, cmd: null, origin: "local", consent: null);
         agent.ActivityClock.SetAwaitingInput(false);
-        await EntryOnceAsync(orch, "ledger-ended", e => e.AwaitingInput == false);
-        var committed = TimeProvider.System.GetUtcNow();
-        var entry     = orch.ResumeLedger!.TryRead("ledger-ended")!;
-        orch.ResumeLedger.Write(entry with { EndCommittedAt = committed, EndCommittedSession = entry.SessionId });
+        await EntryOnceAsync(orch, "ledger-later-end", e => e.AwaitingInput == false);
+        await WritesDrainedAsync(agent);
+        var committed = StampEnd(orch, "ledger-later-end", soft: true, at: TimeProvider.System.GetUtcNow().AddMinutes(1));
 
         agent.ActivityClock.SetAwaitingInput(true);
-        var settled = await EntryOnceAsync(orch, "ledger-ended", e => e.AwaitingInput == true);
+        var settled = await EntryOnceAsync(orch, "ledger-later-end", e => e.AwaitingInput == true);
 
         await Assert.That(settled.EndCommittedAt).IsEqualTo(committed);
+    }
+
+    static async Task<AgentInstance> SeedWaitingAsync(AgentOrchestrator orch, string agentId) {
+        var agent = orch.SeedAgentForTest(agentId);
+        orch.WriteLedger(agent, cmd: null, origin: "local", consent: null);
+        agent.ActivityClock.SetAwaitingInput(true);
+        await EntryOnceAsync(orch, agentId, e => e.AwaitingInput == true);
+        await WritesDrainedAsync(agent);
+
+        return agent;
+    }
+
+    /// <summary>Stamps an end on the entry as the fence would, a minute ago unless told otherwise.</summary>
+    static DateTimeOffset StampEnd(AgentOrchestrator orch, string agentId, bool soft, DateTimeOffset? at = null) {
+        var committed = at ?? TimeProvider.System.GetUtcNow().AddMinutes(-1);
+        var entry     = orch.ResumeLedger!.TryRead(agentId)!;
+        orch.ResumeLedger.Write(entry with {
+            EndCommittedAt = committed, EndCommittedEpoch = "epoch-1", EndCommittedSession = entry.SessionId, EndCommittedSoft = soft ? true : null
+        });
+
+        return committed;
     }
 
     /// <summary>The written value is read when the write runs, so a quick run of edges ends on the latest one.</summary>

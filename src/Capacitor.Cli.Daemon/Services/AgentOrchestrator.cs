@@ -131,6 +131,10 @@ internal record AgentInstance(
     /// Waiting edges not yet written to the resume ledger; the edge that raises it from zero starts the writer.
     public int                  UnpersistedWaitEdges;
 
+    /// UTC ticks of the latest turn start, stamped on the edge itself so a ledger write that runs after the turn has
+    /// ended still sees it. Zero before the first.
+    public long                 LastTurnStartedAtTicks;
+
     /// Orders a reconnect's status send against a stop's report: whichever starts its sends first is sent first.
     public readonly Lock        StatusSendGate = new();
 
@@ -2484,10 +2488,10 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             OnTurnEnded            = () => _ = SendStatusReportNowAsync(),
             // The flag rides the local status payload; the clock already holds the new value when
             // this fires, so the pulse's snapshot reads it (mutation first, pulse second).
-            OnAwaitingInputChanged = _ => {
+            OnAwaitingInputChanged = awaiting => {
                 _statusNotifier.Pulse();
                 RescheduleQuietTurn();
-                PersistWaitingSoon(clock!);
+                PersistWaitingSoon(clock!, turnStarted: !awaiting);
             },
             OnTurnAttestedChanged  = _statusNotifier.Pulse,
             OnSubagentsSettledChanged = () => PersistWaitingSoon(clock!),

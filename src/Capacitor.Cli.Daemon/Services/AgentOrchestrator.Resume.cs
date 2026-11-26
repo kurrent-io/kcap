@@ -114,8 +114,8 @@ internal partial class AgentOrchestrator {
     static readonly TimeSpan ShutdownTerminateGrace = TimeSpan.FromSeconds(1);
 
     /// Stops an interactive agent so a successor daemon can resume it, leaving its ledger entry
-    /// <see cref="ResumeState.Resuming"/> and its terminal ring on disk. An agent with no readable
-    /// entry has nothing to resume from and is left to the ordinary shutdown.
+    /// <see cref="ResumeState.Resuming"/> (or <see cref="ResumeState.Interrupted"/>, for an operator's resume) and its
+    /// terminal ring on disk. An agent with no readable entry has nothing to resume from and is left to the ordinary shutdown.
     internal async Task PrepareForResumeAsync(AgentInstance agent, CancellationToken ct) {
         if (!TryMarkResuming(agent)) return;
 
@@ -285,6 +285,9 @@ internal partial class AgentOrchestrator {
     /// How long a daemon write waits for a session end holding the entry's lock.
     static readonly TimeSpan EntryLockWait = TimeSpan.FromSeconds(1);
 
+    /// <summary>Marks the agent's entry for its successor: <see cref="ResumeState.Resuming"/>, or <see cref="ResumeState.Interrupted"/>
+    /// when its session end is committed and only an operator may resume it. True when either kept the entry, which the
+    /// stop then completes with the ring and a graceful exit; false when the agent is left to the ordinary shutdown.</summary>
     bool TryMarkResuming(AgentInstance agent) {
         if (StoreFor(agent.Id) is not { } ledger || !IsLedgered(agent)) return false;
 
@@ -312,6 +315,7 @@ internal partial class AgentOrchestrator {
                             State         = ResumeState.Interrupted,
                             LastError     = EndCommittedInterruption,
                             UpdatedAt     = now,
+                            AwaitingInput = agent.ActivityClock.NothingInFlight,
                             SessionId     = agent.SessionId ?? entry.SessionId,
                             VendorSession = vendorSession,
                             Launch        = WithShownTitle(entry.Launch, agent),
@@ -340,13 +344,13 @@ internal partial class AgentOrchestrator {
                 return false;
             }
 
-            if (interrupted) {
-                agent.KeptInterrupted = true;
-                LogKeptInterrupted(agent.Id);
-                return false;
-            }
+            // Exclusive: a pending resume skips the shutdown's ended report and keeps the recorder's claim for a successor
+            // that will not take an interrupted entry.
+            agent.ResumePending   = !interrupted;
+            agent.KeptInterrupted = interrupted;
 
-            agent.ResumePending = true;
+            if (interrupted) LogKeptInterrupted(agent.Id);
+
             return true;
         }
     }
@@ -354,16 +358,20 @@ internal partial class AgentOrchestrator {
     /// <summary>Records on the agent's entry whether it has anything in flight, so a successor of a daemon that was
     /// killed rather than stopped resumes an idle agent without a turn. Written off the edge's thread, which can be
     /// the PTY read loop: a ledger write waits on the entry lock, and that loop must never wait.</summary>
-    void PersistWaitingSoon(AgentActivityClock clock) {
+    /// <param name="turnStarted">The edge started a turn: its time is kept on the agent for the write to compare
+    /// against a soft end, however the edges after it coalesce.</param>
+    void PersistWaitingSoon(AgentActivityClock clock, bool turnStarted = false) {
         if (ResumeLedger is null) return;
         if (_agents.Values.FirstOrDefault(a => ReferenceEquals(a.ActivityClock, clock)) is not { } agent || !IsInteractive(agent)) return;
+
+        if (turnStarted) Interlocked.Exchange(ref agent.LastTurnStartedAtTicks, _time.GetUtcNow().UtcTicks);
 
         if (Interlocked.Increment(ref agent.UnpersistedWaitEdges) == 1) _ = Task.Run(() => PersistWaiting(agent));
     }
 
     /// <summary>Each pass writes the clock's value at that moment, so the edges counted before it are covered by it.
     /// Never throws.</summary>
-    void PersistWaiting(AgentInstance agent) {
+    internal void PersistWaiting(AgentInstance agent) {
         var seen = Volatile.Read(ref agent.UnpersistedWaitEdges);
 
         do {
@@ -371,16 +379,18 @@ internal partial class AgentOrchestrator {
                 lock (_ledgerLock) {
                     if (agent.IsCleanupStarted) return;
 
-                    var waiting  = agent.ActivityClock.NothingInFlight;
-                    var reopened = false;
-                    var result   = ResumeLedger!.TryUpdateUnderLock(agent.Id, entry => {
+                    var waiting     = agent.ActivityClock.NothingInFlight;
+                    var turnStarted = Interlocked.Read(ref agent.LastTurnStartedAtTicks);
+                    var reopened    = false;
+                    var result      = ResumeLedger!.TryUpdateUnderLock(agent.Id, entry => {
                         // A stop has marked the entry for its successor; what the agent does while it ends must not undo that.
                         if (entry.State != ResumeState.Running) return null;
 
-                        // A turn after a committed end means the session runs on: a soft end, such as the watcher's idle
-                        // timeout, ended it while the process lived, and the server reopens it on the turn's lines. Left
-                        // in place, the stale end would keep the next restart from resuming the agent.
-                        reopened = !waiting && entry.EndCommittedAt is not null;
+                        // A turn after a soft end means the session ran on: the watcher's idle timeout ended it while the
+                        // process lived, and the server reopened it on the turn's lines. Left in place, the stale end would
+                        // keep the next restart from resuming the agent. A real end is never cleared, nor a soft one the
+                        // turn did not follow.
+                        reopened = OutlivedSoftEnd(entry, agent, turnStarted);
 
                         return entry.AwaitingInput == waiting && !reopened ? null
                             : entry with {
@@ -390,6 +400,7 @@ internal partial class AgentOrchestrator {
                                 EndCommittedAt      = reopened ? null : entry.EndCommittedAt,
                                 EndCommittedEpoch   = reopened ? null : entry.EndCommittedEpoch,
                                 EndCommittedSession = reopened ? null : entry.EndCommittedSession,
+                                EndCommittedSoft    = reopened ? null : entry.EndCommittedSoft,
                             };
                     }, EntryLockWait);
 
@@ -418,6 +429,12 @@ internal partial class AgentOrchestrator {
 
         return ended is null || current is null || string.Equals(ended, current, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>A soft end committed for the agent's current session that a turn started after.</summary>
+    static bool OutlivedSoftEnd(ResumeLedgerEntry entry, AgentInstance agent, long turnStartedAtTicks) =>
+        entry is { EndCommittedSoft: true, EndCommittedAt: { } committed }
+     && turnStartedAtTicks > committed.UtcTicks
+     && EndCommittedForCurrentSession(entry, agent);
 
     /// Written through a temp file created owner-only, so the ring is never readable by anyone else.
     void TryWriteRing(string agentId, byte[] ring) {

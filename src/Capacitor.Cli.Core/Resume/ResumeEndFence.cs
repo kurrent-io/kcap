@@ -8,9 +8,11 @@ namespace Capacitor.Cli.Core.Resume;
 public static class ResumeEndFence {
     static readonly TimeSpan LockWait = TimeSpan.FromSeconds(1);
 
+    /// <param name="soft">The end is the watcher's idle timeout, which the session can outlive: a later turn of it lets
+    /// the daemon clear the stamp. A real end stamped over a soft one replaces it, so a turn never clears a real end.</param>
     public static bool ShouldHold(
             string? agentId, string? endingEpoch, string? endingSession, Func<string, ResumeLedgerStore?> locate,
-            TimeProvider time, TimeSpan? lockWait = null) {
+            TimeProvider time, bool soft = false, TimeSpan? lockWait = null) {
         if (agentId is null) return false;
 
         // A broken ledger must never keep a real session end from posting.
@@ -25,8 +27,13 @@ public static class ResumeEndFence {
                     return null;
                 }
 
-                return entry.EndCommittedAt is null
-                    ? entry with { EndCommittedAt = time.GetUtcNow(), EndCommittedEpoch = endingEpoch, EndCommittedSession = endingSession }
+                return entry.EndCommittedAt is null || (entry.EndCommittedSoft == true && !soft)
+                    ? entry with {
+                        EndCommittedAt      = time.GetUtcNow(),
+                        EndCommittedEpoch   = endingEpoch,
+                        EndCommittedSession = endingSession,
+                        EndCommittedSoft    = soft ? true : null,
+                    }
                     : null;
             }, lockWait ?? LockWait);
 

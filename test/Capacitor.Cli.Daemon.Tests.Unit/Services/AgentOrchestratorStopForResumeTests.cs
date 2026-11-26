@@ -227,6 +227,33 @@ public class AgentOrchestratorStopForResumeTests {
         await orch.DisposeAsync();
     }
 
+    /// <summary>An operator's resume of a kept interruption needs what an automatic one does: the terminal ring, a
+    /// graceful exit for the vendor to save its session, and whether the agent was waiting when it stopped. A resume
+    /// still pending readiness when the end was committed is no longer one.</summary>
+    [Test]
+    public async Task A_kept_interruption_keeps_the_ring_and_waiting_state_and_drops_a_pending_resume() {
+        var runtime = new FakeHostedAgentRuntime("cursor", emitsTerminalOutput: true);
+        var orch    = Build(new CaptureServerConnection());
+        var agent   = Seed(orch, "ended-3", runtime: runtime);
+        agent.OutputBuffer.Append("scrollback"u8.ToArray());
+        var snapshot = agent.OutputBuffer.Snapshot();
+        agent.ResumePending = true;
+        var entry = Ledger().TryRead("ended-3")!;
+        Ledger().Write(entry with { EndCommittedAt = TimeProvider.System.GetUtcNow(), EndCommittedSession = entry.SessionId, AwaitingInput = false });
+        agent.ActivityClock.SetAwaitingInput(true);
+
+        await orch.PrepareForResumeAsync(agent, CancellationToken.None);
+
+        var kept = Ledger().TryRead("ended-3")!;
+        await Assert.That(kept.State).IsEqualTo(ResumeState.Interrupted);
+        await Assert.That(kept.AwaitingInput).IsTrue();
+        await Assert.That(File.ReadAllBytes(Ledger().RingPath("ended-3"))).IsEquivalentTo(snapshot);
+        await Assert.That(runtime.StopCalls).Contains("graceful");
+        await Assert.That(agent.ResumePending).IsFalse();
+        await Assert.That(agent.KeptInterrupted).IsTrue();
+        await orch.DisposeAsync();
+    }
+
     /// <summary>A live agent the restart cannot resume on its own still keeps what an operator's resume needs: its
     /// worktree, entry and PID record stay, and the shutdown reports it ended.</summary>
     [Test]
