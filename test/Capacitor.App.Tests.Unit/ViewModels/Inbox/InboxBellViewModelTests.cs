@@ -1,4 +1,5 @@
 using System.Reactive.Linq;
+using System.Reactive.Threading.Tasks;
 using RxUnit = System.Reactive.Unit;
 using System.Reactive.Subjects;
 using Capacitor.App.Services.Inbox;
@@ -259,6 +260,65 @@ public class InboxBellViewModelTests {
 
         await Assert.That(rig.Bell.Items.Select(i => i.LogicalId)).IsEquivalentTo(["n1"]);
         await Assert.That(rig.Bell.UnreadCount).IsEqualTo(1);
+    });
+
+    [Test]
+    public async Task A_push_during_admission_costs_one_more_read_afterwards() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        var gate = new TaskCompletionSource();
+        rig.Api.SurfacesGate = gate;
+        rig.Api.Count = new(InboxReadKind.Ready, new() { Count = 1 });
+        rig.Connect();
+        rig.Changed.OnNext(RxUnit.Default);
+        rig.Api.Count = new(InboxReadKind.Ready, new() { Count = 2 });
+
+        rig.Api.SurfacesGate = null;
+        gate.SetResult();
+        await Task.Yield();
+
+        await Assert.That(rig.Bell.IsVisible).IsTrue();
+        await Assert.That(rig.Bell.UnreadCount).IsEqualTo(2);
+    });
+
+    [Test]
+    public async Task A_draft_typed_while_a_reply_is_in_flight_survives_a_refresh_and_a_refusal() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1", type: "agent_prompt") with { ReplyLabel = "Reply" });
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = false, Message = "Answer this one in kcap: that answer isn't offered here" });
+        var gate = new TaskCompletionSource();
+        rig.Api.AnswerGate = gate;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        var card = rig.Bell.Items.Single();
+        card.ReplyText = "on it";
+        var sending = card.SendReplyCommand.Execute().ToTask();
+        rig.Changed.OnNext(RxUnit.Default);
+        gate.SetResult();
+        await sending;
+
+        await Assert.That(rig.Bell.Items.Single().ReplyText).IsEqualTo("on it");
+    });
+
+    [Test]
+    public async Task An_accepted_reply_clears_the_draft_on_the_card_on_screen() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1", type: "agent_prompt") with { ReplyLabel = "Reply" });
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = true, Message = "Answer sent" });
+        var gate = new TaskCompletionSource();
+        rig.Api.AnswerGate = gate;
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        var card = rig.Bell.Items.Single();
+        card.ReplyText = "on it";
+        var sending = card.SendReplyCommand.Execute().ToTask();
+        rig.Changed.OnNext(RxUnit.Default);
+        gate.SetResult();
+        await sending;
+
+        await Assert.That(rig.Bell.Items.Single().ReplyText).IsNull();
+        await Assert.That(rig.Bell.Items.Single().Note).IsEqualTo("Answer sent");
     });
 
     [Test]

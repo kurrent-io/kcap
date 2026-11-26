@@ -15,11 +15,16 @@ sealed class FakeInboxApi : IInboxApi {
     public TaskCompletionSource? CountGate { get; set; }
     /// <summary>When set, answers wait on it, so a test can disconnect while one is in flight.</summary>
     public TaskCompletionSource? AnswerGate { get; set; }
+    /// <summary>When set, surfaces reads wait on it, so a test can push during admission.</summary>
+    public TaskCompletionSource? SurfacesGate { get; set; }
 
     public int CountReads, PageReads, DismissAllCalls, PrefsReads;
     public readonly List<string> Calls = [];
 
-    public Task<InboxRead<UserSurfacesResponseDto>> SurfacesAsync(CancellationToken ct) => Task.FromResult(Surfaces);
+    public async Task<InboxRead<UserSurfacesResponseDto>> SurfacesAsync(CancellationToken ct) {
+        if (SurfacesGate is { } gate) await gate.Task;
+        return Surfaces;
+    }
 
     public async Task<InboxRead<NotificationUnreadCountDto>> UnreadCountAsync(CancellationToken ct) {
         CountReads++;

@@ -36,6 +36,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     bool _refreshQueued;
     bool _admitQueued;
     bool _admitRunning;
+    bool _admitAgain;
     bool _disposed;
 
     public IAvaloniaReadOnlyList<InboxItemViewModel> Items => _items;
@@ -129,9 +130,11 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
             return;
         }
         _admitQueued = false;
+        _admitAgain = false;
         Hide();
     }
 
+    // A push that lands while admission runs may postdate what admission read, so it costs one more pass afterwards.
     async Task AdmitAsync(int epoch) {
         _admitRunning = true;
         try {
@@ -139,6 +142,9 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         } finally {
             _admitRunning = false;
         }
+        if (!_admitAgain || _disposed || epoch != _epoch) return;
+        _admitAgain = false;
+        Refresh();
     }
 
     async Task AdmitOnceAsync(int epoch) {
@@ -166,7 +172,8 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     public void Refresh() {
         if (_disposed || !_connected) return;
         if (IsVisible) _ = RefreshAsync(admitting: false);
-        else if (!_admitRunning) _ = AdmitAsync(_epoch);
+        else if (_admitRunning) _admitAgain = true;
+        else _ = AdmitAsync(_epoch);
     }
 
     // An admission queued behind a running read still runs once that read ends, even though the bell is hidden meanwhile.
@@ -231,7 +238,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     // A re-read replaces every card; the one it replaces hands over what the person has typed and the last answer's sentence.
     InboxItemViewModel Card(NotificationItemDto dto, DateTimeOffset now, InboxItemViewModel? previous) {
         var card = new InboxItemViewModel(dto, now, _api.Resolve, MarkReadAsync, DismissAsync, AnswerAsync, Open);
-        card.Carry(_notes.GetValueOrDefault(dto.LogicalId), previous is { IsAnswering: false } ? previous.ReplyText : null);
+        card.Carry(_notes.GetValueOrDefault(dto.LogicalId), previous?.ReplyText);
         return card;
     }
 
@@ -259,6 +266,9 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
             : new InboxAnswerOutcome(false, couldNotSend);
         var note = answered.Note;
         if (_disposed || epoch != _epoch) return answered;
+        // The card that sent the reply may have been replaced meanwhile; the one on screen drops the sent draft.
+        if (text is not null && answered.Accepted)
+            foreach (var card in _items.Where(i => i.LogicalId == item.LogicalId)) card.ReplyText = null;
         _notes[item.LogicalId] = note;
         Refresh();
         return answered;
