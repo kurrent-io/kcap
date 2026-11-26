@@ -3,9 +3,12 @@ using System.Diagnostics;
 namespace Capacitor.Cli.Core.RepoInstructions;
 
 /// <summary>Runs git in a checkout and hands back its standard output as bytes, untrimmed, so a file's content arrives
-/// exactly as committed. Null when git fails, exits non-zero or outlives <see cref="Timeout"/>.</summary>
+/// exactly as committed. Null when git fails, exits non-zero, outlives <see cref="Timeout"/> or writes more than
+/// <see cref="MaxBytes"/>.</summary>
 internal static class GitOutput {
     internal static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
+
+    internal const int MaxBytes = 4 * 1024 * 1024;
 
     public static async Task<byte[]?> RunAsync(string cwd, TimeProvider time, CancellationToken ct, params string[] arguments) {
         var psi = new ProcessStartInfo("git") {
@@ -26,7 +29,15 @@ internal static class GitOutput {
             using var linked  = CancellationTokenSource.CreateLinkedTokenSource(ct, timeout.Token);
             using var buffer  = new MemoryStream();
             var       stderr  = process.StandardError.ReadToEndAsync(linked.Token);
-            await process.StandardOutput.BaseStream.CopyToAsync(buffer, linked.Token);
+            var       chunk   = new byte[81920];
+            int       read;
+            while ((read = await process.StandardOutput.BaseStream.ReadAsync(chunk, linked.Token)) > 0) {
+                if (buffer.Length + read > MaxBytes) {
+                    Kill(process);
+                    return null;
+                }
+                buffer.Write(chunk, 0, read);
+            }
             await process.WaitForExitAsync(linked.Token);
             await stderr;
 
