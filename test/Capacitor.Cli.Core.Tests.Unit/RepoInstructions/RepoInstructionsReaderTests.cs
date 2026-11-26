@@ -70,6 +70,22 @@ public class RepoInstructionsReaderTests {
         await Assert.That(read.Unavailable).IsNotNull();
     }
 
+    /// <summary>A file the listing names but git cannot read fails the read, so the set is never sent without it.</summary>
+    [Test]
+    public async Task A_listed_file_git_cannot_read_fails_the_whole_read() {
+        var clone = CloneOf(up => {
+            Write(up, "AGENTS.md", "agents\n");
+            Write(up, "CLAUDE.md", "claude\n");
+        });
+        var blob = clone.RevParse("origin/HEAD:CLAUDE.md");
+        File.Delete(Path.Combine(clone.Path, ".git", "objects", blob[..2], blob[2..]));
+
+        var read = await RepoInstructionsReader.ReadAsync(clone, TimeProvider.System, CancellationToken.None);
+
+        await Assert.That(read.Set).IsNull();
+        await Assert.That(read.Unavailable).Contains("CLAUDE.md");
+    }
+
     [Test]
     public async Task A_symlink_is_followed_one_hop_inside_the_tree_and_a_blob_is_read_once() {
         var clone = CloneOf(up => {

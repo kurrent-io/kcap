@@ -29,8 +29,23 @@ public static class RepoInstructionsReader {
         public bool IsSymlink => Type == "blob" && Mode == "120000";
     }
 
+    /// <summary>How long a whole read may take; one that runs longer reads as unavailable.</summary>
+    public static readonly TimeSpan Budget = TimeSpan.FromSeconds(15);
+
     /// <param name="beat">Called before each git call, for a caller whose heartbeat must not lapse while this runs.</param>
     public static async Task<RepoInstructionsRead> ReadAsync(string root, TimeProvider time, CancellationToken ct, Action? beat = null) {
+        using var deadline = new CancellationTokenSource(Budget, time);
+        using var linked   = CancellationTokenSource.CreateLinkedTokenSource(ct, deadline.Token);
+        try {
+            return await ReadWithinAsync(root, time, linked.Token, beat);
+        } catch (OperationCanceledException) when (deadline.IsCancellationRequested && !ct.IsCancellationRequested) {
+            return RepoInstructionsRead.Not($"reading them took longer than {Budget.TotalSeconds:0} seconds");
+        }
+    }
+
+    static async Task<RepoInstructionsRead> ReadWithinAsync(string root, TimeProvider time, CancellationToken ct, Action? beat) {
+        string? failure = null;
+
         if (await GitAsync("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD") is null) return RepoInstructionsRead.Not("origin/HEAD is not set");
         if (await GitAsync("ls-tree", "-z", "-l", DefaultBranch) is not { } listing) return RepoInstructionsRead.Not("origin/HEAD could not be listed");
 
@@ -41,13 +56,15 @@ public static class RepoInstructionsReader {
 
         foreach (var entry in ParseTree(listing).Where(e => RootNames.Contains(e.Path, StringComparer.OrdinalIgnoreCase)))
             if (await ReadEntryAsync(entry, entry.Path) is { } file) roots.Add(file);
+        if (failure is not null) return RepoInstructionsRead.Not(failure);
 
         var named  = roots.SelectMany(r => RepoInstructionImports.Of(r.Content)).Distinct(StringComparer.Ordinal).ToList();
         var wanted = named.Take(MaxImportCandidates).ToList();
         var listed = new Dictionary<string, TreeEntry>(StringComparer.Ordinal);
         foreach (var chunk in wanted.Chunk(ListChunk))
-            if (await GitAsync(["--literal-pathspecs", "ls-tree", "-z", "-l", DefaultBranch, "--", ..chunk]) is { } found)
+            if (await MustAsync(["--literal-pathspecs", "ls-tree", "-z", "-l", DefaultBranch, "--", ..chunk]) is { } found)
                 foreach (var entry in ParseTree(found)) listed[entry.Path] = entry;
+            else return RepoInstructionsRead.Not(failure!);
 
         var reads = 0;
         var notRead = 0;
@@ -60,6 +77,7 @@ public static class RepoInstructionsReader {
             reads++;
             if (await ReadEntryAsync(entry, path) is { } file) imports.Add(file);
         }
+        if (failure is not null) return RepoInstructionsRead.Not(failure);
         notRead += named.Count - wanted.Count;
         if (notRead > 0) skipped.Add($"{notRead} more import(s) left out to fit the upload limits");
 
@@ -75,11 +93,11 @@ public static class RepoInstructionsReader {
         async Task<RepoInstructionFile?> ReadEntryAsync(TreeEntry entry, string path) {
             var target = entry;
             if (entry.IsSymlink) {
-                if (await GitAsync("show", $"{DefaultBranch}:{entry.Path}") is not { } link) return null;
+                if (await MustAsync("show", $"{DefaultBranch}:{entry.Path}") is not { } link) return null;
                 var parent = entry.Path.LastIndexOf('/') is var slash and > 0 ? entry.Path[..slash] + "/" : "";
                 var linked = Utf8.GetString(link).TrimEnd('\n');
                 if (linked.StartsWith('/') || RepoInstructionImports.Normalize(parent + linked) is not { } targetPath) return null;
-                if (await GitAsync("--literal-pathspecs", "ls-tree", "-z", "-l", DefaultBranch, "--", targetPath) is not { } found || ParseTree(found) is not [var resolved]) return null;
+                if (await MustAsync("--literal-pathspecs", "ls-tree", "-z", "-l", DefaultBranch, "--", targetPath) is not { } found || ParseTree(found) is not [var resolved]) return null;
                 target = resolved;
             }
             if (!target.IsFile || !blobs.Add(target.Sha)) return null;
@@ -87,7 +105,7 @@ public static class RepoInstructionsReader {
                 skipped.Add($"{path}: larger than {MaxFileBytes} bytes");
                 return null;
             }
-            if (await GitAsync("show", $"{DefaultBranch}:{target.Path}") is not { } bytes) return null;
+            if (await MustAsync("show", $"{DefaultBranch}:{target.Path}") is not { } bytes) return null;
 
             if (Array.IndexOf(bytes, (byte)0) >= 0) {
                 skipped.Add($"{path}: not text");
@@ -107,6 +125,13 @@ public static class RepoInstructionsReader {
         Task<byte[]?> GitAsync(params string[] arguments) {
             beat?.Invoke();
             return GitOutput.RunAsync(root, time, ct, arguments);
+        }
+
+        // A read of what the listing named: its failure fails the whole read, so a set missing a file is never uploaded.
+        async Task<byte[]?> MustAsync(params string[] arguments) {
+            var output = await GitAsync(arguments);
+            if (output is null) failure ??= $"git could not read {arguments[^1]}";
+            return output;
         }
     }
 
