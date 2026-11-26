@@ -34,6 +34,7 @@ public sealed class GitHubLinkStatuses : IDisposable {
     readonly SemaphoreSlim _gate = new(1, 1);
     readonly CancellationTokenSource _cancel = new();
     readonly IDisposable _known;
+    Dictionary<(string Session, string Key), GitHubLinkState> _reports = [];
     bool _disposed;
 
     /// <param name="lookup">Null when the item's state cannot be had; it is never asked about one item twice at once.</param>
@@ -45,9 +46,7 @@ public sealed class GitHubLinkStatuses : IDisposable {
         _time = time;
         _scheduler = scheduler;
         _known = (sessionPullRequests ?? Observable.Empty<IReadOnlyDictionary<string, RailPullRequestSummary>>())
-            .Subscribe(summaries => {
-                foreach (var item in summaries.Values.SelectMany(summary => summary.MenuItems)) Know(item);
-            });
+            .Subscribe(Know);
     }
 
     /// The link's state now and on every change, the current one delivered at once; asks for a lookup
@@ -72,8 +71,33 @@ public sealed class GitHubLinkStatuses : IDisposable {
         lock (_lock) return _entries.TryGetValue(link.Key, out var entry) ? entry.State : null;
     }
 
-    void Know(RailPullRequestMenuItem item) {
-        if (item.Subject is not { Provider: "github", Host: "github.com" } subject) return;
+    /// The rail republishes every session's summary when any one changes, so a report a session made
+    /// before comes round again; only a session's changed report is news, and a repeat must not undo a
+    /// lookup made since. A repeat that agrees with what is held keeps it fresh.
+    void Know(IReadOnlyDictionary<string, RailPullRequestSummary> summaries) {
+        lock (_lock) {
+            if (_disposed) return;
+            var reports = new Dictionary<(string Session, string Key), GitHubLinkState>();
+            foreach (var (session, summary) in summaries) {
+                foreach (var item in summary.MenuItems) {
+                    if (Reported(item) is not var (key, state)) continue;
+                    reports[(session, key)] = state;
+                    var entry = EntryFor(key);
+                    if (_reports.TryGetValue((session, key), out var before) && before == state) {
+                        if (entry.State == state) entry.CheckedAt = _time.GetTimestamp();
+                        continue;
+                    }
+                    entry.CheckedAt = _time.GetTimestamp();
+                    entry.Revision++;
+                    Settle(key, entry, state);
+                }
+            }
+            _reports = reports;
+        }
+    }
+
+    static (string Key, GitHubLinkState State)? Reported(RailPullRequestMenuItem item) {
+        if (item.Subject is not { Provider: "github", Host: "github.com" } subject) return null;
         GitHubLinkState? state = item.Lifecycle switch {
             "Open" => GitHubLinkState.Open,
             "Draft" => GitHubLinkState.Draft,
@@ -81,15 +105,9 @@ public sealed class GitHubLinkStatuses : IDisposable {
             "Closed" => GitHubLinkState.Closed,
             _ => null,
         };
-        if (state is null) return;
-        var key = new GitHubLink("", GitHubLinkKind.PullRequest, subject.Owner, subject.RepoName, subject.Number).Key;
-        lock (_lock) {
-            if (_disposed) return;
-            var entry = EntryFor(key);
-            entry.CheckedAt = _time.GetTimestamp();
-            entry.Revision++;
-            Settle(key, entry, state.Value);
-        }
+        return state is { } known
+            ? (new GitHubLink("", GitHubLinkKind.PullRequest, subject.Owner, subject.RepoName, subject.Number).Key, known)
+            : null;
     }
 
     void Request(GitHubLink link) {

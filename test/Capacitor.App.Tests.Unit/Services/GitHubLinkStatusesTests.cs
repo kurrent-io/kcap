@@ -196,6 +196,43 @@ public class GitHubLinkStatusesTests {
         await Assert.That(statuses.Current(Pull)).IsEqualTo(GitHubLinkState.Merged);
     }
 
+    /// The rail republishes every session's summary when any one changes, so an unchanged report comes round again.
+    [Test]
+    public async Task A_session_repeating_its_report_does_not_overwrite_a_newer_lookup() {
+        var open = new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([Item("github.com", "Open")]) };
+        var sessions = new Subject<IReadOnlyDictionary<string, RailPullRequestSummary>>();
+        var (statuses, lookups, time) = Build(sessions);
+        using var _ = statuses;
+        sessions.OnNext(open);
+        time.Advance(GitHubLinkStatuses.Fresh);
+        using var watch = statuses.Watch(Pull).Subscribe(_ => { });
+        lookups.Answer(0, GitHubLinkState.Closed);
+
+        sessions.OnNext(new Dictionary<string, RailPullRequestSummary>(open) { ["s2"] = new([Item("github.com", "Open", number: 7)]) });
+
+        await Assert.That(statuses.Current(Pull)).IsEqualTo(GitHubLinkState.Closed);
+    }
+
+    [Test]
+    public async Task Two_sessions_repeating_different_reports_do_not_overwrite_a_newer_lookup_but_a_change_does() {
+        var reports = new Dictionary<string, RailPullRequestSummary> {
+            ["s1"] = new([Item("github.com", "Open")]), ["s2"] = new([Item("github.com", "Closed")]),
+        };
+        var sessions = new Subject<IReadOnlyDictionary<string, RailPullRequestSummary>>();
+        var (statuses, lookups, time) = Build(sessions);
+        using var _ = statuses;
+        sessions.OnNext(reports);
+        time.Advance(GitHubLinkStatuses.Fresh);
+        using var watch = statuses.Watch(Pull).Subscribe(_ => { });
+        lookups.Answer(0, GitHubLinkState.Draft);
+
+        sessions.OnNext(new Dictionary<string, RailPullRequestSummary>(reports));
+        await Assert.That(statuses.Current(Pull)).IsEqualTo(GitHubLinkState.Draft);
+
+        sessions.OnNext(new Dictionary<string, RailPullRequestSummary>(reports) { ["s1"] = new([Item("github.com", "Merged")]) });
+        await Assert.That(statuses.Current(Pull)).IsEqualTo(GitHubLinkState.Merged);
+    }
+
     [Test]
     public async Task An_older_session_summary_does_not_undo_a_merge() {
         var sessions = new Subject<IReadOnlyDictionary<string, RailPullRequestSummary>>();
@@ -209,12 +246,12 @@ public class GitHubLinkStatusesTests {
 
     [Test]
     public async Task Links_on_screen_past_the_capacity_are_all_kept() {
-        var (statuses, _, _) = Build();
-        using var _ = statuses;
-        var watches = Enumerable.Range(1, 1100)
-            .Select(n => statuses.Watch(GitHubLink.Parse($"https://github.com/kurrent-io/kcap/issues/{n}")!).Subscribe(_ => { })).ToList();
+        using var statuses = new GitHubLinkStatuses((_, _) => Task.FromResult<GitHubLinkState?>(GitHubLinkState.Open),
+            new FakeTimeProvider(), ImmediateScheduler.Instance);
+        var links = Enumerable.Range(1, 1100).Select(n => GitHubLink.Parse($"https://github.com/kurrent-io/kcap/issues/{n}")!).ToList();
+        var watches = links.Select(link => statuses.Watch(link).Subscribe(_ => { })).ToList();
 
-        await Assert.That(watches.Count).IsEqualTo(1100);
+        await Assert.That(links.Count(link => statuses.Current(link) is null)).IsEqualTo(0);
         watches.ForEach(watch => watch.Dispose());
     }
 
