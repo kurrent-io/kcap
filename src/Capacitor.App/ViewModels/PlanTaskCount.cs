@@ -1,7 +1,6 @@
 namespace Capacitor.App.ViewModels;
 
 /// How many of the plan's tasks are in one state, as the collapsed sidebar section shows it.
-/// Completed stands for every settled task, a skipped one included.
 public sealed record PlanTaskCount(PlanTaskState State, int Count, bool IsActive = false) {
     /// In progress in a session that has ended.
     public bool IsStarted => State == PlanTaskState.InProgress && !IsActive;
@@ -11,6 +10,7 @@ public sealed record PlanTaskCount(PlanTaskState State, int Count, bool IsActive
     public string Label => State switch {
         PlanTaskState.InProgress => IsActive ? $"{Count} in progress" : $"{Count} started",
         PlanTaskState.Completed  => $"{Count} done",
+        PlanTaskState.Skipped    => $"{Count} skipped",
         _                        => $"{Count} pending",
     };
 }

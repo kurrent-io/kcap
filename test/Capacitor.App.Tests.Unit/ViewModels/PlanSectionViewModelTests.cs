@@ -91,17 +91,19 @@ public class PlanSectionViewModelTests {
             await Assert.That(h.Vm.Tasks.Select(t => t.State)).IsEquivalentTo(
                 new[] { PlanTaskState.Completed, PlanTaskState.InProgress, PlanTaskState.Pending, PlanTaskState.Skipped }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
             await Assert.That(h.Vm.Tasks[1].Note).IsEqualTo("half way");
-            await Assert.That(h.Vm.DoneCount).IsEqualTo(2);
-            await Assert.That(h.Vm.HeaderText).IsEqualTo("2 of 4 done");
+            await Assert.That(h.Vm.SettledCount).IsEqualTo(2);
+            await Assert.That(h.Vm.CompletedCount).IsEqualTo(1);
+            await Assert.That(h.Vm.SkippedCount).IsEqualTo(1);
+            await Assert.That(h.Vm.HeaderText).IsEqualTo("1 of 4 done · 1 skipped");
             await h.Vm.TeardownAsync();
         });
     }
 
-    /// A skipped task counts as done, as it does in the expanded header, and a state nothing is
-    /// in is left out, so the numbers always add up to the list.
+    /// A skipped task is counted apart from the done ones, as it is in the expanded header, and a
+    /// state nothing is in is left out, so the numbers always add up to the list.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task The_collapsed_counts_list_pending_in_progress_and_done_in_order_and_omit_the_empty_ones() {
+    public async Task The_collapsed_counts_list_pending_in_progress_done_and_skipped_in_order_and_omit_the_empty_ones() {
         await RunOnUiAsync(async () => {
             var h = new Harness();
             await Assert.That(h.Vm.Counts).IsEmpty();
@@ -116,15 +118,15 @@ public class PlanSectionViewModelTests {
             await h.SwitchAsync(SessionA);
 
             await Assert.That(h.Vm.Counts).IsEquivalentTo(new PlanTaskCount[] {
-                new(PlanTaskState.Pending, 2), new(PlanTaskState.InProgress, 1, true), new(PlanTaskState.Completed, 2),
+                new(PlanTaskState.Pending, 2), new(PlanTaskState.InProgress, 1, true), new(PlanTaskState.Completed, 1), new(PlanTaskState.Skipped, 1),
             }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
             await Assert.That(h.Vm.Counts.Select(c => c.Label))
-                .IsEquivalentTo(new[] { "2 pending", "1 in progress", "2 done" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+                .IsEquivalentTo(new[] { "2 pending", "1 in progress", "1 done", "1 skipped" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
 
             await h.RefreshAsync();
 
             await Assert.That(h.Vm.Counts).IsEquivalentTo(new PlanTaskCount[] {
-                new(PlanTaskState.Pending, 2), new(PlanTaskState.Completed, 3),
+                new(PlanTaskState.Pending, 2), new(PlanTaskState.Completed, 2), new(PlanTaskState.Skipped, 1),
             }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
             await h.Vm.TeardownAsync();
         });
@@ -376,7 +378,7 @@ public class PlanSectionViewModelTests {
             await Assert.That(ReferenceEquals(h.Vm.Tasks[1], rows[1])).IsTrue();
             await Assert.That(rows[0].IsCompleted).IsTrue();
             await Assert.That(rows[1].IsInProgress).IsTrue();
-            await Assert.That(h.Vm.DoneCount).IsEqualTo(1);
+            await Assert.That(h.Vm.CompletedCount).IsEqualTo(1);
             await Assert.That(ReferenceEquals(h.Vm.InProgressTasks.Single(), rows[1])).IsTrue();
             await h.Vm.TeardownAsync();
         });

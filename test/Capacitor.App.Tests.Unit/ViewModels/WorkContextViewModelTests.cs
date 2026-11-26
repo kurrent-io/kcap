@@ -2558,13 +2558,13 @@ public class WorkContextViewModelTests {
             h.Plans.Enqueue(PlanOf("completed"), PlanOf("pending", "pending"));
             await h.PushAsync(Dto());
             await h.PlanSettledAsync();
-            await Assert.That(h.Vm.Plan.DoneCount).IsEqualTo(1);
+            await Assert.That(h.Vm.Plan.CompletedCount).IsEqualTo(1);
 
             await h.PushAsync(Dto(sessionId: SessionB));
             await h.PlanSettledAsync();
 
             await Assert.That(h.Plans.Requested).IsEquivalentTo(new[] { SessionA, SessionB }, CollectionOrdering.Matching);
-            await Assert.That(h.Vm.Plan.DoneCount).IsEqualTo(0);
+            await Assert.That(h.Vm.Plan.CompletedCount).IsEqualTo(0);
             await Assert.That(h.Vm.Plan.Tasks.Count).IsEqualTo(2);
             await h.Vm.TeardownAsync();
         });

@@ -82,8 +82,9 @@ sealed class FakePassesApi : IPassesApi {
         throw new InvalidOperationException("An infinite delay ended without cancellation");
     }
 
-    public Task<PassReadResult> GetAsync(string passId, CancellationToken ct = default) =>
-        Task.FromResult<PassReadResult>(new PassReadResult.NotFound());
+    public PassReadResult ReadResult { get; init; } = new PassReadResult.NotFound();
+
+    public Task<PassReadResult> GetAsync(string passId, CancellationToken ct = default) => Task.FromResult(ReadResult);
 
     public PassCatchUpResult CatchUpResult { get; init; } = new PassCatchUpResult.Answered(new([], []));
 

@@ -394,7 +394,23 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
             if (pass.Note is { } note) result["note"] = note;
         }
 
+        if (pass.Delivery is { Count: > 0 } lanes) result["delivery"] = Delivery(lanes);
+
         return McpResponses.ToolResult(id, result.ToJsonString());
+    }
+
+    static JsonArray Delivery(List<PassDeliveryLaneDto> lanes) {
+        var array = new JsonArray();
+
+        foreach (var lane in lanes) {
+            var entry = new JsonObject { ["lane"] = lane.Lane, ["status"] = lane.Status, ["text"] = lane.Text };
+            if (lane.At is { } at) entry["at"] = at.ToString("O");
+            if (lane.Reason is { } reason) entry["reason"] = reason;
+            if (lane.SessionId is { } session) entry["session_id"] = session;
+            array.Add((JsonNode?)entry);
+        }
+
+        return array;
     }
 
     /// <summary>Used when the server sends no label of its own.</summary>
@@ -517,7 +533,8 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
             }, ["recipient_id", "text"]), McpToolAnnotations.Send),
 
         new("pass_status",
-            "Read where a pass or message stands: sent, awaiting approval, declined, expired, voided or accepted, and the sharing it made.",
+            "Read where a pass or message stands: sent, awaiting approval, declined, expired, voided or accepted, the sharing it made, "
+          + "and where it reached the recipient: their kcap inbox, a Slack DM and their coding agent, each delivered, waiting or skipped with why.",
             new("object", new() {
                 ["pass_id"] = new("string", "The pass_id pass or message returned.")
             }, ["pass_id"]), McpToolAnnotations.Read),
