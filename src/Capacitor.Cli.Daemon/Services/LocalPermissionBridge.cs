@@ -99,7 +99,8 @@ internal sealed partial class LocalPermissionBridge(
     /// Assigned by the orchestrator like <see cref="AttributeHandler"/>: receives the attributed
     /// agent id and whether a PTY vendor's hook just reported its turn ended (true) or a new one
     /// began (false). Null = relays are acknowledged and dropped.
-    internal Action<string, bool>? InputWaitHandler { get; set; }
+    /// <summary>The attributed agent, the verdict, and whether a child's hook gave it rather than the agent's own.</summary>
+    internal Action<string, bool, bool>? InputWaitHandler { get; set; }
 
     /// Assigned by the orchestrator like <see cref="AttributeHandler"/>: receives the attributed
     /// agent id when its hook reports the session started. Null = relays are acknowledged and dropped.
@@ -1059,7 +1060,7 @@ internal sealed partial class LocalPermissionBridge(
         }
 
         var attributed = AttributeHandler?.Invoke(new PermissionAttribution(Str(node, "agent_id"), sessionId, Str(node, "cwd")));
-        if (attributed is { } agent) InputWaitHandler?.Invoke(agent.AgentId, waiting.Value);
+        if (attributed is { } agent) InputWaitHandler?.Invoke(agent.AgentId, waiting.Value, Str(node, "subagent_id") is { Length: > 0 });
 
         Close(context, 204);
     }

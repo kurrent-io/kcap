@@ -14,11 +14,15 @@ public class LocalPermissionBridgeInputWaitTests {
         LocalPermissionBridge Bridge { get; }
         HttpClient Client { get; } = new() { Timeout = TimeSpan.FromSeconds(30) };
         public List<(string AgentId, bool Waiting)> Seen { get; } = [];
+        public List<bool> FromSubagent { get; } = [];
 
         public Harness(string? attributeTo = "agent-1") {
             Bridge = new LocalPermissionBridge(new FakeServerConnection(respond: null), NullLogger<LocalPermissionBridge>.Instance, EphemeralLoopbackPortSource.Instance, TimeProvider.System) {
                 AttributeHandler = attributeTo is null ? _ => null : _ => new AttributedAgent(attributeTo),
-                InputWaitHandler = (id, waiting) => Seen.Add((id, waiting)),
+                InputWaitHandler = (id, waiting, fromSubagent) => {
+                    Seen.Add((id, waiting));
+                    FromSubagent.Add(fromSubagent);
+                },
             };
         }
 
@@ -52,6 +56,18 @@ public class LocalPermissionBridgeInputWaitTests {
 
         await Assert.That(response.StatusCode).IsEqualTo(HttpStatusCode.NoContent);
         await Assert.That(h.Seen.Single()).IsEqualTo(("agent-1", false));
+    }
+
+    /// A child's hook names the child: the parent is busy, but no turn of its own began.
+    [Test, NotInParallel(nameof(LocalPermissionBridgeInputWaitTests))]
+    public async Task A_childs_relay_is_marked_as_the_childs() {
+        await using var h = new Harness();
+        await h.StartAsync();
+
+        await h.PostAsync(new { session_id = Session, agent_id = "agent-1", waiting = false }, vendor: "codex");
+        await h.PostAsync(new { session_id = Session, agent_id = "agent-1", waiting = false, subagent_id = "child-1" }, vendor: "codex");
+
+        await Assert.That(h.FromSubagent).IsEquivalentTo([false, true]);
     }
 
     /// A relay the ladder cannot place is not an error the hook can act on, so it is acknowledged

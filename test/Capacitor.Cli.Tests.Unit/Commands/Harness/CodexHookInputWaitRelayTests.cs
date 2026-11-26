@@ -39,10 +39,10 @@ public class CodexHookInputWaitRelayTests {
         await Assert.That(body.GetProperty("session_id").GetString()).IsEqualTo("019e032205fc7570be6575719c3ea861");
     }
 
-    /// A child's tool call shares the parent's session and agent; it is not the parent starting a turn, so nothing is
-    /// relayed for it.
+    /// A child's tool call shares the parent's session and agent: it is relayed, so the parent reads busy, and names the
+    /// child, so the daemon does not take it for the parent starting a turn.
     [Test]
-    public async Task A_child_tool_call_relays_no_input_wait() {
+    public async Task A_child_tool_call_relays_its_verdict_as_the_childs() {
         using var bridge = WireMockServer.Start();
         bridge.Given(Request.Create().WithPath("/tok/codex/input-wait").UsingPost())
             .RespondWith(Response.Create().WithStatusCode(204));
@@ -53,7 +53,9 @@ public class CodexHookInputWaitRelayTests {
                 new CodexHookEnvironment(TextWriter.Null, TextWriter.Null, Skip: false, HostedAppServer: false));
 
         await Assert.That(exit).IsEqualTo(0);
-        await Assert.That(bridge.LogEntries.Any(e => e.RequestMessage.Path == "/tok/codex/input-wait")).IsFalse();
+        var body = JsonElement.Parse(bridge.LogEntries.Single(e => e.RequestMessage.Path == "/tok/codex/input-wait").RequestMessage.Body!);
+        await Assert.That(body.GetProperty("waiting").GetBoolean()).IsFalse();
+        await Assert.That(body.GetProperty("subagent_id").GetString()).IsEqualTo("child1");
     }
 
     /// A bridge that takes the connection and never answers is given the relay's cap on the hook's own

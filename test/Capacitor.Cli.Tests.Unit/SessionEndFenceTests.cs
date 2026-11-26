@@ -109,18 +109,19 @@ public class SessionEndFenceTests {
         await Assert.That(entry.EndCommittedAt).IsEqualTo(Now);
     }
 
-    /// <summary>Until the entry knows its session, arrival order cannot tell which end is the current one: another
-    /// session's end never displaces a real stamp.</summary>
+    /// <summary>Two sessions' real ends both let through before discovery: the stamp then names no session, so it fences
+    /// whichever one discovery settles on.</summary>
     [Test]
-    public async Task An_entry_with_no_session_keeps_its_real_stamp() {
+    public async Task Conflicting_ends_before_discovery_fence_either_session() {
         Store.Write(ResumeLedgerEntries.For("agent-1", ResumeState.Running) with { RunEpoch = "epoch-1", LaunchEpoch = "epoch-1", SessionId = null });
         SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-a", _ => Store, new FakeTimeProvider(Now));
 
-        SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-b", _ => Store, new FakeTimeProvider(Now.AddMinutes(5)));
+        await Assert.That(SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-b", _ => Store, new FakeTimeProvider(Now.AddMinutes(5)))).IsFalse();
 
         var entry = Store.TryRead("agent-1")!;
-        await Assert.That(entry.EndCommittedSession).IsEqualTo("session-a");
-        await Assert.That(entry.EndCommittedAt).IsEqualTo(Now);
+        await Assert.That(entry.EndCommittedAt).IsEqualTo(Now.AddMinutes(5));
+        await Assert.That(entry.EndCommittedSession).IsNull();
+        await Assert.That(entry.EndCommittedSoft).IsNull();
     }
 
     /// <summary>A second idle end of the same session records its own time, so a turn between the two clears neither.</summary>

@@ -324,7 +324,8 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
 
     /// <summary>A PTY vendor's relayed hook verdict: Stop is true, a prompt submit or tool call
     /// false. Moves the wait and <see cref="TurnAttested"/> alone — see <see cref="AwaitingInput"/>.</summary>
-    public void SetAwaitingInput(bool value) {
+    /// <param name="attestsTurn">False for a child's verdict: it moves the wait, but no turn of the agent's own began.</param>
+    public void SetAwaitingInput(bool value, bool attestsTurn = true) {
         bool changed, attestedChanged;
         lock (_gate) {
             // A hook verdict replaces a silence wait, so later output cannot clear a real stop.
@@ -334,7 +335,7 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
             if (value) _waitGeneration++;
             else {
                 _turnAttestations++;
-                _lastTurnStartedUtcTicks = time.GetUtcNow().UtcTicks;
+                if (attestsTurn) _lastTurnStartedUtcTicks = time.GetUtcNow().UtcTicks;
                 _notAwaitingSince = time.GetTimestamp();
                 if (changed) _workingSince = _notAwaitingSince;
             }

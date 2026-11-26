@@ -1287,11 +1287,12 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
     /// The bridge's attributed turn-boundary verdict for a PTY-hosted agent, whose runtime cannot
     /// attest its own turns. Lands on the live agent's clock; an id the daemon does not hold
-    /// (torn down since the hook fired) is dropped. Either verdict proves a prompt reached the agent.
-    void HandleInputWait(string agentId, bool waiting) {
+    /// (torn down since the hook fired) is dropped. Either verdict proves a prompt reached the agent. A child's verdict
+    /// keeps the agent busy but is no turn of its own, so it is not the evidence that clears a soft session end.
+    void HandleInputWait(string agentId, bool waiting, bool fromSubagent) {
         if (!_agents.TryGetValue(agentId, out var agent)) return;
 
-        agent.ActivityClock.SetAwaitingInput(waiting);
+        agent.ActivityClock.SetAwaitingInput(waiting, attestsTurn: !fromSubagent);
 
         var unconfirmed = agent.Runtime.LaunchPromptUnconfirmed;
         agent.Runtime.NoteTurnRelayed();

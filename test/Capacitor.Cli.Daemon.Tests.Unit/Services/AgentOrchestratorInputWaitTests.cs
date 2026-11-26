@@ -14,11 +14,29 @@ public class AgentOrchestratorInputWaitTests {
         var             agent = orch.SeedAgentForTest("relay-1", pty: new RecordingPtyProcess());
         var             relay = orch.PermissionBridgeForTest.InputWaitHandler!;
 
-        relay(agent.Id, true);
+        relay(agent.Id, true, false);
         await Assert.That(agent.ActivityClock.AwaitingInput).IsTrue();
 
-        relay(agent.Id, false);
+        relay(agent.Id, false, false);
         await Assert.That(agent.ActivityClock.AwaitingInput).IsFalse();
+    }
+
+    /// A child's tool call keeps the parent busy, so a restart waits for it, but it is no turn of the parent's own: it
+    /// leaves no turn start for a soft session end to be cleared by.
+    [Test]
+    public async Task A_childs_verdict_keeps_the_agent_busy_without_starting_its_turn() {
+        await using var orch  = AgentOrchestratorHarness.BuildOrchestrator(new CaptureServerConnection(), new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
+        var             agent = orch.SeedAgentForTest("relay-child", pty: new RecordingPtyProcess());
+        var             relay = orch.PermissionBridgeForTest.InputWaitHandler!;
+        relay(agent.Id, true, false);
+
+        relay(agent.Id, false, true);
+
+        await Assert.That(agent.ActivityClock.NothingInFlight).IsFalse();
+        await Assert.That(agent.ActivityClock.LastTurnStartedUtcTicks).IsEqualTo(0L);
+
+        relay(agent.Id, false, false);
+        await Assert.That(agent.ActivityClock.LastTurnStartedUtcTicks).IsGreaterThan(0L);
     }
 
     /// Only a submitted prompt starts a turn, so the relayed verdict is what confirms the launch
@@ -36,7 +54,7 @@ public class AgentOrchestratorInputWaitTests {
         var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
         while (pty.Writes.Count < 2 && DateTime.UtcNow < deadline) await Task.Delay(25);
 
-        orch.PermissionBridgeForTest.InputWaitHandler!(agent.Id, false);
+        orch.PermissionBridgeForTest.InputWaitHandler!(agent.Id, false, false);
         var outcome = await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(5));
 
         await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.Confirmed);
@@ -113,7 +131,7 @@ public class AgentOrchestratorInputWaitTests {
         await using var orch  = AgentOrchestratorHarness.BuildOrchestrator(new CaptureServerConnection(), new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
         var             agent = orch.SeedAgentForTest("relay-2", pty: new RecordingPtyProcess());
 
-        orch.PermissionBridgeForTest.InputWaitHandler!("somebody-else", true);
+        orch.PermissionBridgeForTest.InputWaitHandler!("somebody-else", true, false);
 
         await Assert.That(agent.ActivityClock.AwaitingInput).IsFalse();
     }

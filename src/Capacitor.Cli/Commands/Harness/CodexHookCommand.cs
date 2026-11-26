@@ -248,12 +248,11 @@ sealed class CodexHookCommand(
         // state, not recording.
         await NotifyToolSettledAsync(node, eventName);
 
-        // Only the parent's own hooks speak for its turn: a child's tool calls share the parent's session and agent, and a
-        // background child working while the parent waits would otherwise read as the parent starting a turn. The child's
-        // liveness reaches the daemon through the subagent relay.
-        if (SubagentIdOf(node) is null
-         && eventName switch { "Stop" => true, "UserPromptSubmit" or "PreToolUse" => false, _ => (bool?) null } is { } waiting)
-            await DaemonBridgeRelay.NotifyInputWaitAsync(hosted, "codex", TryGetString(node, "session_id"), TryGetString(node, "cwd"), waiting, clock.Budget(Ceiling));
+        // A child's tool calls share the parent's session and agent: they keep the parent busy, so a restart waits for the
+        // child, but they are named as the child's, so the daemon does not read them as the parent starting a turn.
+        if (eventName switch { "Stop" => true, "UserPromptSubmit" or "PreToolUse" => false, _ => (bool?) null } is { } waiting)
+            await DaemonBridgeRelay.NotifyInputWaitAsync(hosted, "codex", TryGetString(node, "session_id"), TryGetString(node, "cwd"), waiting, clock.Budget(Ceiling),
+                subagentId: SubagentIdOf(node));
 
         // After `kcap disable`, no POST and no watcher restart: the next Stop would otherwise re-send
         // a session whose data was just deleted server-side.

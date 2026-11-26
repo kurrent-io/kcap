@@ -310,6 +310,23 @@ public class AgentOrchestratorStopForResumeTests {
         await orch.DisposeAsync();
     }
 
+    /// <summary>A stamp that names no session stands for ends the fence could not tell apart: it fences whichever session
+    /// discovery settled on.</summary>
+    [Test]
+    public async Task An_end_naming_no_session_keeps_the_agent_from_being_marked_resuming() {
+        var orch  = Build(new CaptureServerConnection());
+        var agent = Seed(orch, "ambiguous-1");
+        agent.SessionId = "session-b";
+        orch.UpdateLedgerSession(agent);
+        var entry = Ledger().TryRead("ambiguous-1")!;
+        Ledger().Write(entry with { EndCommittedAt = TimeProvider.System.GetUtcNow(), EndCommittedSession = null });
+
+        await orch.PrepareForResumeAsync(agent, CancellationToken.None);
+
+        await Assert.That(Ledger().TryRead("ambiguous-1")!.State).IsEqualTo(ResumeState.Interrupted);
+        await orch.DisposeAsync();
+    }
+
     /// <summary>An end committed for an earlier session of the same process, as a Claude /clear does,
     /// leaves the current session resumable.</summary>
     [Test]
