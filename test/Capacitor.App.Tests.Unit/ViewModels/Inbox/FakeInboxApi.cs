@@ -21,6 +21,10 @@ sealed class FakeInboxApi : IInboxApi {
     public TaskCompletionSource? PutGate { get; set; }
     /// <summary>When set, preference reads wait on it.</summary>
     public TaskCompletionSource? PrefsGate { get; set; }
+    /// <summary>When set, pass-control writes wait on it.</summary>
+    public TaskCompletionSource? ControlsGate { get; set; }
+    /// <summary>False when a write belongs to another account than the one later reads are for.</summary>
+    public bool WritesChangeControls { get; set; } = true;
 
     public int CountReads, PageReads, DismissAllCalls, PrefsReads;
     public readonly List<string> Calls = [];
@@ -71,10 +75,12 @@ sealed class FakeInboxApi : IInboxApi {
 
     public Task<InboxRead<PassControlsDto>> PassControlsAsync(CancellationToken ct) => Task.FromResult(Controls);
 
-    public Task<InboxRead<PassControlsDto>> SetAgentOptOutAsync(bool optedOut, CancellationToken ct) {
+    public async Task<InboxRead<PassControlsDto>> SetAgentOptOutAsync(bool optedOut, CancellationToken ct) {
         Calls.Add($"opt-out {optedOut}");
-        Controls = new(InboxReadKind.Ready, Controls.Value! with { AgentOptedOut = optedOut });
-        return Task.FromResult(Controls);
+        if (ControlsGate is { } gate) await gate.Task;
+        var written = new InboxRead<PassControlsDto>(InboxReadKind.Ready, Controls.Value! with { AgentOptedOut = optedOut });
+        if (WritesChangeControls) Controls = written;
+        return written;
     }
 
     public Task<InboxRead<PassControlsDto>> UnmuteAsync(string senderId, CancellationToken ct) {

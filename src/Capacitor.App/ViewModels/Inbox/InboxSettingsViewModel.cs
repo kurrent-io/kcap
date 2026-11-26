@@ -27,6 +27,10 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
     // the person's last choice whatever order the requests would have completed in.
     readonly Dictionary<string, (bool Enabled, bool SlackEnabled)> _pendingWrites = new(StringComparer.Ordinal);
     readonly HashSet<string> _writing = new(StringComparer.Ordinal);
+    // Advances on every sign-in change: a write's answer from before it belongs to someone else and is never shown.
+    int _account;
+    bool? _pendingTellAgent;
+    bool _tellWriting;
     bool _disposed;
 
     public IAvaloniaReadOnlyList<InboxTypeRowViewModel> Types => _types;
@@ -112,7 +116,10 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
         _connected = connected;
         CanWrite = connected;
         _generation++;
+        _account++;
         _pendingWrites.Clear();
+        _pendingTellAgent = null;
+        IsLoading = false;
         if (signedInAsOther) {
             IsLoaded = false;
             PassesLoaded = false;
@@ -209,7 +216,20 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    Task SetTellAgentAsync(bool tell) => ControlsAsync(() => _api.SetAgentOptOutAsync(!tell, _lifetime.Token));
+    // Only the newest choice is sent after the one in flight, so the server ends on the last toggle.
+    async Task SetTellAgentAsync(bool tell) {
+        _pendingTellAgent = tell;
+        if (_tellWriting) return;
+        _tellWriting = true;
+        try {
+            while (!_disposed && _pendingTellAgent is { } next) {
+                _pendingTellAgent = null;
+                await ControlsAsync(() => _api.SetAgentOptOutAsync(!next, _lifetime.Token));
+            }
+        } finally {
+            _tellWriting = false;
+        }
+    }
 
     Task UnmuteAsync(string senderId) => ControlsAsync(() => _api.UnmuteAsync(senderId, _lifetime.Token));
 
@@ -219,9 +239,12 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
             Reload();
             return Task.CompletedTask;
         }
+        var account = _account;
         return MutateAsync(async () => {
             var read = await Guard(write());
-            if (!_disposed && read is { Kind: InboxReadKind.Ready, Value: { } c }) ApplyControls(c);
+            // A newer toggle still to send would be undone on screen by this older answer.
+            if (_disposed || account != _account || _pendingTellAgent is not null) return;
+            if (read is { Kind: InboxReadKind.Ready, Value: { } c }) ApplyControls(c);
         });
     }
 
