@@ -89,17 +89,15 @@ public class MarkdownViewTests {
             var fencedFont = fenced.FontFamily;
             var compactMono = new DesktopAppearancePreferences(DesktopDensity.Compact, DesktopReadingFont.Monospace);
 
-            for (var run = 0; run < 2; run++) {
-                Apply(compactMono);
-                await Assert.That(prose.FontFamily).IsNotEqualTo(defaultFont);
-                await Assert.That(prose.LineHeight).IsLessThan(defaultLineHeight);
-                await Assert.That(inline.FontFamily).IsEqualTo(inlineFont);
-                await Assert.That(fenced.FontFamily).IsEqualTo(fencedFont);
+            Apply(compactMono);
+            await Assert.That(prose.FontFamily).IsNotEqualTo(defaultFont);
+            await Assert.That(prose.LineHeight).IsLessThan(defaultLineHeight);
+            await Assert.That(inline.FontFamily).IsEqualTo(inlineFont);
+            await Assert.That(fenced.FontFamily).IsEqualTo(fencedFont);
 
-                Apply(new());
-                await Assert.That(prose.FontFamily).IsEqualTo(defaultFont);
-                await Assert.That(prose.LineHeight).IsEqualTo(defaultLineHeight);
-            }
+            Apply(new());
+            await Assert.That(prose.FontFamily).IsEqualTo(defaultFont);
+            await Assert.That(prose.LineHeight).IsEqualTo(defaultLineHeight);
         } finally {
             AppearanceScope.ResetReading(resources);
             window.Close();

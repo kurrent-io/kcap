@@ -39,7 +39,7 @@ internal sealed class DesktopReadingResources(Application application) {
     }
 
     void PublishLayout() {
-        Set(application.Resources, "KcapReadingLayout", _layout == 0 ? null : ++_revision);
+        application.Resources["KcapReadingLayout"] = ++_revision;
     }
 
     static void Set(IResourceDictionary resources, string key, object? value) {

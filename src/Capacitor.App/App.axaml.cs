@@ -397,6 +397,7 @@ public partial class App : Application {
                 () => _shutdownStarted ? null : MainWindowAction(_coordinator), AppKitDock.SetVisible);
             _windowLifecycle = windowLifecycle;
             desktop.Exit += (_, _) => { windowLifecycle.Dispose(); Program.Host.Dispose(); };
+            // The install, update and uninstall paths below can open dialogs: they open in the user's scheme.
             ConfigureDesktopAppearance();
             Program.Host.SingleInstance.UninstallRequested += () => Dispatcher.UIThread.Post(() => {
                 // A copy started to uninstall is already asking or removing; a second question would start a second removal.
@@ -1126,9 +1127,6 @@ public partial class App : Application {
     internal static bool ShouldShowWizard(GateResult gate, string[]? args, bool firstRunAfterInstall = false) =>
         gate is GateResult.Incomplete || firstRunAfterInstall || args?.Contains("--setup", StringComparer.Ordinal) == true;
 
-    /// Paints the saved color scheme, contrast, density and reading font. It runs before the first
-    /// window of any kind, so the install, update, uninstall and error dialogs open in the user's
-    /// scheme, which under the default Auto is the system's light or dark setting.
     void ConfigureDesktopAppearance() {
         var palette = new DesktopPalette(this);
         var platform = PlatformSettings;
@@ -1138,7 +1136,6 @@ public partial class App : Application {
                 .Select(_ => Unit.Default).ObserveOn(RxSchedulers.MainThreadScheduler);
         var reading = new DesktopReadingResources(this);
         var contrastWatch = new SerialDisposable();
-        var zoomWatch = new SerialDisposable();
         // Contrast is settled before the first paint, so the scheme paints once.
         var appearance = new DesktopAppearanceSettings(_appState, _openingDesktopAppearance, preferences => {
             reading.Apply(preferences);
@@ -1148,7 +1145,7 @@ public partial class App : Application {
             contrastWatch.Disposable = !highContrast ? systemChanges.Subscribe(_ => ApplyContrast()) : null;
             ApplyContrast();
         });
-        zoomWatch.Disposable = _uiScale.Changes.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(reading.SetZoom);
+        var zoomWatch = _uiScale.Changes.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(reading.SetZoom);
         _colorScheme = new DesktopColorSchemeSettings(_appState, _openingDesktopColorScheme,
             palette.TryApply, () => system.IsDark, systemChanges);
         _desktopAppearance = appearance;

@@ -10,7 +10,6 @@ static class LinuxColorScheme {
     const string Path = "/org/freedesktop/portal/desktop";
     const uint PrefersDarkValue = 1; // 0 is no preference and 2 is light, both of which Avalonia reads as Light
 
-    // Long enough for a running portal, short enough that one starting from cold delays nothing much.
     static readonly TimeSpan Wait = TimeSpan.FromMilliseconds(250);
 
     /// Null when the portal is missing, fails, or does not answer in time.

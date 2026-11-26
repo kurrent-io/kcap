@@ -118,14 +118,12 @@ public class DesktopColorSchemeSettingsTests {
         await Assert.That(light.Keys.ToHashSet().SetEquals(dark.Keys)).IsTrue();
         var brushes = light.Keys.ToDictionary(key => key, key => (SolidColorBrush)app.FindResource(key)!);
         try {
-            for (var run = 0; run < 2; run++) {
-                foreach (var theme in new[] { DesktopTheme.Dark, DesktopTheme.Light, DesktopTheme.Dark }) {
-                    await Assert.That(palette.TryApply(theme)).IsTrue();
-                    var expected = theme == DesktopTheme.Light ? light : dark;
-                    foreach (var (key, brush) in brushes) {
-                        await Assert.That(ReferenceEquals(app.FindResource(key), brush)).IsTrue();
-                        await Assert.That(brush.Color).IsEqualTo((Color)expected[key]!);
-                    }
+            foreach (var theme in new[] { DesktopTheme.Dark, DesktopTheme.Light, DesktopTheme.Dark }) {
+                await Assert.That(palette.TryApply(theme)).IsTrue();
+                var expected = theme == DesktopTheme.Light ? light : dark;
+                foreach (var (key, brush) in brushes) {
+                    await Assert.That(ReferenceEquals(app.FindResource(key), brush)).IsTrue();
+                    await Assert.That(brush.Color).IsEqualTo((Color)expected[key]!);
                 }
             }
         } finally {

@@ -48,7 +48,7 @@ public sealed class DesktopAppearanceSettings : ReactiveObject, IDisposable {
     void Show(DesktopAppearancePreferences choice) {
         var previous = _selected;
         _selected = choice;
-        if (!_disposed) _apply(choice);
+        _apply(choice);
         if (previous.Density != choice.Density) this.RaisePropertyChanged(nameof(Density));
         if (previous.ReadingFont != choice.ReadingFont) this.RaisePropertyChanged(nameof(ReadingFont));
         if (previous.HighContrast != choice.HighContrast) this.RaisePropertyChanged(nameof(HighContrast));

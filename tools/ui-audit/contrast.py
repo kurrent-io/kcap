@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """WCAG contrast table for the desktop app's Light and Dark themes in src/Capacitor.App/Design/Themes.axaml,
-each painted over the brushes in Palette.axaml beside it.
+with brush opacities from Palette.axaml beside it.
 
 Exits non-zero when a text pair falls below 4.5:1 or a non-text pair below 3:1.
 Usage: python3 tools/ui-audit/contrast.py [path/to/Themes.axaml]
 """
-import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -21,14 +20,7 @@ STATUS_INKS = [f"Kcap{role}Brush" for role in STATUS_ROLES]
 STATUS_FILLS = [f"Kcap{role}DimBrush" for role in STATUS_ROLES]
 PR_INKS = ["KcapPrOpenBrush", "KcapPrMergedBrush", "KcapPrClosedBrush", "KcapPrMergedTipBrush"]
 STATUS_TEXT = ["KcapMutedBrush", "KcapFaintBrush", "KcapDangerBrush", "KcapSuccessBrush", "KcapWarningBrush"]
-EDGES = ["KcapFieldBorderBrush"]
-
-
-def colours(text):
-    found = {}
-    for key, value in re.findall(r'x:Key="(\w+)"\s+Color="(#[0-9A-Fa-f]{6,8})"', text):
-        found[key] = value
-    return found
+EDGES = ["KcapFieldBorderBrush", "KcapChoiceBorderBrush", "KcapTopicRailBrush"]
 
 
 def rgb(hexvalue, behind=None, opacity=1.0):
@@ -57,8 +49,8 @@ def ratio(a, b):
     return (la + 0.05) / (lb + 0.05)
 
 
-def audit(palette, opacities, edges=EDGES):
-    missing = sorted(set(SURFACES + TEXT + STATUS_INKS + STATUS_FILLS + STATUS_TEXT + PR_INKS + edges) - palette.keys())
+def audit(palette, opacities):
+    missing = sorted(set(SURFACES + TEXT + STATUS_INKS + STATUS_FILLS + STATUS_TEXT + PR_INKS + EDGES) - palette.keys())
     if missing:
         print("Missing palette entries: " + ", ".join(missing))
         return 1
@@ -89,7 +81,7 @@ def audit(palette, opacities, edges=EDGES):
             check(fg, bg, 4.5)
     print("Field edges on surfaces (need 3:1)")
     for bg in SURFACES:
-        for fg in edges:
+        for fg in EDGES:
             check(fg, bg, 3.0)
     for fill in ["KcapPrimaryBrush", "KcapPrimaryHoverBrush", "KcapPrimaryPressedBrush"]:
         check("KcapOnPrimaryBrush", fill, 4.5)
@@ -105,14 +97,11 @@ def audit(palette, opacities, edges=EDGES):
 
 
 if __name__ == "__main__":
-    base = colours(AXAML.read_text())
     key = "{http://schemas.microsoft.com/winfx/2006/xaml}Key"
     opacities = {entry.attrib[key]: float(entry.attrib["Opacity"])
                  for entry in ET.parse(AXAML).getroot().iter() if key in entry.attrib and "Opacity" in entry.attrib}
-    edges = [*EDGES, "KcapChoiceBorderBrush", "KcapTopicRailBrush"]
     result = 0
     for variant in ET.parse(THEMES).getroot():
         print(f"\n{variant.attrib[key]}")
-        overrides = {entry.attrib[key]: entry.text.strip() for entry in variant}
-        result |= audit(base | overrides, opacities, edges)
+        result |= audit({entry.attrib[key]: entry.text.strip() for entry in variant}, opacities)
     sys.exit(result)
