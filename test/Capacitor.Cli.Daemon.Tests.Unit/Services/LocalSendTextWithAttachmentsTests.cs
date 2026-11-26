@@ -134,8 +134,8 @@ public class LocalSendTextWithAttachmentsTests : IDisposable {
         AgentOrchestratorHarness.SeedAcpAgent(orch, "flow", new FakeAcpRuntime(), kind: LaunchKind.ReviewFlow);
         await Assert.That((await Send(orch, Payload("flow", "hi", [Id(0)]))).Reason).IsEqualTo(SendTextReasons.ProtectedKind);
 
-        AgentOrchestratorHarness.SeedAcpAgent(orch, "starting", new FakeAcpRuntime(), status: "Starting");
-        await Assert.That((await Send(orch, Payload("starting", "hi", [Id(0)]))).Reason).IsEqualTo(SendTextReasons.NotRunning);
+        AgentOrchestratorHarness.SeedAcpAgent(orch, "done", new FakeAcpRuntime(), status: "Completed");
+        await Assert.That((await Send(orch, Payload("done", "hi", [Id(0)]))).Reason).IsEqualTo(SendTextReasons.NotRunning);
     }
 
     /// <summary>Files alone are a message: the prompt is the trailer with no blank line ahead of it,

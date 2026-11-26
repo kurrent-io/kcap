@@ -576,9 +576,10 @@ internal partial class AgentOrchestrator {
         return await AnswerSendTextCoreAsync(dto.AgentId, dto.Text, dto.AttachmentIds);
     }
 
-    /// <summary>What both composer frames share once decoded. A protected kind and a non-running
-    /// agent are refused BEFORE the delivery core: one is addressed through the flow protocol rather
-    /// than typed at, the other has nothing to accept the text. A quit rides
+    /// <summary>What both composer frames share once decoded. A protected kind and an agent that has
+    /// ended are refused BEFORE the delivery core: one is addressed through the flow protocol rather
+    /// than typed at, the other has nothing to accept the text. A starting agent takes it: its runtime
+    /// holds the text behind the launch prompt and any open dialog, as it does a server message. A quit rides
     /// <see cref="StopAgentCoreAsync"/> rather than the server-origin stop handler, which refuses a
     /// private agent — a composer typing at its own local agent would otherwise be acked for a stop
     /// that never happened.</summary>
@@ -589,7 +590,7 @@ internal partial class AgentOrchestrator {
             return Refuse(SendTextReasons.TooLarge, $"text exceeds {InputWire.MaxTextBytes} bytes");
         if (!_agents.TryGetValue(agentId, out var agent)) return Refuse(SendTextReasons.NoSuchAgent, $"no agent {agentId}");
         if (!AcceptsTypedInput(agent.Kind)) return Refuse(SendTextReasons.ProtectedKind, ProtectionReason(agent));
-        if (agent.Status is "Starting" or "Completed" or "Failed") return Refuse(SendTextReasons.NotRunning, $"agent is {agent.Status}");
+        if (agent.Status is "Completed" or "Failed") return Refuse(SendTextReasons.NotRunning, $"agent is {agent.Status}");
         // A quit becomes a daemon-side stop, which for a review agent would skip the confirmed Stop.
         if (agent.Kind != LaunchKind.Default && !agent.Runtime.EmitsTerminalOutput && IsQuitCommand(text))
             return Refuse(SendTextReasons.ProtectedKind, $"{ProtectionReason(agent)}: use Stop to end it");

@@ -72,7 +72,7 @@ public class LocalSendTextTests {
     }
 
     [Test]
-    public async Task Protected_kind_and_not_running_are_refused_before_the_core() {
+    public async Task Protected_kind_and_ended_agents_are_refused_before_the_core() {
         await using var orch = Build();
         AgentOrchestratorHarness.SeedAcpAgent(orch, "flow", new FakeAcpRuntime(), kind: LaunchKind.ReviewFlow);
 
@@ -81,10 +81,24 @@ public class LocalSendTextTests {
         await Assert.That(ack.Reason).IsEqualTo(SendTextReasons.ProtectedKind);
         await Assert.That(ack.Error).Contains("review-flow");
 
-        AgentOrchestratorHarness.SeedAcpAgent(orch, "starting", new FakeAcpRuntime(), status: "Starting");
-        await Assert.That((await Send(orch, Payload("starting", "hi"))).Reason).IsEqualTo(SendTextReasons.NotRunning);
         AgentOrchestratorHarness.SeedAcpAgent(orch, "done", new FakeAcpRuntime(), status: "Completed");
         await Assert.That((await Send(orch, Payload("done", "hi"))).Reason).IsEqualTo(SendTextReasons.NotRunning);
+        AgentOrchestratorHarness.SeedAcpAgent(orch, "failed", new FakeAcpRuntime(), status: "Failed");
+        await Assert.That((await Send(orch, Payload("failed", "hi"))).Reason).IsEqualTo(SendTextReasons.NotRunning);
+    }
+
+    /// <summary>An agent with no terminal output yet takes composer text as it takes a server message: its runtime
+    /// holds the text behind the launch prompt and any dialog</summary>
+    [Test]
+    public async Task A_starting_agent_takes_composer_text() {
+        await using var orch = Build();
+        var rt = new FakeHostedAgentRuntime("claude", emitsTerminalOutput: true);
+        AgentOrchestratorHarness.SeedAcpAgent(orch, "starting", rt, status: "Starting");
+
+        var ack = await Send(orch, Payload("starting", "look at the failure"));
+
+        await Assert.That(ack).IsEqualTo(new SendTextAckDto(true, null, null, SendTextOutcomes.Delivered));
+        await Assert.That(rt.OwnerInputs).IsEquivalentTo(new[] { "look at the failure" });
     }
 
     [Test]
