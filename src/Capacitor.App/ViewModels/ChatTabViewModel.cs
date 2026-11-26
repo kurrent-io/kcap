@@ -1493,7 +1493,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         if (question) {
             TerminalMenuSummary = limit!.Summary;
             TerminalMenuPrompt = limit.Prompt;
-            TerminalMenuHint = "Choose how to handle the usage limit. A message here would be typed into that menu.";
+            TerminalMenuHint = "Choose how to handle the usage limit. The chat continues once you do.";
             choices = limit.Options.Where(o => o.Index is >= 1 and <= 9)
                 .Select(o => (o.Label, new[] { (byte)('0' + o.Index) })).ToList();
         } else if (shown && !_input.CanSendKeys) {
@@ -1503,7 +1503,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             TerminalMenuScreen = dialog!.Screen;
         } else if (shown) {
             TerminalMenuTitle = "Waiting for you in Terminal";
-            TerminalMenuHint = "Answer the terminal dialog first. A message here would be typed into it.";
+            TerminalMenuHint = "Answer the terminal dialog. The chat continues once it closes.";
             if (dialog!.Options.Count > 0) {
                 TerminalMenuHeading = dialog.Heading;
                 TerminalMenuSummary = dialog.Body;
