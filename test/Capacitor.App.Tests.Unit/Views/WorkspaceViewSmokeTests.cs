@@ -692,7 +692,7 @@ public class WorkspaceViewSmokeTests {
             Dispatcher.UIThread.RunJobs();
             window.UpdateLayout();
             await Assert.That(Find<ContentControl>(window, "ArtefactsHost")!.Content).IsTypeOf<ArtefactsView>();
-            await Assert.That(Find<ItemsControl>(window, "DocumentList")!.IsEffectivelyVisible).IsTrue();
+            await Assert.That(Find<Border>(window, "SelectorBar")!.IsEffectivelyVisible).IsTrue();
             await Assert.That(Find<ContentControl>(window, "DocumentReaderHost")!.IsEffectivelyVisible).IsTrue();
 
             await vm.Artefacts.SelectCommand.Execute(vm.Artefacts.Documents[0]);

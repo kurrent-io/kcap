@@ -11,15 +11,18 @@ using static Capacitor.App.Tests.Unit.AvaloniaSession;
 
 namespace Capacitor.App.Tests.Unit.Views;
 
-/// The Pages tab view on its own: pages list beside the documents and an opened one shows in the right pane.
+/// The Pages tab view on its own: a selector over the pages and documents above the one that is open.
 public class ArtefactsViewSmokeTests {
     const string Session = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    static T Find<T>(Window window, string name) where T : Control =>
+        window.GetVisualDescendants().OfType<T>().Single(c => c.Name == name);
 
     static IEnumerable<string> Texts(Window window) =>
         window.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text ?? "");
 
-    /// The page is listed, and opening it swaps the reader's prompt for the page viewer beside the list. A page
-    /// that is not found never reaches Ready, so no NativeWebView is built under the headless platform.
+    /// Opening a page swaps the reader's prompt for the page viewer at the tab's full width, under a bar naming
+    /// it. A page that is not found never reaches Ready, so no NativeWebView is built under the headless platform.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task An_opened_page_shows_the_viewer_in_the_right_pane() => RunOnUiAsync(async () => {
@@ -35,7 +38,6 @@ public class ArtefactsViewSmokeTests {
         Dispatcher.UIThread.RunJobs();
         window.UpdateLayout();
         await Assert.That(Texts(window)).Contains("Select a page or document to read it.");
-        await Assert.That(Texts(window)).Contains("Release checklist");
 
         await vm.OpenPageCommand.Execute(vm.Pages[0]);
         await (vm.PendingPageLoadForTesting ?? Task.CompletedTask);
@@ -46,9 +48,53 @@ public class ArtefactsViewSmokeTests {
         await Assert.That(Texts(window)).Contains("This page is gone, or you can't see it.");
         await Assert.That(Texts(window).Any(t => t == "Select a page or document to read it.")).IsFalse();
         await Assert.That(window.GetVisualDescendants().OfType<NativeWebView>().Any()).IsFalse();
-        var list = window.GetVisualDescendants().OfType<Border>().Single(b => b.Name == "DocumentListPane");
+        await Assert.That(Texts(window)).Contains("Release checklist");
+        await Assert.That(Find<Button>(window, "OpenInBrowser").IsEffectivelyVisible).IsTrue();
+        await Assert.That(Find<Button>(window, "ItemSelector").IsEffectivelyVisible).IsFalse();
         var viewer = window.GetVisualDescendants().OfType<PageViewer>().Single();
-        await Assert.That(viewer.Bounds.Width).IsEqualTo(window.Bounds.Width - list.Bounds.Width);
+        await Assert.That(viewer.Bounds.Width).IsEqualTo(window.Bounds.Width);
+        window.Close();
+        await vm.TeardownAsync();
+    });
+
+    /// With two pages the bar offers the selector, the arrows and the position, and choosing a page from the
+    /// selector's menu opens it and closes the menu.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task The_selector_menu_opens_the_chosen_page_and_closes() => RunOnUiAsync(async () => {
+        var now = DateTimeOffset.UtcNow;
+        var source = new FakePlanArtifactSource();
+        source.EnqueuePages(new SessionPagesRead(SessionPlansReadKind.Ready, [
+            new ArtefactDto("01ec", "Release checklist", "u1", "org", 1, now, true, null, null, "https://kurrent.kcap.ai/pages/01ec"),
+            new ArtefactDto("02fd", "Rollout notes", "u1", "org", 1, now, true, null, null, "https://kurrent.kcap.ai/pages/02fd"),
+        ]));
+        var vm = new ArtefactsTabViewModel(source, new PlanActivity(), TimeProvider.System, opener: new RecordingOpener(),
+            pageContent: new FakePageContentSource(), webView: new FixedWebViewAvailability(true), inAppPages: () => true);
+        var window = new Window { Content = new ArtefactsView { DataContext = vm }, Width = 900, Height = 600 };
+        window.Show();
+        vm.SwitchSession(Session, "/repo");
+        await (vm.PendingPagesForTesting ?? Task.CompletedTask);
+        await vm.OpenPageCommand.Execute(vm.Pages[0]);
+        await (vm.PendingPageLoadForTesting ?? Task.CompletedTask);
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+
+        var selector = Find<Button>(window, "ItemSelector");
+        await Assert.That(selector.IsEffectivelyVisible).IsTrue();
+        await Assert.That(Find<Button>(window, "NextItem").IsEffectivelyVisible).IsTrue();
+        await Assert.That(Find<TextBlock>(window, "ItemPosition").Text).IsEqualTo("1 of 2");
+
+        var menu = (Flyout)selector.Flyout!;
+        menu.ShowAt(selector);
+        Dispatcher.UIThread.RunJobs();
+        await Assert.That(menu.IsOpen).IsTrue();
+        var row = ((Control)menu.Content!).GetVisualDescendants().OfType<Button>().Single(b => Equals(b.CommandParameter, vm.Pages[1]));
+        MainWindowSmokeTests.ClickFlyoutButton(row);
+        await (vm.PendingPageLoadForTesting ?? Task.CompletedTask);
+        Dispatcher.UIThread.RunJobs();
+
+        await Assert.That(vm.PageViewer!.ArtefactId).IsEqualTo("02fd");
+        await Assert.That(menu.IsOpen).IsFalse();
         window.Close();
         await vm.TeardownAsync();
     });
