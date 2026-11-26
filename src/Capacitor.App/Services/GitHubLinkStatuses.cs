@@ -73,7 +73,8 @@ public sealed class GitHubLinkStatuses : IDisposable {
 
     /// The rail republishes every session's summary when any one changes, so a report a session made
     /// before comes round again; only a session's changed report is news, and a repeat must not undo a
-    /// lookup made since. A repeat that agrees with what is held keeps it fresh.
+    /// lookup made since. A repeat that agrees with what is held keeps it fresh, and one that finds
+    /// nothing held, its entry evicted since, is news again.
     void Know(IReadOnlyDictionary<string, RailPullRequestSummary> summaries) {
         lock (_lock) {
             if (_disposed) return;
@@ -83,7 +84,7 @@ public sealed class GitHubLinkStatuses : IDisposable {
                     if (Reported(item) is not var (key, state)) continue;
                     reports[(session, key)] = state;
                     var entry = EntryFor(key);
-                    if (_reports.TryGetValue((session, key), out var before) && before == state) {
+                    if (entry.State is not null && _reports.TryGetValue((session, key), out var before) && before == state) {
                         if (entry.State == state) entry.CheckedAt = _time.GetTimestamp();
                         continue;
                     }

@@ -255,6 +255,25 @@ public class GitHubLinkStatusesTests {
         watches.ForEach(watch => watch.Dispose());
     }
 
+    [Test]
+    public async Task A_session_repeating_its_report_restores_a_state_evicted_since() {
+        var open = new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([Item("github.com", "Open")]) };
+        var sessions = new Subject<IReadOnlyDictionary<string, RailPullRequestSummary>>();
+        var time = new FakeTimeProvider();
+        using var statuses = new GitHubLinkStatuses((_, _) => Task.FromResult<GitHubLinkState?>(GitHubLinkState.Closed),
+            time, ImmediateScheduler.Instance, sessions);
+        sessions.OnNext(open);
+        time.Advance(TimeSpan.FromSeconds(1));
+        foreach (var n in Enumerable.Range(1, 1100)) {
+            using var watch = statuses.Watch(GitHubLink.Parse($"https://github.com/kurrent-io/kcap/issues/{n}")!).Subscribe(_ => { });
+        }
+        await Assert.That(statuses.Current(Pull)).IsNull();
+
+        sessions.OnNext(new Dictionary<string, RailPullRequestSummary>(open));
+
+        await Assert.That(statuses.Current(Pull)).IsEqualTo(GitHubLinkState.Open);
+    }
+
     static RailPullRequestMenuItem Item(string host, string lifecycle, int number = 2625) => new(new PullRequestSubjectDto {
         Provider = "github", Host = host, RepoHash = "hash", Owner = "kurrent-io", RepoName = "kcap", Number = number,
     }, "Render GitHub links as chips", lifecycle);
