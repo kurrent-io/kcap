@@ -441,6 +441,7 @@ internal sealed partial class DaemonRecorder : IAsyncDisposable {
         var left = _list.Load();
 
         SessionEndRecord.Prune(_paths, _time.GetUtcNow(), left.Select(source => source.SessionId));
+        _inputLogs.Reap(left.Select(source => source.Key));
 
         if (left.Count == 0) return;
 
