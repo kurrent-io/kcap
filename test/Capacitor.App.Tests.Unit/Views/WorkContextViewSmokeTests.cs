@@ -1113,7 +1113,7 @@ public class WorkContextViewSmokeTests {
             var counts = host.Find<ItemsControl>("PlanCounts");
             await Assert.That(counts.IsEffectivelyVisible).IsTrue();
             await Assert.That(host.Find<TextBlock>("PlanHeaderText").IsEffectivelyVisible).IsFalse();
-            await Assert.That(VisibleTexts(counts)).IsEquivalentTo(new[] { "2", "1", "2" }, CollectionOrdering.Matching);
+            await Assert.That(VisibleTexts(counts)).IsEquivalentTo(new[] { "2", "1", "1", "1" }, CollectionOrdering.Matching);
 
             await Assert.That(host.Find<Border>("PlanBody").IsEffectivelyVisible).IsFalse();
             await Assert.That(host.Find<ItemsControl>("PlanInProgressList").IsEffectivelyVisible).IsTrue();
@@ -1186,7 +1186,7 @@ public class WorkContextViewSmokeTests {
             await Assert.That(TopOf(section, host.Window)).IsGreaterThan(TopOf(host.Find<StackPanel>("PullRequestSection"), host.Window));
             await Assert.That(TopOf(section, host.Window)).IsLessThan(TopOf(host.Find<StackPanel>("SubagentsSection"), host.Window));
 
-            await Assert.That(host.Find<TextBlock>("PlanHeaderText").Text).IsEqualTo("2 of 4 done");
+            await Assert.That(host.Find<TextBlock>("PlanHeaderText").Text).IsEqualTo("1 of 4 done · 1 skipped");
             await Assert.That(host.Find<TextBlock>("PlanHeaderText").IsEffectivelyVisible).IsTrue();
             await Assert.That(host.Find<ItemsControl>("PlanCounts").IsEffectivelyVisible).IsFalse();
             var texts = section.GetVisualDescendants().OfType<TextBlock>().Where(t => t.IsEffectivelyVisible).Select(t => t.Text).ToList();
