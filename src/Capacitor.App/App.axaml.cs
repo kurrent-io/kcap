@@ -1128,6 +1128,7 @@ public partial class App : Application {
     void ConfigureDesktopAppearance() {
         var palette = new DesktopPalette(this);
         var platform = PlatformSettings;
+        var system = new SystemColorScheme(platform, OperatingSystem.IsLinux() ? LinuxColorScheme.PrefersDark() : null);
         var systemChanges = platform is null ? Observable.Never<Unit>() :
             Observable.FromEventPattern<PlatformColorValues>(h => platform.ColorValuesChanged += h, h => platform.ColorValuesChanged -= h)
                 .Select(_ => Unit.Default).ObserveOn(RxSchedulers.MainThreadScheduler);
@@ -1145,9 +1146,9 @@ public partial class App : Application {
         });
         zoomWatch.Disposable = _uiScale.Changes.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(reading.SetZoom);
         _colorScheme = new DesktopColorSchemeSettings(_appState, _openingDesktopColorScheme,
-            palette.TryApply, () => platform?.GetColorValues().ThemeVariant != PlatformThemeVariant.Light, systemChanges);
+            palette.TryApply, () => system.IsDark, systemChanges);
         _desktopAppearance = appearance;
-        _appearanceSubscription = new CompositeDisposable(contrastWatch, zoomWatch);
+        _appearanceSubscription = new CompositeDisposable(system, contrastWatch, zoomWatch);
     }
 
     void BuildDaemonGraph(
