@@ -454,6 +454,51 @@ public class McpPassServerTests {
         }
     }
 
+    /// <summary>The server's lanes reach the agent as it sent them, each with its own words; a server that sends none
+    /// leaves the field out.</summary>
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task Status_CarriesTheServersDeliveryLanes(bool serverSendsLanes) {
+        using var stub = WireMockServer.Start();
+        var lanes = serverSendsLanes
+            ? """
+              "delivery": [
+                {"lane": "bell", "status": "delivered", "at": "2026-10-30T09:00:00+00:00", "reason": null, "session_id": null, "text": "Delivered"},
+                {"lane": "agent", "status": "delivered", "at": "2026-10-30T09:01:00+00:00", "reason": null, "session_id": "s-9", "text": "Delivered to session s-9"},
+                {"lane": "slack", "status": "skipped", "at": null, "reason": "slack_not_connected", "session_id": null, "text": "Skipped: they haven't connected Slack"}
+              ],
+              """
+            : "";
+        stub.Given(WireMock.RequestBuilders.Request.Create().WithPath("/api/passes/p1").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(HttpStatusCode.OK).WithHeader("Content-Type", "application/json").WithBody($$"""
+                {"pass_id": "p1", "side": "sent", "kind": "message", "item_kind": null, "item_id": null, "sender_id": "github:1", "recipient_id": "github:2",
+                 "brief": null, "suggested_prompts": [], "note": "Hi", "reply_to": null, "state": "sent", "sent_at": "2026-10-30T09:00:00+00:00",
+                 "take_over_source_session_id": null, "accepted_at": null, "released_to_agent": null, "follow_up_due": false, "applied_grants": [],
+                 {{lanes}}
+                 "stay_hidden_session_ids": []}
+                """));
+
+        var read   = await Api(stub.Urls[0]).GetAsync("p1");
+        var result = JsonNode.Parse(Text(await Server(new FakePassesApi { ReadResult = read })
+                                             .HandleToolCallAsync(9, Call("pass_status", new() { ["pass_id"] = "p1" }), null)))!.AsObject();
+
+        if (!serverSendsLanes) {
+            await Assert.That(result.ContainsKey("delivery")).IsFalse();
+            await Assert.That(result["state"]!.GetValue<string>()).IsEqualTo("sent");
+
+            return;
+        }
+
+        var delivery = result["delivery"]!.AsArray();
+        await Assert.That(delivery.Select(l => l!["lane"]!.GetValue<string>())).IsEquivalentTo(["bell", "agent", "slack"]);
+        await Assert.That(delivery[0]!["at"]!.GetValue<string>()).IsEqualTo(SentAt.ToString("O"));
+        await Assert.That(delivery[1]!["session_id"]!.GetValue<string>()).IsEqualTo("s-9");
+        await Assert.That(delivery[2]!["reason"]!.GetValue<string>()).IsEqualTo("slack_not_connected");
+        await Assert.That(delivery[2]!["text"]!.GetValue<string>()).IsEqualTo("Skipped: they haven't connected Slack");
+        await Assert.That(delivery[2]!.AsObject().ContainsKey("at")).IsFalse();
+    }
+
     PassesApi Api(string url) =>
         new(new FixedCapacitorHttpClient(), new CapacitorServer(url, Config.Root, Resolutions.At(url, Config.Root)), TimeProvider.System);
 }
