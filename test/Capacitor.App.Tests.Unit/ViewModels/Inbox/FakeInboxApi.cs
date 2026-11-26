@@ -83,10 +83,13 @@ sealed class FakeInboxApi : IInboxApi {
         return written;
     }
 
-    public Task<InboxRead<PassControlsDto>> UnmuteAsync(string senderId, CancellationToken ct) {
+    // The answer is the server's state when the unmute applied, so a gate held past a later write returns an older state.
+    public async Task<InboxRead<PassControlsDto>> UnmuteAsync(string senderId, CancellationToken ct) {
         Calls.Add($"unmute {senderId}");
         Controls = new(InboxReadKind.Ready, Controls.Value! with { MutedSenders = Controls.Value.MutedSenders.Where(s => s.UserId != senderId).ToList() });
-        return Task.FromResult(Controls);
+        var answer = Controls;
+        if (ControlsGate is { } gate) await gate.Task;
+        return answer;
     }
 
     public string? Resolve(string pathOrUrl) => pathOrUrl.StartsWith('/') ? "https://kcap.example" + pathOrUrl : pathOrUrl;

@@ -187,6 +187,74 @@ public class InboxSettingsViewModelTests {
     });
 
     [Test]
+    public async Task A_completed_sign_in_closes_writes_until_that_accounts_settings_load() => await AvaloniaSession.RunOnUiAsync(async () => {
+        var api = new FakeInboxApi { Prefs = Prefs("connected", true, Type("pass_received")) };
+        var signIn = new System.Reactive.Subjects.Subject<RxUnit>();
+        var status = new System.Reactive.Subjects.BehaviorSubject<Capacitor.Client.ServerLaneStatus>(new(Capacitor.Client.ServerLaneState.Connected, Subject: "alice"));
+        using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: false, () => { }, status, signIn);
+        var row = settings.Types.Single();
+        var gate = new TaskCompletionSource();
+        api.PrefsGate = gate;
+
+        signIn.OnNext(RxUnit.Default);
+        row.Enabled = false;
+
+        await Assert.That(settings.CanWrite).IsFalse();
+        await Assert.That(api.Calls.Any(c => c.StartsWith("pref", StringComparison.Ordinal))).IsFalse();
+        api.PrefsGate = null;
+        gate.SetResult();
+        await Task.Yield();
+        await Assert.That(settings.CanWrite).IsTrue();
+    });
+
+    [Test]
+    public async Task Switches_keep_the_latest_choices_while_queued_writes_drain() => await AvaloniaSession.RunOnUiAsync(async () => {
+        var api = new FakeInboxApi { Prefs = Prefs("connected", true, Type("pass_received")) };
+        using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: false, () => { });
+        var row = settings.Types.Single();
+        var first = new TaskCompletionSource();
+        api.PutGate = first;
+        row.Enabled = false;
+        row.SlackEnabled = true;
+
+        var second = new TaskCompletionSource();
+        api.PutGate = second;
+        first.SetResult();
+        await Task.Yield();
+
+        await Assert.That(row.Enabled).IsFalse();
+        await Assert.That(row.SlackEnabled).IsTrue();
+        await Assert.That(api.PrefsReads).IsEqualTo(1);
+        api.PutGate = null;
+        second.SetResult();
+    });
+
+    [Test]
+    public async Task An_older_pass_control_answer_landing_last_is_not_shown() => await AvaloniaSession.RunOnUiAsync(async () => {
+        var api = new FakeInboxApi {
+            Prefs = Prefs("connected", true, Type("pass_received")),
+            Controls = new(InboxReadKind.Ready, new() { AgentOptedOut = false, MutedSenders = [new() { UserId = "u9", Name = "Jordan Lee" }] }),
+        };
+        using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: true, () => { });
+        var unmuteGate = new TaskCompletionSource();
+        api.ControlsGate = unmuteGate;
+        settings.MutedSenders.Single().UnmuteCommand.Execute(null);
+
+        var toggleGate = new TaskCompletionSource();
+        api.ControlsGate = toggleGate;
+        settings.TellAgent = false;
+        api.ControlsGate = null;
+        toggleGate.SetResult();
+        await Task.Yield();
+        // The reload after the writes fails, so only the answers decide what the switch shows.
+        api.Prefs = InboxRead<NotificationPrefsDto>.Failed;
+        unmuteGate.SetResult();
+        await Task.Yield();
+
+        await Assert.That(settings.TellAgent).IsFalse();
+    });
+
+    [Test]
     public async Task A_failed_first_load_offers_a_retry() => await AvaloniaSession.RunOnUiAsync(async () => {
         var api = new FakeInboxApi { Prefs = InboxRead<NotificationPrefsDto>.Failed };
         using var settings = new InboxSettingsViewModel(api, Observable.Never<RxUnit>(), passesOffered: false, () => { });

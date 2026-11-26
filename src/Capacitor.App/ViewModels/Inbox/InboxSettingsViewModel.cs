@@ -29,6 +29,10 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
     readonly HashSet<string> _writing = new(StringComparer.Ordinal);
     // Advances on every sign-in change: a write's answer from before it belongs to someone else and is never shown.
     int _account;
+    // Writes stay off from a sign-in change until that account's settings have loaded.
+    bool _awaitingAccountLoad;
+    // Advances with every pass-control write; only the newest one's answer is shown.
+    int _controlWrites;
     bool? _pendingTellAgent;
     bool _tellWriting;
     bool _disposed;
@@ -97,13 +101,16 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
     public ReactiveCommand<Unit, Unit> OpenChatAccountsCommand { get; }
 
     public InboxSettingsViewModel(IInboxApi api, IObservable<Unit> changed, bool passesOffered, Action openChatAccounts,
-            IObservable<ServerLaneStatus>? status = null) {
+            IObservable<ServerLaneStatus>? status = null,
+            IObservable<Unit>? signInCompleted = null) {
         _api = api;
         PassesOffered = passesOffered;
         RetryCommand = ReactiveCommand.Create(Reload);
         OpenChatAccountsCommand = ReactiveCommand.Create(openChatAccounts);
         changed.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(_ => Reload()).DisposeWith(_disposables);
         status?.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(OnStatus).DisposeWith(_disposables);
+        // New credentials are saved before the lane reconnects, so the sign-in itself closes writes.
+        signInCompleted?.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(_ => ForgetAccount(reload: true)).DisposeWith(_disposables);
         Reload();
     }
 
@@ -114,20 +121,26 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
         if (connected && status.Subject is not null) _subject = status.Subject;
         if (_connected == connected && !signedInAsOther) return;
         _connected = connected;
-        CanWrite = connected;
+        ForgetAccount(reload: connected, drop: signedInAsOther);
+    }
+
+    // Writes close at once and reopen only after a read under the current credentials lands.
+    void ForgetAccount(bool reload, bool drop = false) {
+        CanWrite = false;
+        _awaitingAccountLoad = true;
         _generation++;
         _account++;
         _pendingWrites.Clear();
         _pendingTellAgent = null;
         IsLoading = false;
-        if (signedInAsOther) {
+        if (drop) {
             IsLoaded = false;
             PassesLoaded = false;
             _types.Clear();
             _muted.Clear();
             this.RaisePropertyChanged(nameof(HasMutedSenders));
         }
-        if (connected) Reload();
+        if (reload) Reload();
     }
 
     public void Reload() {
@@ -148,6 +161,10 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
         }
         ApplyPrefs(value);
         IsLoaded = true;
+        if (_awaitingAccountLoad && _connected) {
+            _awaitingAccountLoad = false;
+            CanWrite = true;
+        }
         if (!PassesOffered) return;
         if (controls is { Kind: InboxReadKind.Ready, Value: { } c }) {
             ApplyControls(c);
@@ -200,17 +217,20 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
         this.RaisePropertyChanged(nameof(HasMutedSenders));
     }
 
+    // The whole queue for a type drains inside one mutation, so no read lands between its writes.
     async Task WriteTypeAsync(InboxTypeRowViewModel row, bool enabled, bool slackEnabled) {
         if (_disposed) return;
-        if (!_connected) {
+        if (!CanWrite) {
             Reload();
             return;
         }
         _pendingWrites[row.Type] = (enabled, slackEnabled);
         if (!_writing.Add(row.Type)) return;
         try {
-            while (!_disposed && _pendingWrites.Remove(row.Type, out var pair))
-                await MutateAsync(() => Guard(_api.PutPrefAsync(row.Type, pair.Enabled, pair.SlackEnabled, _lifetime.Token)));
+            await MutateAsync(async () => {
+                while (!_disposed && _pendingWrites.Remove(row.Type, out var pair))
+                    await Guard(_api.PutPrefAsync(row.Type, pair.Enabled, pair.SlackEnabled, _lifetime.Token));
+            });
         } finally {
             _writing.Remove(row.Type);
         }
@@ -235,15 +255,17 @@ public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
 
     Task ControlsAsync(Func<Task<InboxRead<PassControlsDto>>> write) {
         if (_disposed) return Task.CompletedTask;
-        if (!_connected) {
+        if (!CanWrite) {
             Reload();
             return Task.CompletedTask;
         }
         var account = _account;
+        var dispatched = ++_controlWrites;
         return MutateAsync(async () => {
             var read = await Guard(write());
-            // A newer toggle still to send would be undone on screen by this older answer.
-            if (_disposed || account != _account || _pendingTellAgent is not null) return;
+            // Only the newest write's answer describes the server; an older one, or one with a toggle still to send,
+            // would put a superseded value on screen.
+            if (_disposed || account != _account || dispatched != _controlWrites || _pendingTellAgent is not null) return;
             if (read is { Kind: InboxReadKind.Ready, Value: { } c }) ApplyControls(c);
         });
     }

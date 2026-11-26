@@ -1633,6 +1633,7 @@ public partial class App : Application {
                 openUrl: url => LinkPolicy.Open(opener, url), pickers: pickers, sessionCli: lifecycleCli,
                 nextWorkEnabled: () => launcherNextWork.IsOn,
                 inbox: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : new InboxApi(sessionHttp, profiles),
+                inboxSignInCompleted: serverClients.SignInCompleted,
                 nextWorkSwitchMayChange: _experimentalSaved.Merge(
                     Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default)))))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
@@ -2630,6 +2631,7 @@ public partial class App : Application {
             IKcapCli? sessionCli = null,
             Func<bool>? nextWorkEnabled = null,
             IInboxApi? inbox = null,
+            IObservable<Unit>? inboxSignInCompleted = null,
             IObservable<Unit>? nextWorkSwitchMayChange = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
@@ -2756,7 +2758,7 @@ public partial class App : Application {
                     return;
                 }
                 var settingsVm = new InboxSettingsViewModel(inbox, inboxChanged, inboxBell?.PassesOffered == true,
-                    () => { if (appServerUrl is { Length: > 0 } server) openUrl?.Invoke(server); }, lane.Status);
+                    () => { if (appServerUrl is { Length: > 0 } server) openUrl?.Invoke(server); }, lane.Status, inboxSignInCompleted);
                 var settingsWindow = new InboxSettingsWindow { DataContext = settingsVm };
                 inboxSettings = settingsWindow;
                 settingsWindow.Closed += (_, _) => { inboxSettings = null; settingsVm.Dispose(); };
