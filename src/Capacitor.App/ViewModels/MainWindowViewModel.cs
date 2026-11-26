@@ -149,6 +149,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// the same instance.
     public ActivityViewModel Activity { get; }
     public WebWorkspaceViewModel? Web { get; init; }
+    /// <summary>The rail footer's notification bell; null without a server.</summary>
+    public Inbox.InboxBellViewModel? Inbox { get; init; }
     public ReactiveCommand<Unit, Unit> OpenLaunchApprovalsCommand { get; }
 
     /// The launcher pane's view model, built at the composition root over the SAME

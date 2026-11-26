@@ -55,6 +55,8 @@ public sealed class InboxItemViewModel : ReactiveObject {
     public ReactiveCommand<Unit, Unit> DismissCommand   { get; }
     public ReactiveCommand<Unit, Unit> SendReplyCommand { get; }
     public ReactiveCommand<Unit, Unit> OpenLinkCommand  { get; }
+    /// <summary>Opens a link carried by one of the card's runs.</summary>
+    public ReactiveCommand<string, Unit> OpenUrlCommand { get; }
 
     public InboxItemViewModel(NotificationItemDto dto, DateTimeOffset now, Func<string, string?> resolve,
             Func<InboxItemViewModel, Task> markRead, Func<InboxItemViewModel, Task> dismiss,
@@ -84,6 +86,7 @@ public sealed class InboxItemViewModel : ReactiveObject {
         SendReplyCommand = ReactiveCommand.CreateFromTask(() => AnswerAsync(ReplyAnswer, ReplyText),
             this.WhenAnyValue(x => x.IsAnswering, x => x.ReplyText, (busy, text) => !busy && !string.IsNullOrWhiteSpace(text)));
         OpenLinkCommand  = ReactiveCommand.Create(() => { if (LinkUrl is { } link) open(link); });
+        OpenUrlCommand   = ReactiveCommand.Create<string>(open);
     }
 
     async Task AnswerAsync(string answer, string? text) {

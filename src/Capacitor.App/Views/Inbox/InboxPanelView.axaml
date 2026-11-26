@@ -1,0 +1,188 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:inbox="clr-namespace:Capacitor.App.ViewModels.Inbox"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             xmlns:local="clr-namespace:Capacitor.App.Views.Inbox"
+             x:Class="Capacitor.App.Views.Inbox.InboxPanelView"
+             x:DataType="inbox:InboxBellViewModel"
+             Width="460">
+    <UserControl.Styles>
+        <Style Selector="Border.inboxTile">
+            <Setter Property="Width" Value="30" />
+            <Setter Property="Height" Value="30" />
+            <Setter Property="CornerRadius" Value="7" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Background" Value="{StaticResource KcapInfoDimBrush}" />
+        </Style>
+        <Style Selector="Border.inboxTile.warning">
+            <Setter Property="Background" Value="{StaticResource KcapWarningDimBrush}" />
+        </Style>
+        <Style Selector="Border.inboxPill">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+        </Style>
+        <Style Selector="Border.inboxChip">
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+            <Setter Property="Padding" Value="7,1" />
+            <Setter Property="Margin" Value="0,0,4,4" />
+        </Style>
+    </UserControl.Styles>
+
+    <DockPanel>
+        <!-- Header actions stay icon-only so the row fits the panel at its natural width. -->
+        <Border DockPanel.Dock="Top" BorderThickness="0,0,0,1" BorderBrush="{StaticResource KcapBorderBrush}" Padding="14,10,10,10">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2">
+                    <Button x:Name="InboxMarkAllReadButton" Classes="kcapGhost kcapIcon" Command="{Binding MarkAllReadCommand}"
+                            IsVisible="{Binding HasUnread}" ToolTip.Tip="Mark all read" AutomationProperties.Name="Mark all read">
+                        <views:AppIcon Kind="CheckCheck" Size="16" />
+                    </Button>
+                    <Button x:Name="InboxDeleteAllButton" Classes="kcapGhost kcapIcon" Command="{Binding AskDeleteAllCommand}"
+                            IsVisible="{Binding HasItems}" ToolTip.Tip="Delete all" AutomationProperties.Name="Delete all">
+                        <views:AppIcon Kind="Trash" Size="16" Foreground="{StaticResource KcapDangerBrush}" />
+                    </Button>
+                    <Button x:Name="InboxSettingsButton" Classes="kcapGhost kcapIcon" Command="{Binding OpenSettingsCommand}"
+                            ToolTip.Tip="Notification settings" AutomationProperties.Name="Notification settings">
+                        <views:AppIcon Kind="Settings" Size="16" />
+                    </Button>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Text="Notifications" FontWeight="SemiBold" FontSize="{StaticResource KcapFontSizeBody}" VerticalAlignment="Center" />
+                    <Border Classes="kcapBadge neutral" IsVisible="{Binding HasUnread}" VerticalAlignment="Center">
+                        <TextBlock Classes="kcapStatusWord" Text="{Binding UnreadText}" />
+                    </Border>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Delete all cannot be undone from here, so it asks first. -->
+        <Border x:Name="InboxDeleteAllConfirm" DockPanel.Dock="Top" IsVisible="{Binding IsConfirmingDeleteAll}"
+                Background="{StaticResource KcapDangerDimBrush}" Padding="14,10">
+            <StackPanel Spacing="8">
+                <TextBlock Text="Delete all notifications? This removes every one, unread ones included, and can't be undone."
+                           TextWrapping="Wrap" FontSize="{StaticResource KcapFontSizeSmall}" />
+                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                    <Button Classes="kcapGhost" Content="Cancel" Command="{Binding CancelDeleteAllCommand}" />
+                    <Button x:Name="InboxDeleteAllConfirmButton" Classes="kcapDanger" Content="Delete all" Command="{Binding DeleteAllCommand}" />
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <Panel>
+            <StackPanel IsVisible="{Binding IsLoading}" Margin="0,32" HorizontalAlignment="Center">
+                <ProgressBar IsIndeterminate="True" Width="120" />
+            </StackPanel>
+            <StackPanel x:Name="InboxEmptyState" IsVisible="{Binding IsEmpty}" Margin="20,40" Spacing="4" HorizontalAlignment="Center">
+                <views:AppIcon Kind="Bell" Size="28" Foreground="{StaticResource KcapFaintBrush}" HorizontalAlignment="Center" />
+                <TextBlock Text="You're all caught up" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,6,0,0" />
+                <TextBlock Text="New activity on your sessions shows up here." Foreground="{StaticResource KcapFaintBrush}" HorizontalAlignment="Center" />
+            </StackPanel>
+            <ScrollViewer x:Name="InboxList" HorizontalScrollBarVisibility="Disabled" IsVisible="{Binding HasItems}">
+                <ItemsControl ItemsSource="{Binding Items}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="inbox:InboxItemViewModel">
+                            <Border BorderThickness="0,0,0,1" BorderBrush="{StaticResource KcapBorderBrush}" Padding="14,12,10,12">
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                    <Panel>
+                                        <Border Classes="inboxTile" Classes.warning="{Binding Tile, Converter={x:Static local:InboxTileConverters.IsWarning}}">
+                                            <views:AppIcon Kind="{Binding Tile, Converter={x:Static local:InboxTileConverters.Icon}}" Size="16"
+                                                           Foreground="{Binding Tile, Converter={x:Static local:InboxTileConverters.Brush}}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <Ellipse Width="7" Height="7" Fill="{StaticResource KcapInfoBrush}" IsVisible="{Binding IsUnread}"
+                                                 HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-10,12,0,0" />
+                                    </Panel>
+                                    <StackPanel Grid.Column="1" Spacing="4" Opacity="{Binding IsUnread, Converter={x:Static local:InboxTileConverters.ReadOpacity}}">
+                                        <local:InboxRunsText Runs="{Binding Headline}" OpenCommand="{Binding OpenUrlCommand}" FontWeight="Medium" />
+                                        <Border IsVisible="{Binding HasQuote}" BorderThickness="2,0,0,0" BorderBrush="{StaticResource KcapBorderStrongBrush}" Padding="8,0,0,0">
+                                            <TextBlock Text="{Binding Quote}" TextWrapping="Wrap" FontStyle="Italic" Foreground="{StaticResource KcapMutedBrush}" />
+                                        </Border>
+                                        <ItemsControl ItemsSource="{Binding Lines}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="inbox:InboxLine">
+                                                    <Panel>
+                                                        <local:InboxRunsText IsVisible="{Binding !IsEvidence}" Runs="{Binding Runs}"
+                                                                             OpenCommand="{Binding $parent[ItemsControl].((inbox:InboxItemViewModel)DataContext).OpenUrlCommand}"
+                                                                             Foreground="{StaticResource KcapMutedBrush}" />
+                                                        <ItemsControl IsVisible="{Binding IsEvidence}" ItemsSource="{Binding Pills}">
+                                                            <ItemsControl.ItemTemplate>
+                                                                <DataTemplate x:DataType="x:String">
+                                                                    <Border Classes="inboxPill" Margin="0,2,0,0">
+                                                                        <TextBlock Text="{Binding}" TextWrapping="Wrap" FontFamily="{StaticResource KcapFontFamilyMono}"
+                                                                                   FontSize="{StaticResource KcapFontSizeSmall}" />
+                                                                    </Border>
+                                                                </DataTemplate>
+                                                            </ItemsControl.ItemTemplate>
+                                                        </ItemsControl>
+                                                    </Panel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <ItemsControl IsVisible="{Binding HasChips}" ItemsSource="{Binding Chips}">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="x:String">
+                                                    <Border Classes="inboxChip">
+                                                        <TextBlock Text="{Binding}" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}" />
+                                                    </Border>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <TextBlock IsVisible="{Binding HasStatusLine}" Text="{Binding StatusLine}" TextWrapping="Wrap"
+                                                   FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapWarningBrush}" />
+                                        <ItemsControl IsVisible="{Binding HasButtons}" ItemsSource="{Binding Buttons}" Margin="0,4,0,0">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate x:DataType="inbox:InboxButtonViewModel">
+                                                    <Button Content="{Binding Label}" Command="{Binding Command}" Margin="0,0,6,4"
+                                                            Classes="kcapGhost" Classes.kcapPrimary="{Binding IsPrimary}" Classes.kcapDanger="{Binding IsDanger}" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        <Grid IsVisible="{Binding HasReply}" ColumnDefinitions="*,Auto" ColumnSpacing="6" Margin="0,4,0,0">
+                                            <TextBox Text="{Binding ReplyText, Mode=TwoWay}" PlaceholderText="{Binding ReplyLabel}"
+                                                     AutomationProperties.Name="{Binding ReplyLabel}" IsEnabled="{Binding !IsAnswering}" />
+                                            <Button Grid.Column="1" Classes="kcapGhost" Content="Send" Command="{Binding SendReplyCommand}" />
+                                        </Grid>
+                                        <TextBlock IsVisible="{Binding CanAnswer}" Text="{Binding Note}" TextWrapping="Wrap"
+                                                   FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapMutedBrush}"
+                                                   AutomationProperties.LiveSetting="Polite" />
+                                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,4,0,0">
+                                            <TextBlock Text="{Binding When}" FontSize="{StaticResource KcapFontSizeSmall}" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                                            <TextBlock Text="·" IsVisible="{Binding HasLink}" Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />
+                                            <Button Classes="kcapLink" IsVisible="{Binding HasLink}" Command="{Binding OpenLinkCommand}"
+                                                    ToolTip.Tip="{Binding LinkUrl}">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <TextBlock Text="{Binding LinkText}" FontSize="{StaticResource KcapFontSizeSmall}" />
+                                                    <views:AppIcon Kind="{Binding LinkExternal, Converter={x:Static local:InboxTileConverters.LinkIcon}}" Size="12" />
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2" Spacing="2">
+                                        <Button Classes="kcapGhost kcapIcon" Command="{Binding MarkReadCommand}" IsVisible="{Binding IsUnread}"
+                                                ToolTip.Tip="Mark read" AutomationProperties.Name="Mark read">
+                                            <views:AppIcon Kind="CheckCheck" Size="16" />
+                                        </Button>
+                                        <Button Classes="kcapGhost kcapIcon" Command="{Binding DismissCommand}"
+                                                ToolTip.Tip="Dismiss" AutomationProperties.Name="Dismiss">
+                                            <views:AppIcon Kind="X" Size="16" />
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Panel>
+    </DockPanel>
+</UserControl>

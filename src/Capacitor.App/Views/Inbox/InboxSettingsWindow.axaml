@@ -1,0 +1,102 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:inbox="clr-namespace:Capacitor.App.ViewModels.Inbox"
+        x:Class="Capacitor.App.Views.Inbox.InboxSettingsWindow"
+        x:DataType="inbox:InboxSettingsViewModel"
+        Title="kcap — Notification settings"
+        Icon="avares://kcap-desktop/Assets/kcap-icon.png"
+        Width="600" Height="680" MinWidth="480" MinHeight="400" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource KcapCanvasBrush}"
+        ExtendClientAreaToDecorationsHint="True">
+    <Panel>
+        <Border Height="32" VerticalAlignment="Top" Background="Transparent" PointerPressed="OnChromePointerPressed" />
+        <Grid Margin="28,40,28,20" RowDefinitions="Auto,*,Auto">
+            <TextBlock Classes="kcapTitle" Text="Notification settings" />
+
+            <Panel Grid.Row="1" Margin="0,16,0,0">
+                <ProgressBar IsIndeterminate="True" Width="120" VerticalAlignment="Top" IsVisible="{Binding IsLoading}" />
+                <StackPanel x:Name="InboxSettingsError" Spacing="10" IsVisible="{Binding LoadError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                    <TextBlock Text="{Binding LoadError}" Foreground="{StaticResource KcapDangerBrush}" TextWrapping="Wrap" />
+                    <Button Classes="kcapGhost" Content="Retry" Command="{Binding RetryCommand}" HorizontalAlignment="Left" />
+                </StackPanel>
+                <ScrollViewer IsVisible="{Binding IsLoaded}" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Spacing="12">
+                        <Border x:Name="InboxSlackSection" Background="{StaticResource KcapSurfaceRaisedBrush}" BorderBrush="{StaticResource KcapBorderBrush}"
+                                BorderThickness="1" CornerRadius="8" Padding="12,10">
+                            <StackPanel Spacing="6">
+                                <TextBlock Classes="kcapLabel" Text="Slack delivery" />
+                                <TextBlock Classes="kcapHint" Text="{Binding SlackNote}" TextWrapping="Wrap" />
+                                <Button x:Name="InboxOpenChatAccountsButton" Classes="kcapGhost" HorizontalAlignment="Left"
+                                        IsVisible="{Binding CanOpenChatAccounts}" Command="{Binding OpenChatAccountsCommand}">
+                                    <StackPanel Orientation="Horizontal" Spacing="6">
+                                        <TextBlock Text="Open kcap in the browser" />
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+
+                        <Grid ColumnDefinitions="*,72,72" Margin="0,4,0,0">
+                            <TextBlock Classes="kcapHint" Text="TYPE" />
+                            <TextBlock Grid.Column="1" Classes="kcapHint" Text="IN-APP" HorizontalAlignment="Center" />
+                            <TextBlock Grid.Column="2" Classes="kcapHint" Text="SLACK" HorizontalAlignment="Center" />
+                        </Grid>
+                        <ItemsControl x:Name="InboxTypeRows" ItemsSource="{Binding Types}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="inbox:InboxTypeRowViewModel">
+                                    <Border BorderThickness="0,0,0,1" BorderBrush="{StaticResource KcapBorderBrush}" Padding="0,9">
+                                        <Grid ColumnDefinitions="*,72,72">
+                                            <StackPanel Spacing="2">
+                                                <TextBlock Classes="kcapLabel" Text="{Binding DisplayName}" />
+                                                <TextBlock Classes="kcapHint" Text="{Binding Description}" TextWrapping="Wrap" />
+                                                <TextBlock IsVisible="{Binding Retired}" Text="No longer produced — affects old notifications only."
+                                                           Foreground="{StaticResource KcapWarningBrush}" FontSize="{StaticResource KcapFontSizeSmall}" />
+                                            </StackPanel>
+                                            <ToggleSwitch Grid.Column="1" Classes="kcapSwitch" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                          IsChecked="{Binding Enabled, Mode=TwoWay}" AutomationProperties.Name="{Binding InAppName}" />
+                                            <ToggleSwitch Grid.Column="2" Classes="kcapSwitch" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                          IsVisible="{Binding SlackCapable}" IsEnabled="{Binding SlackUsable}"
+                                                          IsChecked="{Binding SlackEnabled, Mode=TwoWay}" AutomationProperties.Name="{Binding SlackName}" />
+                                            <TextBlock Grid.Column="2" Text="In-app only" IsVisible="{Binding !SlackCapable}" Classes="kcapHint"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center" AutomationProperties.Name="{Binding SlackName}" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Border x:Name="InboxPassesSection" IsVisible="{Binding PassesOffered}" Background="{StaticResource KcapSurfaceRaisedBrush}"
+                                BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,8,0,0">
+                            <StackPanel Spacing="8">
+                                <TextBlock Classes="kcapLabel" Text="Passes" />
+                                <Grid ColumnDefinitions="*,72">
+                                    <StackPanel Spacing="2">
+                                        <TextBlock Classes="kcapLabel" Text="Tell my coding agent" />
+                                        <TextBlock Classes="kcapHint" TextWrapping="Wrap"
+                                                   Text="Your agent gets a short notice that something was passed to you; never the brief or who sent it." />
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" Classes="kcapSwitch" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  IsChecked="{Binding TellAgent, Mode=TwoWay}" AutomationProperties.Name="Tell my coding agent about passes" />
+                                </Grid>
+                                <TextBlock Classes="kcapHint" IsVisible="{Binding !HasMutedSenders}" TextWrapping="Wrap"
+                                           Text="You haven't muted anyone. Mute a sender from any pass they send you." />
+                                <ItemsControl ItemsSource="{Binding MutedSenders}" IsVisible="{Binding HasMutedSenders}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="inbox:InboxMutedSenderViewModel">
+                                            <DockPanel Margin="0,2">
+                                                <Button DockPanel.Dock="Right" Classes="kcapGhost kcapQuiet" Content="Unmute" Command="{Binding UnmuteCommand}"
+                                                        AutomationProperties.Name="{Binding Name, StringFormat='Unmute {0}'}" />
+                                                <TextBlock Text="{Binding Name}" VerticalAlignment="Center" />
+                                            </DockPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </Panel>
+
+            <Button Grid.Row="2" Classes="kcapGhost" Content="Close" HorizontalAlignment="Right" Margin="0,14,0,0" Click="OnClose" />
+        </Grid>
+    </Panel>
+</Window>

@@ -11,6 +11,7 @@ using Avalonia.LogicalTree;
 using Avalonia.Media;
 using Avalonia.VisualTree;
 using Capacitor.App.ViewModels;
+using Capacitor.App.ViewModels.Inbox;
 
 namespace Capacitor.App.Views;
 
@@ -96,6 +97,29 @@ public partial class SessionRailView : UserControl {
     // Button.OnClick raises ClickEvent before reading Command, and Flyout.Hide detaches the popup
     // parent and clears inherited DataContext on its rows, so capture and run Command here.
     void OnHelpFlyoutItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailHelpButton, sender, e);
+
+    InboxBellViewModel? _openInbox;
+
+    // The panel caps at 70% of the window, as the web panel does of the viewport; past that its list scrolls.
+    void OnInboxFlyoutOpened(object? sender, EventArgs e) {
+        if (TopLevel.GetTopLevel(this) is { } top) RailInboxPanel.MaxHeight = top.Bounds.Height * 0.7;
+        if (RailInboxButton.DataContext is not InboxBellViewModel bell) return;
+        _openInbox = bell;
+        bell.PropertyChanged += OnInboxPropertyChanged;
+        bell.IsOpen = true;
+    }
+
+    void OnInboxFlyoutClosed(object? sender, EventArgs e) {
+        if (_openInbox is not { } bell) return;
+        _openInbox = null;
+        bell.PropertyChanged -= OnInboxPropertyChanged;
+        bell.IsOpen = false;
+    }
+
+    // Following a link or opening settings closes the panel from the view model.
+    void OnInboxPropertyChanged(object? sender, PropertyChangedEventArgs e) {
+        if (e.PropertyName == nameof(InboxBellViewModel.IsOpen) && sender is InboxBellViewModel { IsOpen: false }) RailInboxButton.Flyout?.Hide();
+    }
 
     void OnGroupPickerItemClick(object? sender, RoutedEventArgs e) => RunFlyoutItem(RailGroupButton, sender, e);
 
