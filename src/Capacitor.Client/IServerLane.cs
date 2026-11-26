@@ -35,6 +35,8 @@ public interface IServerLane {
     IObservable<PendingInputUpdate> PendingInputChanged { get; }
     /// The agent whose held messages changed, for its owner and the sender.
     IObservable<string> HeldMessagesChanged { get; }
+    /// The signed-in user's notification inbox changed.
+    IObservable<System.Reactive.Unit> NotificationsChanged { get; }
     /// Null when the lane has no live connection right now.
     Task<IReadOnlyList<Capacitor.Remote.Models.DaemonInfo>?> GetConnectedDaemonsAsync(CancellationToken ct);
     /// Null when the lane has no live connection right now, or the call failed.
