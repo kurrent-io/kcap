@@ -219,9 +219,46 @@ public class AgentOrchestratorStopForResumeTests {
 
         await orch.PrepareForResumeAsync(agent, CancellationToken.None);
 
-        await Assert.That(Ledger().TryRead("ended-1")!.State).IsEqualTo(ResumeState.Running);
+        var kept = Ledger().TryRead("ended-1")!;
+        await Assert.That(kept.State).IsEqualTo(ResumeState.Interrupted);
+        await Assert.That(kept.LastError).IsEqualTo(AgentOrchestrator.EndCommittedInterruption);
         await Assert.That(agent.ResumePending).IsFalse();
+        await Assert.That(agent.KeptInterrupted).IsTrue();
         await orch.DisposeAsync();
+    }
+
+    /// <summary>A live agent the restart cannot resume on its own still keeps what an operator's resume needs: its
+    /// worktree, entry and PID record stay, and the shutdown reports it ended.</summary>
+    [Test]
+    public async Task KeepAgents_keeps_the_worktree_and_entry_of_an_agent_with_a_committed_end() {
+        using var tmp      = new TempDir();
+        var       worktree = tmp.CreateDir("worktree");
+        var       server   = new CaptureServerConnection();
+        var       orch     = Build(server);
+        // Standalone, so an ordinary teardown would delete the directory.
+        var agent = new AgentInstance(
+            "ended-2", "goal", "default", null, worktree, "cursor",
+            new FakeHostedAgentRuntime("cursor", emitsTerminalOutput: true),
+            new WorktreeInfo(worktree, "", worktree, IsStandalone: true), new CancellationTokenSource()) {
+            CreatedAt     = TimeProvider.System.GetUtcNow().UtcDateTime,
+            LastOutputAt  = TimeProvider.System.GetUtcNow().UtcDateTime,
+            Status        = "Running",
+            ActivityClock = new AgentActivityClock(TimeProvider.System),
+        };
+        orch.RegisterAgentForTest(agent);
+        orch.WriteLedger(agent, cmd: null, origin: "server", consent: null);
+        var entry = Ledger().TryRead("ended-2")!;
+        Ledger().Write(entry with { EndCommittedAt = TimeProvider.System.GetUtcNow(), EndCommittedSession = entry.SessionId });
+        orch.WritePidRecordForTest(new AgentPidRecord(
+            "ended-2", 999_999, "identity", PidIdentityKind.Present, "Default", "cursor", null, null,
+            orch.DaemonIdForTest, orch.DaemonEpochForTest, TimeProvider.System.GetUtcNow()));
+
+        await orch.DisposeAsync();
+
+        await Assert.That(Directory.Exists(worktree)).IsTrue();
+        await Assert.That(Ledger().TryRead("ended-2")!.State).IsEqualTo(ResumeState.Interrupted);
+        await Assert.That(new AgentPidRecordStore(Store.Store.StateDirectory("test"), NullLogger.Instance).Exists("ended-2")).IsTrue();
+        await Assert.That(server.ShutdownReports).IsNotEmpty();
     }
 
     /// <summary>An end committed for an earlier session of the same process, as a Claude /clear does,

@@ -202,7 +202,10 @@ internal partial class AgentOrchestrator {
         List<ResumeAttempt> withdrawn = [];
 
         lock (_ledgerLock) {
-            foreach (var agent in _agents.Values) agent.ResumePending = false;
+            foreach (var agent in _agents.Values) {
+                agent.ResumePending   = false;
+                agent.KeptInterrupted = false;
+            }
 
             foreach (var agentId in _resumeCandidates.Keys.Concat(_resumeAttempts.Keys).Distinct(StringComparer.Ordinal).ToList()) {
                 _resumeCandidates.TryRemove(agentId, out _);
@@ -288,8 +291,9 @@ internal partial class AgentOrchestrator {
         lock (_ledgerLock) {
             if (agent.IsCleanupStarted) return false;
 
-            var now   = _time.GetUtcNow();
-            var clock = agent.ActivityClock.Snapshot();
+            var now         = _time.GetUtcNow();
+            var clock       = agent.ActivityClock.Snapshot();
+            var interrupted = false;
             LockedUpdate result;
 
             try {
@@ -297,7 +301,22 @@ internal partial class AgentOrchestrator {
                     var vendorSession = agent.VendorSession ?? entry.VendorSession;
 
                     // A participant has no kcap continue to fall back on, so one with no session to reopen ends here.
-                    if (EndCommittedForCurrentSession(entry, agent) || (entry.Participant is not null && vendorSession is null)) return null;
+                    if (entry.Participant is not null && (vendorSession is null || EndCommittedForCurrentSession(entry, agent))) return null;
+
+                    // The end may be on its way to the server, so a successor must not resume this run on its own.
+                    // An operator still can: the entry stays, interrupted, with everything a resume needs.
+                    if (EndCommittedForCurrentSession(entry, agent)) {
+                        interrupted = true;
+
+                        return entry with {
+                            State         = ResumeState.Interrupted,
+                            LastError     = EndCommittedInterruption,
+                            UpdatedAt     = now,
+                            SessionId     = agent.SessionId ?? entry.SessionId,
+                            VendorSession = vendorSession,
+                            Launch        = WithShownTitle(entry.Launch, agent),
+                        };
+                    }
 
                     return entry with {
                         State                 = ResumeState.Resuming,
@@ -316,7 +335,16 @@ internal partial class AgentOrchestrator {
                 return false;
             }
 
-            if (result != LockedUpdate.Written) return false;
+            if (result != LockedUpdate.Written) {
+                LogNotMarkedResuming(agent.Id, result.ToString());
+                return false;
+            }
+
+            if (interrupted) {
+                agent.KeptInterrupted = true;
+                LogKeptInterrupted(agent.Id);
+                return false;
+            }
 
             agent.ResumePending = true;
             return true;
@@ -343,14 +371,30 @@ internal partial class AgentOrchestrator {
                 lock (_ledgerLock) {
                     if (agent.IsCleanupStarted) return;
 
-                    var waiting = agent.ActivityClock.NothingInFlight;
-                    var result  = ResumeLedger!.TryUpdateUnderLock(agent.Id, entry =>
+                    var waiting  = agent.ActivityClock.NothingInFlight;
+                    var reopened = false;
+                    var result   = ResumeLedger!.TryUpdateUnderLock(agent.Id, entry => {
                         // A stop has marked the entry for its successor; what the agent does while it ends must not undo that.
-                        entry.State != ResumeState.Running || entry.AwaitingInput == waiting ? null
-                            : entry with { AwaitingInput = waiting, UpdatedAt = _time.GetUtcNow(), Launch = WithShownTitle(entry.Launch, agent) },
-                        EntryLockWait);
+                        if (entry.State != ResumeState.Running) return null;
+
+                        // A turn after a committed end means the session runs on: a soft end, such as the watcher's idle
+                        // timeout, ended it while the process lived, and the server reopens it on the turn's lines. Left
+                        // in place, the stale end would keep the next restart from resuming the agent.
+                        reopened = !waiting && entry.EndCommittedAt is not null;
+
+                        return entry.AwaitingInput == waiting && !reopened ? null
+                            : entry with {
+                                AwaitingInput       = waiting,
+                                UpdatedAt           = _time.GetUtcNow(),
+                                Launch              = WithShownTitle(entry.Launch, agent),
+                                EndCommittedAt      = reopened ? null : entry.EndCommittedAt,
+                                EndCommittedEpoch   = reopened ? null : entry.EndCommittedEpoch,
+                                EndCommittedSession = reopened ? null : entry.EndCommittedSession,
+                            };
+                    }, EntryLockWait);
 
                     if (result == LockedUpdate.LockTimeout) LogResumeLedgerFailed(new IOException("the entry stayed locked"), "writing", agent.Id);
+                    else if (result == LockedUpdate.Written && reopened) LogEndCommitCleared(agent.Id);
                 }
             } catch (Exception ex) {
                 LogResumeLedgerFailed(ex, "writing", agent.Id);
@@ -762,6 +806,9 @@ internal partial class AgentOrchestrator {
     static readonly TimeSpan ParticipantClaimLifetime = TimeSpan.FromMinutes(15);
 
     const string TombstonePrefix = "tombstone:";
+
+    /// <summary>Why a keep-agents shutdown left a live agent interrupted rather than resuming.</summary>
+    internal const string EndCommittedInterruption = "session_end_committed";
 
     static bool IsTombstone(ResumeLedgerEntry entry) =>
         entry.State == ResumeState.Interrupted && entry.LastError?.StartsWith(TombstonePrefix, StringComparison.Ordinal) == true;
@@ -1938,6 +1985,15 @@ internal partial class AgentOrchestrator {
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Resume ledger: failed {Step} the entry for agent {AgentId}")]
     partial void LogResumeLedgerFailed(Exception ex, string step, string agentId);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Resume: agent {AgentId} was not marked for resume ({Result}); the shutdown ends it")]
+    partial void LogNotMarkedResuming(string agentId, string result);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Resume: agent {AgentId} has a session end committed, so it will not resume on its own; kept interrupted with its worktree for `kcap agent resume`")]
+    partial void LogKeptInterrupted(string agentId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Resume: agent {AgentId} started a turn after its session end was committed; cleared the end so a restart resumes it")]
+    partial void LogEndCommitCleared(string agentId);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Resume ledger: failed writing the terminal ring for agent {AgentId}")]
     partial void LogResumeRingFailed(Exception ex, string agentId);

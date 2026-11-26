@@ -80,6 +80,15 @@ internal record AgentInstance(
     /// worktree, attachments, MCP config, vendor launcher state, PID record and resume-ledger entry.
     public bool                 ResumePending     { get; set; }
 
+    /// Set when a keep-agents shutdown could not mark this agent for resume and left its entry
+    /// <see cref="ResumeState.Interrupted"/> instead: teardown keeps everything <see cref="ResumePending"/>
+    /// keeps, so `kcap agent resume` can bring it back, but the shutdown still reports it ended.
+    public bool                 KeptInterrupted   { get; set; }
+
+    /// Teardown leaves the agent's worktree, attachments, MCP config, launcher state, PID record and
+    /// resume-ledger entry for a later resume.
+    public bool                 KeepsResumeState  => ResumePending || KeptInterrupted;
+
     /// The interrupted session this agent continues, until its own session id is known and the
     /// takeover of that session's work has started.
     public string?              ContinuedFromSessionId { get; set; }
@@ -6891,7 +6900,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
 
         // The launcher's teardown deletes the MCP config and the vendor's project link, which a
         // pending resume still needs.
-        if (!agent.ResumePending && _launchers.TryGetValue(agent.Vendor, out var launcher)) {
+        if (!agent.KeepsResumeState && _launchers.TryGetValue(agent.Vendor, out var launcher)) {
             try { launcher.Cleanup(agent); } catch (Exception ex) { LogCleanupStepFailed(ex, "launcher.Cleanup", agentId); }
         }
 
@@ -6901,11 +6910,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // A pending resume keeps everything the successor daemon resumes from.
         bool? worktreeRemoved = null;
 
-        if (agent is { Work: WorkLocation.OwnedWorktree, ResumePending: false }) {
+        if (agent is { Work: WorkLocation.OwnedWorktree, KeepsResumeState: false }) {
             try { worktreeRemoved = await RemoveOwnedWorktreeAsync(agent.Worktree, agentId); } catch (Exception ex) { LogCleanupStepFailed(ex, "removing worktree", agentId); }
         }
 
-        if (!agent.ResumePending) {
+        if (!agent.KeepsResumeState) {
             try { _attachmentStore.Remove(agentId); } catch (Exception ex) { LogCleanupStepFailed(ex, "removing attachments", agentId); }
         }
 
@@ -6923,7 +6932,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // still matches (true) OR is uncomparable (null — unreadable/foreign token). Delete only on a
         // proven-gone pid: dead, a conclusive recycle (MatchesTri == false), or an agent that was never
         // identified. Collapsing the uncomparable case to "gone" would drop a live child's record.
-        if (agent.ResumePending) {
+        if (agent.KeepsResumeState) {
             // The record stays for the successor daemon.
         } else if (agent.StartIdentity is { } startIdentity
             && ProcessIdentity.IsAlive(pid)
@@ -6936,7 +6945,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             DeletePidRecord(agentId); // confirmed dead / conclusively recycled pid / never-identified
         }
 
-        if (!agent.ResumePending) DeleteLedger(agentId);
+        if (!agent.KeepsResumeState) DeleteLedger(agentId);
 
         // Now drop the agent from the live registry — after a surviving child is already in quarantine,
         // so a concurrent launch never sees EffectiveCount transiently under-count this agent.

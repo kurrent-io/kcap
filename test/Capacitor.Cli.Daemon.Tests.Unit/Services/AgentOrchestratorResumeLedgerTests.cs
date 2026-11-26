@@ -305,6 +305,47 @@ public class AgentOrchestratorResumeLedgerTests {
         await Assert.That(busy.State).IsEqualTo(ResumeState.Running);
     }
 
+    /// <summary>The watcher's idle timeout ends a Codex session while its process lives, and the fence stamps that end
+    /// on the entry. A turn afterwards means the session runs on, so the stamp must go, or the next restart leaves the
+    /// agent behind.</summary>
+    [Test]
+    public async Task A_turn_after_a_committed_end_clears_the_end() {
+        await using var orch = Build();
+        var agent = orch.SeedAgentForTest("ledger-reopened");
+        orch.WriteLedger(agent, cmd: null, origin: "local", consent: null);
+        agent.ActivityClock.SetAwaitingInput(true);
+        await EntryOnceAsync(orch, "ledger-reopened", e => e.AwaitingInput == true);
+        var entry = orch.ResumeLedger!.TryRead("ledger-reopened")!;
+        orch.ResumeLedger.Write(entry with {
+            EndCommittedAt = TimeProvider.System.GetUtcNow(), EndCommittedEpoch = "epoch-1", EndCommittedSession = entry.SessionId
+        });
+
+        agent.ActivityClock.SetAwaitingInput(false);
+        var reopened = await EntryOnceAsync(orch, "ledger-reopened", e => e.EndCommittedAt is null);
+
+        await Assert.That(reopened.EndCommittedEpoch).IsNull();
+        await Assert.That(reopened.EndCommittedSession).IsNull();
+        await Assert.That(reopened.AwaitingInput).IsFalse();
+    }
+
+    /// <summary>A turn ending is no sign the session runs on: the end it committed stays.</summary>
+    [Test]
+    public async Task A_turn_ending_after_a_committed_end_keeps_the_end() {
+        await using var orch = Build();
+        var agent = orch.SeedAgentForTest("ledger-ended");
+        orch.WriteLedger(agent, cmd: null, origin: "local", consent: null);
+        agent.ActivityClock.SetAwaitingInput(false);
+        await EntryOnceAsync(orch, "ledger-ended", e => e.AwaitingInput == false);
+        var committed = TimeProvider.System.GetUtcNow();
+        var entry     = orch.ResumeLedger!.TryRead("ledger-ended")!;
+        orch.ResumeLedger.Write(entry with { EndCommittedAt = committed, EndCommittedSession = entry.SessionId });
+
+        agent.ActivityClock.SetAwaitingInput(true);
+        var settled = await EntryOnceAsync(orch, "ledger-ended", e => e.AwaitingInput == true);
+
+        await Assert.That(settled.EndCommittedAt).IsEqualTo(committed);
+    }
+
     /// <summary>The written value is read when the write runs, so a quick run of edges ends on the latest one.</summary>
     [Test]
     public async Task A_burst_of_waiting_edges_settles_on_the_last() {
