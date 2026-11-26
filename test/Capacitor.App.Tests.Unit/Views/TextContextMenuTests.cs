@@ -93,6 +93,22 @@ public class TextContextMenuTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public async Task Right_clicking_a_link_chip_offers_to_copy_its_address_without_opening_it() {
+        await RunOnUiAsync(async () => {
+            var (window, view, opened) = Show("See https://github.com/kurrent-io/kcap/pull/2625 now.");
+            try {
+                var presenter = RightClick(window, All<GitHubLinkChip>(view).Single(), view);
+                await Assert.That(opened).IsEmpty();
+
+                Row(presenter, "Copy link").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(await TopLevel.GetTopLevel(view)!.Clipboard!.TryGetTextAsync()).IsEqualTo("https://github.com/kurrent-io/kcap/pull/2625");
+            } finally { window.Close(); }
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public async Task Copy_link_is_left_out_off_a_link() {
         await RunOnUiAsync(async () => {
             var (window, view, _) = Show("Plain words before [docs](https://example.com/docs).");

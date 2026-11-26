@@ -1,0 +1,44 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             x:Class="Capacitor.App.Views.GitHubLinkChip"
+             x:DataType="vm:GitHubLinkChipViewModel"
+             Cursor="Hand"
+             AutomationProperties.Name="{Binding AccessibleName}"
+             AutomationProperties.HelpText="{Binding Url}">
+    <UserControl.Styles>
+        <Style Selector="Border.chip">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        </Style>
+        <Style Selector="Border.chip:pointerover">
+            <Setter Property="Background" Value="{StaticResource KcapControlHoverBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderStrongBrush}" />
+        </Style>
+        <Style Selector="TextBlock.label">
+            <Setter Property="Foreground" Value="{StaticResource KcapTextBrush}" />
+        </Style>
+        <Style Selector="TextBlock.status">
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="TextBlock.status.prOpen">
+            <Setter Property="Foreground" Value="{StaticResource KcapPrOpenBrush}" />
+        </Style>
+        <Style Selector="TextBlock.status.prMerged">
+            <Setter Property="Foreground" Value="{StaticResource KcapPrMergedBrush}" />
+        </Style>
+        <Style Selector="TextBlock.status.prClosed">
+            <Setter Property="Foreground" Value="{StaticResource KcapPrClosedBrush}" />
+        </Style>
+    </UserControl.Styles>
+    <Border x:Name="Chip" Classes="chip" BorderThickness="1" CornerRadius="6" Padding="5,0,6,0" Height="20">
+        <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+            <views:AppIcon Kind="{Binding Glyph}" Size="12" Foreground="{Binding #Status.Foreground}" />
+            <TextBlock Classes="label" Text="{Binding Label}" FontSize="{StaticResource KcapFontSizeBody}" VerticalAlignment="Center" />
+            <TextBlock x:Name="Status" Classes="status" Text="{Binding StatusText}" IsVisible="{Binding HasStatus}"
+                       FontSize="{StaticResource KcapFontSizeBody}" VerticalAlignment="Center"
+                       Classes.prOpen="{Binding IsOpen}" Classes.prMerged="{Binding IsMerged}" Classes.prClosed="{Binding IsClosed}" />
+        </StackPanel>
+    </Border>
+</UserControl>
