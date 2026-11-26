@@ -143,6 +143,59 @@ public class InboxBellViewModelTests {
     });
 
     [Test]
+    public async Task A_read_begun_before_a_disconnect_never_shows_the_bell() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        var gate = new TaskCompletionSource();
+        rig.Api.CountGate = gate;
+        rig.Api.Count = new(InboxReadKind.Ready, new() { Count = 4 });
+        rig.Connect();
+        rig.Status.OnNext(new(ServerLaneState.Retrying));
+
+        gate.SetResult();
+        await Task.Yield();
+
+        await Assert.That(rig.Bell.IsVisible).IsFalse();
+        await Assert.That(rig.Bell.UnreadCount).IsEqualTo(0);
+    });
+
+    [Test]
+    public async Task A_reconnect_during_a_running_read_still_admits_the_bell() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        var gate = new TaskCompletionSource();
+        rig.Api.CountGate = gate;
+        rig.Api.Count = new(InboxReadKind.Ready, new() { Count = 2 });
+        rig.Connect();
+        rig.Status.OnNext(new(ServerLaneState.Retrying));
+        rig.Connect();
+
+        rig.Api.CountGate = null;
+        gate.SetResult();
+        await Task.Yield();
+
+        await Assert.That(rig.Bell.IsVisible).IsTrue();
+        await Assert.That(rig.Bell.UnreadCount).IsEqualTo(2);
+    });
+
+    [Test]
+    public async Task A_re_read_keeps_the_answer_sentence_and_an_unsent_reply_on_the_replacement_card() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        var prompt = Item("n1", type: "agent_prompt") with {
+            Buttons = [new() { Answer = "allow", Label = "Allow", Style = "primary" }], ReplyLabel = "Reply",
+        };
+        rig.Api.Page = PageOf(1, prompt, Item("n2"));
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = true, Message = "Approved" });
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        rig.Bell.Items[0].Buttons.Single().Command.Execute(null);
+        rig.Bell.Items[1].ReplyText = "half typed";
+        rig.Changed.OnNext(RxUnit.Default);
+
+        await Assert.That(rig.Bell.Items[0].Note).IsEqualTo("Approved");
+        await Assert.That(rig.Bell.Items[1].ReplyText).IsEqualTo("half typed");
+    });
+
+    [Test]
     public async Task Delete_all_acts_only_once_confirmed() => await AvaloniaSession.RunOnUiAsync(async () => {
         using var rig = new Rig().Start();
         rig.Api.Page = PageOf(1, Item("n1"));

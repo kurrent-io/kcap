@@ -4,6 +4,7 @@ using System.Reactive.Disposables.Fluent;
 using System.Reactive.Linq;
 using Avalonia.Collections;
 using Capacitor.App.Services.Inbox;
+using Capacitor.Remote.Models;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels.Inbox;
@@ -26,9 +27,14 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     // Rows dismissed here, by the version dismissed: kept off the list until a page no longer carries them. A newer
     // version shows the row again, as the server refuses a dismiss of an older one without an error.
     readonly Dictionary<string, long> _dismissing = new(StringComparer.Ordinal);
+    // A card's answer sentence, kept across the re-reads that replace the card.
+    readonly Dictionary<string, string> _notes = new(StringComparer.Ordinal);
     bool _connected;
+    // Advances on every connect and disconnect, so a read begun under one connection never lands under the next.
+    int _epoch;
     bool _refreshRunning;
     bool _refreshQueued;
+    bool _admitQueued;
     bool _disposed;
 
     public IAvaloniaReadOnlyList<InboxItemViewModel> Items => _items;
@@ -116,13 +122,18 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
 
     void OnConnectedChanged(bool connected) {
         _connected = connected;
-        if (connected) _ = AdmitAsync();
-        else Hide();
+        _epoch++;
+        if (connected) {
+            _ = AdmitAsync(_epoch);
+            return;
+        }
+        _admitQueued = false;
+        Hide();
     }
 
-    async Task AdmitAsync() {
+    async Task AdmitAsync(int epoch) {
         var surfaces = await Guard(_api.SurfacesAsync(_lifetime.Token));
-        if (_disposed || !_connected || surfaces is null) return;
+        if (_disposed || epoch != _epoch || surfaces is null) return;
         if (surfaces is not { Kind: InboxReadKind.Ready, Value.Notifications: true }) {
             Hide();
             return;
@@ -136,6 +147,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         IsOpen = false;
         UnreadCount = 0;
         ListLoaded = false;
+        _notes.Clear();
         Replace([]);
     }
 
@@ -144,8 +156,10 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         _ = RefreshAsync(admitting: false);
     }
 
+    // An admission queued behind a running read still runs once that read ends, even though the bell is hidden meanwhile.
     async Task RefreshAsync(bool admitting) {
-        if (!admitting && !IsVisible) return;
+        if (admitting) _admitQueued = true;
+        else if (!IsVisible) return;
         if (_refreshRunning) {
             _refreshQueued = true;
             return;
@@ -154,18 +168,19 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         try {
             do {
                 _refreshQueued = false;
-                if (IsOpen) await ReadListAsync(admitting);
-                else await ReadCountAsync(admitting);
-                admitting = false;
-            } while (_refreshQueued && !_disposed && IsVisible);
+                var admit = _admitQueued;
+                _admitQueued = false;
+                if (IsOpen) await ReadListAsync(admit, _epoch);
+                else await ReadCountAsync(admit, _epoch);
+            } while (!_disposed && (_admitQueued || (_refreshQueued && IsVisible)));
         } finally {
             _refreshRunning = false;
         }
     }
 
-    async Task ReadCountAsync(bool admitting) {
+    async Task ReadCountAsync(bool admitting, int epoch) {
         var read = await Guard(_api.UnreadCountAsync(_lifetime.Token));
-        if (_disposed || read is null) return;
+        if (_disposed || epoch != _epoch || read is null) return;
         switch (read.Kind) {
             case InboxReadKind.Ready:
                 UnreadCount = read.Value!.Count;
@@ -177,16 +192,19 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         }
     }
 
-    async Task ReadListAsync(bool admitting) {
+    async Task ReadListAsync(bool admitting, int epoch) {
         var read = await Guard(_api.InboxAsync(PageSize, _lifetime.Token));
-        if (_disposed || read is null) return;
+        if (_disposed || epoch != _epoch || read is null) return;
         switch (read.Kind) {
             case InboxReadKind.Ready:
                 var page = read.Value!;
                 var hidden = page.Items.Where(i => _dismissing.TryGetValue(i.LogicalId, out var v) && i.Version <= v).ToList();
                 foreach (var id in _dismissing.Keys.Except(hidden.Select(i => i.LogicalId)).ToList()) _dismissing.Remove(id);
                 var now = _time.GetUtcNow();
-                Replace(page.Items.Except(hidden).Select(i => new InboxItemViewModel(i, now, _api.Resolve, MarkReadAsync, DismissAsync, AnswerAsync, Open)).ToList());
+                var shown = page.Items.Except(hidden).ToList();
+                foreach (var id in _notes.Keys.Except(shown.Select(i => i.LogicalId)).ToList()) _notes.Remove(id);
+                var previous = _items.ToDictionary(i => i.LogicalId, StringComparer.Ordinal);
+                Replace(shown.Select(i => Card(i, now, previous.GetValueOrDefault(i.LogicalId))).ToList());
                 UnreadCount = Math.Max(0, page.UnreadCount - hidden.Count(i => i.IsUnread));
                 ListLoaded = true;
                 if (admitting) IsVisible = true;
@@ -195,6 +213,13 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
                 Hide();
                 break;
         }
+    }
+
+    // A re-read replaces every card; the one it replaces hands over what the person has typed and the last answer's sentence.
+    InboxItemViewModel Card(NotificationItemDto dto, DateTimeOffset now, InboxItemViewModel? previous) {
+        var card = new InboxItemViewModel(dto, now, _api.Resolve, MarkReadAsync, DismissAsync, AnswerAsync, Open);
+        card.Carry(_notes.GetValueOrDefault(dto.LogicalId), previous is { IsAnswering: false } ? previous.ReplyText : null);
+        return card;
     }
 
     async Task MarkReadAsync(InboxItemViewModel item) {
@@ -216,8 +241,10 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     async Task<string> AnswerAsync(InboxItemViewModel item, string answer, string? text) {
         const string couldNotSend = "Couldn't send that answer. Try again, or answer it in kcap";
         var read = await Guard(_api.AnswerAsync(item.LogicalId, answer, text, _lifetime.Token));
+        var note = read is { Kind: InboxReadKind.Ready, Value: { } outcome } ? outcome.Message : couldNotSend;
+        _notes[item.LogicalId] = note;
         Refresh();
-        return read is { Kind: InboxReadKind.Ready, Value: { } outcome } ? outcome.Message : couldNotSend;
+        return note;
     }
 
     async Task MarkAllReadAsync() {
