@@ -167,7 +167,8 @@ public class McpPassServerTests {
     }
 
     /// <summary>An approval this process did not hand out, such as one from before a restart, is approved only when the
-    /// server says the caller sent its pass.</summary>
+    /// server says the caller sent its pass, and declares no follow-up on this session, which may not be the one that sent
+    /// it.</summary>
     [Test]
     [Arguments("sent", true)]
     [Arguments("received", false)]
@@ -177,13 +178,15 @@ public class McpPassServerTests {
             ReadResult = side is null
                 ? new PassReadResult.NotFound()
                 : new PassReadResult.Found(new("p9", side, "look", "page", "pg-1", "github:1", "github:7", "Check the chart", null, null, null,
-                                               "awaiting_approval", SentAt, null, null, null, null, null, null))
+                                               "awaiting_approval", SentAt, null, null, null, null, null, null)),
+            AnswerResult = new PassAnswerResult.Answered(new("sent", "sent", [], FollowUpDue, null))
         };
 
         var response = await Server(api).HandleToolCallAsync(9, Call("approve_pass", new JsonObject { ["approval_id"] = "p9" }));
 
         await Assert.That(IsError(response)).IsEqualTo(!approves);
         await Assert.That(api.Approved.Count).IsEqualTo(approves ? 1 : 0);
+        await Assert.That(api.FollowUps).IsEmpty();
     }
 
     static readonly DateTimeOffset SentAt = new(2026, 10, 30, 9, 0, 0, TimeSpan.Zero);

@@ -218,8 +218,9 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
         McpResponses.ToolResult(id, $"Error: {reason}. The pass may or may not have been sent. Do not pass or message again; " +
                                     $"ask the user to check in kcap: {SentLink}", isError: true);
 
-    /// <summary>The sender's yes to one approval. An approval this process did not hand out, as after a restart, is read
-    /// back for the follow-up it would declare, and approved only when the caller sent it.</summary>
+    /// <summary>The sender's yes to one approval. An approval this process did not hand out, as after a restart, is
+    /// approved only when the caller sent its pass, and declares no follow-up: the session that sent it is not known here,
+    /// and the reminder belongs to that session alone.</summary>
     async Task<string> ApprovePassAsync(JsonNode id, JsonObject? arguments) {
         var passId = McpToolArguments.RequireString(arguments, "approval_id");
 
@@ -229,7 +230,7 @@ sealed class McpPassServer(IPassesApi passes, string serverUrl, TimeProvider tim
             if (await passes.GetAsync(passId, read.Token) is not PassReadResult.Found { Pass: { Side: "sent" } pass })
                 return McpResponses.ToolResult(id, "Error: no such approval, or not one for a pass you sent.", isError: true);
 
-            body = new StartPassBody(pass.Kind, pass.RecipientId, pass.ItemKind, pass.ItemId, SendingSessionId: sendingSession());
+            body = new StartPassBody(pass.Kind, pass.RecipientId, pass.ItemKind, pass.ItemId);
         }
 
         using var request = new CancellationTokenSource(RequestBudget, time);
