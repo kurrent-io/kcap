@@ -97,18 +97,34 @@ static class MarkViewSelection {
         }
     }
 
-    /// <paramref name="text"/>, a part of the entry's text starting <paramref name="from"/> characters
-    /// in, with each embedded control read as what it copies as: a link chip its address, anything
-    /// else nothing.
-    static string Readable(object entry, string text, int from) {
-        if (text.IndexOf(Embedded) < 0) return text;
-        var plain = PlainText(entry);
-        var controls = TextBlockOf(entry).Inlines is { } inlines ? Controls(inlines).ToList() : [];
-        var index = plain.AsSpan(0, from).Count(Embedded);
+    /// Where each embedded control stands in the entry's text. Found from the layout, so a character
+    /// the writer typed that reads the same is left as text.
+    static Dictionary<int, Control?> EmbeddedIn(object entry) {
+        var found = new Dictionary<int, Control?>();
+        if (TextBlockOf(entry).Inlines is not { } inlines) return found;
+        var at = MarkerLength(entry, PlainText(entry));
+        void Walk(InlineCollection items) {
+            foreach (var inline in items) {
+                switch (inline) {
+                    case Run run: at += run.Text?.Length ?? 0; break;
+                    case LineBreak: at += Environment.NewLine.Length; break;
+                    case Span span: Walk(span.Inlines); break;
+                    case InlineUIContainer container: found[at++] = container.Child; break;
+                }
+            }
+        }
+        Walk(inlines);
+        return found;
+    }
+
+    /// The entry's text from <paramref name="from"/> up to <paramref name="to"/>, each embedded control
+    /// read as what it copies as: a link chip its address, anything else nothing.
+    static string Readable(string plain, Dictionary<int, Control?> embedded, int from, int to) {
+        if (embedded.Count == 0) return plain[from..to];
         var readable = new StringBuilder();
-        foreach (var c in text) {
-            if (c != Embedded) readable.Append(c);
-            else if (controls.ElementAtOrDefault(index++) is GitHubLinkChip chip) readable.Append(chip.Url);
+        for (var i = from; i < to; i++) {
+            if (!embedded.TryGetValue(i, out var control)) readable.Append(plain[i]);
+            else if (control is GitHubLinkChip chip) readable.Append(chip.Url);
         }
         return readable.ToString();
     }
@@ -150,10 +166,10 @@ static class MarkViewSelection {
             var start = AbsStart(entry);
             var plain = PlainText(entry);
             var marker = MarkerLength(entry, plain);
+            var embedded = EmbeddedIn(entry);
             for (var i = 0; i < plain.Length; i++) {
                 var (offset, index) = (i < marker ? start : start + i - marker, Math.Max(0, i - marker));
-                if (plain[i] == Embedded) foreach (var c in Readable(entry, plain[i..(i + 1)], i)) Keep(c, offset, entry, index);
-                else Keep(plain[i], offset, entry, index);
+                foreach (var c in Readable(plain, embedded, i, i + 1)) Keep(c, offset, entry, index);
             }
             foreach (var c in Separator(entry)) Keep(c, start + plain.Length - marker, entry, plain.Length - marker);
         }
@@ -180,7 +196,7 @@ static class MarkViewSelection {
             if (start + laidOut + Separator(entry).Length <= from) continue;
             var (s, e) = (Math.Max(0, from - start), Math.Min(laidOut, to - start));
             if (s == 0 && marker > 0) text.Append(plain, 0, marker);
-            if (e > s) text.Append(Readable(entry, plain.Substring(marker + s, e - s), marker + s));
+            if (e > s) text.Append(Readable(plain, EmbeddedIn(entry), marker + s, marker + e));
             if (to > start + laidOut) text.Append(Separator(entry));
         }
         return text.ToString();
@@ -205,8 +221,7 @@ static class MarkViewSelection {
 
     static string Unmarked(object entry) {
         var plain = PlainText(entry);
-        var marker = MarkerLength(entry, plain);
-        return Readable(entry, plain[marker..], marker);
+        return Readable(plain, EmbeddedIn(entry), MarkerLength(entry, plain), plain.Length);
     }
 
     static string Words(string text) => string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));

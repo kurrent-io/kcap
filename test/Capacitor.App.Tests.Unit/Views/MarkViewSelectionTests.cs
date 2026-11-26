@@ -124,6 +124,19 @@ public class MarkViewSelectionTests {
         });
     }
 
+    /// An object replacement character the writer typed is text, not a stand-in for a chip.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_typed_object_replacement_character_copies_as_itself() {
+        await RunOnUiAsync(async () => {
+            var (window, view, _) = Show("odd \uFFFC then https://github.com/kurrent-io/kcap/pull/2625 now");
+            try {
+                view.SelectAll();
+                await Assert.That(await Copied(view)).IsEqualTo("odd \uFFFC then https://github.com/kurrent-io/kcap/pull/2625 now");
+            } finally { window.Close(); }
+        });
+    }
+
     /// The chip is one character of its block's layout, so the text after it is where the pointer puts it.
     [Test]
     [NotInParallel("AvaloniaSession")]
