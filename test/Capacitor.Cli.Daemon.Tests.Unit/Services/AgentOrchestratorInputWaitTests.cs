@@ -21,8 +21,8 @@ public class AgentOrchestratorInputWaitTests {
         await Assert.That(agent.ActivityClock.AwaitingInput).IsFalse();
     }
 
-    /// A child's tool call keeps the parent busy, so a restart waits for it, but it is no turn of the parent's own: it
-    /// leaves no turn start for a soft session end to be cleared by.
+    /// A child's tool call moves the parent's wait, as a hint it is busy, but it is no turn of the parent's own: no turn
+    /// attestation and no turn start for a soft session end to be cleared by.
     [Test]
     public async Task A_childs_verdict_keeps_the_agent_busy_without_starting_its_turn() {
         await using var orch  = AgentOrchestratorHarness.BuildOrchestrator(new CaptureServerConnection(), new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
@@ -34,9 +34,36 @@ public class AgentOrchestratorInputWaitTests {
 
         await Assert.That(agent.ActivityClock.NothingInFlight).IsFalse();
         await Assert.That(agent.ActivityClock.LastTurnStartedUtcTicks).IsEqualTo(0L);
+        await Assert.That(agent.ActivityClock.TurnAttestations).IsEqualTo(0UL);
+        await Assert.That(agent.ActivityClock.TurnAttested).IsFalse();
 
         relay(agent.Id, false, false);
         await Assert.That(agent.ActivityClock.LastTurnStartedUtcTicks).IsGreaterThan(0L);
+    }
+
+    /// A background child's tool call is not the agent taking its prompt: the launch prompt stays unconfirmed.
+    [Test]
+    public async Task A_childs_verdict_does_not_confirm_the_agents_launch_prompt() {
+        var             pty     = new RecordingScriptedPtyProcess();
+        var             runtime = new PtyHostedAgentRuntime("claude", pty, TimeProvider.System, confirmsLaunchPrompt: true);
+        await using var orch    = AgentOrchestratorHarness.BuildOrchestrator(new CaptureServerConnection(), new SpyPtyProcessFactory(), new Dictionary<string, IHostedAgentLauncher>());
+        var             agent   = orch.SeedAgentForTest("relay-child-prompt", vendor: "claude", runtime: runtime);
+
+        runtime.DeliverLaunchPrompt("build it");
+        _ = Task.Run(async () => { await foreach (var _ in runtime.ReadOutputAsync()) { } });
+        pty.Emit("banner");
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(10);
+        while (pty.Writes.Count < 2 && DateTime.UtcNow < deadline) await Task.Delay(25);
+
+        orch.PermissionBridgeForTest.InputWaitHandler!(agent.Id, false, true);
+        var confirmedByChild = await Task.WhenAny(runtime.LaunchPromptDelivery!, Task.Delay(TimeSpan.FromMilliseconds(500))) == runtime.LaunchPromptDelivery;
+
+        orch.PermissionBridgeForTest.InputWaitHandler!(agent.Id, false, false);
+        var outcome = await runtime.LaunchPromptDelivery!.WaitAsync(TimeSpan.FromSeconds(5));
+
+        await Assert.That(confirmedByChild).IsFalse();
+        await Assert.That(outcome).IsEqualTo(LaunchPromptOutcome.Confirmed);
+        pty.Exit();
     }
 
     /// Only a submitted prompt starts a turn, so the relayed verdict is what confirms the launch
