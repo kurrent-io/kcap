@@ -117,13 +117,19 @@ public static class TranscriptChat {
                 : rules.SubmittedInput(evt, envelope, kept, scheduled);
             var literal = envelope.Kind == AcpEventKind.UserMessage && !undelivered ? rules?.LiteralInputs(evt, envelope) ?? [] : [];
             if (kept == envelope && literal.All(candidate => candidate == envelope.Text)) literal = [];
-            parts.Add(new(kept is { } visible ? [visible] : [], text is { Length: > 0 } ? [text] : [], rules?.Runs(evt, envelope) ?? []) {
+            parts.Add(new(AskOnly(kept) is { } visible ? [visible] : [], text is { Length: > 0 } ? [text] : [], rules?.Runs(evt, envelope) ?? []) {
                 OriginalInput = literal.Count > 0 ? envelope : null,
                 LiteralInputs = literal,
             });
         }
         return ChatProjectionResult.Combine(parts);
     }
+
+    // A user row shows the ask inside any envelope, as the web does; the submitted input keeps the full text it matches.
+    static AcpEventEnvelope? AskOnly(AcpEventEnvelope? kept) =>
+        kept is { Kind: AcpEventKind.UserMessage, Text: { } shown } row && UserPromptDisplay.AskText(shown) is var ask && !ReferenceEquals(ask, shown)
+            ? ask.Length == 0 ? null : row with { Text = ask }
+            : kept;
 
     /// A subagent's start record. Where the vendor's own records start no row, it starts one keyed by the agent, so the
     /// agent's completion finds it; otherwise it only names the row the vendor's call started.

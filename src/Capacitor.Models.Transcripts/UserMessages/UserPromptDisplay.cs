@@ -65,7 +65,8 @@ public static class UserPromptDisplay {
     }
 
     /// The message without the envelope a vendor recorded around it: the request inside a Kiro Crew
-    /// prompt, the query inside a Cursor one. Any other message comes back as the same instance.
+    /// prompt, the query inside a Cursor one, the ask ahead of kcap's launch context. Any other message
+    /// comes back as the same instance.
     public static string AskText(string text) => AskRange(text) is { } ask ? text.Substring(ask.Start, ask.Length) : text;
 
     /// A recorded ask sits inside at most a Crew envelope around a Cursor one; a message built of nested
@@ -80,6 +81,11 @@ public static class UserPromptDisplay {
 
         for (var unwrapped = 0; unwrapped < MaxEnvelopes; unwrapped++) {
             var current = text.AsSpan(offset, length);
+
+            if (LaunchContext.AskLength(current) is { } asked) {
+                length = asked;
+                continue;
+            }
 
             if (KiroCrewPromptEnvelope.RequestStart(current) is { } request) {
                 offset += request;

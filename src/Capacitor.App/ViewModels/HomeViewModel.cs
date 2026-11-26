@@ -1,3 +1,4 @@
+using Capacitor.Models.Transcripts.UserMessages;
 using System.Collections.Frozen;
 using System.ComponentModel;
 using System.Reactive;
@@ -454,11 +455,12 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     /// Raised after a band row filled the composer, so the view can draw the eye to it.
     public IObservable<Unit> ComposerFills => _composerFills;
 
-    /// With a task picked: its line, then whatever the composer adds, then the context the server wrote for it. The
-    /// task's line comes first, so it names the session. Without one, the goal as typed.
+    /// With a task picked: its line, then whatever the composer adds, then the context the server wrote for it, wrapped
+    /// so chats show only what precedes it. The task's line comes first, so it names the session. Without one, the goal
+    /// as typed.
     string GoalToSend() {
         if (NextWorkSource is not { } picked) return Goal;
-        string?[] parts = [picked.Goal, Goal.Trim(), picked.Context];
+        string?[] parts = [picked.Goal, Goal.Trim(), picked.Context is { Length: > 0 } context ? LaunchContext.Wrap(context) : null];
         return string.Join("\n\n", parts.Where(p => p is { Length: > 0 }));
     }
 

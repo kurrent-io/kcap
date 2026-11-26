@@ -18,14 +18,14 @@ public partial class HomeViewModelTests {
             await Assert.That(vm.Goal).IsEqualTo("");
             await Assert.That(vm.GoalPlaceholder).IsEqualTo(HomeViewModel.PickedGoalPlaceholder);
             await vm.StartCommand.Execute();
-            await Assert.That(launch.Last!.Prompt).IsEqualTo("A-1 Fix it\n\nRecorded context");
+            await Assert.That(launch.Last!.Prompt).IsEqualTo("A-1 Fix it\n\n<kcap-launch-context>\nRecorded context\n</kcap-launch-context>");
             await Assert.That(vm.NextWorkSource).IsNull();
             await Assert.That(vm.GoalPlaceholder).IsEqualTo(HomeViewModel.DefaultGoalPlaceholder);
 
             await vm.FillFromNextWorkAsync(new("wi:a", "A-1 Fix it", "A-1 Fix it", null, true, Tmp.Path, "Recorded context"));
             vm.Goal = "Keep the public API as it is";
             await vm.StartCommand.Execute();
-            await Assert.That(launch.Last!.Prompt).IsEqualTo("A-1 Fix it\n\nKeep the public API as it is\n\nRecorded context");
+            await Assert.That(launch.Last!.Prompt).IsEqualTo("A-1 Fix it\n\nKeep the public API as it is\n\n<kcap-launch-context>\nRecorded context\n</kcap-launch-context>");
             await Assert.That(launch.Last!.NextWorkTargetKey).IsEqualTo("wi:a");
         });
     }

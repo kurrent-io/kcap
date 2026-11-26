@@ -99,6 +99,16 @@ public class UserMessageClassifierTests {
     public async Task The_harness_carrying_on_never_opens_a_turn(string text) =>
         await Assert.That(KindOf(text)).IsEqualTo(UserMessageKind.Continuation);
 
+    /// <summary>The context kcap appends to a launch prompt is the agent's to read; the ask is what precedes it.</summary>
+    [Test]
+    public async Task A_launch_context_is_left_out_of_the_ask() {
+        var sent = "A-1 Fix it\n\nhello world\n\n" + LaunchContext.Wrap("You are starting work…\n<recorded-data>\nwork_item: a\n</recorded-data>");
+
+        await Assert.That(KindOf(sent)).IsEqualTo(UserMessageKind.Person);
+        await Assert.That(UserPromptDisplay.AskText(sent)).IsEqualTo("A-1 Fix it\n\nhello world");
+        await Assert.That(UserPromptDisplay.AskText("hello </kcap-launch-context>")).IsEqualTo("hello </kcap-launch-context>");
+    }
+
     /// <summary>Kiro Crew wraps every prompt, the person's included, so the request inside decides.</summary>
     [Test]
     public async Task A_kiro_crew_prompt_is_judged_by_its_request() {
