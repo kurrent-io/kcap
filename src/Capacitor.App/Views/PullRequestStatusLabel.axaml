@@ -14,13 +14,17 @@
         <Style Selector="TextBlock.statusText.success"><Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" /></Style>
         <Style Selector="TextBlock.statusText.warning"><Setter Property="Foreground" Value="{StaticResource KcapWarningBrush}" /></Style>
         <Style Selector="TextBlock.statusText.danger"><Setter Property="Foreground" Value="{StaticResource KcapDangerBrush}" /></Style>
+        <!-- Declared after the outcome tones so a lifecycle keeps its own colour. -->
+        <Style Selector="TextBlock.statusText.prOpen"><Setter Property="Foreground" Value="{StaticResource KcapPrOpenBrush}" /></Style>
+        <Style Selector="TextBlock.statusText.prMerged"><Setter Property="Foreground" Value="{StaticResource KcapPrMergedBrush}" /></Style>
+        <Style Selector="TextBlock.statusText.prClosed"><Setter Property="Foreground" Value="{StaticResource KcapPrClosedBrush}" /></Style>
     </UserControl.Styles>
-    <Grid ColumnDefinitions="Auto,*" ToolTip.Tip="{Binding Tip}">
+    <Grid ColumnDefinitions="Auto,*" ToolTip.Tip="{Binding LabelTip}">
         <Panel Width="12" Height="16" VerticalAlignment="Top">
             <Panel Width="12" Height="12" HorizontalAlignment="Center" VerticalAlignment="Center"
                    IsVisible="{Binding UsesDiscIcon}">
                 <views:AppIcon Kind="CircleCheck" Size="12" IsVisible="{Binding IsSuccess}" Foreground="{StaticResource KcapSuccessBrush}" />
-                <views:AppIcon Kind="CircleX" Size="12" IsVisible="{Binding IsDanger}" Foreground="{StaticResource KcapDangerBrush}" />
+                <views:AppIcon Kind="CircleX" Size="12" IsVisible="{Binding IsDanger}" Foreground="{Binding #StatusText.Foreground}" />
                 <views:AppIcon Kind="Circle" Size="12" HorizontalAlignment="Center" VerticalAlignment="Center"
                                IsVisible="{Binding IsWarning}" Foreground="{StaticResource KcapWarningBrush}" />
                 <Ellipse Width="5" Height="5" Fill="{StaticResource KcapWarningBrush}"
@@ -39,6 +43,7 @@
         <TextBlock x:Name="StatusText" Grid.Column="1" Classes="statusText" Text="{Binding Text}" TextWrapping="Wrap"
                    Margin="9,0,0,0" IsVisible="{Binding #Root.ShowText}"
                    Classes.success="{Binding IsSuccess}" Classes.warning="{Binding IsWarning}"
-                   Classes.danger="{Binding IsDanger}" VerticalAlignment="Top" />
+                   Classes.danger="{Binding IsDanger}" Classes.prOpen="{Binding IsOpen}"
+                   Classes.prMerged="{Binding IsMerged}" Classes.prClosed="{Binding IsClosed}" VerticalAlignment="Top" />
     </Grid>
 </UserControl>

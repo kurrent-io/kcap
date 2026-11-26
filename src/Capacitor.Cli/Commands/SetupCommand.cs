@@ -3119,7 +3119,7 @@ sealed class SetupCommand(
             return 0;
         } catch (Exception ex) {
             var failure = LocalSetupJsonLines.Classify(ex);
-            WriteJsonLine(LocalSetupJsonLines.Failed(failure.Code, failure.Message));
+            WriteJsonLine(LocalSetupJsonLines.Failed(failure.Code, failure.Message, blockingClient: failure.BlockingClient));
 
             return LocalSetupJsonLines.Exit(failure.Code);
         }

@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
@@ -12,6 +13,9 @@ public partial class MessageCopyButton : UserControl {
 
     public static readonly StyledProperty<MarkdownFlavor> FlavorProperty =
         AvaloniaProperty.Register<MessageCopyButton, MarkdownFlavor>(nameof(Flavor));
+
+    public static readonly StyledProperty<double> MinimumActionHeightProperty =
+        AvaloniaProperty.Register<MessageCopyButton, double>(nameof(MinimumActionHeight));
 
     static readonly TimeSpan CopiedFor = TimeSpan.FromSeconds(1.5);
     int _copies;
@@ -28,9 +32,30 @@ public partial class MessageCopyButton : UserControl {
         set => SetValue(FlavorProperty, value);
     }
 
+    public double MinimumActionHeight {
+        get => GetValue(MinimumActionHeightProperty);
+        set => SetValue(MinimumActionHeightProperty, value);
+    }
+
     internal Task? PendingCopyForTesting { get; private set; }
 
     void OnCopyClick(object? sender, RoutedEventArgs e) => PendingCopyForTesting = CopyAsync();
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change) {
+        base.OnPropertyChanged(change);
+        if (change.Property == MinimumActionHeightProperty)
+            CopyButton.MinHeight = change.GetNewValue<double>();
+        else if (change.Property == AutomationProperties.HelpTextProperty)
+            AutomationProperties.SetHelpText(CopyButton, change.GetNewValue<string?>());
+    }
+
+    protected override void OnDataContextChanged(EventArgs e) {
+        if (_copies != 0) {
+            _copies++;
+            Show("Copy message");
+        }
+        base.OnDataContextChanged(e);
+    }
 
     async Task CopyAsync() {
         if (Text is not { Length: > 0 } text) return;

@@ -47,9 +47,11 @@ public class WorkContextViewSmokeTests {
         public List<string> Drafted { get; } = [];
         public bool CanDraft { get; set; } = true;
 
-        public Host() {
+        public Host() : this(null) { }
+
+        public Host(Action<string>? openWorkItem) {
             Runs = new SessionRuns(Time);
-            Vm = new WorkContextViewModel(Presence, Source, Time, Opener, Runs, plans: Plans, planActivity: PlanActivity,
+            Vm = new WorkContextViewModel(Presence, Source, Time, Opener, Runs, openWorkItem: openWorkItem, plans: Plans, planActivity: PlanActivity,
                 artefacts: new ArtefactsTabViewModel(Artefacts, PlanActivity, Time, opener: Opener),
                 canDraftForAgent: () => CanDraft, draftForAgent: Drafted.Add);
             Window = new Window { Content = new WorkContextView { DataContext = Vm }, Width = 320, Height = 900 };
@@ -245,6 +247,79 @@ public class WorkContextViewSmokeTests {
             }
         });
     }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    [Arguments(false)]
+    [Arguments(true)]
+    public Task Structured_issue_tips_show_available_metadata_and_keep_link_access(bool appearancePreview) => RunOnUiAsync(async () => {
+        const string title = "Keep the linked issue title readable when the work context pane is narrow";
+        using var preview = new TooltipPreviewScope();
+        if (appearancePreview) preview.Enable(ClassicAppearance.Light);
+        var openedWorkItems = new List<string>();
+        await using var host = new Host(openedWorkItems.Add);
+        var read = KeyOnlyRead("WK-2200", title);
+        var issue = read.Item!.Links[0] with { State = "In Progress" };
+        await host.ShowAsync(read with { Item = read.Item with { Links = [issue] } });
+        var workItem = host.Find<Button>("OpenWorkItemButton");
+        workItem.Focus(NavigationMethod.Directional);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(TooltipPreviewScope.Text(workItem)).IsEquivalentTo(
+            new[] { "WK-2198", "In flight" }, CollectionOrdering.Matching);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
+        await Assert.That(openedWorkItems).IsEquivalentTo(new[] { "w1" });
+
+        var header = host.Find<Button>("IssueHeader");
+        var single = host.Find<Button>("IssueTitleButton");
+        header.Focus(NavigationMethod.Directional);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(TooltipPreviewScope.Text(header)).IsEquivalentTo(
+            new[] { title, "In Progress", "linear.app · WK-2200", "Opens in browser" }, CollectionOrdering.Matching);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
+        await Assert.That(host.Opener.Opened).IsEquivalentTo(new[] { issue.Url! });
+        host.Opener.Opened.Clear();
+        single.Focus(NavigationMethod.Directional);
+        await Assert.That(ToolTip.GetIsOpen(header)).IsFalse();
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(TooltipPreviewScope.Text(single)).Contains(title);
+        await Assert.That(Peer(single).GetHelpText()).Contains("In Progress");
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
+        await Assert.That(host.Opener.Opened).IsEquivalentTo(new[] { issue.Url! });
+
+        var partial = issue with { Value = "WK-2201", ShortKey = "WK-2201", Title = null, State = null, Url = "file:///tmp/private", IsSeed = false };
+        var extra = issue with { Value = "WK-2202", ShortKey = "WK-2202", Title = null, State = null, Url = "https://linear.app/x/issue/WK-2202", IsSeed = false };
+        host.Source.Enqueue(read with { Item = read.Item with { Links = [issue with { State = "Done" }, partial, extra] } });
+        await host.Vm.RefreshCommand.Execute();
+        await (host.Vm.PendingReadForTesting ?? Task.CompletedTask);
+        TooltipPreviewScope.Pump(host.Window);
+        header.Focus(NavigationMethod.Directional);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(TooltipPreviewScope.Text(header)).IsEquivalentTo(
+            new[] { "3 linked issues" }, CollectionOrdering.Matching);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Escape);
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.Enter);
+        var buttons = host.Find<ItemsControl>("IssueList").GetVisualDescendants().OfType<Button>().ToArray();
+        await Assert.That(buttons.Length).IsEqualTo(3);
+        await Assert.That(Peer(buttons[0]).GetHelpText()).Contains("Done");
+        await Assert.That(buttons[1].IsEffectivelyEnabled).IsFalse();
+        ToolTip.SetIsOpen(buttons[1], true);
+        TooltipPreviewScope.Pump(host.Window);
+        await Assert.That(TooltipPreviewScope.Text(buttons[1])).IsEquivalentTo(
+            new[] { "WK-2201", "Link unavailable" }, CollectionOrdering.Matching);
+        await Assert.That(host.Opener.Opened.Count).IsEqualTo(1);
+        ToolTip.SetIsOpen(buttons[1], false);
+        buttons[0].Focus(NavigationMethod.Directional);
+        host.Source.Enqueue(read with { Item = read.Item with { Links = [issue with { State = "Closed" }, partial, extra] } });
+        await host.Vm.RefreshCommand.Execute();
+        await (host.Vm.PendingReadForTesting ?? Task.CompletedTask);
+        TooltipPreviewScope.Pump(host.Window);
+        await Assert.That(buttons[0].IsFocused).IsTrue();
+        TooltipPreviewScope.Press(host.Window, PhysicalKey.F1, RawInputModifiers.Shift);
+        await Assert.That(TooltipPreviewScope.Text(buttons[0])).Contains("Closed");
+    });
 
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -1064,6 +1139,28 @@ public class WorkContextViewSmokeTests {
             host.Window.UpdateLayout();
             await Assert.That(host.Find<Border>("PlanInProgressBody").IsEffectivelyVisible).IsFalse();
             await Assert.That(VisibleTexts(counts)).IsEquivalentTo(new[] { "2" }, CollectionOrdering.Matching);
+        });
+    }
+
+    /// A task's mark announces its state, so a started task stays distinct from a pending one once
+    /// the session ends and its pulse, the only other cue, stops.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_plan_task_mark_announces_its_state_and_reads_started_after_the_session_ends() {
+        await RunOnUiAsync(async () => {
+            await using var host = new Host();
+            host.Plans.Enqueue(PlanRead([], ("in_progress", "Draw the rows", null)));
+            await host.ShowAsync(KeyOnlyRead());
+
+            Control Mark() => host.Find<ItemsControl>("PlanInProgressList").GetVisualDescendants().OfType<Panel>()
+                .Single(panel => AutomationProperties.GetName(panel) is { Length: > 0 });
+            await Assert.That(IsAnnounced(Mark())).IsTrue();
+            await Assert.That(Peer(Mark()).GetName()).IsEqualTo("In progress");
+
+            host.PlanActivity.SessionOver = true;
+            Dispatcher.UIThread.RunJobs();
+
+            await Assert.That(Peer(Mark()).GetName()).IsEqualTo("Started");
         });
     }
 

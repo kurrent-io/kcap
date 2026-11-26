@@ -29,6 +29,9 @@ internal sealed class CodexApprovalBridge {
     /// <summary>Requests waiting on a person's answer.</summary>
     public int AwaitingPerson => Volatile.Read(ref _awaitingPerson);
 
+    /// <summary>What each file-change item touches, which its approval does not name.</summary>
+    public CodexFileChanges FileChanges { get; } = new();
+
     // The option ids ARE the codex decision strings, so a resolved SelectedOptionId maps straight to
     // {decision: id}; Kind drives the allow-once / allow-for-session affordances server-side.
     static readonly AcpInteractionOption[] ApprovalOptions = [
@@ -90,12 +93,13 @@ internal sealed class CodexApprovalBridge {
                 }
             }
 
+            var (toolName, toolInput) = CodexApprovalCard.For(itemType, request.Params, FileChanges);
             var interaction = new AcpInteractionRequest(
                 AgentId:      _agentId,
                 AcpSessionId: threadId,
                 Kind:         "permission",
-                ToolName:     itemType,
-                ToolInput:    request.Params,
+                ToolName:     toolName,
+                ToolInput:    toolInput,
                 ToolCallId:   request.Params?.Str("itemId"),
                 Prompt:       null,
                 Options:      ApprovalOptions,

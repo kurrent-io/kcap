@@ -193,6 +193,22 @@ public class ExperimentalCommandTests {
             await Assert.That(output).Contains(feature.Id);
     }
 
+    [Test]
+    [Arguments(true)]
+    [Arguments(false)]
+    public async Task List_shows_the_readable_scope_when_the_other_file_is_invalid(bool appWide) {
+        var config = new ConfigRoot(Tmp.Path);
+        var store = new ExperimentalSettingsStore(config);
+        var path = appWide ? store.AppWidePath : store.Path;
+        await File.WriteAllTextAsync(path, "{ not json");
+        var (exit, output, error) = await RunWith(Resolutions.None(config), (_, _) => NotRunning, ExperimentalFeatures.All);
+
+        await Assert.That(exit).IsEqualTo(1);
+        await Assert.That(error).Contains(path);
+        await Assert.That(output).Contains(appWide ? "desktop-appearance-preview  unavailable" : "in-app-pages  unavailable");
+        await Assert.That(output).Contains(appWide ? "in-app-pages  off" : "desktop-appearance-preview  on by default");
+    }
+
     /// The daemon reports nothing for a desktop-app feature, so reading its silence would call the daemon too old.
     [Test]
     public async Task List_labels_a_desktop_app_feature_instead_of_asking_the_daemon() {

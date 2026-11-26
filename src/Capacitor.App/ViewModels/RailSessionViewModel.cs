@@ -67,7 +67,15 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     public PullRequestStatus? PullRequestStatus => PullRequest?.Status;
     public bool HasPullRequestLifecycle => PullRequest?.HasLifecycle == true;
     public bool HasMultiplePullRequests => PullRequest?.Count > 1;
-    public string PullRequestTooltip => $"{PullRequest?.Description}\n\nLinked to this session: {SessionAccessibleName}\n{(HasMultiplePullRequests ? "Choose a pull request" : "Open pull request details")}";
+    public KcapTip? LinkedPullRequestTip => PullRequest switch {
+        { Count: 1 } summary => SinglePullRequestTip(summary.MenuItems[0]),
+        { Count: > 1 } summary => new(summary.Description,
+            Details: KcapTipDetail.Present(KcapTipDetail.Field("Linked session", Primary))),
+        _ => null,
+    };
+    KcapTip SinglePullRequestTip(RailPullRequestMenuItem item) => KcapTip.PullRequest(
+        item.Subject.Number, item.Title, item.Status, item.Repository, KcapTipDetail.Field("Linked session", Primary));
+
     public bool HasPullRequest => PullRequest is not null;
     public string PullRequestAccessibleName => $"{(HasMultiplePullRequests ? "Choose from" : "Open")} {PullRequestLabel}{(HasPullRequestLifecycle ? $", {PullRequest?.Lifecycle}" : "")} for {Primary ?? Vendor}";
     /// The right-click menu's items; each disables itself on a row it cannot act on.
@@ -83,10 +91,20 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
     readonly ObservableAsPropertyHelper<AgentStatusPresentation> _status;
     public AgentStatusPresentation Status => _status.Value;
 
-    readonly ObservableAsPropertyHelper<bool> _isStale;
-    /// A remote or server row greys out while the lane is stale, a server row also on the server's
-    /// own idle flag; a local row is never stale.
-    public bool IsStale => _isStale.Value;
+    /// What a remote or server row says while the server lane is down: it cannot update, so it is
+    /// the last state the server reported. The window's connection notice says how to reconnect.
+    public const string LaneStaleNote = "Not connected to the server, so this is the last known state";
+
+    readonly ObservableAsPropertyHelper<bool> _isLaneStale;
+    /// A remote or server row while the server lane is not connected; a local row never is.
+    public bool IsLaneStale => _isLaneStale.Value;
+    readonly ObservableAsPropertyHelper<string?> _laneNote;
+    public string? LaneNote => _laneNote.Value;
+
+    readonly ObservableAsPropertyHelper<string> _rowAccessibleName;
+    /// The row's name, with any state that changes what the row's facts are worth: a stale status
+    /// and a lane that cannot update it.
+    public string RowAccessibleName => _rowAccessibleName.Value;
 
     readonly CompositeDisposable _disposables = new();
     readonly BehaviorSubject<AgentRow> _row;
@@ -128,7 +146,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
                 this.RaisePropertyChanged(nameof(PullRequestStatus));
                 this.RaisePropertyChanged(nameof(HasPullRequestLifecycle));
                 this.RaisePropertyChanged(nameof(HasMultiplePullRequests));
-                this.RaisePropertyChanged(nameof(PullRequestTooltip));
+                this.RaisePropertyChanged(nameof(LinkedPullRequestTip));
                 this.RaisePropertyChanged(nameof(HasPullRequest));
                 this.RaisePropertyChanged(nameof(PullRequestAccessibleName));
             }).DisposeWith(_disposables);
@@ -153,9 +171,16 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
             .ToProperty(this, x => x.Status, initialValue: SessionStatusDots.ForRow(row, pending: false))
             .DisposeWith(_disposables);
 
-        _isStale = _row.CombineLatest(remoteStale, (current, laneStale) =>
-                current.Origin is AgentOrigin.Remote or AgentOrigin.Server && (laneStale || current.IsStale))
-            .ToProperty(this, x => x.IsStale, initialValue: false)
+        _isLaneStale = _row.CombineLatest(remoteStale, (current, laneStale) =>
+                current.Origin is AgentOrigin.Remote or AgentOrigin.Server && laneStale)
+            .ToProperty(this, x => x.IsLaneStale, initialValue: false)
+            .DisposeWith(_disposables);
+        _laneNote = this.WhenAnyValue(x => x.IsLaneStale).Select(stale => stale ? LaneStaleNote : null)
+            .ToProperty(this, x => x.LaneNote, initialValue: null)
+            .DisposeWith(_disposables);
+
+        _rowAccessibleName = this.WhenAnyValue(x => x.SessionAccessibleName, x => x.Status, x => x.IsLaneStale, RowName)
+            .ToProperty(this, x => x.RowAccessibleName, initialValue: SessionAccessibleName)
             .DisposeWith(_disposables);
 
         _showsRepo = (grouping ?? Observable.Return(RailGrouping.Repository)).CombineLatest(_row, (mode, current) =>
@@ -192,6 +217,13 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
         DeleteCommand = ReactiveCommand.CreateFromTask(
             () => actions?.DeleteAsync(_row.Value, SessionAccessibleName) ?? Task.CompletedTask, deletable).DisposeWith(_disposables);
         TerminateCommand = ReactiveCommand.Create(() => actions?.Terminate(_row.Value, SessionAccessibleName), running).DisposeWith(_disposables);
+    }
+
+    static string RowName(string name, AgentStatusPresentation status, bool laneStale) {
+        var parts = new List<string> { name };
+        if (status.Kind == AgentStatusKind.Stale) parts.Add($"{status.Label}: {status.AccessibleName}");
+        if (laneStale) parts.Add(LaneStaleNote);
+        return string.Join(", ", parts);
     }
 
     AgentOrigin Origin() => IsServer ? AgentOrigin.Server : IsRemote ? AgentOrigin.Remote : AgentOrigin.Local;
@@ -232,7 +264,7 @@ public sealed class RailSessionViewModel : ReactiveObject, IDisposable {
 
         if (oldPrimary != Primary || oldVendor != Vendor) {
             this.RaisePropertyChanged(nameof(SessionAccessibleName));
-            this.RaisePropertyChanged(nameof(PullRequestTooltip));
+            this.RaisePropertyChanged(nameof(LinkedPullRequestTip));
             this.RaisePropertyChanged(nameof(PullRequestAccessibleName));
         }
         if (oldMachine != MachineBadge) {

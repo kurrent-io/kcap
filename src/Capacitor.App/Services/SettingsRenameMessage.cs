@@ -19,7 +19,7 @@ public static class SettingsRenameMessage {
             "verify_contended" => "The daemon name or service is in use.",
             "verify_bootout_unknown" or "verify_stop_unconfirmed" or "verify_rollback_budget" or "verify_restore_verification" =>
                 "The service transaction could not confirm that it finished. The old daemon may have stopped.",
-            _ => $"The rename was not confirmed ({reason}).",
+            _ => "kcap could not confirm the rename.",
         };
         return $"Name saved. {explanation} Restart the app to connect using {request.DaemonName}. " +
             $"If the old service remains, remove it with: kcap daemon service uninstall --name {request.RetireServiceId}";

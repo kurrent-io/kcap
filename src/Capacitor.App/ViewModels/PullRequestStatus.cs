@@ -7,6 +7,9 @@ public sealed record PullRequestStatus(string Text, string Kind = "neutral", str
     public bool IsWarning => Kind is "conflict" or "warning";
     public bool IsDanger => Kind is "failure" or "closed";
     public bool IsPulsing => Kind == "pending";
+    public bool IsOpen => Kind == "open";
+    public bool IsMerged => Kind == "merged";
+    public bool IsClosed => Kind == "closed";
     /// Git lifecycle marks and outcome circles share Lucide strokes. In-flight / waiting
     /// circles keep their activity dots and pulses, like running subagents.
     public bool UsesGlyphIcon => Kind is "open" or "draft" or "merged" or "conflict" or "commented";
@@ -26,6 +29,9 @@ public sealed record PullRequestStatus(string Text, string Kind = "neutral", str
         "commented" => "Reviewers left comments without approving or requesting changes.",
         _ => Text.Length > 0 ? Text : "Status unknown.",
     };
+    public string? LabelTip => string.IsNullOrEmpty(Detail) && Kind is ("open" or "draft" or "merged") || Tip == Text
+        ? null : Tip;
+
     public LucideIconKind? IconKind => Kind switch {
         "open" => LucideIconKind.GitPullRequest,
         "draft" => LucideIconKind.GitPullRequestDraft,

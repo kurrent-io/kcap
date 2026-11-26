@@ -11,7 +11,7 @@
                 <Grid ColumnDefinitions="*,Auto" ColumnSpacing="16">
                     <TextBlock x:Name="DocumentPath" Text="{Binding Path}" FontSize="{StaticResource KcapFontSizeSmall}"
                                Foreground="{StaticResource KcapMutedBrush}" VerticalAlignment="Center"
-                               TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Path}" />
+                               TextTrimming="CharacterEllipsis" views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Path}" />
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                         <TextBlock x:Name="DocumentKind" Text="{Binding KindLabel}" FontSize="{StaticResource KcapFontSizeSmall}"
                                    Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" />

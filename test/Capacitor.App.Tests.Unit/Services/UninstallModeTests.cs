@@ -76,7 +76,7 @@ public class UninstallModeTests {
         var cli = App.NewWizardCli(Config.Root, ProfileOverrides.None, NoLocalInstallation.Root, runner, "/test/kcap", new FakeLoginShellProbe());
 
         var run = new UninstallMode(PurgeLocal: false, KeepConfig: true)
-            .BuildRun(Bundle(withInfoPlist: true), _ => new Removal(), cli, () => { }, action => action())!;
+            .BuildRun(Bundle(withInfoPlist: true), _ => new Removal(), cli, () => { })!;
         await run.RunAsync();
 
         await Assert.That(runner.StreamedArgs).Contains("--keep-config");
@@ -179,7 +179,7 @@ public class UninstallModeTests {
         var cli = App.NewWizardCli(Config.Root, ProfileOverrides.None, NoLocalInstallation.Root, runner, "/test/kcap", new FakeLoginShellProbe());
         var removal = new Removal();
         var quit = false;
-        var run = mode.BuildRun(Bundle(withInfoPlist: true), _ => removal, cli, () => quit = true, action => action())!;
+        var run = mode.BuildRun(Bundle(withInfoPlist: true), _ => removal, cli, () => quit = true)!;
         await run.RunAsync();
 
         await Assert.That(run.State).IsEqualTo(UninstallRunState.Finished);

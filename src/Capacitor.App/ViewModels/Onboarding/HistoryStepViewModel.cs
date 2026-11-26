@@ -617,7 +617,7 @@ public sealed class HistoryStepViewModel : ReactiveObject, IWizardStep {
         this.RaisePropertyChanged(nameof(Satisfied));
     }
 
-    /// Shutdown's half of the run's lifetime: nothing else stops an import once it has started.
+    /// Shutdown's half of the run's lifetime; the launcher's banner can also cancel the run.
     public async Task CancelActiveRunAsync() {
         _discovery?.Cancel();
         if (Run is { } run) await run.CancelAsync().ConfigureAwait(false);

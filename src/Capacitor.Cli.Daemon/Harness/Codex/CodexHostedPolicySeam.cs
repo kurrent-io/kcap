@@ -93,15 +93,12 @@ internal sealed class CodexHostedPolicySeam(
     CanonicalAction? Action(string method, JsonElement request) {
         var cwd = request.Str("cwd") ?? workingDirectory;
         switch (ItemType(method)) {
-            // Only a plain local command: a stdin or managed-network approval, or one bound for another execution
-            // environment, asks for more than its command text says.
-            case "commandExecution" when request.Str("kind") is null or "command" && !HasValue(request, "networkApprovalContext")
-                                      && !HasValue(request, "environmentId") && request.Str("command") is { Length: > 0 } command: {
+            case "commandExecution" when CodexApprovalRequest.PlainCommand(request) is { } command: {
                 using var input = JsonDocument.Parse(new JsonObject { ["command"] = command }.ToJsonString());
                 return CodexHookActions.Normalize("Bash", input.RootElement.Clone(), cwd);
             }
             // A grant root asks for writes under it for the rest of the session, beyond this edit's paths.
-            case "fileChange" when !HasValue(request, "grantRoot") && request.Str("itemId") is { } itemId && Paths.TryPaths(itemId, out var paths): {
+            case "fileChange" when !CodexApprovalRequest.Names(request, "grantRoot") && request.Str("itemId") is { } itemId && Paths.TryPaths(itemId, out var paths): {
                 var resolved = paths.Select(p => LexicalPaths.TryResolve(cwd, p)).ToArray();
                 if (resolved.Length == 0 || resolved.Any(p => p is null)) return null;
                 return new CanonicalAction { Kind = ActionKind.FileEdit, Vendor = Vendor, Cwd = cwd, RawToolName = "apply_patch", Paths = [.. resolved!] };
@@ -110,9 +107,6 @@ internal sealed class CodexHostedPolicySeam(
                 return null;
         }
     }
-
-    static bool HasValue(JsonElement request, string property) =>
-        request.TryGetProperty(property, out var value) && value.ValueKind != JsonValueKind.Null;
 
     async Task<PolicyJudgeResult> ConsultAsync(string sessionId, CanonicalAction action, CancellationToken ct) {
         try {

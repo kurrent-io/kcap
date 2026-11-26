@@ -6,7 +6,10 @@ public enum ShimPreflight { Installable, AlreadyInstalled, Conflict }
 
 public enum ShimOutcome { Installed, InstalledButNotOnPath, Failed }
 
-public sealed record ShimResult(ShimOutcome Outcome, string? Detail);
+public sealed record ShimResult(ShimOutcome Outcome, string? Detail) {
+    public ShimPathIssue PathIssue { get; init; }
+    public string? Folder { get; init; }
+}
 
 /// Installs a `kcap` symlink to a resolved CLI so a terminal PATH that omits the CLI's own location
 /// still finds it: in the first stable login-PATH folder this user can already write to, else in
@@ -68,7 +71,7 @@ public sealed partial class PathShimInstaller(ILoginShellProbe probe, UserHome h
 
     public async Task<ShimResult> InstallAsync(string target, CancellationToken ct) {
         if (!LooksLikeTarget(target))
-            return new ShimResult(ShimOutcome.Failed, "CLI path contains a newline or carriage return and cannot be used.");
+            return new ShimResult(ShimOutcome.Failed, "CLI path contains a newline or carriage return and cannot be used.") { PathIssue = ShimPathIssue.InvalidTarget };
 
         if (await TryLinkOnTerminalPathAsync(target, ct).ConfigureAwait(false) is { } linked) return linked;
 
@@ -77,18 +80,24 @@ public sealed partial class PathShimInstaller(ILoginShellProbe probe, UserHome h
 
     async Task<ShimResult> LinkInLocalBinAsync(string target, CancellationToken ct) {
         if (profile is { ProfilePath: null } or { Disclosure: null })
-            return new ShimResult(ShimOutcome.Failed, "This shell or home path does not support automatic PATH setup. Create ~/.local/bin, link kcap in that folder to your installed CLI, then add ~/.local/bin to your shell's PATH manually.");
+            return new ShimResult(ShimOutcome.Failed, "This shell or home path does not support automatic PATH setup. Create ~/.local/bin, link kcap in that folder to your installed CLI, then add ~/.local/bin to your shell's PATH manually.") {
+                PathIssue = ShimPathIssue.UnsupportedShell, Folder = Path.GetDirectoryName(target),
+            };
 
         var link = Link;
+        var folder = ShellProfile.Folder(home);
         switch (Preflight(link, target)) {
             case ShimPreflight.Conflict:
-                return new ShimResult(ShimOutcome.Failed, $"{link} already exists ({Describe(link)}) and was left untouched.");
+                return new ShimResult(ShimOutcome.Failed, $"{link} already exists ({Describe(link)}) and was left untouched.") {
+                    PathIssue = ShimPathIssue.ExistingCommand, Folder = folder,
+                };
             case ShimPreflight.Installable:
                 try {
-                    Directory.CreateDirectory(ShellProfile.Folder(home));
+                    Directory.CreateDirectory(folder);
                     File.CreateSymbolicLink(link, target);
                 } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-                    return new ShimResult(ShimOutcome.Failed, ex.Message);
+                    var issue = File.Exists(folder) ? ShimPathIssue.LinkFolderOccupied : ShimPathIssue.LinkFailed;
+                    return new ShimResult(ShimOutcome.Failed, ex.Message) { PathIssue = issue, Folder = folder };
                 }
                 break;
         }
@@ -96,9 +105,13 @@ public sealed partial class PathShimInstaller(ILoginShellProbe probe, UserHome h
         if (profile is not null) {
             try {
                 if (!profile.Add())
-                    return new ShimResult(ShimOutcome.Failed, "The shell profile could not be configured. Add ~/.local/bin to your shell's PATH manually.");
+                    return new ShimResult(ShimOutcome.Failed, "The shell profile could not be configured. Add ~/.local/bin to your shell's PATH manually.") {
+                        PathIssue = ShimPathIssue.ShellProfileNotUpdated, Folder = folder,
+                    };
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-                return new ShimResult(ShimOutcome.Failed, $"kcap was linked at {link}, but {profile.ProfilePath} could not be updated: {ex.Message}");
+                return new ShimResult(ShimOutcome.Failed, $"kcap was linked at {link}, but {profile.ProfilePath} could not be updated: {ex.Message}") {
+                    PathIssue = ShimPathIssue.ShellProfileNotUpdated, Folder = folder,
+                };
             }
         }
         return await ProbeOutcomeAsync(link, ct).ConfigureAwait(false);
@@ -158,17 +171,25 @@ public sealed partial class PathShimInstaller(ILoginShellProbe probe, UserHome h
             var resolved = await probe.KcapPathAsync(ct, forceRefresh: true).ConfigureAwait(false);
             if (resolved is null)
                 return new ShimResult(ShimOutcome.Failed,
-                    $"kcap was linked at {link}, but the login-shell probe could not re-verify which kcap command resolves.");
+                    $"kcap was linked at {link}, but the login-shell probe could not re-verify which kcap command resolves.") {
+                    PathIssue = ShimPathIssue.LinkUnverified, Folder = folder,
+                };
             if (PathComparison.Equal(Path.GetFullPath(resolved), Path.GetFullPath(link)))
                 return new ShimResult(ShimOutcome.Installed, null);
             return new ShimResult(ShimOutcome.InstalledButNotOnPath,
-                $"kcap was linked at {link}, but another kcap at {resolved} takes precedence. Put {folder} earlier on your shell's PATH to use this install.");
+                $"kcap was linked at {link}, but another kcap at {resolved} takes precedence. Put {folder} earlier on your shell's PATH to use this install.") {
+                PathIssue = ShimPathIssue.AnotherCommandFirst, Folder = folder,
+            };
         }
         return onPath switch {
             false => new ShimResult(ShimOutcome.InstalledButNotOnPath,
-                $"kcap was linked at {link}, but your login shell's PATH doesn't include {folder}. Add: export PATH=\"{folder}:$PATH\""),
+                $"kcap was linked at {link}, but your login shell's PATH doesn't include {folder}. Add: export PATH=\"{folder}:$PATH\"") {
+                PathIssue = ShimPathIssue.FolderMissingFromPath, Folder = folder,
+            },
             _     => new ShimResult(ShimOutcome.Failed,
-                $"kcap was linked at {link}, but the login-shell probe could not re-verify whether it is on your terminal PATH."),
+                $"kcap was linked at {link}, but the login-shell probe could not re-verify whether it is on your terminal PATH.") {
+                PathIssue = ShimPathIssue.LinkUnverified, Folder = folder,
+            },
         };
     }
 

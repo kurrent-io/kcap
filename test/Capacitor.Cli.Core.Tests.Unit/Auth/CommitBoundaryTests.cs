@@ -259,22 +259,34 @@ public class CommitBoundaryTests {
     }
 
     [Test]
-    public async Task A_config_commit_that_throws_fails_and_publishes_no_token() {
-        // A directory where config.json belongs: the config publish cannot rename over it.
-        Directory.CreateDirectory(ConfigPath);
+    [Arguments(false, AuthFailureReason.ConfigUnreadable)]
+    [Arguments(true, AuthFailureReason.ConfigUnreadable)]
+    [Arguments(false, AuthFailureReason.Other)]
+    [Arguments(true, AuthFailureReason.Other)]
+    public async Task Discovery_reports_why_it_could_not_prepare_to_save_sign_in(bool workos, AuthFailureReason expected) {
+        const string config = """{"version":2,"active_profile":"old","profiles":{"old":{"server_url":"https://old.example"}}}""";
+        var unreadable = expected == AuthFailureReason.ConfigUnreadable;
+        Config.CreateFile(AppConfig.ConfigFileName, unreadable ? "{not json" : config);
+        var legacyPath = Config.CreateFile("tokens.json", "legacy sign-in");
+        if (expected == AuthFailureReason.Other) Config.CreateDir("tokens", "old.json");
+        var before = await File.ReadAllTextAsync(ConfigPath);
+        using var handler = GitHubDiscoveryScript();
+        var progress = new RecordingAuthProgress();
 
-        try {
-            var flow     = await ReadyEventuousFlowAsync();
-            var progress = new RecordingAuthProgress();
+        var result = workos
+            ? await WorkOSDiscovery.PublishAsync(Config.Root, NewTokenStore(Config.Root), await ReadyEventuousFlowAsync(),
+                progress, beforeCommit: null, time: TimeProvider.System, ct: CancellationToken.None)
+            : await NewFacade(Config.Root, progress, handler, PickerReturningFirst())
+                .DiscoverAsync(AuthProvider.GitHubApp, forceDevice: true, CancellationToken.None);
 
-            var result = await WorkOSDiscovery.PublishAsync(Config.Root, NewTokenStore(Config.Root), flow, progress, beforeCommit: null, ct: CancellationToken.None, time: TimeProvider.System);
-
-            // Nothing durable began, so this arm is honestly a failure rather than a partial commit.
-            await Assert.That(result).IsTypeOf<AuthResult.Failed>();
-            await Assert.That(TokenFileExists("eventuous")).IsFalse();
-        } finally {
-            Directory.Delete(ConfigPath, recursive: true);
-        }
+        var failure = (AuthResult.Failed)result;
+        await Assert.That(failure.Reason).IsEqualTo(expected);
+        await Assert.That(failure.Message).Contains(expected == AuthFailureReason.ConfigUnreadable
+            ? "the configuration file could not be read" : "could not move the saved sign-in");
+        await Assert.That(progress.Errors).Contains(failure.Message);
+        await Assert.That(await File.ReadAllTextAsync(ConfigPath)).IsEqualTo(before);
+        await Assert.That(File.Exists(legacyPath)).IsTrue();
+        await Assert.That(TokenFileExists(workos ? "eventuous" : "acme")).IsFalse();
     }
 
     // A foreign login writes no config at all, so the token IS the whole commit: losing it leaves

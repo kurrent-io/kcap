@@ -425,13 +425,20 @@ public class PlanSectionViewModelTests {
             h.Source.Enqueue(Ready(Plan("p1", tasks: Todo("t1", 1, "in_progress"))));
             await h.SwitchAsync(SessionA);
             await Assert.That(h.Vm.Tasks.Single().IsActive).IsTrue();
+            await Assert.That(h.Vm.Tasks.Single().StateLabel).IsEqualTo("In progress");
             await Assert.That(h.Vm.Counts.Single().IsActive).IsTrue();
+            await Assert.That(h.Vm.Counts.Single().IsStarted).IsFalse();
 
             h.Activity.SessionOver = true;
 
             await Assert.That(h.Vm.Tasks.Single().IsInProgress).IsTrue();
             await Assert.That(h.Vm.Tasks.Single().IsActive).IsFalse();
+            await Assert.That(h.Vm.Tasks.Single().IsStarted).IsTrue();
+            await Assert.That(h.Vm.Tasks.Single().StateLabel).IsEqualTo("Started")
+                .Because("a started task must not read as pending once its pulse stops");
             await Assert.That(h.Vm.Counts.Single().IsActive).IsFalse();
+            await Assert.That(h.Vm.Counts.Single().IsStarted).IsTrue();
+            await Assert.That(h.Vm.Counts.Single().Label).IsEqualTo("1 started");
             await h.Vm.TeardownAsync();
         });
     }

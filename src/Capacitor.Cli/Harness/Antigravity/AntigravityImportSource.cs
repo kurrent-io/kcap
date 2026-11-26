@@ -6,6 +6,7 @@ using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Antigravity;
 using Capacitor.Cli.Harness.Titles;
+using Capacitor.Models.Transcripts.Harness.Antigravity;
 
 namespace Capacitor.Cli.Harness.Antigravity;
 
@@ -38,10 +39,6 @@ namespace Capacitor.Cli.Harness.Antigravity;
 /// usage pass, so imported subagents carry content but not cost.</para>
 /// </summary>
 internal sealed class AntigravityImportSource : IImportSource {
-    static readonly HashSet<string> RelevantTypes = new(StringComparer.Ordinal) {
-        "USER_INPUT", "PLANNER_RESPONSE", "RUN_COMMAND", "VIEW_FILE", "LIST_DIRECTORY", "CODE_ACTION"
-    };
-
     readonly AntigravityPaths _paths;
 
     readonly TimeProvider _time;
@@ -466,10 +463,8 @@ internal sealed class AntigravityImportSource : IImportSource {
     }
 
     /// <summary>
-    /// True when a line maps to a canonical event under AntigravityTranscriptNormalizer —
-    /// a conversational or tool-result step. Noise steps (SYSTEM_*, CHECKPOINT,
-    /// CONVERSATION_HISTORY, GENERIC, INVOKE_SUBAGENT) are skipped server-side and can never
-    /// advance the watermark; keep in sync with the normalizer.
+    /// True when a line can map to a canonical event: a conversational step or, whatever its type, a tool result.
+    /// Noise steps are skipped and can never advance the watermark.
     /// </summary>
     internal static bool IsImportRelevantLine(string line) {
         try {
@@ -477,7 +472,7 @@ internal sealed class AntigravityImportSource : IImportSource {
             return doc.RootElement.ValueKind == JsonValueKind.Object
                 && doc.RootElement.TryGetProperty("type", out var t)
                 && t.GetString() is { } type
-                && RelevantTypes.Contains(type);
+                && AntigravityTranscriptEvents.CanProject(type);
         } catch {
             return false;
         }

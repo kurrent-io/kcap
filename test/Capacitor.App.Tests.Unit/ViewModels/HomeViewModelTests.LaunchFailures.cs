@@ -27,9 +27,19 @@ public partial class HomeViewModelTests {
     }
 
     [Test]
-    public async Task DenialReasonRendersFriendly() =>
-        await Assert.That(HomeViewModel.FriendlyLaunchFailure("launch_denied_by_owner: prompt_no_ui"))
-            .Contains("consent policy denied");
+    public async Task A_folder_the_daemon_cannot_read_names_the_daemon_and_the_folder() {
+        var text = HomeViewModel.FriendlyLaunchFailure("Access to the path '/Users/me/Documents/repo' is denied.");
+        await Assert.That(text).StartsWith(HomeViewModel.FolderDeniedLead);
+        await Assert.That(text).Contains("/Users/me/Documents/repo");
+    }
+
+    [Test]
+    [Arguments("owner approval required and no approval UI attached within 5.0s grace", "open kcap there")]
+    [Arguments("owner did not respond within 30s", "be ready to approve")]
+    [Arguments("declined by daemon owner", "before requesting it again")]
+    [Arguments("denied by daemon owner policy", "review the launch rules")]
+    public async Task A_consent_denial_suggests_the_action_that_matches_its_cause(string reason, string guidance) =>
+        await Assert.That(HomeViewModel.FriendlyLaunchFailure($"launch_denied_by_owner: {reason}")).Contains(guidance);
 
     [Test]
     public async Task A_full_daemon_reads_as_a_notice_without_the_hub_lead() {
@@ -43,14 +53,25 @@ public partial class HomeViewModelTests {
     }
 
     [Test]
-    public async Task Any_hub_refusal_loses_the_transport_lead() =>
+    public async Task Known_hub_refusal_loses_the_transport_lead() =>
         await Assert.That(HomeViewModel.FriendlyLaunchFailure(
                 "An unexpected error occurred invoking 'RequestLaunchAgentV2' on the server. HubException: Machine is offline."))
-            .IsEqualTo("Machine is offline.");
+            .IsEqualTo("The machine is offline. Reconnect it or choose another machine.");
+
+    [Test]
+    [Arguments("Unable to load shared library 'libpty_shim' or one of its dependencies.\ndlopen(/Applications/kcap.app/Contents/MacOS/libpty_shim.dylib): no such file.",
+        HomeViewModel.TerminalComponentUnavailable)]
+    [Arguments("unexpected_failure: System.IO.IOException\n   at Kcap.Start()", HomeViewModel.GenericLaunchFailure)]
+    public async Task Launch_and_handoff_hide_loader_output_and_unknown_diagnostics(string reason, string expected) {
+        await Assert.That(HomeViewModel.FriendlyLaunchFailure(reason)).IsEqualTo(expected);
+        await Assert.That(HandoffFailureText.For(reason)).IsEqualTo(
+            expected == HomeViewModel.GenericLaunchFailure ? HandoffFailureText.Generic : expected);
+    }
 
     [Test]
     public async Task A_cancelled_launch_reads_as_cancelled() =>
-        await Assert.That(HomeViewModel.FriendlyLaunchFailure(WireTokens.LaunchCancelled)).IsEqualTo("The launch was cancelled.");
+        await Assert.That(HomeViewModel.FriendlyLaunchFailure(WireTokens.LaunchCancelled))
+            .IsEqualTo("The launch was cancelled. Start again when you’re ready.");
 
     [Test]
     public async Task An_empty_snapshot_failure_is_a_sentence() {
@@ -63,7 +84,7 @@ public partial class HomeViewModelTests {
             .IsEqualTo(HomeViewModel.EmptyFolderStartMessage);
         await Assert.That(HomeViewModel.FriendlyLaunchFailure(
                 "git commit -m Initial snapshot failed: fatal: unable to write new index file"))
-            .IsEqualTo(HomeViewModel.WorkspacePrepFailed + " Unable to write new index file");
+            .IsEqualTo(HomeViewModel.WorkspacePrepFailed);
     }
 
     [Test]

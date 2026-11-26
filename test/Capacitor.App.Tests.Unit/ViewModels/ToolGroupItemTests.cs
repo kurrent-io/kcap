@@ -64,6 +64,27 @@ public class ToolGroupItemTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public async Task Calls_none_of_which_has_settled_get_a_header_until_the_summary_can_name_them() {
+        await RunOnUiAsync(async () => {
+            var group = new ToolGroupItem();
+            var a = Call("Read", ToolCategory.Read);
+            var b = Call("Read", ToolCategory.Read);
+            group.Add(a);
+            group.Add(b);
+            await Assert.That(group.ShowsKindChip).IsTrue();
+            await Assert.That(group.KindChip).IsEqualTo("2 tool calls");
+            await Assert.That(group.HeaderIconKind).IsEqualTo(ToolCategoryIcons.ForCategory(ToolCategory.Read));
+            await Assert.That(group.ShowsSummaryHeader).IsFalse();
+
+            a.Outcome = ToolOutcome.Done;
+            await Assert.That(group.ShowsKindChip).IsFalse();
+            await Assert.That(group.ShowsSummaryHeader).IsTrue();
+            await Assert.That(group.Summary).IsEqualTo("Read a file");
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public async Task Header_icon_represents_the_settled_categories_named_by_the_summary() {
         await RunOnUiAsync(async () => {
             var group = new ToolGroupItem();
@@ -71,7 +92,6 @@ public class ToolGroupItemTests {
             var b = Call("Read", ToolCategory.Read);
             group.Add(a);
             group.Add(b);
-            await Assert.That(group.HeaderIconKind).IsNull();
             b.Outcome = ToolOutcome.Done;
             await Assert.That(group.HeaderIconKind).IsEqualTo(ToolCategoryIcons.ForCategory(ToolCategory.Read));
             a.Outcome = ToolOutcome.Done;

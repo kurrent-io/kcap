@@ -111,7 +111,8 @@ public class AntigravityServerDeltaTests {
             .IsEquivalentTo(events.Select(e => CreatedAt(lines[e.Line])), CollectionOrdering.Matching);
     }
 
-    /// <summary>The server records no kind; the projection classifies each call, as it does for every vendor.</summary>
+    /// <summary>The server records no kind; the projection classifies each call from its native name, as it does for
+    /// every vendor.</summary>
     [Test]
     public async Task The_corpus_tool_calls_carry_tool_kinds_the_baseline_lacks() {
         var kinds = (await ProjectCorpusAsync("text-and-tool-turn", false))
@@ -119,10 +120,10 @@ public class AntigravityServerDeltaTests {
             .Select(c => (c.ToolCalls[0].ToolName, c.ToolCalls[0].ToolKind)).ToArray();
 
         await Assert.That(kinds).IsEquivalentTo(new[] {
-            ("list_dir", AcpToolKind.Search),
-            ("view_file", AcpToolKind.Read),
-            ("replace_file_content", AcpToolKind.Edit),
-            ("run_command", AcpToolKind.Execute),
+            ("LS", AcpToolKind.Search),
+            ("Read", AcpToolKind.Read),
+            ("Edit", AcpToolKind.Edit),
+            ("Bash", AcpToolKind.Execute),
         }, CollectionOrdering.Matching);
     }
 

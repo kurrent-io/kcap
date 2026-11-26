@@ -129,13 +129,15 @@ public class InstallStepAutoRetryTests {
         var root = new LocalRoot(Config.PathTo("local"));
         var logs = Directory.CreateDirectory(Path.Combine(root.Directory, "logs"));
         await File.WriteAllLinesAsync(Path.Combine(logs.FullName, "server-20261030.log"),
-            [.. Enumerable.Range(1, 250).Select(i => $"line {i}")]);
+            [.. Enumerable.Range(1, 250).Select(i => $"line {i}"), "Authorization: Bearer test-secret-value"]);
 
         var report = InstallSupportReport.Build(["first", "second"], root);
 
         await Assert.That(report).Contains("1. first");
         await Assert.That(report).Contains("2. second");
         await Assert.That(report).Contains("line 250");
+        await Assert.That(report).Contains("Authorization: [REDACTED]");
+        await Assert.That(report).DoesNotContain("test-secret-value");
         await Assert.That(report).DoesNotContain("line 50\n");
     }
 }

@@ -6,7 +6,15 @@ namespace Capacitor.App.Services.Onboarding;
 
 /// What the steady-state sign-in dialog runs on: the wizard's sign-in step, and the driver whose
 /// quiesce the close path awaits.
-internal sealed record ReauthGraph(SignInStepViewModel SignIn, WizardAuthService Auth) {
+internal sealed record ReauthGraph(SignInStepViewModel SignIn, WizardAuthService Auth, string Profile, string ServerUrl) {
+    /// Another Sign in click while this dialog is open. One for the same profile and server restarts
+    /// a cancelled or failed attempt, so the click still reaches the browser; a live attempt or a
+    /// commit is left alone, and a click for another target starts nothing here.
+    public Task SignInAgainAsync(string profile, string serverUrl) =>
+        profile == Profile && ServerIdentity.SameServer(serverUrl, ServerUrl)
+            ? SignIn.EnterAndSignInAsync(CancellationToken.None)
+            : Task.CompletedTask;
+
     /// The dialog's one close path, mirroring the wizard's handoff: a live attempt is cancelled
     /// and its run awaited (CanLeaveAsync never vetoes), then the driver is quiesced so nothing
     /// commits after the window is gone.
@@ -42,6 +50,6 @@ internal static class ReauthComposition {
             new SignInStepViewModel(
                 auth, connect, bridges, claims, appState, urlOpener,
                 committedDetail: refreshAppState ? "You're signed in. Refreshing…" : null),
-            auth);
+            auth, profile, serverUrl);
     }
 }

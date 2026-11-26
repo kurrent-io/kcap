@@ -20,7 +20,7 @@
             <ProgressBar x:Name="Progress" Grid.Row="0" Height="4" Margin="0,0,0,20" Minimum="0" Maximum="100"
                          IsVisible="{Binding !IsFinished}"
                          views:BusyIndicator.IsBusy="{Binding IsBusy}" Value="{Binding ProgressValue}"
-                         Foreground="{StaticResource KcapPurpleBrush}" />
+                         Foreground="{StaticResource KcapActivityBrush}" />
 
             <ScrollViewer Grid.Row="1">
                 <StackPanel>

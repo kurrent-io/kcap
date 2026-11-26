@@ -300,7 +300,7 @@ public class WorkspaceViewSmokeTests {
 
                 await Assert.That(notice.IsEffectivelyVisible).IsTrue();
                 await Assert.That(title.Text).IsEqualTo("Terminal connection failed");
-                await Assert.That(vm.TerminalPaneNotice!.Detail).IsEqualTo("The daemon couldn’t open the terminal.");
+                await Assert.That(vm.TerminalPaneNotice!.Detail).IsEqualTo("Couldn’t connect to the session’s terminal. Try reattaching.");
                 var reattach = notice.GetVisualDescendants().OfType<Button>()
                     .Single(b => Equals(b.Content, "Reattach") && b.IsEffectivelyVisible);
                 await Assert.That(reattach.Command).IsSameReferenceAs(vm.Terminal.ReattachCommand);

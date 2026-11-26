@@ -7,20 +7,18 @@ namespace Capacitor.Cli.Daemon.Harness.Antigravity;
 /// The <c>permissions.allow</c> rules an unattended Antigravity reviewer's per-launch home grants —
 /// the settings-file half of <see cref="AntigravityReviewerHome"/>.
 ///
-/// <para><c>agy -p</c> auto-denies every tool confirmation it raises, and the reviewer's result channel
-/// IS an MCP tool — so the one call a round waits for was the one print mode refused, and the round hung
-/// to the flow timeout.</para>
+/// <para>A reviewer runs in agy's Default mode, which auto-denies every tool confirmation in a headless
+/// run, and the reviewer's result channel IS an MCP tool: without a rule the one call a round waits for
+/// is refused and the round hangs to the flow timeout.</para>
 ///
-/// <para><b>agy's binary ships a string saying this cannot work</b> — <c>"…auto-denied. Settings
-/// allow-rules do not apply; re-run with --dangerously-skip-permissions…"</c>. It does not describe the
-/// MCP path: probed on 1.1.13 under an isolated home, the exact rule below let the call through and its
-/// absence reproduced the denial. Believe the probe, not the string; the rule form is agy's own
-/// (<c>mcp(chrome-devtools/*)</c> ships in the binary).</para>
+/// <para>Exact MCP allow-rules work in Default mode, whatever agy's denial text suggests: under an
+/// isolated home the rule below lets the call through and its absence reproduces the denial. The
+/// binary also ships <c>"Settings allow-rules do not apply; re-run with
+/// --dangerously-skip-permissions"</c>, which does not describe the MCP path.</para>
 ///
-/// <para>The flag is not the alternative: it is the reviewer's whole read boundary (measured on 1.1.10 —
-/// with it an absolute out-of-workspace <c>view_file</c> succeeds), so it would trade containment for
-/// delivery. Rules are exact pairs, never <c>mcp(server/*)</c>, since the narrow form was measured to
-/// work and the wide one would grant whatever the channel serves next.</para>
+/// <para>The flag is not the alternative: it lifts the reviewer's out-of-workspace read and write
+/// refusals along with the MCP one, trading containment for delivery. Rules are exact pairs, never
+/// <c>mcp(server/*)</c>, since the wide form would grant whatever the channel serves next.</para>
 ///
 /// <para>Tool names come from <c>KcapMcpRegistry</c>'s tables rather than being listed here — a second
 /// list would drift silently, granting a tool the reviewer may not call or withholding one it needs.</para>

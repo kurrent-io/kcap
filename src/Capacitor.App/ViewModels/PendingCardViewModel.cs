@@ -102,6 +102,6 @@ public abstract class PendingCardViewModel : ReactiveObject, IDisposable {
         "server_unreachable" => "Server unreachable — try again",
         "not_signed_in" => "Sign in to answer",
         "withdraw_unsupported" => null,
-        var reason => $"Could not answer ({reason}) — try again",
+        _ => "Could not answer. Try again.",
     };
 }

@@ -73,7 +73,7 @@ public class SessionStatusDotsTests {
         var local = SessionStatusDots.ForRow(Local("a1", awaiting: true), pending: false);
         await Assert.That(remote.Kind).IsEqualTo(local.Kind);
         await Assert.That(remote.ShowsClock).IsTrue();
-        await Assert.That(remote.ShowsDash).IsFalse();
+        await Assert.That(remote.ShowsSettledMark).IsFalse();
         await Assert.That(remote.IsWarning).IsTrue();
         // Presentation parity does not fabricate the local daemon's input/attention facts.
         await Assert.That(row.AwaitingInput).IsNull();
@@ -83,7 +83,7 @@ public class SessionStatusDotsTests {
     }
 
     /// The server's idle flag replaces the live "Running" and its in-flight ring, the word the web and
-    /// `kcap sessions` already use.
+    /// `kcap sessions` already use, and the tip says the session has not ended.
     [Test]
     public async Task A_stale_row_reads_stale_rather_than_running() {
         var status = SessionStatusDots.ForRow(Local("a") with { IsStale = true }, pending: false);
@@ -91,6 +91,12 @@ public class SessionStatusDotsTests {
         await Assert.That(status.Kind).IsEqualTo(AgentStatusKind.Stale);
         await Assert.That(status.Label).IsEqualTo("Stale");
         await Assert.That(status.AccessibleName).IsEqualTo("No activity for over an hour");
+
+        var tip = KcapTip.Session(status, "Inspect transcript", machine: null, checkout: null);
+        await Assert.That(tip.StateDetail).IsEqualTo("No activity for over an hour");
+        await Assert.That(tip.Description).Contains("Stale\nNo activity for over an hour");
+        await Assert.That(tip.Details!.Any(detail => detail.Value == tip.StateDetail)).IsFalse();
+        await Assert.That(tip.Details!.Select(detail => detail.Value)).Contains(SessionStatusDots.StaleNextStep);
         await Assert.That(status.IsInFlight).IsFalse();
         await Assert.That(status.IsWarning).IsTrue();
         await Assert.That(status.ShowsClock).IsTrue();
@@ -186,7 +192,7 @@ public class SessionStatusDotsTests {
         var done = SessionStatusDots.ForRow(Local("a", status: "Completed"), pending: false);
         await Assert.That(done.Kind).IsEqualTo(AgentStatusKind.Done);
         await Assert.That(done.Label).IsEqualTo("Done");
-        await Assert.That(done.ShowsDash).IsTrue();
+        await Assert.That(done.ShowsSettledMark).IsTrue();
         await Assert.That(done.ShowsRing).IsFalse();
     }
 
@@ -200,7 +206,7 @@ public class SessionStatusDotsTests {
         await Assert.That(ended.Label).IsEqualTo("Running");
         await Assert.That(ended.ShowsRing).IsFalse();
         await Assert.That(ended.IsInFlight).IsFalse();
-        await Assert.That(ended.ShowsDash).IsTrue();
+        await Assert.That(ended.ShowsSettledMark).IsTrue();
     }
 
     [Test]
@@ -211,7 +217,7 @@ public class SessionStatusDotsTests {
             work: new Dictionary<string, RunningWork> { [row.Key] = new(0, 1) });
 
         await Assert.That(rollup!.Label).IsEqualTo("Working");
-        await Assert.That(rollup.Tip).Contains("1 subagent running");
+        await Assert.That(rollup.AccessibleName).IsEqualTo("1 session working");
     }
 
     [Test]
@@ -233,6 +239,25 @@ public class SessionStatusDotsTests {
         await Assert.That(mixed.Tip).Contains("Waiting —");
 
         await Assert.That(SessionStatusDots.Rollup([Local("a")], new HashSet<string>())).IsNull();
+    }
+
+    /// A busy group's hover names only the sessions that surfaced, one line each, and caps the list.
+    [Test]
+    public async Task A_rollup_tip_lists_only_surfaced_sessions_up_to_a_cap() {
+        var rows = new[] {
+            Local("a", status: "Completed", title: "Finished"),
+            Local("b", title: "Busy"),
+            Local("c", awaiting: true, title: "One"), Local("d", awaiting: true, title: "Two"),
+            Local("e", awaiting: true, title: "Three"), Local("f", awaiting: true, title: "Four"),
+            Local("g", awaiting: true, title: "Five"),
+        };
+
+        var rollup = SessionStatusDots.Rollup(rows, new HashSet<string>())!;
+
+        await Assert.That(rollup.Tip).DoesNotContain("Finished");
+        await Assert.That(rollup.Tip).DoesNotContain("Harness");
+        await Assert.That(rollup.Tip.Split('\n').Length).IsEqualTo(6);
+        await Assert.That(rollup.Tip).EndsWith("and 1 more");
     }
 
     [Test]

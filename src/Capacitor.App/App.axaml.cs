@@ -16,6 +16,7 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Layout;
 using Avalonia.Markup.Xaml;
 using Avalonia.Media;
+using Avalonia.Platform;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Capacitor.App.Services;
@@ -115,6 +116,11 @@ public partial class App : Application {
     readonly AppStateStore _appState;
 
     readonly UiScaleSetting _uiScale;
+    readonly string? _openingDesktopColorScheme;
+    readonly IReadOnlyDictionary<string, string>? _openingDesktopAppearance;
+    ClassicAppearancePreview? _classicPreview;
+    DesktopAppearanceSettings? _desktopAppearance;
+    CompositeDisposable? _classicPreviewSubscription;
     ChatMarksFiles? _chatMarksFiles;
     readonly ProgressiveDisclosurePreferences? _progressiveDisclosure;
     readonly BetaUpdatesSetting _betaUpdates;
@@ -152,6 +158,8 @@ public partial class App : Application {
         _appState = new AppStateStore(_config.Path("app-state.json"));
 #pragma warning restore RS0030
         var state = _appState.LoadAsync().GetAwaiter().GetResult();
+        _openingDesktopColorScheme = state.DesktopColorScheme;
+        _openingDesktopAppearance = state.DesktopAppearance;
         _uiScale = UiScaleSetting.From(_appState, state);
         SecondaryWindowScale.Install(_uiScale);
         _betaUpdates = BetaUpdatesSetting.From(_appState, state);
@@ -303,7 +311,7 @@ public partial class App : Application {
     // disposed, and the window that owns dialogs while no main window exists. Both are cleared again
     // by the handoff at the end of RunWizardModeAsync.
     WizardAuthService? _wizardAuth;
-    // The History step, kept past the handoff: its import outlives onboarding and only shutdown stops it.
+    // The History step, kept past the handoff: its import outlives onboarding, so shutdown must still stop it.
     HistoryStepViewModel? _historyImport;
     // Imports of earlier chats started from Settings → Harnesses; shutdown stops every one like setup's.
     readonly List<HistoryImportRun> _settingsImports = [];
@@ -316,11 +324,12 @@ public partial class App : Application {
     // The onboarding window once its flow has finished, waiting for BuildAndShowMainWindow to take
     // it over so the main surface opens in place rather than in a second window.
     (MainWindow Window, AppState State)? _adoptableWindow;
-    // Steady-state re-auth dialog, one at a time — a second Sign in click focuses it. The settle
+    // Steady-state re-auth dialog, one at a time, and the graph it runs on. The settle
     // task is FinishSignInAsync for the most recent close; shutdown awaits it so a live attempt is
     // cancelled (or a commit past the boundary finishes) before the process exits — the dialog's
     // counterpart of the wizard sign-in quiesce.
     SignInWindow? _signInWindow;
+    ReauthGraph? _signInGraph;
     SettingsWindow? _settingsWindow;
     readonly BehaviorSubject<Action?> _openSearchSettings = new(null);
     readonly BehaviorSubject<Func<bool>?> _openHarnessesSettings = new(null);
@@ -414,7 +423,7 @@ public partial class App : Application {
             if (_uninstallMode is { } uninstall) {
                 RunUninstallMode(desktop, uninstall);
             } else {
-                // Before StartAsync: it shows its first window (the install guard or the wizard) synchronously.
+                // Install the menu before startup can show a window.
                 _menuBar = new AppMenuBar(new ShellUrlOpener(), () => desktop.Windows, () => MainWindowAction(_coordinator));
                 _menuBar.Install();
                 _ = StartAsync(desktop);
@@ -444,6 +453,10 @@ public partial class App : Application {
                 if (RunInstallLocationGuard(desktop)) return; // the guard window owns the rest of this run
                 if (await RunLegacyInstallGuardAsync(desktop)) return;
             }
+            var appearanceFlag = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profile: null, ExperimentalFeatures.DesktopAppearance);
+            var appearanceEnabled = await Task.Run(() => appearanceFlag.IsOn, _shutdown.Token);
+            if (_shutdown.IsCancellationRequested) return;
+            ConfigureDesktopAppearance(appearanceFlag, appearanceEnabled);
             _updater = CreateUpdater(_betaUpdates);
             if (UpdateCoordinator.TryApplyPendingAtStartup(_updater, Program.Host.UpdateRelaunch,
                     HandOver(AppUpdateTransition.PendingAtStartup), LifecycleLog)) return; // the process is being replaced
@@ -536,6 +549,7 @@ public partial class App : Application {
             if (_wizardWindow is { IsVisible: true } wizard) wizard.Close();
             if (TakeAdoptableWindow() is { } adoptable) adoptable.Window.Close();
             Console.Error.WriteLine($"kcap app failed to start: {ex}");
+            Program.RecordStartupFailure(ex);
             await QuiesceAppAsync(_wizardAuth, _historyImport, _localInstall,
                 lifecycle: null, lane: null, QuiesceShutdownCap, _time);
             await _workspaceTeardown.DrainAsync();
@@ -1111,7 +1125,50 @@ public partial class App : Application {
     internal static bool ShouldShowWizard(GateResult gate, string[]? args, bool firstRunAfterInstall = false) =>
         gate is GateResult.Incomplete || firstRunAfterInstall || args?.Contains("--setup", StringComparer.Ordinal) == true;
 
-    // The steady-state graph, over the resolution the gate was evaluated on (never a second resolve).
+    void ConfigureDesktopAppearance(ExperimentalSwitch flag, bool enabledAtStartup) {
+        var palette = new ClassicPreviewPalette(this);
+        var platform = PlatformSettings;
+        var systemChanges = platform is null ? Observable.Never<Unit>() :
+            Observable.FromEventPattern<PlatformColorValues>(h => platform.ColorValuesChanged += h, h => platform.ColorValuesChanged -= h)
+                .Select(_ => Unit.Default).ObserveOn(RxSchedulers.MainThreadScheduler);
+        var preview = new ClassicAppearancePreview(_appState, _openingDesktopColorScheme,
+            palette.TryApply, () => platform?.GetColorValues().ThemeVariant != PlatformThemeVariant.Light, systemChanges);
+        var reading = new DesktopReadingResources(this);
+        var contrastWatch = new SerialDisposable();
+        var zoomWatch = new SerialDisposable();
+        var appearance = new DesktopAppearanceSettings(_appState, _openingDesktopAppearance, preferences => {
+            reading.Apply(preferences);
+            var highContrast = preferences?.HighContrast == true;
+            void ApplyContrast() => palette.SetHigherContrast(highContrast ||
+                platform?.GetColorValues().ContrastPreference == ColorContrastPreference.High);
+            contrastWatch.Disposable = preferences is not null && !highContrast
+                ? systemChanges.Subscribe(_ => ApplyContrast()) : null;
+            if (preferences is null) palette.SetHigherContrast(false);
+            else ApplyContrast();
+        });
+        void SetEnabled(bool enabled) {
+            if (appearance.Enabled == enabled) return;
+            if (enabled) {
+                zoomWatch.Disposable = _uiScale.Changes.ObserveOn(RxSchedulers.MainThreadScheduler)
+                    .Subscribe(reading.SetZoom);
+                appearance.SetEnabled(true);
+                preview.SetEnabled(true);
+            } else {
+                preview.SetEnabled(false);
+                appearance.SetEnabled(false);
+                zoomWatch.Disposable = null;
+            }
+        }
+
+        SetEnabled(enabledAtStartup);
+        _classicPreview = preview;
+        _desktopAppearance = appearance;
+        _classicPreviewSubscription = new CompositeDisposable(contrastWatch, zoomWatch, _experimentalSaved.Merge(
+                Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default))
+            .ObserveOn(TaskPoolScheduler.Default).Select(_ => flag.IsOn).DistinctUntilChanged()
+            .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(SetEnabled));
+    }
+
     void BuildDaemonGraph(
             IClassicDesktopStyleApplicationLifetime desktop, DaemonMutationLane lane, OutcomeChannel channel, ILoginShellProbe probe,
             GateResult gate, ProfileContext? profiles, bool laneQuiesced) {
@@ -1979,7 +2036,7 @@ public partial class App : Application {
                             _userHome, AccountStore.Beside(_daemonStore).TryLoad() ?? new AccountRegistry(), Environment.GetEnvironmentVariable),
                         pickDirectory: PickAccountDirectoryAsync, daemonStatus: service.Status, usageClock: _usageClock, appLifetime: _shutdown.Token)
                     : null,
-                Appearance = new AppearanceSettingsViewModel(_uiScale),
+                Appearance = new AppearanceSettingsViewModel(_uiScale, _classicPreview, _desktopAppearance),
                 Privacy    = new PrivacySettingsViewModel(_telemetry, _config, _usageNotice),
                 Search     = _localStack?.Search,
                 Intelligence = _localUpgrade is { } upgrade && _localSearch is { } search
@@ -1992,7 +2049,8 @@ public partial class App : Application {
                     followsBetas: () => _updater.AllowsPrerelease, setBetaUpdates: SetBetaUpdatesAsync, appLifetime: _shutdown.Token),
             };
         } catch (Exception ex) {
-            notifier.Notify($"Could not open settings: {ex.Message}");
+            Console.Error.WriteLine($"kcap: could not open settings: {ex.Message}");
+            notifier.Notify("Could not open settings. Try again.");
             return false;
         }
 
@@ -2080,6 +2138,7 @@ public partial class App : Application {
     void OpenSignInDialog(string profile, string serverUrl, bool refreshAppState) {
         if (_signInWindow is { } open) {
             open.Activate();
+            if (_signInGraph is { } openGraph) _ = openGraph.SignInAgainAsync(profile, serverUrl);
             return;
         }
 
@@ -2113,10 +2172,12 @@ public partial class App : Application {
         window.Closed += (_, _) => {
             graph.SignIn.PropertyChanged -= OnSignInChanged;
             _signInWindow = null;
+            _signInGraph  = null;
             _reauthSettle = FinishSignInAsync(graph, refreshAppState);
         };
 
         _signInWindow = window;
+        _signInGraph  = graph;
         window.Show();
     }
 
@@ -2429,9 +2490,6 @@ public partial class App : Application {
             try {
                 await service.DisposeAsync();
             } catch (Exception disposeEx) {
-                // The ORIGINAL startup exception (ex, already captured and about to be shown
-                // below) must never be masked by a secondary dispose failure — append it to the
-                // same Console.Error channel instead of letting it propagate.
                 Console.Error.WriteLine($"kcap app failed to dispose the daemon client service during startup-failure cleanup: {disposeEx}");
             }
         }
@@ -2473,7 +2531,7 @@ public partial class App : Application {
         // Showing a window is legal before Avalonia's main loop starts (StartWithClassicDesktopLifetime
         // does the same); calling desktop.Shutdown(1) directly throws when startup faulted
         // synchronously, before the main loop began.
-        var errorWindow = BuildStartupErrorWindow(ex);
+        var errorWindow = BuildStartupErrorWindow(ex, Program.StartupCrashLogPath);
         if (desktop.MainWindow is null) desktop.MainWindow = errorWindow;
         errorWindow.Closed += (_, _) => desktop.Shutdown(1);
         errorWindow.Show();
@@ -2483,11 +2541,7 @@ public partial class App : Application {
     static IBrush? KcapBrush(string key) =>
         Current?.TryGetResource(key, null, out var brush) == true ? brush as IBrush : null;
 
-    // Last-resort UI for a startup failure: Console.Error above is invisible on a normal GUI
-    // launch (OutputType=WinExe has no console), so this window is the only channel that
-    // actually reaches the user. SelectableTextBlock (not TextBlock) keeps the stack trace
-    // copyable for a bug report.
-    internal static Window BuildStartupErrorWindow(Exception ex) =>
+    internal static Window BuildStartupErrorWindow(Exception ex, string? crashLogPath = null) =>
         new() {
             Title = "kcap — startup failed",
             Icon = ProductIcon.WindowIcon,
@@ -2497,7 +2551,15 @@ public partial class App : Application {
             Foreground = KcapBrush("KcapTextBrush"),
             Content = new ScrollViewer {
                 Content = new SelectableTextBlock {
-                    Text = $"The app failed to start. Details:\n{ex}",
+                    Text = ex switch {
+                        DllNotFoundException or EntryPointNotFoundException or BadImageFormatException =>
+                            "kcap couldn’t load a required component. Update or reinstall kcap, then open it again.",
+                        UnauthorizedAccessException =>
+                            "kcap couldn’t access files it needs to start. Check your permissions, then open kcap again.",
+                        _ when crashLogPath is not null =>
+                            $"kcap couldn’t start. Close this window and open kcap again. If it keeps happening, look for the crash log at {crashLogPath} and contact support.",
+                        _ => "kcap couldn’t start. Close this window and open kcap again. Contact support if it keeps happening.",
+                    },
                     TextWrapping = TextWrapping.Wrap,
                 },
             },
@@ -2620,7 +2682,10 @@ public partial class App : Application {
             retryListing: remoteAgents is null ? null : remoteAgents.RefreshDaemonsAsync, readings: readings,
             branches: new GitBranchReader(new ProcessRunner(time), time),
             pickers: pickers,
-            launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) { LocalStack = localStack, UsageNotice = usageNotice, NextWork = nextWorkBand };
+            launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) {
+                LocalStack = localStack, UsageNotice = usageNotice, NextWork = nextWorkBand,
+                OpenFolderPrivacySettings = OperatingSystem.IsMacOS() ? () => MacPrivacySettings.OpenFilesAndFolders(new ShellUrlOpener()) : null,
+            };
         homeRef = home;
         if (localServer is not null) home.AttachLocalServerRecovery(localServer);
         if (lane is ServerConnectionService serverLane) home.AttachServerRetry(() => serverLane.RestartAsync());
@@ -3477,6 +3542,9 @@ public partial class App : Application {
     void LatchNavigation() {
         _notificationAccessPrompt?.Dispose();
         _desktopNotifications?.Dispose();
+        _classicPreviewSubscription?.Dispose();
+        _classicPreview?.Dispose();
+        _desktopAppearance?.Dispose();
         _notificationBadgeSubscription?.Dispose();
         _windowLifecycle?.SetPendingNotificationCount(0);
         (_coordinator?.Window?.DataContext as MainWindowViewModel)?.LatchShutdown();

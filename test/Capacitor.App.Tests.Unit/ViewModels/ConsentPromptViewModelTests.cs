@@ -301,8 +301,8 @@ public class ConsentPromptViewModelTests {
     }
 
     [Test]
-    [Arguments(ConsentResolveKind.AppliedRuleRejected, ConsentRuleOutcome.Rejected, "store full", "Decision applied — rule not saved: store full")]
-    [Arguments(ConsentResolveKind.RuleSkippedNoRequester, ConsentRuleOutcome.SkippedNoRequester, null, "Decision applied — rule not saved: the request had no requester identity")]
+    [Arguments(ConsentResolveKind.AppliedRuleRejected, ConsentRuleOutcome.Rejected, "store full", "Decision applied, but the rule couldn’t be saved. Open Launch Approvals to check your rules.")]
+    [Arguments(ConsentResolveKind.RuleSkippedNoRequester, ConsentRuleOutcome.SkippedNoRequester, null, "Decision applied. The rule couldn’t be saved because the request didn’t identify who made it.")]
     [Arguments(ConsentResolveKind.AppliedRuleRejected, ConsentRuleOutcome.Unknown, null, "Decision applied — this daemon version doesn't report whether the rule was saved")]
     [NotInParallel("AvaloniaSession")]
     public async Task Rule_warnings_toast_and_still_advance(
@@ -372,7 +372,7 @@ public class ConsentPromptViewModelTests {
                 return (held.PhaseText, held.Item2, held.ButtonsVisible, held.CloseRequests, h.Vm.Current, h.CloseRequests);
             });
 
-        await Assert.That(phaseText).IsEqualTo("Decision applied — rule not saved: store full");
+        await Assert.That(phaseText).IsEqualTo("Decision applied, but the rule couldn’t be saved. Open Launch Approvals to check your rules.");
         await Assert.That(pinned).IsTrue();
         await Assert.That(buttonsVisible).IsFalse(); // the request is settled: nothing left to click
         await Assert.That(closedDuringHold).IsEqualTo(0);

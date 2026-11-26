@@ -14,7 +14,7 @@ namespace Capacitor.Cli.Tests.Unit.Harness.Antigravity;
 /// <summary>
 /// The Antigravity PreInvocation memory-injection contract. Antigravity reads hook stdout as a JSON
 /// envelope (<c>injectSteps</c>), so these tests pin the two things that must never break: a fragment
-/// renders as a durable <c>userMessage</c> step, and every no-memory path writes NOTHING AT ALL.
+/// renders as a durable <c>systemMessage</c> step, and every no-memory path writes NOTHING AT ALL.
 ///
 /// The zero-bytes rule is the regression that matters most. This hook emitted nothing before the
 /// memory index existed, so rendering the adapter's <c>{}</c> on the no-fragment path would change
@@ -52,11 +52,11 @@ public class AntigravitySessionStartMemoryTests {
         await Assert.That(Write(null)).IsEqualTo("");
     }
 
-    // The vendor's own documented shape, verified against the agy binary's embedded hook contract:
-    // injectSteps carries userMessage (durable) rather than ephemeralMessage (documented transient).
+    // A userMessage step is drawn in agy's chat as a user turn; a systemMessage step persists for the
+    // conversation without being drawn, and its payload is a nested object, not a string.
     [Test]
     public async Task a_fragment_renders_the_injectSteps_envelope() {
-        await Assert.That(Write("F")).IsEqualTo("{\"injectSteps\":[{\"userMessage\":\"F\"}]}\n");
+        await Assert.That(Write("F")).IsEqualTo("{\"injectSteps\":[{\"systemMessage\":{\"systemMessage\":\"F\"}}]}\n");
     }
 
     // Markdown carries quotes, backslashes and newlines; the envelope is JSON, so the fragment must
@@ -76,7 +76,8 @@ public class AntigravitySessionStartMemoryTests {
         using var doc = System.Text.Json.JsonDocument.Parse(output);
         var decoded = doc.RootElement
             .GetProperty("injectSteps")[0]
-            .GetProperty("userMessage")
+            .GetProperty("systemMessage")
+            .GetProperty("systemMessage")
             .GetString();
 
         await Assert.That(decoded).IsEqualTo(fragment);
@@ -97,7 +98,7 @@ public class AntigravitySessionStartMemoryTests {
     // envelope, because the null case is the ONLY zero-bytes case.
     [Test]
     public async Task an_empty_fragment_still_renders_the_envelope() {
-        await Assert.That(Write("")).IsEqualTo("{\"injectSteps\":[{\"userMessage\":\"\"}]}\n");
+        await Assert.That(Write("")).IsEqualTo("{\"injectSteps\":[{\"systemMessage\":{\"systemMessage\":\"\"}}]}\n");
     }
 
     [Test]
@@ -267,26 +268,19 @@ public class AntigravitySessionStartMemoryTests {
         await Assert.That(consulted).IsTrue();
     }
 
-    // The nudges carry no lease, so on this repeating callback only the invocation counter keeps
-    // them from re-injecting a persistent userMessage step every turn.
-
+    // agy restarts invocationNum at 0 on every user turn, so the nudges are gated by a durable claim
+    // keyed on the conversation; both spellings of its id must land on the one claim.
     [Test]
-    public async Task The_first_invocation_emits_nudges() {
-        await Assert.That(AntigravityHookCommand.IsFirstInvocation(Payload("""{"invocationNum":1}"""))).IsTrue();
-    }
+    public async Task The_nudge_claim_is_won_once_per_conversation() {
+        var budget = TimeSpan.FromSeconds(2);
 
-    [Test]
-    public async Task A_later_invocation_suppresses_nudges() {
-        await Assert.That(AntigravityHookCommand.IsFirstInvocation(Payload("""{"invocationNum":2}"""))).IsFalse();
-        await Assert.That(AntigravityHookCommand.IsFirstInvocation(Payload("""{"invocationNum":97}"""))).IsFalse();
-    }
-
-    // Fail-open: a payload whose counter cannot mark a later turn — missing, non-numeric, or below
-    // the genuine first value of one — must still emit.
-    [Test]
-    public async Task A_missing_or_unusable_counter_reads_as_the_first_invocation() {
-        await Assert.That(AntigravityHookCommand.IsFirstInvocation(Payload("{}"))).IsTrue();
-        await Assert.That(AntigravityHookCommand.IsFirstInvocation(Payload("""{"invocationNum":"2"}"""))).IsTrue();
-        await Assert.That(AntigravityHookCommand.IsFirstInvocation(Payload("""{"invocationNum":0}"""))).IsTrue();
+        await Assert.That(await NudgeLease.TryClaimAsync(Config.Root, TimeProvider.System, HarnessId.Antigravity,
+            "e80c33bfc10f4d2fb626b0043f488fc0", budget)).IsTrue();
+        await Assert.That(await NudgeLease.TryClaimAsync(Config.Root, TimeProvider.System, HarnessId.Antigravity,
+            "e80c33bfc10f4d2fb626b0043f488fc0", budget)).IsFalse();
+        await Assert.That(await NudgeLease.TryClaimAsync(Config.Root, TimeProvider.System, HarnessId.Antigravity,
+            "e80c33bf-c10f-4d2f-b626-b0043f488fc0", budget)).IsFalse();
+        await Assert.That(await NudgeLease.TryClaimAsync(Config.Root, TimeProvider.System, HarnessId.Antigravity,
+            "0b1d2c3e4f5a46b7a8c9d0e1f2a3b4c5", budget)).IsTrue();
     }
 }

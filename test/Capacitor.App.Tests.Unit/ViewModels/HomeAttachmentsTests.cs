@@ -84,7 +84,9 @@ public class HomeAttachmentsTests {
         public CancellationTokenSource Shutdown { get; } = new();
         public HomeViewModel Vm { get; private set; } = null!;
 
-        public HomeViewModel Start(string statePath, IReadOnlyList<string>? capabilities = null, ILaunchClient? launch = null) {
+        public HomeViewModel Start(
+                string statePath, IReadOnlyList<string>? capabilities = null, ILaunchClient? launch = null,
+                Action? openFolderPrivacySettings = null) {
             Daemon.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap(connection: "connected"));
             Daemon.StatusSubject.OnNext(new AttachStatus(
                 AttachState.Connected, null, capabilities ?? ["input/1", "input/2"]));
@@ -93,7 +95,7 @@ public class HomeAttachmentsTests {
                 shutdown: Shutdown.Token,
                 daemons: Daemons, viewerId: _ => Task.FromResult(ViewerId), laneStatus: Lane,
                 launchFailures: Failures, directory: Directory, uploader: Uploader,
-                listing: Listing, localAccounts: LocalAccounts);
+                listing: Listing, localAccounts: LocalAccounts) { OpenFolderPrivacySettings = openFolderPrivacySettings };
             return Vm;
         }
 
@@ -120,8 +122,8 @@ public class HomeAttachmentsTests {
     /// upload is still in flight — the window a draft has to be edited out from under.
     static async Task<StagedAttachment> LaunchWithDraftAsync(
             Rig rig, string statePath, Func<HomeViewModel, Task>? duringUpload = null,
-            Func<HomeViewModel, Task>? beforeStart = null) {
-        var vm = rig.Start(statePath);
+            Func<HomeViewModel, Task>? beforeStart = null, Action? openFolderPrivacySettings = null) {
+        var vm = rig.Start(statePath, openFolderPrivacySettings: openFolderPrivacySettings);
         await vm.SelectRepositoryAsync("/repo/a");
         if (beforeStart is not null) await beforeStart(vm);
         var chip = Chip("a.png");
@@ -343,7 +345,7 @@ public class HomeAttachmentsTests {
 
             await vm.StartCommand.Execute();
 
-            await Assert.That(vm.StartError).IsEqualTo("that file type isn't allowed");
+            await Assert.That(vm.StartError).IsEqualTo("The server couldn’t accept the files. Check them and try again.");
             await Assert.That(rig.Launch.Last).IsNull();
             await Assert.That(vm.Tray.Count).IsEqualTo(1);
             await Assert.That(vm.Goal).IsEqualTo("g");
@@ -425,7 +427,7 @@ public class HomeAttachmentsTests {
 
             rig.Failures.OnNext(new LaunchFailure(LaunchedId, "boom"));
 
-            await Assert.That(vm.StartError).IsEqualTo("boom — your draft is back");
+            await Assert.That(vm.StartError).IsEqualTo(HomeViewModel.GenericLaunchFailure.TrimEnd('.') + " — your draft is back");
             await Assert.That(vm.Goal).IsEqualTo("g");
             await Assert.That(vm.Tray.Items.Single().Id).IsEqualTo(chip.Id);
         });
@@ -529,7 +531,7 @@ public class HomeAttachmentsTests {
     public async Task Delayed_failure_does_not_restore_over_user_edits_or_a_changed_target() {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             using var tmp = new TempDir();
-            const string ReAttach = "boom — re-attach the files to send them again";
+            const string ReAttach = "Couldn't start the session. Try again — re-attach the files to send them again";
 
             using (var rig = new Rig()) {
                 await LaunchWithDraftAsync(rig, tmp.PathTo("a.json"));
@@ -576,11 +578,13 @@ public class HomeAttachmentsTests {
             }
 
             using (var rig = new Rig()) {
-                await LaunchWithDraftAsync(rig, tmp.PathTo("e.json"));
+                await LaunchWithDraftAsync(rig, tmp.PathTo("e.json"), openFolderPrivacySettings: () => { });
                 await rig.Vm.SelectRepositoryAsync("/repo/elsewhere");
-                rig.Failures.OnNext(new LaunchFailure(LaunchedId, "boom"));
+                rig.Failures.OnNext(new LaunchFailure(LaunchedId, "Access to the path '/repo/a' is denied."));
 
-                await Assert.That(rig.Vm.StartError).IsEqualTo(ReAttach);
+                await Assert.That(rig.Vm.StartError).StartsWith(HomeViewModel.FolderDeniedLead);
+                await Assert.That(rig.Vm.StartError).EndsWith("re-attach the files to send them again");
+                await Assert.That(rig.Vm.CanRequestRepositoryAccess).IsFalse();
                 await Assert.That(rig.Vm.Goal).IsEqualTo("");
                 await Assert.That(rig.Vm.Tray.Count).IsEqualTo(0);
             }
@@ -606,13 +610,13 @@ public class HomeAttachmentsTests {
             await vm.StartCommand.Execute();
 
             rig.Failures.OnNext(new LaunchFailure(LaunchedId, "boom"));
-            await Assert.That(vm.StartError).IsEqualTo("boom — re-attach the files to send them again");
+            await Assert.That(vm.StartError).IsEqualTo("Couldn't start the session. Try again — re-attach the files to send them again");
             await Assert.That(vm.Goal).IsEqualTo("");
             await Assert.That(vm.Tray.Count).IsEqualTo(0);
 
             // The second launch's own bytes are untouched by the first launch's failure.
             rig.Failures.OnNext(new LaunchFailure(SecondLaunchedId, "nope"));
-            await Assert.That(vm.StartError).IsEqualTo("nope — your draft is back");
+            await Assert.That(vm.StartError).IsEqualTo(HomeViewModel.GenericLaunchFailure.TrimEnd('.') + " — your draft is back");
             await Assert.That(vm.Goal).IsEqualTo("second");
             await Assert.That(vm.Tray.Items.Single().FileName).IsEqualTo("b.png");
         });
@@ -669,7 +673,7 @@ public class HomeAttachmentsTests {
                 vm.Goal = "g";
                 await vm.StartCommand.Execute();
 
-                await Assert.That(vm.StartError).IsEqualTo("boom — your draft is back");
+                await Assert.That(vm.StartError).IsEqualTo(HomeViewModel.GenericLaunchFailure.TrimEnd('.') + " — your draft is back");
                 await Assert.That(vm.Goal).IsEqualTo("g");
                 await Assert.That(vm.Tray.Items.Single().Id).IsEqualTo(chip.Id);
             }
@@ -696,7 +700,7 @@ public class HomeAttachmentsTests {
                 rig.Failures.OnNext(new LaunchFailure(LaunchedId, "attachment_unavailable: 3 of 3 gone"));
 
                 await Assert.That(rig.Vm.StartError)
-                    .IsEqualTo("the attached files could not be delivered to the machine — your draft is back");
+                    .IsEqualTo("The attached files couldn’t reach the machine. Check that it’s connected, then try again — your draft is back");
             }
         });
     }
@@ -739,6 +743,49 @@ public class HomeAttachmentsTests {
             vm.Attachments.Accept(new IntakeResult([], [new IntakeRefusal("clipboard", "the clipboard could not be read")]));
 
             await Assert.That(vm.StartError).IsEqualTo("the clipboard could not be read");
+        });
+    }
+
+    /// A remote daemon's folder denial reads like a local one. Landing after the picker moved back to
+    /// local, it must not offer this machine's Privacy settings, which cannot lift it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_remote_folder_denial_landing_after_a_switch_to_local_offers_no_privacy_settings() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            using var rig = new Rig();
+            var vm = rig.Start(path, openFolderPrivacySettings: () => { });
+            var local = vm.SelectedMachine;
+            rig.Daemons.OnNext([Machine("box", CapableVersion)]);
+            await vm.SelectMachineAsync("box", isLocal: false);
+            await vm.SelectRepositoryAsync("/remote/repo");
+            vm.Attachments.Accept(new IntakeResult([Chip("a.png")], []));
+            vm.Goal = "g";
+            await vm.StartCommand.Execute();
+
+            await vm.SelectMachineAsync(local, isLocal: true);
+            rig.Failures.OnNext(new LaunchFailure(LaunchedId, "Access to the path '/remote/repo' is denied."));
+
+            await Assert.That(vm.StartError).StartsWith(HomeViewModel.FolderDeniedLead);
+            await Assert.That(vm.CanRequestRepositoryAccess).IsFalse();
+        });
+    }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_local_folder_denial_after_an_attachment_launch_offers_privacy_settings() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            using var rig = new Rig();
+            var vm = rig.Start(path, openFolderPrivacySettings: () => { });
+            await vm.SelectRepositoryAsync("/repo/a");
+            vm.Attachments.Accept(new IntakeResult([Chip("a.png")], []));
+            vm.Goal = "g";
+            await vm.StartCommand.Execute();
+
+            rig.Failures.OnNext(new LaunchFailure(LaunchedId, "Access to the path '/repo/a' is denied."));
+
+            await Assert.That(vm.CanRequestRepositoryAccess).IsTrue();
         });
     }
 }

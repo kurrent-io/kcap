@@ -53,6 +53,8 @@ sealed class AntigravityHookCommand(
     /// kills the hook outright: PreInvocation blocks the turn, and that firing never retries.</summary>
     static readonly TimeSpan Ceiling = TimeSpan.FromSeconds(5);
 
+    static readonly TimeSpan NudgeClaimBudget = TimeSpan.FromMilliseconds(750);
+
     public Task<int> Handle(string[] args) => Handle(args, Console.In, Console.Out);
 
     internal async Task<int> Handle(
@@ -113,9 +115,10 @@ sealed class AntigravityHookCommand(
 
     /// <summary>
     /// Writes the team-memory fragment in Antigravity's PreInvocation shape:
-    /// <c>{"injectSteps":[{"userMessage":"…"}]}</c>. <c>userMessage</c> rather than
-    /// <c>ephemeralMessage</c> because the vendor's own embedded hook contract documents the latter as
-    /// transient, and the index is meant to persist for the conversation.
+    /// <c>{"injectSteps":[{"systemMessage":{"systemMessage":"…"}}]}</c>. A <c>systemMessage</c> step
+    /// persists for the conversation and stays out of the chat; a <c>userMessage</c> step is drawn as
+    /// a user turn and becomes the next payload's <c>lastUserInput</c>, and an <c>ephemeralMessage</c>
+    /// is transient.
     ///
     /// <para><b>A null fragment writes ZERO BYTES.</b> This hook emitted nothing at all before the
     /// memory index existed, so rendering the adapter's <c>{}</c> on the no-fragment path would change
@@ -200,6 +203,10 @@ sealed class AntigravityHookCommand(
             SessionStartMemoryHookSupport.FlowsLaneDisabled(HarnessId.Antigravity, harnesses, audience: audience),
             budget.Remaining);
 
+        // invocationNum restarts at 0 on every user turn, so it cannot tell a conversation's first
+        // PreInvocation from a later one; a durable once-per-conversation claim does.
+        var nudgeClaim = NudgeLease.TryClaimAsync(config, clock.Time, HarnessId.Antigravity, sessionId, NudgeClaimBudget);
+
         // Spawn-before-post. Route through the shared spool-aware poster — a lapse/outage durably spools the
         // payload for a later drain AND still proceeds to spawn the watcher, so capture never
         // depends on lifecycle-POST delivery. Only a permanent Failed withholds the watcher.
@@ -219,10 +226,12 @@ sealed class AntigravityHookCommand(
         // subtracts HookBudget.Safety — do NOT subtract it again. Written even when the watcher-spawn
         // gate below returns early — a withheld watcher must not suppress injection.
         var fragment = await SessionStartMemoryHookSupport.AwaitBounded(memoryTask, budget);
-        // Nudges are unleased pure functions of the session id, so on this repeating callback they
-        // must be gated by the vendor's own per-conversation counter: without the gate every turn
-        // re-injects them as another persistent userMessage step.
-        var workItemsNudge = IsFirstInvocation(payload)
+        // The claim bounds itself and started before the fetch, so this rarely waits. One that misses
+        // the ceiling may still commit and silence the nudges for the conversation: never re-injecting
+        // them beats a discarded fragment.
+        bool claimed;
+        try { claimed = await nudgeClaim.WaitAsync(budget.Remaining, budget.Time); } catch (TimeoutException) { claimed = false; }
+        var workItemsNudge = claimed
             ? HarnessNudgeEmitter.Combine(
                 SessionNudges.Resolve(HarnessId.Antigravity, sessionId, activeProfile, harnesses, PlanEntitlementStore.Get(Url, config, clock.Time.GetUtcNow()), audience, cwd, home),
                 HarnessNudgeEmitter.ResolveFragmentForHook(activeProfile?.DisableHarnessNudge is true || !audience.GetsOnboarding, config, harnesses, clock.Time),
@@ -274,15 +283,13 @@ sealed class AntigravityHookCommand(
         => AgentHookPoster.ShouldSpawnAfter(o, Url);
 
     /// <summary>
-    /// The lifecycle this adapter reports. PreInvocation fires ONCE PER INVOCATION within a
-    /// conversation (its payload carries `invocationNum`), so this is a REPEATING callback and the
-    /// fenced lease is what makes injection once-per-conversation. Kiro's agentSpawn is the only
-    /// other harness with this shape; every other adapter is CallbackMayRepeat: false and copying
-    /// one would re-inject the index on every turn.
+    /// The lifecycle this adapter reports. PreInvocation fires on every model invocation of a
+    /// conversation, so this is a REPEATING callback and the fenced lease is what makes injection
+    /// once-per-conversation. Copying a CallbackMayRepeat: false adapter would re-inject the index
+    /// on every turn.
     ///
-    /// <para>The lease key is derived from the harness token and the normalized session id only.
-    /// `invocationNum` must never reach it, directly or transitively — it is the one field that
-    /// varies between callbacks, so keying on it would mint a fresh lease per invocation.</para>
+    /// <para>The lease key is the harness token and the normalized session id only; a per-callback
+    /// field such as <c>invocationNum</c> in it would mint a fresh lease per invocation.</para>
     /// </summary>
     internal static SessionMemoryLifecycle LifecycleFor(string sessionId) =>
         new(HarnessId.Antigravity, sessionId, LifecycleInstanceId: null,
@@ -324,17 +331,6 @@ sealed class AntigravityHookCommand(
             return null;
         }
     }
-
-    /// <summary>
-    /// Whether this PreInvocation is the conversation's first, read from the vendor's own
-    /// <c>invocationNum</c> counter — the one payload field that varies between callbacks. Any value
-    /// at or below one reads as first, and so does an absent or non-numeric one: a payload without a
-    /// usable counter cannot distinguish callbacks, and emitting once too often beats never emitting.
-    /// </summary>
-    internal static bool IsFirstInvocation(JsonObject payload) =>
-        payload["invocationNum"] is not JsonValue value
-     || !value.TryGetValue<long>(out var invocation)
-     || invocation <= 1;
 
     /// <summary>The event name — the first positional token after <c>--antigravity</c>.</summary>
     internal static string? EventArg(string[] args) {

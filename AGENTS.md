@@ -140,10 +140,11 @@ running notes file that every PR edits.
 - **Desktop-app green / orange / yellow are status only.** `KcapSuccess*` is shipped, settled,
   passing; `KcapWarning*` is blocked, stale, needs-you. Identity must not share them: a work-item
   key, vendor chip, "this session" mark, or title in success green reads as done, and a Claude chip
-  in warning orange reads as attention. `KcapPurple*` is in-flight execution (a running session or
-  an in-progress task and its count); selection and open items (the selected rail session or selected
-  master-list row) use `KcapInfo*` / `KcapSelectionBrush`; labels and keys use text/muted/surface
-  tokens.
+  in warning orange reads as attention. `KcapActivity*` is in-flight execution (a running session or
+  an in-progress task and its count): purple in the stock palette, neutral ink under Desktop redesign
+  preview. PR lifecycle uses `KcapPrOpen` / `KcapPrMerged` / `KcapPrClosed`, never the outcome tones
+  directly. Selection and open items (the selected rail session or selected master-list row) use
+  `KcapInfo*` / `KcapSelectionBrush`; labels and keys use text/muted/surface tokens.
 - **Desktop-app chrome is the kcap theme, not Fluent's defaults.** `FluentTheme` is the substrate
   in `App.axaml`; menus, flyouts, buttons, fields and list rows opt into `kcapPanel`, `kcapGhost`,
   `kcapChip`, `kcapField`. A bare `MenuFlyout`/`MenuItem` keeps Fluent's grey hover bar on the dark
@@ -312,8 +313,15 @@ Description: **before writing it, open [.github/PULL_REQUEST_TEMPLATE.md](.githu
 
 **One type per file, named after the type.** Several types in one file is discouraged, whatever the neighbouring files do — and plenty here do. Three exceptions: an enum plus its extension methods; a closely-related hierarchy (an interface plus many small implementations); a registry of descriptors. The last two are rare — reach for them when splitting would leave files that only make sense read together, not to save a file.
 
-**Desktop app UI** lives under `src/Capacitor.App/`. Palette and control classes are in `App.axaml`.
+**Desktop app UI** lives under `src/Capacitor.App/`. Shared tokens and control styles live under `Design/` and are loaded by `App.axaml`.
 
+- Warnings and errors: never render raw exceptions, stack traces, stderr, HTTP bodies, or internal
+  reason codes in app-owned UI, including tooltips and accessibility text. Say what happened, why it
+  happened when the cause is known, and what the user can do next whenever possible. Use a next step
+  that can resolve the known cause, and name what succeeded when only part of an operation failed.
+  Give unknown outcomes an operation-specific fallback without guessing the cause. Keep technical
+  details in logs or explicitly opened diagnostics, and redact sensitive values before copying or
+  exporting them. Preserve terminal and transcript content.
 - Icons: use Lucide through `Views/AppIcon.cs`, with named `LucideIconKind` mappings.
   Reuse `ToolCategoryIcons` for system/chat headings. No custom UI icon paths, copied SVG
   geometry, text/emoji stand-ins, or additional icon families. Existing vendor/product
@@ -321,8 +329,8 @@ Description: **before writing it, open [.github/PULL_REQUEST_TEMPLATE.md](.githu
   conventions are in `src/Capacitor.App/AGENTS.md`.
 - Status tokens: `KcapSuccess*` (green) and `KcapWarning*` (orange/yellow) only on badges, pills, and
   glyphs that mean outcome or attention. Never on keys, titles, vendor/model chips, or "you are here".
-- In-flight vs. selection: `KcapPurple*` is active execution (running session indicator, `InProgress`
-  plan task dot and count); `KcapInfo*` / `KcapSelectionBrush` is selection and open state (selected
+- In-flight vs. selection: `KcapActivity*` is active execution (running session indicator, `InProgress`
+  plan task dot and count, busy indicators); `KcapPr*` is PR lifecycle; `KcapInfo*` / `KcapSelectionBrush` is selection and open state (selected
   rail session, selected list row). Everything else uses `KcapTextBrush`, `KcapMutedBrush`,
   `KcapFaintBrush`, and surface brushes.
 - Controls: `kcapPanel` flyouts, `kcapGhost` rows and icon buttons, `kcapChip` compact buttons,
@@ -369,4 +377,4 @@ Description: **before writing it, open [.github/PULL_REQUEST_TEMPLATE.md](.githu
 - **Docs figures** — `KCAP_SHOTS_OUT=<absolute dir> dotnet run --project test/Capacitor.App.Tests.Unit/Capacitor.App.Tests.Unit.csproj -- --treenode-filter "/*/*/DocsShots/*"` renders the desktop app's docs figures; without the variable those tests skip. kcap-web's `scripts/docs-shots/capture-desktop.sh` consumes them.
 - **macOS AOT binary code signing** — After copying an AOT binary, run `codesign --force --sign -` to re-sign.
 - **Never read an agent-owned file with a write-denying open** — `File.ReadAllText`/`ReadAllTextAsync` open `FileShare.Read`, which *denies Write to every other handle* for the duration. On Windows that sharing is mandatory, so it stops the agent writing to its own transcript/sidecar — worst on the shutdown final drain, when it is flushing its last records. Read via `File.ReadAllTextShared`/`ReadAllTextSharedAsync`/`ReadLinesShared`, the `File` extensions in `Capacitor.Cli.Core`'s `SharedFileText` (or your own `FileStream(..., FileShare.ReadWrite)`) for anything the agent writes: transcripts and their `{id}.json` sidecars. Config/settings files we own are fine. **This is invisible on macOS/Linux** — Unix has no mandatory sharing, so a violation passes locally and only reddens the Windows CI leg (AI-1629 was exactly this, on the one read that missed the rule while seven siblings had it).
-- **README sync on CLI changes** — Any change to user-facing CLI surface (new command, new/renamed/removed flag, changed default behavior, new prerequisite) must update `README.md` in the *same* PR. Check both the quick-start (`## Getting started`) and the per-command section under `## CLI commands`. Updating only `src/Capacitor.Cli.Core/Resources/help-*.txt` is not enough — the README is the public-facing docs. This has been missed repeatedly and has required follow-up doc-only PRs (#60, #61).
+- **CLI help & README sync** — Any change to user-facing CLI surface (new command, new/renamed/removed flag, changed default behavior, new prerequisite) must update the matching `src/Capacitor.Cli.Core/Resources/help-*.txt` in the *same* PR. Keep `README.md` concise: update it only for top-level changes (install steps, supported agents, requirements, or `## Common Commands`), and leave detailed flag/behavior docs to `help-*.txt` and `https://www.kurrent.io/docs/kcap`.

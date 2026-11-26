@@ -135,7 +135,7 @@ public partial class SessionRailView : UserControl {
             };
             option.Classes.Add("kcapGhost");
             AutomationProperties.SetName(option, $"Open {item.Detail}: {item.Label}");
-            ToolTip.SetTip(option, $"{item.Label}\n{item.Detail}");
+            StructuredTooltip.SetModel(option, item.PickerTip);
             option.Click += (_, _) => {
                 flyout.Hide();
                 vm.OpenPullRequestChoiceCommand.Execute(item).Subscribe();

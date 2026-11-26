@@ -8,6 +8,21 @@
              IsVisible="{Binding HasLabel, FallbackValue=False}"
              AutomationProperties.Name="{Binding AccessibleName}">
     <UserControl.Styles>
+        <Style Selector="views|AppIcon.settledMark">
+            <Setter Property="Kind" Value="Minus" />
+        </Style>
+        <Style Selector="views|AppIcon.settledMark.done">
+            <Setter Property="Kind" Value="Check" />
+        </Style>
+        <Style Selector="Panel#Glyph">
+            <Setter Property="Margin" Value="0,0,5,0" />
+        </Style>
+        <Style Selector="views|AgentStatusMark.glyphOnly TextBlock#StatusWord">
+            <Setter Property="IsVisible" Value="False" />
+        </Style>
+        <Style Selector="views|AgentStatusMark.glyphOnly Panel#Glyph">
+            <Setter Property="Margin" Value="0" />
+        </Style>
         <Style Selector="views|AgentStatusMark.header TextBlock#StatusWord">
             <Setter Property="AutomationProperties.LiveSetting" Value="Polite" />
         </Style>
@@ -19,12 +34,12 @@
          raw daemon status outgrows its column; the tooltip carries the full text. -->
     <DockPanel VerticalAlignment="Center">
         <!-- Lucide's full canvas keeps the ring stroke inside the status slot. -->
-        <Panel x:Name="Glyph" Classes="kcapStatusGlyph" DockPanel.Dock="Left" Margin="0,0,5,0"
+        <Panel x:Name="Glyph" Classes="kcapStatusGlyph" DockPanel.Dock="Left"
                VerticalAlignment="Center" ClipToBounds="False"
                Classes.pulsing="{Binding Pulses}" views:PulseClock.IsActive="{Binding Pulses}">
             <views:AppIcon Kind="Circle" Size="12" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsVisible="{Binding ShowsRing}"
-                           Foreground="{StaticResource KcapPurpleBrush}" />
-            <Ellipse Width="5" Height="5" Fill="{StaticResource KcapPurpleBrush}"
+                           Foreground="{StaticResource KcapActivityBrush}" />
+            <Ellipse Width="5" Height="5" Fill="{StaticResource KcapActivityBrush}"
                      HorizontalAlignment="Center" VerticalAlignment="Center" UseLayoutRounding="False" IsVisible="{Binding ShowsRing}" />
             <views:AppIcon Kind="Clock" Size="12" IsVisible="{Binding ShowsClock}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                            Foreground="{StaticResource KcapWarningBrush}" />
@@ -36,7 +51,8 @@
                            VerticalAlignment="Center" IsVisible="{Binding ShowsPause}" />
             <views:AppIcon Kind="X" Size="12" IsVisible="{Binding ShowsCross}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                            Foreground="{StaticResource KcapDangerBrush}" />
-            <views:AppIcon Kind="Minus" Size="12" Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding ShowsDash}" />
+            <views:AppIcon Classes="settledMark" Classes.done="{Binding IsDone}" Size="12"
+                           Foreground="{StaticResource KcapMutedBrush}" IsVisible="{Binding ShowsSettledMark}" />
         </Panel>
         <TextBlock x:Name="StatusWord" Classes="kcapStatusWord" Text="{Binding Label}"
                    Classes.inflight="{Binding IsInFlight}" Classes.warning="{Binding IsWarning}"

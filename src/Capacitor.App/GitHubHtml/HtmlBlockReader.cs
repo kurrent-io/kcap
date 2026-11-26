@@ -35,14 +35,29 @@ static class HtmlBlockReader {
                 foreach (var token in tokens) if (!token.IsWhitespace) Structural(token);
                 return;
             }
-            foreach (var token in tokens) {
+            for (var i = 0; i < tokens.Count; i++) {
+                var token = tokens[i];
                 var isTag = token.Kind is HtmlTokenKind.OpenTag or HtmlTokenKind.CloseTag;
-                if (isTag && HtmlTags.Classify(token.Name) == HtmlTagClass.Structural) Structural(token);
+                if (isTag && (HtmlTags.IsStructural(token.Name) || IsDetailsHeading(tokens, i))) Structural(token);
                 else if (!plan.Rejected) Step(token);
             }
             if (plan.Rejected) return;
             if (_open.Count > 0) { plan.Rejected = true; return; }
             FlushParagraph();
+        }
+
+        // A heading wrapped around a disclosure is transparent. A heading with its own text is a leaf.
+        static bool IsDetailsHeading(IReadOnlyList<HtmlToken> tokens, int index) {
+            var heading = tokens[index];
+            if (!HtmlTags.IsHeading(heading.Name, out _)) return false;
+
+            var step = heading.Kind == HtmlTokenKind.OpenTag ? 1 : -1;
+            for (var i = index + step; i >= 0 && i < tokens.Count; i += step) {
+                var neighbor = tokens[i];
+                if (neighbor.IsWhitespace || neighbor.Kind == HtmlTokenKind.Comment) continue;
+                return neighbor.Kind == heading.Kind && neighbor.Name == "details";
+            }
+            return false;
         }
 
         /// A block of formatting tags alone, all open or all close — `<sub>` on a line of its own,
@@ -61,8 +76,7 @@ static class HtmlBlockReader {
             return kind is not null;
         }
 
-        /// A structural tag is never pushed or popped: it needs nothing open around it and is
-        /// matched across blocks later.
+        // The folder matches structural tags across blocks.
         void Structural(HtmlToken token) {
             var opens = token.Kind == HtmlTokenKind.OpenTag;
             plan.StructuralTags.Add(token);

@@ -16,15 +16,17 @@ namespace Capacitor.Cli.Commands;
 class ArtefactCommand(IArtefactsApi artefacts) {
     const string Usage = """
         Usage:
-          kcap page publish <file.html> [--title T] [--description D] [--session <id>]... [--update <pageId>]
+          kcap page publish <file.html> [--title T] [--description D] [--kind K] [--work-item <key|id>]... [--session <id>]... [--update <pageId>]
           kcap page list [--mine]
           kcap page search <query...> [--limit N]
           kcap page get <pageId|url> [--version N] [--html]
           kcap page delete <pageId>
 
         A page is private to you until you share it with `kcap sharing`, by the object key list, get and search print.
+        --kind is prd, adr, design, report or other.
+        --work-item links the page to a work item, by issue key or work item id, and may be repeated.
         --session cites a session and may be repeated; it defaults to KCAP_SESSION_ID when set.
-        --update publishes a new version of an existing page, which keeps its URL.
+        --update publishes a new version of an existing page, which keeps its URL; it may change --kind.
         get prints the page's text, or its HTML with --html; --version reads an older version.
         search finds pages you can open by their title, description or text; --limit defaults to 20, and words after -- are searched as they are.
         """;
@@ -57,7 +59,7 @@ class ArtefactCommand(IArtefactsApi artefacts) {
 
     async Task<int> PublishAsync(string[] args) {
         if (NamesAnAudience(args)) return Fail(ShareSeparatelyMessage);
-        if (Parse(args, "--title", "--description", "--session", "--update") is not { } flags) return 1;
+        if (Parse(args, "--title", "--description", "--kind", "--work-item", "--session", "--update") is not { } flags) return 1;
         if (flags.Positionals.Count != 1) return Fail("Publish takes exactly one HTML file.");
 
         var html = ReadHtml(flags.Positionals[0]);
@@ -71,16 +73,20 @@ class ArtefactCommand(IArtefactsApi artefacts) {
         // to have applied it.
         if (flags.Value("--update") is { Length: > 0 } updateId) {
             if (flags.Has("--title") || flags.Has("--description"))
-                return Fail("--update publishes content only; a title cannot be changed after publishing.");
+                return Fail("--update cannot change a title or description; it publishes new content, and may change --kind and --session.");
 
-            return Report(await artefacts.PublishVersionAsync(updateId, html, sources), "published");
+            if (flags.Has("--work-item"))
+                return Fail("--update cannot link work items; link them from the page's side panel.");
+
+            return Report(await artefacts.PublishVersionAsync(updateId, html, sources, flags.Value("--kind")), "published");
         }
 
         // A title the caller did not give is the file's own name: better than "Untitled", and it is
         // what they will recognize in a listing.
         var title = flags.Value("--title") ?? Path.GetFileNameWithoutExtension(flags.Positionals[0]);
 
-        var body = new PublishArtefactBody(title, html, flags.Value("--description"), Nullify(sources));
+        var workItems = flags.Values("--work-item").Where(w => w.Length > 0).ToList();
+        var body      = new PublishArtefactBody(title, html, flags.Value("--description"), Nullify(sources), flags.Value("--kind"), Nullify(workItems));
 
         return Report(await artefacts.PublishAsync(body), "published");
     }
@@ -273,6 +279,8 @@ class ArtefactCommand(IArtefactsApi artefacts) {
                 Console.WriteLine($"{detail.Artefact.Title} {verb} (v{detail.Artefact.LatestVersion})");
                 Console.WriteLine(detail.Artefact.Url);
                 if (detail.Artefact.ObjectKey is { Length: > 0 } key) Console.Error.WriteLine(ForTerminal($"Object key: {key}"));
+                if (detail.WorkItemsNotLinked is { Count: > 0 } notLinked)
+                    Console.Error.WriteLine(ForTerminal(OneLine($"Not linked (no such work item you can see, or more than one): {string.Join(", ", notLinked)}")));
                 return 0;
 
             case ArtefactWriteResult.Gone:

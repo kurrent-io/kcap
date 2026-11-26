@@ -201,6 +201,27 @@ public class ServerConnectionServiceTests {
     }
 
     [Test]
+    public async Task A_failed_launch_records_the_exception_in_the_lifecycle_log() {
+        const string diagnostic = "test launch diagnostic";
+        await using var host = await HubTestHost.StartAsync();
+        HubTestHost.LaunchHandler = _ => throw new HubException(diagnostic);
+        (string Key, string? Value)[]? failure = null;
+        await using var lane = new ServerConnectionService(TimeProvider.System, host.Url, () => Task.FromResult<string?>(null),
+            log: (evt, fields) => {
+                if (evt == "server_launch_failed") failure = fields;
+            });
+        lane.Start();
+        await Next(lane.Status, s => s.State == ServerLaneState.Connected);
+
+        var outcome = await lane.StartAsync(new LaunchRequest("work-mac", "/work/repo", "claude", null), CancellationToken.None);
+
+        await Assert.That(outcome.Started).IsFalse();
+        await Assert.That(failure).IsNotNull();
+        await Assert.That(failure!.Single(field => field.Key == "detail").Value).Contains(diagnostic);
+        await Assert.That(failure.Single(field => field.Key == "exception_type").Value).IsEqualTo("HubException");
+    }
+
+    [Test]
     public async Task LaunchWhileDisconnectedFailsWithoutThrowing() {
         await using var lane = new ServerConnectionService(TimeProvider.System, "http://127.0.0.1:1", () => Task.FromResult<string?>(null));
         lane.Start();

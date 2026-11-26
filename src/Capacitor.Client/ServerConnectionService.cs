@@ -718,6 +718,8 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 HubMethods.RequestLaunchAgentV2, LaunchPayload.For(request), ct).ConfigureAwait(false);
             return new LaunchOutcome(Started: true, AgentId: agentId, Error: null);
         } catch (Exception ex) {
+            if (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                Log("server_launch_failed", ("exception_type", ex.GetType().Name), ("detail", ex.Message));
             return new LaunchOutcome(false, null, ex.Message, IsUnauthorized(ex));
         }
     }

@@ -2,7 +2,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
-using Avalonia.VisualTree;
 using Capacitor.App.Platform.Mac;
 using Capacitor.App.Services;
 using Capacitor.App.Views;
@@ -12,7 +11,7 @@ namespace Capacitor.App.Tests.Unit.Views;
 public class InstallLocationWindowTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task A_long_install_error_scrolls_at_large_text_size_with_both_actions_in_view() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task An_install_error_remains_readable_at_large_text_size() => AvaloniaSession.RunOnUiAsync(async () => {
         using var tmp = new TempDir();
         var setting = await UiScaleSetting.LoadAsync(new AppStateStore(tmp.PathTo("app-state.json")));
         await setting.SetAsync(1.5);
@@ -29,12 +28,14 @@ public class InstallLocationWindowTests {
             Dispatcher.UIThread.RunJobs();
             window.UpdateLayout();
 
-            var scroll = window.GetVisualDescendants().OfType<ScrollViewer>().First();
-            await Assert.That(scroll.Extent.Height).IsGreaterThan(scroll.Viewport.Height);
+            var shown = window.FindControl<SelectableTextBlock>("ErrorText")!;
+            await Assert.That(shown.IsEffectivelyVisible).IsTrue();
+            await Assert.That(shown.Text).Contains("try again");
+            await Assert.That(shown.Text).DoesNotContain("The destination is temporarily unavailable");
             foreach (var name in new[] { "QuitButton", "MoveButton" }) {
                 var button = window.FindControl<Button>(name)!;
-                var bottom = button.TranslatePoint(new Point(button.Bounds.Width, button.Bounds.Height), window)!.Value;
                 await Assert.That(button is { IsEffectivelyVisible: true, IsEnabled: true }).IsTrue();
+                var bottom = button.TranslatePoint(new Point(button.Bounds.Width, button.Bounds.Height), window)!.Value;
                 await Assert.That(bottom.Y).IsLessThanOrEqualTo(window.ClientSize.Height);
             }
         } finally { window.Close(); }

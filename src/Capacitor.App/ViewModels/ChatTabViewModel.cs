@@ -982,6 +982,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // The note follows whether the chat is empty, which every path that adds or clears rows changes.
         var empty = true;
         _items.CollectionChanged += (_, e) => {
+            AssistantReplies.Refresh(_items, e);
             if (!HasProgressiveDisclosureMarks && (e.NewItems ?? (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Reset ? _items : null)) is { } added
                 && added.OfType<AssistantTextItem>().Any(static item => ProgressiveDisclosureMarks.Grades(item.Text)))
                 HasProgressiveDisclosureMarks = true;
@@ -1789,7 +1790,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             finally { UploadingFiles = 0; }
             if (_lifetimeToken.IsCancellationRequested) return null;
             if (upload.Kind != UploadKind.Uploaded) {
-                Notice(upload.Kind == UploadKind.Unauthorized ? "sign in to attach files" : upload.Reason ?? "the upload failed");
+                Notice(upload.Kind == UploadKind.Unauthorized ? "sign in to attach files" : upload.FailureText);
                 return null;
             }
             ids = upload.Ids;
@@ -2091,10 +2092,17 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                         cursor.Fresh.Add(new UserTurnItem(typed, [.. files.Select(file => UserAttachment.From(file, _origin == AgentOrigin.Local ? _root : null))],
                             SenderOf(e, offset), TimeOf(e), undelivered: e.ToolKind == ChatDisplayKind.Undelivered) { Key = new(offset, message++) });
                         break;
+                    // A whitespace-only message, often written beside a tool call, would be a row with nothing in
+                    // it. It still takes its index, so the keys of the messages after it, and their bookmarks, hold.
+                    case AcpEventKind.AssistantText when string.IsNullOrWhiteSpace(e.Text):
+                        cursor.OpenGroup = null;
+                        cursor.OpenShell = null;
+                        message++;
+                        break;
                     case AcpEventKind.AssistantText:
                         cursor.OpenGroup = null;
                         cursor.OpenShell = null;
-                        cursor.Fresh.Add(new AssistantTextItem(e.Text ?? "", TimeOf(e)) { Key = new(offset, message++) });
+                        cursor.Fresh.Add(new AssistantTextItem(e.Text!, TimeOf(e)) { Key = new(offset, message++) });
                         break;
                     case AcpEventKind.AssistantThinking when !string.IsNullOrWhiteSpace(e.Text):
                         cursor.OpenGroup = null;
@@ -2121,7 +2129,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                             ChatDisplayKind.Interrupted      => SystemNoteItem.InterruptedLabel,
                             ChatDisplayKind.Trigger or ChatDisplayKind.PeerSession => e.ToolName is { Length: > 0 } trigger ? trigger : SystemNoteItem.NoteLabel,
                             _                                => SystemNoteItem.NoteLabel,
-                        }, e.ToolKind == ChatDisplayKind.PeerSession ? ToolCategoryIcons.AgentMessageIcon : null));
+                        }, e.ToolKind == ChatDisplayKind.PeerSession ? ToolCategoryIcons.AgentMessageIcon : null) {
+                            StartsTurn = e.ToolKind is ChatDisplayKind.AgentReport or ChatDisplayKind.AgentMessage
+                                or ChatDisplayKind.TaskNotification or ChatDisplayKind.Trigger or ChatDisplayKind.PeerSession,
+                        });
                         break;
                     case AcpEventKind.ToolCall: {
                         cursor.OpenShell = null;

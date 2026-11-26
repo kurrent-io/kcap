@@ -123,6 +123,30 @@ public class ProgressiveDisclosureViewTests {
         });
     }
 
+    [Test]
+    public async Task The_pointer_lights_every_block_of_a_span_that_reaches_across_blocks() {
+        await RunOnUiAsync(async () => {
+            ProgressiveDisclosureBasis.Set(new(ProgressiveDisclosureDisplay.Faded, ProgressiveDisclosureDisplay.Faded));
+            var (window, root, _) = Show("Lead. ⌞The steps:\n\n- First step here.\n- Second step here.⌟\n\n⌞Another span.⌟");
+            try {
+                var blocks = Paragraphs(root).ToList();
+                var faded = blocks.Select(block => Spans<Span>(block.Inlines!).Single(s => s.Classes.Contains("progressive-disclosure-faded"))).ToList();
+                await Assert.That(faded.Count).IsEqualTo(4);
+
+                var second = blocks.Single(block => Reads(block) == "Second step here.");
+                window.MouseMove(At(second, 4, window));
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(string.Join(",", faded.Select(s => s.Classes.Contains("progressive-disclosure-lit")))).IsEqualTo("True,True,True,False");
+
+                window.MouseMove(At(blocks[0], 2, window));
+                Dispatcher.UIThread.RunJobs();
+                await Assert.That(faded.Any(s => s.Classes.Contains("progressive-disclosure-lit"))).IsFalse();
+            } finally {
+                window.Close();
+            }
+        });
+    }
+
     static Point At(TextBlock block, int index, Window window) =>
         block.TranslatePoint(block.TextLayout.HitTestTextPosition(index).Center + new Point(block.Padding.Left, block.Padding.Top), window)!.Value;
 }

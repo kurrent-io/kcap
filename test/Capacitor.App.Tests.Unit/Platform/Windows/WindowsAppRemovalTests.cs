@@ -43,7 +43,7 @@ public class WindowsAppRemovalTests {
             },
         };
         var removal = new WindowsAppRemoval(install, new WindowsUserPathInstaller(path, new FakeLoginShellProbe()), _started.Add);
-        return (new UninstallRunViewModel(cli, removal, purgeLocal: true, () => _calls.Add("quit"), action => action()), removal, cli);
+        return (new UninstallRunViewModel(cli, removal, purgeLocal: true, () => _calls.Add("quit")), removal, cli);
     }
 
     /// An install whose folder never went on the user PATH has no command to report as removed.

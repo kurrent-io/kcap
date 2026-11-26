@@ -314,7 +314,8 @@ public sealed class NextWorkBandViewModel : ReactiveObject, IDisposable {
         } catch (Exception ex) when (ex is not OperationCanceledException) {
             // Reading the known repositories or switching the launcher can fail; the command has no other handler.
             Console.Error.WriteLine($"kcap: picking next-work task {row.TargetKey} failed: {ex}");
-            _notify?.Invoke($"Couldn't pick this task: {ex.Message}");
+            Console.Error.WriteLine($"kcap: could not pick the task: {ex.Message}");
+            _notify?.Invoke("Couldn’t pick this task. Try again.");
         } finally {
             card.Busy = false;
         }

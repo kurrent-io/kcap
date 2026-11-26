@@ -570,14 +570,15 @@ public class MainWindowSmokeTests {
             bool awaitingInput = false, int? liveSubagents = null, string? model = null, string? siblingWorktree = null,
             string? firstStatus = null, IReadOnlySet<string>? pendingIds = null, PendingLaunchDto? pending = null,
             IObservable<IReadOnlyDictionary<string, RailPullRequestSummary>>? pullRequestSummaries = null,
-            IPullRequestSource? pullRequests = null, DateTime? firstCreatedAt = null) {
+            IPullRequestSource? pullRequests = null, DateTime? firstCreatedAt = null,
+            string firstTitle = "Fix the flaky test", string firstPath = "/dev/alpha/wt/feature-x") {
         var service = new FakeDaemonClientService();
         service.SnapshotsSubject.OnNext(Snap());
         service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
         if (pending is not null) service.Pending.AddOrUpdate(pending);
         service.Agents.AddOrUpdate(new AgentStatusDto(
-            "a1", "agent", "claude", "/dev/alpha/wt/feature-x", firstStatus ?? "Running",
-            null, null, null, firstCreatedAt ?? DateTime.UtcNow, model, null, Title: "Fix the flaky test",
+            "a1", "agent", "claude", firstPath, firstStatus ?? "Running",
+            null, null, null, firstCreatedAt ?? DateTime.UtcNow, model, null, Title: firstTitle,
             AwaitingInput: awaitingInput ? true : null, LiveSubagents: liveSubagents, SessionId: "s1"));
         service.Agents.AddOrUpdate(new AgentStatusDto(
             "a2", "agent", "claude", "/dev/alpha/wt/feature-x", "Running",
@@ -869,7 +870,7 @@ public class MainWindowSmokeTests {
                 var countLeft = count.TranslatePoint(default, header)!.Value.X;
                 await Assert.That(right).IsLessThan(countLeft);
                 await Assert.That(label.TextTrimming).IsEqualTo(TextTrimming.CharacterEllipsis);
-                await Assert.That(count.Text).IsEqualTo("1 session");
+                await Assert.That(count.Text).IsEqualTo("1 live");
                 await Assert.That(header.Focusable).IsTrue();
                 await Assert.That(row.IsEffectivelyVisible).IsTrue();
                 var centre = header.TranslatePoint(new Point(header.Bounds.Width / 2, header.Bounds.Height / 2), window)!.Value;
@@ -917,7 +918,8 @@ public class MainWindowSmokeTests {
             Dispatcher.UIThread.RunJobs();
             window.UpdateLayout();
             await Assert.That(mark.IsEffectivelyVisible).IsTrue();
-            await Assert.That(mark.FindControl<TextBlock>("StatusWord")!.Text).IsEqualTo("Idle");
+            await Assert.That(mark.FindControl<TextBlock>("StatusWord")!.IsEffectivelyVisible).IsFalse();
+            await Assert.That(AutomationProperties.GetName(mark)).IsEqualTo("1 session idle");
             await Assert.That(ToolTip.GetTip(header) as string).Contains("Waiting session — Idle");
             await Assert.That(AutomationProperties.GetName(header)).Contains("1 session idle");
             pending.OnNext(new HashSet<string> { "a1" });
@@ -925,11 +927,11 @@ public class MainWindowSmokeTests {
             window.UpdateLayout();
             await Assert.That(rail.Groups[0].IsExpanded).IsFalse();
             await Assert.That(RailRow(window, "Waiting session").IsEffectivelyVisible).IsFalse();
-            await Assert.That(mark.FindControl<TextBlock>("StatusWord")!.Text).IsEqualTo("Needs you");
-            await Assert.That(ToolTip.GetTip(header) as string).Contains("Pending response");
+            await Assert.That(AutomationProperties.GetName(mark)).IsEqualTo("1 session needs you");
+            await Assert.That(ToolTip.GetTip(header) as string).Contains("Waiting session — Needs you");
             pending.OnNext(new HashSet<string>());
             Dispatcher.UIThread.RunJobs();
-            await Assert.That(mark.FindControl<TextBlock>("StatusWord")!.Text).IsEqualTo("Idle");
+            await Assert.That(AutomationProperties.GetName(mark)).IsEqualTo("1 session idle");
             header.Command.Execute(null);
             Dispatcher.UIThread.RunJobs();
             await Assert.That(mark.IsEffectivelyVisible).IsFalse();
@@ -1003,6 +1005,99 @@ public class MainWindowSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
+    public Task Structured_rail_tips_follow_pointer_and_keyboard_and_keep_the_pr_picker() => AvaloniaSession.RunOnUiAsync(async () => {
+        const string title = "Investigate the mismatch between linked session titles and repository labels";
+        const string checkout = "/synthetic/source/wt/branch-with-a-long-path-for-testing-wrapped-checkout-metadata";
+        var link = FakePullRequestSource.Link(142) with { Title = "Preserve the full pull request title across a narrow session sidebar" };
+        var single = new RailPullRequestMenuItem(PullRequestWire.Subject(link), link.Title, "Merged");
+        using var summaries = new BehaviorSubject<IReadOnlyDictionary<string, RailPullRequestSummary>>(
+            new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([single]) });
+        var (vm, window) = RailWindow(firstStatus: "Completed", pullRequestSummaries: summaries,
+            firstTitle: title, firstPath: checkout);
+        using var preview = new TooltipPreviewScope();
+        try {
+            vm.Rail!.State = RailState.All;
+            TooltipPreviewScope.Pump(window);
+            var row = RailRow(window, title);
+            var pr = row.GetVisualParent()!.GetVisualChildren().OfType<Button>().Single(button => button.Name == "SessionPullRequestLink");
+            pr.Focus(NavigationMethod.Directional);
+            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(TooltipPreviewScope.Text(pr)).Contains("Merged");
+            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+
+            preview.Enable(ClassicAppearance.Dark);
+            TooltipPreviewScope.Pump(window);
+            ToolTip.SetShowDelay(row, 0);
+            ToolTip.SetShowDelay(pr, 0);
+            window.MouseMove(row.TranslatePoint(new Point(8, 8), window)!.Value);
+            await WorkspaceFixtures.WaitUntilAsync(() => ToolTip.GetIsOpen(row), what: "rail session hover tooltip");
+            TooltipPreviewScope.Pump(window);
+            await Assert.That(TooltipPreviewScope.Text(row)).IsEquivalentTo(
+                new[] { title, "Done", "Harness", "Claude Code", "Checkout", checkout },
+                CollectionOrdering.Matching);
+
+            window.MouseMove(new Point(window.Bounds.Width - 3, 3));
+            window.MouseMove(pr.TranslatePoint(new Point(pr.Bounds.Width / 2, pr.Bounds.Height / 2), window)!.Value);
+            await WorkspaceFixtures.WaitUntilAsync(() => ToolTip.GetIsOpen(pr), what: "nested pull request hover tooltip");
+            TooltipPreviewScope.Pump(window);
+            await Assert.That(ToolTip.GetIsOpen(row)).IsFalse();
+            await Assert.That(TooltipPreviewScope.Text(pr)).IsEquivalentTo(
+                new[] { link.Title!, "Merged", "Pull request", "example/repo #142", "Linked session", title },
+                CollectionOrdering.Matching);
+            await Assert.That(AutomationProperties.GetHelpText(pr)).Contains("Merged").And.Contains($"Linked session · {title}");
+
+            window.MouseMove(new Point(window.Bounds.Width - 3, 3));
+            row.Focus(NavigationMethod.Directional);
+            TooltipPreviewScope.Press(window, PhysicalKey.ArrowRight);
+            await Assert.That(pr.IsFocused).IsTrue();
+            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(ToolTip.GetIsOpen(pr)).IsTrue();
+            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+            await Assert.That(ToolTip.GetIsOpen(pr)).IsFalse();
+            await Assert.That(pr.IsFocused).IsTrue();
+
+            summaries.OnNext(new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([single with { Title = null }]) });
+            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(TooltipPreviewScope.Text(pr)).IsEquivalentTo(
+                new[] { "Pull request #142", "Merged", "Repository", "example/repo", "Linked session", title },
+                CollectionOrdering.Matching);
+            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+
+            summaries.OnNext(new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([
+                single, new(PullRequestWire.Subject(FakePullRequestSource.Link(143)), null, "Open"),
+            ]) });
+            preview.Enable(ClassicAppearance.Light);
+            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(TooltipPreviewScope.Text(pr)).IsEquivalentTo(
+                new[] { "2 pull requests", "Linked session", title }, CollectionOrdering.Matching);
+            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+            TooltipPreviewScope.Press(window, PhysicalKey.Enter);
+            await Assert.That(window.FocusManager.GetFocusedElement()).IsTypeOf<Button>();
+            var choice = (Button)window.FocusManager.GetFocusedElement()!;
+            await Assert.That(AutomationProperties.GetName(choice)).Contains("#142");
+            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(TooltipPreviewScope.Text(choice)).Contains("Merged");
+            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+
+            pr.Focus(NavigationMethod.Directional);
+            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(ToolTip.GetIsOpen(pr)).IsTrue();
+            preview.Disable();
+            TooltipPreviewScope.Pump(window);
+            await Assert.That(pr.IsFocused).IsTrue();
+            TooltipPreviewScope.Press(window, PhysicalKey.F1, RawInputModifiers.Shift);
+            await Assert.That(TooltipPreviewScope.Text(pr)).Contains("2 pull requests");
+            await Assert.That(AutomationProperties.GetHelpText(pr)).Contains($"Linked session · {title}");
+            TooltipPreviewScope.Press(window, PhysicalKey.Escape);
+        } finally {
+            window.Close();
+            TooltipPreviewScope.Pump(window);
+        }
+    });
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
     public async Task Pr_link_is_a_separate_focusable_control_and_opens_the_native_reader() {
         await AvaloniaSession.RunOnUiAsync(async () => {
             var time = new FakeTimeProvider();
@@ -1024,7 +1119,7 @@ public class MainWindowSmokeTests {
                 await Assert.That(mark.ShowText).IsFalse();
                 await Assert.That(pr.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { Text: "Open", IsEffectivelyVisible: true })).IsFalse();
                 await Assert.That((mark.DataContext as PullRequestStatus)!.Kind).IsEqualTo("open");
-                await Assert.That(ToolTip.GetTip(pr) as string).Contains("Open");
+                await Assert.That(AutomationProperties.GetHelpText(pr)).Contains("Open");
                 await Assert.That(pr.Bounds.Width).IsLessThan(card.Bounds.Width / 2);
                 var age = session.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Name == "SessionMeta");
                 var prLabel = pr.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "PR #142");
@@ -1035,7 +1130,7 @@ public class MainWindowSmokeTests {
                 var ageRight = age.TranslatePoint(new Point(age.Bounds.Width, 0), card)!.Value.X;
                 var prLeft = pr.TranslatePoint(default, card)!.Value.X;
                 await Assert.That(ageRight).IsLessThan(prLeft);
-                await Assert.That(ToolTip.GetTip(pr) as string).Contains("Linked to this session: Fix the flaky test");
+                await Assert.That(AutomationProperties.GetHelpText(pr)).Contains("Linked session · Fix the flaky test");
                 await Assert.That(AutomationProperties.GetName(pr)).Contains("Fix the flaky test");
                 pr.Command!.Execute(null);
                 var workspace = (WorkspaceViewModel)vm.CurrentWorkspace!;
@@ -1058,7 +1153,7 @@ public class MainWindowSmokeTests {
                     await Assert.That(mark.IsEffectivelyVisible).IsTrue();
                     await Assert.That((mark.DataContext as PullRequestStatus)!.Kind).IsEqualTo(lifecycle.ToLowerInvariant());
                     await Assert.That(pr.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text == lifecycle && t.IsEffectivelyVisible)).IsFalse();
-                    await Assert.That(ToolTip.GetTip(pr) as string).Contains(lifecycle);
+                    await Assert.That(AutomationProperties.GetHelpText(pr)).Contains(lifecycle);
                     await Assert.That(AutomationProperties.GetName(pr)).Contains(lifecycle);
                 }
                 summaries.OnNext(new Dictionary<string, RailPullRequestSummary> { ["s1"] = new([
@@ -1111,11 +1206,8 @@ public class MainWindowSmokeTests {
             await Assert.That(ToolTip.GetTip(badge) as string).Contains(machine);
             await Assert.That(ToolTip.GetTip(badge) as string).Contains("remote daemon");
             ToolTip.SetIsOpen(row, true);
-            Dispatcher.UIThread.RunJobs();
-            var tip = (StackPanel)ToolTip.GetTip(row)!;
-            var machineLines = tip.Children.OfType<StackPanel>().SelectMany(p => p.Children.OfType<TextBlock>()).Select(t => t.Text).ToArray();
-            await Assert.That(machineLines).Contains(machine);
-            await Assert.That(machineLines).Contains("Machine · remote daemon");
+            TooltipPreviewScope.Pump(window);
+            await Assert.That(TooltipPreviewScope.Text(row)).Contains("Remote daemon").And.Contains(machine);
             ToolTip.SetIsOpen(row, false);
             rail.SelectedSessionKey = "remote:r1";
             Dispatcher.UIThread.RunJobs();
@@ -1196,9 +1288,7 @@ public class MainWindowSmokeTests {
                 var result = (
                     Offset: Math.Abs(first.TranslatePoint(default, window)!.Value.X - other.TranslatePoint(default, window)!.Value.X),
                     HasHeader: window.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text is "feature-x" or "x"),
-                    Tip: ToolTip.GetTip(first) is StackPanel panel
-                        ? panel.Children.OfType<StackPanel>().SelectMany(p => p.Children.OfType<TextBlock>()).First(t => t.Text == "/dev/alpha/wt/feature-x").Text
-                        : null);
+                    Tip: TooltipPreviewScope.Text(first));
                 window.Close();
                 Dispatcher.UIThread.RunJobs();
                 return result;
@@ -1247,8 +1337,7 @@ public class MainWindowSmokeTests {
                     MetaLeft: Left(meta),
                     ModelInRow: row.GetVisualDescendants().OfType<TextBlock>().Any(t => t is { IsEffectivelyVisible: true, Text: "opus" }),
                     ChildTips: row.GetVisualDescendants().Count(v => v is Control { IsEffectivelyVisible: true } c && ToolTip.GetTip(c) is not null),
-                    RowTipIsStatus: ToolTip.GetTip(row) is StackPanel tip && tip.Children.OfType<AgentStatusTip>().Any(),
-                    RowTip: ((RailSessionViewModel)row.DataContext!).Tooltip,
+                    RowTip: AutomationProperties.GetHelpText(row),
                     HasMark: vendor.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>().Any(),
                     MetaAlign: meta.VerticalAlignment);
                 window.Close();
@@ -1258,9 +1347,8 @@ public class MainWindowSmokeTests {
             await Assert.That(seen.VendorName).IsEqualTo("Claude Code");
             await Assert.That(seen.VendorPeer).IsEqualTo("Claude Code");
             await Assert.That(seen.ChildTips).IsEqualTo(0);
-            await Assert.That(seen.RowTipIsStatus).IsTrue();
-            await Assert.That(seen.RowTip).Contains("Harness\nClaude Code");
-            await Assert.That(seen.RowTip).Contains("Model\nopus");
+                await Assert.That(seen.RowTip).Contains("Harness · Claude Code");
+            await Assert.That(seen.RowTip).Contains("Model · opus");
             await Assert.That(seen.VendorLeft).IsLessThan(seen.MarkLeft);
             await Assert.That(seen.MarkRight).IsLessThan(seen.MetaLeft);
             await Assert.That(seen.ModelInRow).IsFalse();
