@@ -207,4 +207,34 @@ public class ArtefactsViewSmokeTests {
         window.Close();
         await vm.TeardownAsync();
     });
+
+    /// In a wide tab a short title keeps the selector to its content, with the next arrow right beside it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_short_title_keeps_the_selector_compact_in_a_wide_tab() => RunOnUiAsync(async () => {
+        var now = DateTimeOffset.UtcNow;
+        var source = new FakePlanArtifactSource();
+        source.EnqueuePages(new SessionPagesRead(SessionPlansReadKind.Ready, [
+            new ArtefactDto("01ec", "Poll", "u1", "org", 1, now, true, null, null, "https://kurrent.kcap.ai/pages/01ec"),
+            new ArtefactDto("02fd", "Rollout notes", "u1", "org", 1, now, true, null, null, "https://kurrent.kcap.ai/pages/02fd"),
+        ]));
+        var vm = new ArtefactsTabViewModel(source, new PlanActivity(), TimeProvider.System, opener: new RecordingOpener(),
+            pageContent: new FakePageContentSource(), webView: new FixedWebViewAvailability(true), inAppPages: () => true);
+        var window = new Window { Content = new ArtefactsView { DataContext = vm }, Width = 1400, Height = 400 };
+        window.Show();
+        vm.SwitchSession(Session, "/repo");
+        await (vm.PendingPagesForTesting ?? Task.CompletedTask);
+        await vm.OpenPageCommand.Execute(vm.Pages[0]);
+        await (vm.PendingPageLoadForTesting ?? Task.CompletedTask);
+        Dispatcher.UIThread.RunJobs();
+        window.UpdateLayout();
+
+        var selector = Find<Button>(window, "ItemSelector");
+        var next = Find<Button>(window, "NextItem");
+        var selectorRight = selector.TranslatePoint(new Point(selector.Bounds.Width, 0), window)!.Value.X;
+        await Assert.That(selector.Bounds.Width).IsLessThan(200);
+        await Assert.That(next.TranslatePoint(default, window)!.Value.X - selectorRight).IsLessThan(20);
+        window.Close();
+        await vm.TeardownAsync();
+    });
 }

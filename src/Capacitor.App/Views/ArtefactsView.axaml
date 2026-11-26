@@ -60,7 +60,6 @@
     </UserControl.Styles>
     <Grid RowDefinitions="Auto,*">
         <Border x:Name="SelectorBar" IsVisible="{Binding HasAny}" PointerEntered="OnSelectorBarUsed" PointerMoved="OnSelectorBarUsed" GotFocus="OnSelectorBarUsed" Background="Transparent" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1" Padding="16,8">
-            <!-- Docked, the browser action keeps its place, and the left-aligned grid's star column lets a long title trim. -->
             <DockPanel>
             <Button x:Name="OpenInBrowser" DockPanel.Dock="Right" Margin="12,0,0,0" Classes="kcapGhost" Content="Open in browser"
                     IsVisible="{Binding PageViewer, Converter={x:Static ObjectConverters.IsNotNull}}"
