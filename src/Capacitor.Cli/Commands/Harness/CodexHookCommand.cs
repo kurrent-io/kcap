@@ -248,7 +248,11 @@ sealed class CodexHookCommand(
         // state, not recording.
         await NotifyToolSettledAsync(node, eventName);
 
-        if (eventName switch { "Stop" => true, "UserPromptSubmit" or "PreToolUse" => false, _ => (bool?) null } is { } waiting)
+        // Only the parent's own hooks speak for its turn: a child's tool calls share the parent's session and agent, and a
+        // background child working while the parent waits would otherwise read as the parent starting a turn. The child's
+        // liveness reaches the daemon through the subagent relay.
+        if (SubagentIdOf(node) is null
+         && eventName switch { "Stop" => true, "UserPromptSubmit" or "PreToolUse" => false, _ => (bool?) null } is { } waiting)
             await DaemonBridgeRelay.NotifyInputWaitAsync(hosted, "codex", TryGetString(node, "session_id"), TryGetString(node, "cwd"), waiting, clock.Budget(Ceiling));
 
         // After `kcap disable`, no POST and no watcher restart: the next Stop would otherwise re-send

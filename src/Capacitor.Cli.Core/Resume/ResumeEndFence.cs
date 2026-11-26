@@ -30,7 +30,7 @@ public static class ResumeEndFence {
                     return null;
                 }
 
-                return Replaces(entry, endingSession, soft)
+                return Replaces(entry, endingSession)
                     ? entry with {
                         EndCommittedAt      = time.GetUtcNow(),
                         EndCommittedEpoch   = endingEpoch,
@@ -46,19 +46,20 @@ public static class ResumeEndFence {
         }
     }
 
-    /// <summary>Whether an end of <paramref name="endingSession"/> takes the entry's stamp: there is none, the ending session
-    /// is the one the entry runs and the stamp names another, or the stamp is the same session's soft end and this one is real.</summary>
-    static bool Replaces(ResumeLedgerEntry entry, string? endingSession, bool soft) {
+    /// <summary>Whether an end of <paramref name="endingSession"/> takes the entry's stamp: there is none; the stamp is the
+    /// same session's soft end (a real end outranks it, and a later soft end records its own time); or the stamp names
+    /// another session and the ending one is the session the entry is known to run. While the entry's session is unknown,
+    /// arrival order cannot tell which end is the current one, so another session's end never displaces a stamp.</summary>
+    static bool Replaces(ResumeLedgerEntry entry, string? endingSession) {
         if (entry.EndCommittedAt is null) return true;
 
         var stamped = SessionIds.Canonical(entry.EndCommittedSession);
         var ending  = SessionIds.Canonical(endingSession);
 
         if (stamped is null || ending is null || string.Equals(stamped, ending, StringComparison.OrdinalIgnoreCase))
-            return entry.EndCommittedSoft == true && !soft;
+            return entry.EndCommittedSoft == true;
 
-        // An entry that has not learned its session yet cannot tell the two apart; the newer end is the likelier current one.
-        return SessionIds.Canonical(entry.SessionId) is not { } current || string.Equals(ending, current, StringComparison.OrdinalIgnoreCase);
+        return SessionIds.Canonical(entry.SessionId) is { } current && string.Equals(ending, current, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>An end that names no agent is placed by its session instead: otherwise the first restart after an
