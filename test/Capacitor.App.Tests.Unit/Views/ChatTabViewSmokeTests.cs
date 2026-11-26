@@ -622,6 +622,38 @@ public class ChatTabViewSmokeTests {
         });
     }
 
+    /// A dialog whose choices could not be read is answered in the terminal: Close comes first and
+    /// Open Terminal second, and the message box is out of the way until it closes.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_unread_terminal_dialog_offers_close_then_open_terminal_and_sets_the_composer_aside() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            var path = Tmp.CreateFile("unread-dialog.jsonl", [UserLine]);
+            var client = await host.AttachAsync(path);
+            var agent = Agent("a1", "claude", hasTerminal: true) with {
+                TranscriptPath = path, Status = "Running",
+                TerminalDialog = new TerminalDialogDto("", "", [], -1, "Bash command\nDo you want to proceed?"),
+            };
+            try {
+                host.Daemon.Agents.AddOrUpdate(agent);
+                host.Settle();
+
+                var card = host.View.FindControl<Border>("TerminalMenuCard")!;
+                var actions = card.GetVisualDescendants().OfType<Button>().Where(b => b.IsEffectivelyVisible).Select(b => b.Name ?? "").ToArray();
+                await Assert.That(actions).IsEquivalentTo(new[] { "TerminalMenuClose", "TerminalMenuOpenTerminal" }, CollectionOrdering.Matching);
+                await Assert.That(host.Composer.IsEffectivelyVisible).IsFalse();
+
+                Click(host, host.View.FindControl<Button>("TerminalMenuClose")!);
+                await WaitUntilAsync(() => client.SentInput.Any(bytes => bytes is [0x1b]), what: "escape written");
+
+                host.Daemon.Agents.AddOrUpdate(agent with { TerminalDialog = null });
+                host.Settle();
+                await Assert.That(host.Composer.IsEffectivelyVisible).IsTrue();
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task An_ended_session_hides_stale_terminal_controls_and_shows_the_ended_hint() {

@@ -1146,9 +1146,14 @@
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
-                                <Button x:Name="TerminalMenuOpenTerminal" Classes="kcapChip" Content="Open Terminal"
-                                        Command="{Binding ShowTerminalCommand}" HorizontalAlignment="Left"
-                                        IsVisible="{Binding TerminalMenuTitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Left"
+                                            IsVisible="{Binding TerminalMenuTitle, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                                    <Button x:Name="TerminalMenuClose" Classes="kcapGhost" Content="{Binding TerminalMenuClose.Label}"
+                                            Command="{Binding TerminalMenuClose.Choose}"
+                                            IsVisible="{Binding TerminalMenuClose, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    <Button x:Name="TerminalMenuOpenTerminal" Classes="kcapPrimary" Content="Open Terminal"
+                                            Command="{Binding ShowTerminalCommand}" />
+                                </StackPanel>
                                 <TextBlock Text="{Binding TerminalMenuError}" FontSize="{StaticResource KcapFontSizeSmall}" TextWrapping="Wrap"
                                            Foreground="{StaticResource KcapDangerBrush}"
                                            IsVisible="{Binding TerminalMenuError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
@@ -1157,7 +1162,7 @@
                         <views:AttachmentChipStrip x:Name="ChipStrip" Tray="{Binding Tray}"
                                                    IsVisible="{Binding Tray.HasAttachments}" />
                         <TextBox x:Name="ComposerInput" Classes="kcapEmbedded" Text="{Binding ComposerText}" AcceptsReturn="True" TextWrapping="Wrap"
-                                 AutomationProperties.Name="Message the agent" MinHeight="44" MaxHeight="160" Padding="0" PlaceholderText="Write a message" IsVisible="{Binding ShowsComposer}"
+                                 AutomationProperties.Name="Message the agent" MinHeight="44" MaxHeight="160" Padding="0" PlaceholderText="Write a message" IsVisible="{Binding ShowsComposerInput}"
                                  IsEnabled="{Binding !HasTerminalMenu}" />
                         <Grid ColumnDefinitions="Auto,*,Auto,Auto">
                             <!-- The hint exists only while the gate is shut, which is exactly when a tooltip

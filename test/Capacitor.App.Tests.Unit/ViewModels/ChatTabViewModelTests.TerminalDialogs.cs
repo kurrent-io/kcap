@@ -235,7 +235,8 @@ public partial class ChatTabViewModelTests {
                 await h.PushAsync(Agent("a1", "claude", hasTerminal: true) with { Status = "Running", TerminalDialog = dialog });
 
                 await Assert.That(h.Chat.HasTerminalMenu).IsTrue();
-                await Assert.That(h.Chat.TerminalMenuChoices.Single().Label).IsEqualTo("Close");
+                await Assert.That(h.Chat.TerminalMenuChoices).IsEmpty();
+                await Assert.That(h.Chat.TerminalMenuClose!.Label).IsEqualTo("Close");
                 await Assert.That(h.Chat.TerminalMenuScreen).IsEqualTo(dialog.Screen);
                 await h.Chat.ShowTerminalCommand.Execute().ToTask();
                 await Assert.That(shown).IsTrue();
@@ -327,7 +328,7 @@ public partial class ChatTabViewModelTests {
             await h.PushAsync(Agent("a1", "claude", hasTerminal: true) with {
                 Status = "Running", TerminalDialog = new TerminalDialogDto("Status", "", [], -1, "Version: 2.1.310")
             });
-            var close = h.Chat.TerminalMenuChoices.Single();
+            var close = h.Chat.TerminalMenuClose!;
             await Assert.That(close.Label).IsEqualTo("Close");
             await close.Choose.Execute().ToTask();
             await Assert.That(input.Writes).IsEquivalentTo(new[] { "\e" }, CollectionOrdering.Matching);
@@ -538,6 +539,44 @@ public partial class ChatTabViewModelTests {
         }
     }
 
+    /// Text and files would both land in the menu, so while one is up the message box leaves and
+    /// staging stops, saying why. Both come back once the menu closes.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_terminal_menu_sets_the_message_box_and_attachments_aside_until_it_closes() => RunOnUiAsync(async () => {
+        var h = new Harness(TranscriptChat.For("claude"), input: new KeyRecordingInput());
+        try {
+            var agent = Agent("a1", "claude", hasTerminal: true) with { Status = "Running" };
+            await h.PushAsync(agent);
+            await Assert.That(h.Chat.ShowsComposerInput).IsTrue();
+            await Assert.That(h.Chat.Attachments.CanAttach).IsTrue();
+
+            await h.PushAsync(agent with { TerminalDialog = new TerminalDialogDto("Status", "", [], -1, "Version: 2.1.310") });
+            await Assert.That(h.Chat.ShowsComposer).IsTrue();
+            await Assert.That(h.Chat.ShowsComposerInput).IsFalse();
+            await Assert.That(h.Chat.Attachments.CanAttach).IsFalse();
+            await Assert.That(h.Chat.Attachments.AttachHint).IsEqualTo(ChatTabViewModel.TerminalMenuAttachHint);
+
+            await h.PushAsync(agent);
+            await Assert.That(h.Chat.ShowsComposerInput).IsTrue();
+            await Assert.That(h.Chat.Attachments.CanAttach).IsTrue();
+        } finally { await h.TeardownAsync(); }
+    });
+
+    /// A dialog the chat can read offers its own choices and nothing besides.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_readable_terminal_dialog_offers_no_separate_close() => RunOnUiAsync(async () => {
+        var h = new Harness(TranscriptChat.For("claude"), input: new KeyRecordingInput());
+        try {
+            await h.PushAsync(Agent("a1", "claude", hasTerminal: true) with {
+                Status = "Running", TerminalDialog = new TerminalDialogDto("Pick one", "", ["Yes", "No"], 0, "Pick one\n❯ Yes\n  No"),
+            });
+            await Assert.That(h.Chat.TerminalMenuChoices.Select(c => c.Label)).IsEquivalentTo(new[] { "Yes", "No" }, CollectionOrdering.Matching);
+            await Assert.That(h.Chat.TerminalMenuClose).IsNull();
+        } finally { await h.TeardownAsync(); }
+    });
+
     sealed class KeyRecordingInput : AcceptingChatInput {
         public List<byte> Keys { get; } = [];
         public List<string> Writes { get; } = [];
@@ -580,6 +619,7 @@ public partial class ChatTabViewModelTests {
                 await Assert.That(chat.TerminalMenuTitle).IsEqualTo("Waiting for you in Terminal");
                 await Assert.That(chat.TerminalMenuScreen).IsEqualTo(dto.TerminalDialog.Screen);
                 await Assert.That(chat.TerminalMenuChoices).IsEmpty();
+                await Assert.That(chat.TerminalMenuClose).IsNull();
                 await chat.ShowTerminalCommand.Execute().ToTask();
                 await Assert.That(shown).IsTrue();
 
