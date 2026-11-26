@@ -10,9 +10,9 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// The Pages tab: one list of the published pages citing the session (also listed in the work
-/// context pane) and the documents it declared or wrote, read from plan-artifacts with their bodies,
-/// and the one page or document that is open. The session id is
+/// The Pages tab: the published pages citing the session (also listed in the work context pane) and
+/// the documents it declared or wrote, read from plan-artifacts with their bodies, and the one page or
+/// document that is open, chosen from a selector over both lists. The session id is
 /// each read's identity; a lease owns one id, its cancellation and its pending read, a result applies
 /// only for the current lease, and every lease transition happens on the UI thread.
 public sealed class ArtefactsTabViewModel : ReactiveObject {
@@ -93,7 +93,13 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     public string PagesMeta => _pages.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
     (string Path, string? Hash, DriftState State)? _lastDrift;
-    public DocumentRow? Selected { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public DocumentRow? Selected {
+        get;
+        private set {
+            this.RaiseAndSetIfChanged(ref field, value);
+            RaiseCurrent();
+        }
+    }
 
     public DocumentReaderViewModel? Reader {
         get;
@@ -110,7 +116,41 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
             this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(ShowsReaderNote));
             this.RaisePropertyChanged(nameof(HasAny));
+            _viewerTitle?.Dispose();
+            _viewerTitle = value is null ? null : value.WhenAnyValue(v => v.Title).Subscribe(_ => RaiseCurrent());
+            RaiseCurrent();
         }
+    }
+    IDisposable? _viewerTitle;
+
+    /// The listed row shown on the right: the open page's or the selected document's. Null when nothing
+    /// is open, and for a page opened from a link the session does not list.
+    public object? CurrentItem => PageViewer is { } viewer ? _pages.FirstOrDefault(p => p.Id == viewer.ArtefactId) : Selected;
+    public bool ShowsUnlistedPage => PageViewer is { } viewer && _pages.All(p => p.Id != viewer.ArtefactId);
+    public string CurrentTitle => CurrentItem switch {
+        PageRow page => PageViewer is { Title.Length: > 0 } loaded ? loaded.Title : page.Title,
+        DocumentRow document => document.FileName,
+        _ => PageViewer is { Title.Length: > 0 } viewer ? viewer.Title
+            : PageViewer is not null ? "Page"
+            : HasItems ? "Choose a page or document" : "",
+    };
+    public string CurrentKind => CurrentItem switch {
+        PageRow => "Page",
+        DocumentRow document => document.KindLabel,
+        _ => PageViewer is null ? "" : "Opened from link",
+    };
+    /// One listed item that is already open leaves nothing to choose, so the title shows without a menu.
+    public bool CanChoose => _items.Count > (CurrentItem is null ? 0 : 1);
+    public string Position => CurrentItem is { } item && _items.IndexOf(item) is var at and >= 0 && _items.Count > 1
+        ? $"{at + 1} of {_items.Count}" : "";
+    public string DocumentsMeta => _documents.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    public bool CanStepPrevious => StepTarget(-1) is not null;
+    public bool CanStepNext => StepTarget(1) is not null;
+
+    /// The in-app switch raises nothing when it flips, so the bar asks again before it is used.
+    public void RefreshSteps() {
+        this.RaisePropertyChanged(nameof(CanStepPrevious));
+        this.RaisePropertyChanged(nameof(CanStepNext));
     }
 
     public bool ShowsReaderNote => Reader is null && PageViewer is null;
@@ -125,6 +165,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         get;
         set {
             this.RaiseAndSetIfChanged(ref field, value);
+            RefreshSteps();
             OpenFirst();
         }
     }
@@ -133,6 +174,8 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
     public ReactiveCommand<string, Unit> OpenLinkCommand { get; }
     public ReactiveCommand<PageRow, Unit> OpenPageCommand { get; }
     public ReactiveCommand<Unit, Unit> TogglePagesCommand { get; }
+    public ReactiveCommand<Unit, Unit> PreviousCommand { get; }
+    public ReactiveCommand<Unit, Unit> NextCommand { get; }
     /// Something asked for the tab: a card's Open, a pane row, the pane summary, a page link.
     public event Action? OpenRequested;
 
@@ -189,6 +232,8 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         _inAppPages = inAppPages;
         OpenPageCommand = ReactiveCommand.Create<PageRow>(row => OpenInViewer(row.Id, row.Url));
         TogglePagesCommand = ReactiveCommand.Create(() => { if (PagesOverflow) PagesExpanded = !PagesExpanded; });
+        PreviousCommand = ReactiveCommand.Create(() => Step(-1), this.WhenAnyValue(vm => vm.CanStepPrevious));
+        NextCommand = ReactiveCommand.Create(() => Step(1), this.WhenAnyValue(vm => vm.CanStepNext));
         _settle = time.CreateTimer(_ => RxSchedulers.MainThreadScheduler.Schedule(Refresh), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
         _activity.PlanWritten += OnArtefactWritten;
         _activity.PagePublished += OnArtefactWritten;
@@ -305,6 +350,33 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         viewer.Close();
         PageViewer = null;
         MarkOpenPage(null);
+    }
+
+    /// Stepping stays inside the tab: a page is a step only when it opens here, never in the browser.
+    object? StepTarget(int delta) {
+        var inTab = CurrentViewer() is InAppPageViewer;
+        var steps = _items.Where(item => item is DocumentRow || inTab).ToList();
+        var at = CurrentItem is { } current ? steps.IndexOf(current) : -1;
+        var next = at < 0 ? (delta > 0 ? 0 : -1) : at + delta;
+        return next >= 0 && next < steps.Count ? steps[next] : null;
+    }
+
+    void Step(int delta) {
+        switch (StepTarget(delta)) {
+            case PageRow page: OpenInViewer(page.Id, page.Url); break;
+            case DocumentRow document: Select(document); break;
+        }
+    }
+
+    void RaiseCurrent() {
+        this.RaisePropertyChanged(nameof(CurrentItem));
+        this.RaisePropertyChanged(nameof(ShowsUnlistedPage));
+        this.RaisePropertyChanged(nameof(CurrentTitle));
+        this.RaisePropertyChanged(nameof(CurrentKind));
+        this.RaisePropertyChanged(nameof(CanChoose));
+        this.RaisePropertyChanged(nameof(Position));
+        this.RaisePropertyChanged(nameof(CanStepPrevious));
+        this.RaisePropertyChanged(nameof(CanStepNext));
     }
 
     void MarkOpenPage(string? pageId) {
@@ -551,6 +623,8 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         this.RaisePropertyChanged(nameof(PagesOverflow));
         this.RaisePropertyChanged(nameof(VisiblePages));
         this.RaisePropertyChanged(nameof(PagesMeta));
+        this.RaisePropertyChanged(nameof(DocumentsMeta));
+        RaiseCurrent();
     }
 
     void RaiseLoading() {
@@ -573,6 +647,9 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
         OpenLinkCommand.Dispose();
         OpenPageCommand.Dispose();
         TogglePagesCommand.Dispose();
+        PreviousCommand.Dispose();
+        NextCommand.Dispose();
+        _viewerTitle?.Dispose();
         await _reads.TeardownAsync();
         await _pageReads.TeardownAsync();
         await _driftReads.TeardownAsync(waitForPending: false);

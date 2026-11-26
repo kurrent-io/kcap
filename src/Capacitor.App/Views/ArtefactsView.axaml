@@ -29,23 +29,83 @@
         <Style Selector="Button.artefactRow.selected TextBlock.rowTitle">
             <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
+        <Style Selector="Border.artefactMenuRow">
+            <Setter Property="Padding" Value="10,7" />
+            <Setter Property="CornerRadius" Value="7" />
+            <Setter Property="Background" Value="{StaticResource KcapSelectionBrush}" />
+        </Style>
+        <Style Selector="Grid.artefactGroup">
+            <Setter Property="Margin" Value="10,8,10,4" />
+        </Style>
+        <Style Selector="TextBlock.artefactGroupLabel">
+            <Setter Property="FontSize" Value="{StaticResource KcapFontSizeSmall}" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="LetterSpacing" Value="1.2" />
+            <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
+        </Style>
+        <Style Selector="Button.artefactSelector">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="7" />
+            <Setter Property="Padding" Value="10,5" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+        <Style Selector="Button.artefactSelector:pointerover /template/ ContentPresenter#PART_ContentPresenter,
+                         Button.artefactSelector:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource KcapSurfaceRaisedBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
+        </Style>
     </UserControl.Styles>
-    <Grid ColumnDefinitions="Auto,*">
-        <Border x:Name="DocumentListPane" Grid.Column="0" Width="240" IsVisible="{Binding HasItems}" Background="{StaticResource KcapSurfaceBrush}" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,1,0">
-            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Margin="10,14,10,14" Spacing="4">
-                    <TextBlock Text="PAGES" FontSize="{StaticResource KcapFontSizeSmall}" FontWeight="Bold" LetterSpacing="1.2"
-                               Foreground="{StaticResource KcapMutedBrush}" Margin="10,0,0,6" />
-                    <ItemsControl x:Name="DocumentList" ItemsSource="{Binding Items}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <StackPanel Spacing="2" />
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.DataTemplates>
-                            <DataTemplate x:DataType="vm:PageRow">
-                                <Button Classes="artefactRow" Classes.selected="{Binding IsSelected}"
-                                        Command="{Binding $parent[ItemsControl].((vm:ArtefactsTabViewModel)DataContext).OpenPageCommand}"
+    <Grid RowDefinitions="Auto,*">
+        <Border x:Name="SelectorBar" IsVisible="{Binding HasAny}" PointerEntered="OnSelectorBarUsed" PointerMoved="OnSelectorBarUsed" GotFocus="OnSelectorBarUsed" Background="Transparent" BorderBrush="{StaticResource KcapBorderBrush}" BorderThickness="0,0,0,1" Padding="16,8">
+            <DockPanel>
+            <Button x:Name="OpenInBrowser" DockPanel.Dock="Right" Margin="12,0,0,0" Classes="kcapGhost" Content="Open in browser"
+                    IsVisible="{Binding PageViewer, Converter={x:Static ObjectConverters.IsNotNull}}"
+                    Command="{Binding PageViewer.OpenInBrowserCommand, FallbackValue={x:Null}}" />
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="6" HorizontalAlignment="Left">
+                <Button x:Name="PreviousItem" Classes="kcapGhost kcapIcon" Command="{Binding PreviousCommand}" IsVisible="{Binding CanChoose}"
+                        AutomationProperties.Name="Previous" ToolTip.Tip="Previous" VerticalAlignment="Center">
+                    <views:AppIcon Kind="ChevronLeft" Size="14" />
+                </Button>
+                <Button x:Name="ItemSelector" Grid.Column="1" Classes="artefactSelector" IsVisible="{Binding CanChoose}"
+                        AutomationProperties.Name="{Binding CurrentTitle}" ToolTip.Tip="{Binding CurrentTitle}">
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                        <TextBlock x:Name="SelectorTitle" Text="{Binding CurrentTitle}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" MaxWidth="420"
+                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Foreground="{StaticResource KcapTextBrush}" />
+                        <TextBlock Grid.Column="1" Text="{Binding CurrentKind}" FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapFaintBrush}"
+                                   VerticalAlignment="Center" />
+                        <views:AppIcon Grid.Column="2" Kind="ChevronDown" Size="12" VerticalAlignment="Center" />
+                    </Grid>
+                    <Button.Flyout>
+                        <Flyout Placement="BottomEdgeAlignedLeft" VerticalOffset="6" FlyoutPresenterClasses="kcapPanel"
+                                Opened="OnMenuOpened">
+                            <ScrollViewer MaxHeight="480" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="ItemMenuContent" Spacing="2" Margin="6" Width="340">
+                                    <StackPanel IsVisible="{Binding ShowsUnlistedPage}" Spacing="2">
+                                        <Border Classes="artefactMenuRow">
+                                            <StackPanel Spacing="2">
+                                                <TextBlock Classes="rowTitle" Text="{Binding CurrentTitle}" FontSize="{StaticResource KcapFontSizeBody}"
+                                                           Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="Opened from link" FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapFaintBrush}" />
+                                            </StackPanel>
+                                        </Border>
+                                    </StackPanel>
+                                    <Grid ColumnDefinitions="*,Auto" Classes="artefactGroup" IsVisible="{Binding HasPages}">
+                                        <TextBlock Text="PAGES" Classes="artefactGroupLabel" />
+                                        <TextBlock Grid.Column="1" Text="{Binding PagesMeta}" Classes="artefactGroupLabel" />
+                                    </Grid>
+                                    <ItemsControl x:Name="PageMenuList" ItemsSource="{Binding Pages}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Spacing="2" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.DataTemplates>
+                                            <DataTemplate x:DataType="vm:PageRow">
+                                <Button Classes="artefactRow" Click="OnMenuItemClick" Classes.selected="{Binding IsSelected}"
+                                        Command="{Binding $parent[views:ArtefactsView].((vm:ArtefactsTabViewModel)DataContext).OpenPageCommand}"
                                         CommandParameter="{Binding}" ToolTip.Tip="{Binding Title}" AutomationProperties.Name="{Binding Title}">
                                     <StackPanel Spacing="2">
                                         <TextBlock Classes="rowTitle" Text="{Binding Title}" FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
@@ -56,9 +116,22 @@
                                     </StackPanel>
                                 </Button>
                             </DataTemplate>
-                            <DataTemplate x:DataType="vm:DocumentRow">
-                                <Button Classes="artefactRow" Classes.selected="{Binding IsSelected}"
-                                        Command="{Binding $parent[ItemsControl].((vm:ArtefactsTabViewModel)DataContext).SelectCommand}"
+                                        </ItemsControl.DataTemplates>
+                                    </ItemsControl>
+                                    <Grid ColumnDefinitions="*,Auto" Classes="artefactGroup" IsVisible="{Binding HasDocuments}">
+                                        <TextBlock Text="DOCUMENTS" Classes="artefactGroupLabel" />
+                                        <TextBlock Grid.Column="1" Text="{Binding DocumentsMeta}" Classes="artefactGroupLabel" />
+                                    </Grid>
+                                    <ItemsControl x:Name="DocumentMenuList" ItemsSource="{Binding Documents}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Spacing="2" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.DataTemplates>
+                                            <DataTemplate x:DataType="vm:DocumentRow">
+                                <Button Classes="artefactRow" Click="OnMenuItemClick" Classes.selected="{Binding IsSelected}"
+                                        Command="{Binding $parent[views:ArtefactsView].((vm:ArtefactsTabViewModel)DataContext).SelectCommand}"
                                         CommandParameter="{Binding}" ToolTip.Tip="{Binding Path}" AutomationProperties.Name="{Binding FileName}">
                                     <StackPanel Spacing="2">
                                         <TextBlock Classes="rowTitle" Text="{Binding FileName}" FontSize="{StaticResource KcapFontSizeBody}" Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" />
@@ -70,12 +143,30 @@
                                     </StackPanel>
                                 </Button>
                             </DataTemplate>
-                        </ItemsControl.DataTemplates>
-                    </ItemsControl>
-                </StackPanel>
-            </ScrollViewer>
+                                        </ItemsControl.DataTemplates>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
+                <Grid x:Name="CurrentItemLabel" Grid.Column="1" ColumnDefinitions="*,Auto" ColumnSpacing="8" IsVisible="{Binding !CanChoose}"
+                      Margin="4,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding CurrentTitle}" FontSize="{StaticResource KcapFontSizeBody}" FontWeight="SemiBold" MaxWidth="420"
+                               TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Foreground="{StaticResource KcapTextBrush}" />
+                    <TextBlock Grid.Column="1" Text="{Binding CurrentKind}" FontSize="{StaticResource KcapFontSizeCaption}" Foreground="{StaticResource KcapFaintBrush}"
+                               VerticalAlignment="Center" />
+                </Grid>
+                <Button x:Name="NextItem" Grid.Column="2" Classes="kcapGhost kcapIcon" Command="{Binding NextCommand}" IsVisible="{Binding CanChoose}"
+                        AutomationProperties.Name="Next" ToolTip.Tip="Next" VerticalAlignment="Center">
+                    <views:AppIcon Kind="ChevronRight" Size="14" />
+                </Button>
+                <TextBlock x:Name="ItemPosition" Grid.Column="3" Text="{Binding Position}" FontSize="{StaticResource KcapFontSizeSmall}"
+                           Foreground="{StaticResource KcapFaintBrush}" VerticalAlignment="Center" Margin="4,0,0,0" />
+            </Grid>
+            </DockPanel>
         </Border>
-        <Panel Grid.Column="1">
+        <Panel Grid.Row="1">
             <ContentControl x:Name="DocumentReaderHost" Content="{Binding Reader}">
                 <ContentControl.ContentTemplate>
                     <DataTemplate x:DataType="vm:DocumentReaderViewModel">
