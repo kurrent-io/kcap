@@ -35,6 +35,7 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     bool _refreshRunning;
     bool _refreshQueued;
     bool _admitQueued;
+    bool _admitRunning;
     bool _disposed;
 
     public IAvaloniaReadOnlyList<InboxItemViewModel> Items => _items;
@@ -132,6 +133,15 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
     }
 
     async Task AdmitAsync(int epoch) {
+        _admitRunning = true;
+        try {
+            await AdmitOnceAsync(epoch);
+        } finally {
+            _admitRunning = false;
+        }
+    }
+
+    async Task AdmitOnceAsync(int epoch) {
         var surfaces = await Guard(_api.SurfacesAsync(_lifetime.Token));
         if (_disposed || epoch != _epoch || surfaces is null) return;
         if (surfaces is not { Kind: InboxReadKind.Ready, Value.Notifications: true }) {
@@ -148,12 +158,15 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         UnreadCount = 0;
         ListLoaded = false;
         _notes.Clear();
+        _dismissing.Clear();
         Replace([]);
     }
 
+    // A push to a hidden bell retries admission, so one failed first read does not hide it for the rest of the connection.
     public void Refresh() {
         if (_disposed || !_connected) return;
-        _ = RefreshAsync(admitting: false);
+        if (IsVisible) _ = RefreshAsync(admitting: false);
+        else if (!_admitRunning) _ = AdmitAsync(_epoch);
     }
 
     // An admission queued behind a running read still runs once that read ends, even though the bell is hidden meanwhile.
@@ -238,15 +251,17 @@ public sealed class InboxBellViewModel : ReactiveObject, IDisposable {
         Refresh();
     }
 
-    async Task<string> AnswerAsync(InboxItemViewModel item, string answer, string? text) {
+    async Task<InboxAnswerOutcome> AnswerAsync(InboxItemViewModel item, string answer, string? text) {
         const string couldNotSend = "Couldn't send that answer. Try again, or answer it in kcap";
         var epoch = _epoch;
         var read = await Guard(_api.AnswerAsync(item.LogicalId, answer, text, _lifetime.Token));
-        var note = read is { Kind: InboxReadKind.Ready, Value: { } outcome } ? outcome.Message : couldNotSend;
-        if (_disposed || epoch != _epoch) return note;
+        var answered = read is { Kind: InboxReadKind.Ready, Value: { } outcome } ? new InboxAnswerOutcome(outcome.Accepted, outcome.Message)
+            : new InboxAnswerOutcome(false, couldNotSend);
+        var note = answered.Note;
+        if (_disposed || epoch != _epoch) return answered;
         _notes[item.LogicalId] = note;
         Refresh();
-        return note;
+        return answered;
     }
 
     async Task MarkAllReadAsync() {

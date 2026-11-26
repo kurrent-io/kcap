@@ -139,7 +139,7 @@ public class InboxBellViewModelTests {
         await card.SendReplyCommand.Execute();
         await Assert.That(rig.Api.Calls).Contains("answer n1 reply on it");
         await Assert.That(card.Note).IsEqualTo("Couldn't send that answer. Try again, or answer it in kcap");
-        await Assert.That(card.ReplyText).IsNull();
+        await Assert.That(card.ReplyText).IsEqualTo("on it");
     });
 
     [Test]
@@ -214,6 +214,51 @@ public class InboxBellViewModelTests {
         rig.Bell.IsOpen = true;
 
         await Assert.That(rig.Bell.Items.Single().Note).IsNull();
+    });
+
+    [Test]
+    public async Task A_push_retries_admission_after_a_failed_first_read() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Count = InboxRead<NotificationUnreadCountDto>.Failed;
+        rig.Connect();
+        await Assert.That(rig.Bell.IsVisible).IsFalse();
+
+        rig.Api.Count = new(InboxReadKind.Ready, new() { Count = 1 });
+        rig.Changed.OnNext(RxUnit.Default);
+
+        await Assert.That(rig.Bell.IsVisible).IsTrue();
+    });
+
+    [Test]
+    public async Task A_refused_reply_keeps_its_draft() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1", type: "agent_prompt") with { ReplyLabel = "Reply" });
+        rig.Api.Answer = new(InboxReadKind.Ready, new() { Accepted = false, Message = "This prompt has already been answered, or is no longer waiting" });
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        var card = rig.Bell.Items.Single();
+
+        card.ReplyText = "on it";
+        await card.SendReplyCommand.Execute();
+
+        await Assert.That(card.ReplyText).IsEqualTo("on it");
+        await Assert.That(card.Note).StartsWith("This prompt has already been answered");
+    });
+
+    [Test]
+    public async Task A_dismissal_does_not_carry_over_to_the_next_connection() => await AvaloniaSession.RunOnUiAsync(async () => {
+        using var rig = new Rig().Start();
+        rig.Api.Page = PageOf(1, Item("n1"));
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+        await rig.Bell.Items.Single().DismissCommand.Execute();
+
+        rig.Status.OnNext(new(ServerLaneState.SignedOut));
+        rig.Connect();
+        rig.Bell.IsOpen = true;
+
+        await Assert.That(rig.Bell.Items.Select(i => i.LogicalId)).IsEquivalentTo(["n1"]);
+        await Assert.That(rig.Bell.UnreadCount).IsEqualTo(1);
     });
 
     [Test]

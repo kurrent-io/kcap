@@ -9,7 +9,7 @@ namespace Capacitor.App.ViewModels.Inbox;
 public sealed class InboxItemViewModel : ReactiveObject {
     public const string ReplyAnswer = "reply";
 
-    readonly Func<InboxItemViewModel, string, string?, Task<string>> _answer;
+    readonly Func<InboxItemViewModel, string, string?, Task<InboxAnswerOutcome>> _answer;
 
     public string                         LogicalId     { get; }
     public long                           Version       { get; }
@@ -60,7 +60,7 @@ public sealed class InboxItemViewModel : ReactiveObject {
 
     public InboxItemViewModel(NotificationItemDto dto, DateTimeOffset now, Func<string, string?> resolve,
             Func<InboxItemViewModel, Task> markRead, Func<InboxItemViewModel, Task> dismiss,
-            Func<InboxItemViewModel, string, string?, Task<string>> answer, Action<string> open) {
+            Func<InboxItemViewModel, string, string?, Task<InboxAnswerOutcome>> answer, Action<string> open) {
         _answer      = answer;
         LogicalId    = dto.LogicalId;
         Version      = dto.Version;
@@ -99,8 +99,10 @@ public sealed class InboxItemViewModel : ReactiveObject {
         if (IsAnswering) return;
         IsAnswering = true;
         try {
-            Note = await _answer(this, answer, text);
-            if (text is not null) ReplyText = null;
+            var outcome = await _answer(this, answer, text);
+            Note = outcome.Note;
+            // A refused or unsent reply keeps its draft, so the person can try again without retyping it.
+            if (text is not null && outcome.Accepted) ReplyText = null;
         } finally {
             IsAnswering = false;
         }
