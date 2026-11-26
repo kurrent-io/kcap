@@ -13,6 +13,12 @@ public static class RepoInstructionsReader {
 
     const string DefaultBranch = "origin/HEAD";
 
+    // Each import costs git calls inline in the watch loop, so a file naming thousands of them is read only this far.
+    const int MaxImportReads = 4 * MaxFiles;
+
+    // Paths per ls-tree call, keeping the command line short enough for Windows.
+    const int ListChunk = 100;
+
     static readonly string[] RootNames = ["CLAUDE.md", "AGENTS.md", "GEMINI.md"];
 
     static readonly UTF8Encoding Utf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: false);
@@ -35,19 +41,32 @@ public static class RepoInstructionsReader {
         foreach (var entry in ParseTree(listing).Where(e => RootNames.Contains(e.Path, StringComparer.OrdinalIgnoreCase)))
             if (await ReadEntryAsync(entry, entry.Path) is { } file) roots.Add(file);
 
-        foreach (var path in roots.SelectMany(r => RepoInstructionImports.Of(r.Content)).Distinct(StringComparer.Ordinal).ToList()) {
-            if (await GitAsync("ls-tree", "-z", DefaultBranch, "--", path) is not { } found || ParseTree(found) is not [var entry]) continue;
+        var wanted = roots.SelectMany(r => RepoInstructionImports.Of(r.Content)).Distinct(StringComparer.Ordinal).ToList();
+        var listed = new Dictionary<string, TreeEntry>(StringComparer.Ordinal);
+        foreach (var chunk in wanted.Chunk(ListChunk))
+            if (await GitAsync(["--literal-pathspecs", "ls-tree", "-z", DefaultBranch, "--", ..chunk]) is { } found)
+                foreach (var entry in ParseTree(found)) listed[entry.Path] = entry;
+
+        var reads = 0;
+        var notRead = 0;
+        foreach (var path in wanted) {
+            if (!listed.TryGetValue(path, out var entry)) continue;
+            if (roots.Count + imports.Count >= MaxFiles || reads >= MaxImportReads) {
+                notRead++;
+                continue;
+            }
+            reads++;
             if (await ReadEntryAsync(entry, path) is { } file) imports.Add(file);
         }
+        if (notRead > 0) skipped.Add($"{notRead} more import(s) left out to fit the upload limits");
 
-        // Three root files within the per-file limit always fit the total, so dropping imports always ends within it.
         while (imports.Count > 0 && OverLimits(roots, imports)) {
             skipped.Add($"{imports[^1].Path}: left out to fit the upload limits");
             imports.RemoveAt(imports.Count - 1);
         }
 
         IReadOnlyList<RepoInstructionFile> files = [..roots, ..imports];
-        return RepoInstructionsRead.Of(new RepoInstructionSet(files, RepoInstructionsDigest.Of(files), skipped));
+        return RepoInstructionsRead.Of(new RepoInstructionSet(files, RepoInstructionsDigest.Of(files), skipped, OverLimits(roots, imports)));
 
         // The file an entry names under the path it is listed by, reading through one symlink hop.
         async Task<RepoInstructionFile?> ReadEntryAsync(TreeEntry entry, string path) {
@@ -57,7 +76,7 @@ public static class RepoInstructionsReader {
                 var parent = entry.Path.LastIndexOf('/') is var slash and > 0 ? entry.Path[..slash] + "/" : "";
                 var linked = Utf8.GetString(link).TrimEnd('\n');
                 if (linked.StartsWith('/') || RepoInstructionImports.Normalize(parent + linked) is not { } targetPath) return null;
-                if (await GitAsync("ls-tree", "-z", DefaultBranch, "--", targetPath) is not { } found || ParseTree(found) is not [var resolved]) return null;
+                if (await GitAsync("--literal-pathspecs", "ls-tree", "-z", DefaultBranch, "--", targetPath) is not { } found || ParseTree(found) is not [var resolved]) return null;
                 target = resolved;
             }
             if (!target.IsFile || !blobs.Add(target.Sha)) return null;

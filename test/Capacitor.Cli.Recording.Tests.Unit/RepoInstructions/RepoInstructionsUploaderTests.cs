@@ -89,8 +89,10 @@ public class RepoInstructionsUploaderTests : IDisposable {
     }
 
     [Test]
-    public async Task A_rate_limit_is_waited_out_once() {
-        Answer(429, retryAfter: "30");
+    [Arguments("30")]
+    [Arguments("Thu, 26 Nov 2026 12:00:30 GMT")]
+    public async Task A_rate_limit_is_waited_out_once(string retryAfter) {
+        Answer(429, retryAfter: retryAfter);
         var uploader = Uploader();
 
         await TickAsync(uploader);

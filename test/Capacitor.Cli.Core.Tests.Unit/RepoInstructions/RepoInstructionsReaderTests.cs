@@ -29,6 +29,12 @@ public class RepoInstructionsReaderTests {
         repo.Do("update-index", "--add", "--cacheinfo", $"120000,{blob},{path}");
     }
 
+    // Staged without a working file, so names differing only in case coexist on any filesystem.
+    static void Blob(GitRepo repo, string path, string content) {
+        var blob = repo.DoWithInput(Encoding.UTF8.GetBytes(content), "hash-object", "-w", "--stdin").Text;
+        repo.Do("update-index", "--add", "--cacheinfo", $"100644,{blob},{path}");
+    }
+
     static async Task<RepoInstructionSet> ReadAsync(string root) =>
         (await RepoInstructionsReader.ReadAsync(root, TimeProvider.System, CancellationToken.None)).Set!;
 
@@ -121,8 +127,8 @@ public class RepoInstructionsReaderTests {
     }
 
     [Test]
-    public async Task Imports_past_the_file_count_are_dropped_last_first() {
-        var names = Enumerable.Range(1, RepoInstructionsReader.MaxFiles).Select(i => $"docs/{i:00}.md").ToList();
+    public async Task Imports_past_the_file_count_are_not_read() {
+        var names = Enumerable.Range(1, RepoInstructionsReader.MaxFiles + 2).Select(i => $"docs/{i:00}.md").ToList();
         var clone = CloneOf(up => {
             Write(up, "CLAUDE.md", string.Join('\n', names.Select(n => "@" + n)));
             foreach (var name in names) Write(up, name, name);
@@ -130,9 +136,18 @@ public class RepoInstructionsReaderTests {
 
         var set = await ReadAsync(clone);
 
-        await Assert.That(set.Files.Select(f => f.Path)).IsEquivalentTo(["CLAUDE.md", ..names[..^1]]);
-        await Assert.That(set.Skipped).HasSingleItem();
-        await Assert.That(set.Skipped[0]).StartsWith(names[^1]);
+        await Assert.That(set.Files.Select(f => f.Path)).IsEquivalentTo(["CLAUDE.md", ..names[..(RepoInstructionsReader.MaxFiles - 1)]]);
+        await Assert.That(set.Skipped).IsEquivalentTo(new[] { "3 more import(s) left out to fit the upload limits" });
+    }
+
+    [Test]
+    public async Task Root_files_over_the_total_in_several_spellings_are_over_the_limits() {
+        var clone = CloneOf(up => {
+            foreach (var (name, fill) in new[] { ("CLAUDE.md", 'a'), ("claude.md", 'b'), ("Claude.md", 'c'), ("AGENTS.md", 'd') })
+                Blob(up, name, new string(fill, RepoInstructionsReader.MaxFileBytes));
+        });
+
+        await Assert.That((await ReadAsync(clone)).OverLimits).IsTrue();
     }
 
     [Test]

@@ -74,6 +74,7 @@ public sealed class RepoInstructionsUploader(
         if (found.Set is not { } set) return Finish($"Repo instructions not uploaded for {label}: {found.Unavailable}");
 
         foreach (var skip in set.Skipped) log($"Repo instruction file skipped: {skip}");
+        if (set.OverLimits) return Finish($"Repo instructions not uploaded for {label}: its root instruction files alone exceed the upload limits");
 
         beat();
         string? hash;
@@ -126,7 +127,7 @@ public sealed class RepoInstructionsUploader(
                 return;
             case HttpStatusCode.TooManyRequests when !_rateLimited:
                 _rateLimited = true;
-                _nextAttempt = now + (response.Headers.RetryAfter?.Delta is { } delta && delta > TimeSpan.Zero ? delta : DefaultRetryAfter);
+                _nextAttempt = now + RetryDelay(response.Headers.RetryAfter, now);
                 return;
             default:
                 var problem = await ReadAsync(response, RepoInstructionsJsonContext.Default.RepoInstructionsProblem, ct);
@@ -134,6 +135,11 @@ public sealed class RepoInstructionsUploader(
                      + (problem?.Title is { } title ? $" {title}" : "") + (problem?.Detail is { } detail ? $": {detail}" : ""));
                 return;
         }
+    }
+
+    static TimeSpan RetryDelay(System.Net.Http.Headers.RetryConditionHeaderValue? retryAfter, DateTimeOffset now) {
+        var delay = retryAfter?.Delta ?? (retryAfter?.Date is { } date ? date - now : null);
+        return delay > TimeSpan.Zero ? delay.Value : DefaultRetryAfter;
     }
 
     internal static TimeSpan Backoff(int attempt) {
