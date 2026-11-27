@@ -21,8 +21,10 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using Capacitor.App.Services;
 using Capacitor.App.ViewModels;
+using Capacitor.App.ViewModels.Composer;
 using Capacitor.App.Views;
 using Capacitor.Cli.Core;
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.LocalIpc;
 using DynamicData;
 using Microsoft.Extensions.Time.Testing;
@@ -133,14 +135,15 @@ public class ChatTabViewSmokeTests {
         /// ScrollViewer until Show() is called — the order production takes, where the tab's
         /// first read starts before the workspace view exists.
         public Host(bool show = true, IObservable<string?>? sessionId = null, IObservable<Cli.Core.Accounts.AccountsSnapshotDto?>? accountReadings = null,
-                ChatFindMemory? findMemory = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null, bool marks = true) {
+                ChatFindMemory? findMemory = null, IObservable<HandoffOutcomeViewModel?>? handoffOutcome = null, bool marks = true,
+                ComposerPicker? picker = null) {
             Runs = new SessionRuns(Time);
             Terminal = new TerminalTabViewModel("a1", Daemon, Attach.Factory, () => new FakeTerminalSurface(), Time);
             Chat = new ChatTabViewModel(
                 "a1", Daemon, new TerminalChatInput(Terminal, "a1", Daemon, new ScriptedLocalControlOps(), _presence), new NoAttachmentUploader(), TranscriptChat.For("claude"), Opener, Time, Permissions, Runs,
                 sessionId: sessionId, localDaemonOnAppServer: Observable.Return(true),
                 accountReadings: accountReadings, usageClock: Observable.Return(StripReadings.Now), findMemory: findMemory,
-                handoffOutcome: handoffOutcome, chatMarks: marks ? new ChatMarks() : null);
+                handoffOutcome: handoffOutcome, chatMarks: marks ? new ChatMarks() : null) { Picker = picker };
             View = new ChatTabView { DataContext = Chat };
             Window = new Window { Content = View, Width = 800, Height = 600 };
             if (!show) return;
@@ -2212,6 +2215,36 @@ public class ChatTabViewSmokeTests {
             await host.Terminal.PendingDeliveryForTesting!;
             await Assert.That(client.SentInput.Select(Encoding.UTF8.GetString))
                 .IsEquivalentTo(["\e[200~hi\e[201~", "\r"], CollectionOrdering.Matching);
+            await host.CloseAsync();
+        });
+    }
+
+    /// Enter on an open command picker inserts the highlighted command and sends nothing: the view's own send
+    /// handler on the composer must not see the key first, or the half-typed query goes out and the agent's
+    /// own completion runs a command the queued row never matches.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Enter_on_an_open_command_picker_inserts_the_command_instead_of_sending_the_query() {
+        await RunOnUiAsync(async () => {
+            var picker = new ComposerPicker(
+                Observable.Return<ComposerContext?>(new("/repo", HarnessId.Claude)),
+                new CommandCompletion(_ => Task.FromResult<IReadOnlyList<HostedAgentCommand>>([new("simplify", null, null), new("insights", null, null)]), _ => '/'),
+                new MentionCompletion(_ => Task.FromResult<IReadOnlyList<string>>([]), (_, _) => Task.FromResult<IReadOnlyList<string>>([])));
+            var host = new Host(picker: picker);
+            var client = await host.AttachAsync(Tmp.CreateFile("pick.jsonl", UserLine));
+            host.Type("/si");
+            host.Settle();
+            await Assert.That(picker.Rows.Count).IsEqualTo(2);
+
+            host.PressEnter(RawInputModifiers.None);
+            host.Settle();
+
+            await Assert.That(host.Composer.Text).IsEqualTo("/simplify ");
+            await Assert.That(client.SentInput).IsEmpty();
+
+            host.PressEnter(RawInputModifiers.None);
+            await WaitUntilAsync(() => client.SentInput.Count == 1, what: "paste written");
+            await Assert.That(client.SentInput[0]).IsEquivalentTo(TerminalInputEncoder.Paste("/simplify "));
             await host.CloseAsync();
         });
     }

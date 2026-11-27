@@ -23,11 +23,12 @@ public partial class ComposerPickerPopup : UserControl {
         _flyout.FlyoutPresenterClasses.Add("kcapPanel");
     }
 
-    /// Call before the host adds its own KeyDown handlers: handlers run in the order they were added, and the
-    /// picker must take Enter before the host sends with it.
-    public static void Attach(TextBox input, Func<ComposerPicker?> picker) {
+    /// The picker takes keys on <paramref name="card"/>, an ancestor of <paramref name="input"/>: a tunnelling key
+    /// reaches the card before the input, so the picker takes Enter before a host handler on the input sends
+    /// the query unpicked. Handlers on one element give no such promise; Avalonia tunnels them last-added first.
+    public static void Attach(Control card, TextBox input, Func<ComposerPicker?> picker) {
         var popup = new ComposerPickerPopup { _input = input, _picker = picker };
-        input.AddHandler(KeyDownEvent, (_, e) => e.Handled |= popup.HandleKey(e), RoutingStrategies.Tunnel);
+        card.AddHandler(KeyDownEvent, (_, e) => e.Handled |= e.Source == input && popup.HandleKey(e), RoutingStrategies.Tunnel);
         // Posted: the caret moves after TextChanged, and the query is the text before it.
         input.TextChanged += (_, _) => Dispatcher.UIThread.Post(popup.Update);
         input.PropertyChanged += (_, e) => {
