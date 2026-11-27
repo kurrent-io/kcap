@@ -40,7 +40,7 @@ public record AuthDiscoveryResponse {
     [JsonPropertyName("machine_token_url")]
     public string? MachineTokenUrl { get; init; }
 
-    /// <summary>GitHub App only: the auth proxy this server signs in through. Absent from an older server.</summary>
+    /// <summary>The auth proxy this server works through. Absent from an older server, and null when it names none.</summary>
     [JsonPropertyName("auth_proxy_url")]
     public string? AuthProxyUrl { get; init; }
 }

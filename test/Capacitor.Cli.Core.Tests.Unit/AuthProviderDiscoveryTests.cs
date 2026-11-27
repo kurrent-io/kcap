@@ -50,6 +50,28 @@ public class AuthProviderDiscoveryTests : IDisposable {
             .Because("a memo shared across base URLs hands the first server's provider to the second");
     }
 
+    /// <summary>The proxy a server names is the one `kcap machine create` sends the operator's token to;
+    /// absent from an older server, it is no answer, and a redirected answer is not believed.</summary>
+    [Test]
+    [Arguments("named", "https://proxy.example")]
+    [Arguments("absent", null)]
+    [Arguments("redirected", null)]
+    public async Task The_server_names_its_auth_proxy_only_in_an_unredirected_answer(string answer, string? expected) {
+        var body = answer == "absent" ? """{"provider":"WorkOS"}""" : """{"provider":"WorkOS","auth_proxy_url":"https://proxy.example"}""";
+
+        if (answer == "redirected") {
+            _a.Given(Request.Create().WithPath("/auth/config").UsingGet())
+                .RespondWith(Response.Create().WithStatusCode(302).WithHeader("Location", $"{_b.Urls[0]}/auth/config"));
+            _b.Given(Request.Create().WithPath("/auth/config").UsingGet())
+                .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody(body));
+        } else {
+            _a.Given(Request.Create().WithPath("/auth/config").UsingGet())
+                .RespondWith(Response.Create().WithStatusCode(200).WithHeader("Content-Type", "application/json").WithBody(body));
+        }
+
+        await Assert.That(await _discovery.AuthProxyUrlAsync(_a.Urls[0], Config.Root)).IsEqualTo(expected);
+    }
+
     /// <summary>The memo must still spare a repeat call its round trip.</summary>
     [Test]
     public async Task A_repeat_discovery_against_one_server_does_not_probe_twice() {

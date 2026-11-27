@@ -45,4 +45,14 @@ public class AuthEndpointsTests {
         await Assert.That(endpoints.ProxyUrl).IsEqualTo("https://local-proxy.test");
         await Assert.That(endpoints.SignupUrl).IsEqualTo(AuthEndpoints.DefaultSignupUrl);
     }
+
+    /// <summary>A call made for one server takes the override, then the proxy that server names, then
+    /// Kurrent's.</summary>
+    [Test]
+    [Arguments(null, null, AuthEndpoints.DefaultProxyUrl)]
+    [Arguments(null, "  ", AuthEndpoints.DefaultProxyUrl)]
+    [Arguments(null, "https://proxy.example/", "https://proxy.example")]
+    [Arguments("http://127.0.0.1:9", "https://proxy.example", "http://127.0.0.1:9")]
+    public async Task A_server_scoped_call_prefers_the_override_then_the_server(string? overridden, string? server, string expected) =>
+        await Assert.That(new AuthEndpoints(overridden, null).ProxyUrlFor(server)).IsEqualTo(expected);
 }
