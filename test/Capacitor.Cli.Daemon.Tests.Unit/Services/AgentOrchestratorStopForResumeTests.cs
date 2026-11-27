@@ -219,8 +219,111 @@ public class AgentOrchestratorStopForResumeTests {
 
         await orch.PrepareForResumeAsync(agent, CancellationToken.None);
 
-        await Assert.That(Ledger().TryRead("ended-1")!.State).IsEqualTo(ResumeState.Running);
+        var kept = Ledger().TryRead("ended-1")!;
+        await Assert.That(kept.State).IsEqualTo(ResumeState.Interrupted);
+        await Assert.That(kept.LastError).IsEqualTo(AgentOrchestrator.EndCommittedInterruption);
         await Assert.That(agent.ResumePending).IsFalse();
+        await Assert.That(agent.KeptInterrupted).IsTrue();
+        await orch.DisposeAsync();
+    }
+
+    /// <summary>An operator's resume of a kept interruption needs what an automatic one does: the terminal ring, a
+    /// graceful exit for the vendor to save its session, and whether the agent was waiting when it stopped. A resume
+    /// still pending readiness when the end was committed is no longer one.</summary>
+    [Test]
+    public async Task A_kept_interruption_keeps_the_ring_and_waiting_state_and_drops_a_pending_resume() {
+        var runtime = new FakeHostedAgentRuntime("cursor", emitsTerminalOutput: true);
+        var orch    = Build(new CaptureServerConnection());
+        var agent   = Seed(orch, "ended-3", runtime: runtime);
+        agent.OutputBuffer.Append("scrollback"u8.ToArray());
+        var snapshot = agent.OutputBuffer.Snapshot();
+        agent.ResumePending = true;
+        var entry = Ledger().TryRead("ended-3")!;
+        Ledger().Write(entry with { EndCommittedAt = TimeProvider.System.GetUtcNow(), EndCommittedSession = entry.SessionId, AwaitingInput = false });
+        agent.ActivityClock.SetAwaitingInput(true);
+
+        await orch.PrepareForResumeAsync(agent, CancellationToken.None);
+
+        var kept = Ledger().TryRead("ended-3")!;
+        await Assert.That(kept.State).IsEqualTo(ResumeState.Interrupted);
+        await Assert.That(kept.AwaitingInput).IsTrue();
+        await Assert.That(File.ReadAllBytes(Ledger().RingPath("ended-3"))).IsEquivalentTo(snapshot);
+        await Assert.That(runtime.StopCalls).Contains("graceful");
+        await Assert.That(agent.ResumePending).IsFalse();
+        await Assert.That(agent.KeptInterrupted).IsTrue();
+        await orch.DisposeAsync();
+    }
+
+    /// <summary>A live agent the restart cannot resume on its own still keeps what an operator's resume needs: its
+    /// worktree, entry and PID record stay, and the shutdown reports it ended.</summary>
+    [Test]
+    public async Task KeepAgents_keeps_the_worktree_and_entry_of_an_agent_with_a_committed_end() {
+        using var tmp      = new TempDir();
+        var       worktree = tmp.CreateDir("worktree");
+        var       server   = new CaptureServerConnection();
+        var       orch     = Build(server);
+        // Standalone, so an ordinary teardown would delete the directory.
+        var agent = new AgentInstance(
+            "ended-2", "goal", "default", null, worktree, "cursor",
+            new FakeHostedAgentRuntime("cursor", emitsTerminalOutput: true),
+            new WorktreeInfo(worktree, "", worktree, IsStandalone: true), new CancellationTokenSource()) {
+            CreatedAt     = TimeProvider.System.GetUtcNow().UtcDateTime,
+            LastOutputAt  = TimeProvider.System.GetUtcNow().UtcDateTime,
+            Status        = "Running",
+            ActivityClock = new AgentActivityClock(TimeProvider.System),
+        };
+        orch.RegisterAgentForTest(agent);
+        orch.WriteLedger(agent, cmd: null, origin: "server", consent: null);
+        var entry = Ledger().TryRead("ended-2")!;
+        Ledger().Write(entry with { EndCommittedAt = TimeProvider.System.GetUtcNow(), EndCommittedSession = entry.SessionId });
+        orch.WritePidRecordForTest(new AgentPidRecord(
+            "ended-2", 999_999, "identity", PidIdentityKind.Present, "Default", "cursor", null, null,
+            orch.DaemonIdForTest, orch.DaemonEpochForTest, TimeProvider.System.GetUtcNow()));
+
+        await orch.DisposeAsync();
+
+        await Assert.That(Directory.Exists(worktree)).IsTrue();
+        await Assert.That(Ledger().TryRead("ended-2")!.State).IsEqualTo(ResumeState.Interrupted);
+        await Assert.That(new AgentPidRecordStore(Store.Store.StateDirectory("test"), NullLogger.Instance).Exists("ended-2")).IsTrue();
+        await Assert.That(server.ShutdownReports).IsNotEmpty();
+    }
+
+    /// <summary>A turn after a soft end means the session ran on, even when the write that would clear the end is still
+    /// queued when the shutdown takes the entry: the shutdown marks it resuming and drops the end.</summary>
+    [Test]
+    public async Task A_soft_end_the_session_outlived_does_not_block_the_resume() {
+        var orch  = Build(new CaptureServerConnection());
+        var agent = Seed(orch, "outlived-1");
+        var entry = Ledger().TryRead("outlived-1")!;
+        Ledger().Write(entry with {
+            EndCommittedAt = TimeProvider.System.GetUtcNow().AddMinutes(-1), EndCommittedSession = entry.SessionId, EndCommittedSoft = true
+        });
+        Interlocked.Add(ref agent.UnpersistedWaitEdges, 1_000);
+        agent.ActivityClock.SetAwaitingInput(false);
+
+        await orch.PrepareForResumeAsync(agent, CancellationToken.None);
+
+        var resuming = Ledger().TryRead("outlived-1")!;
+        await Assert.That(resuming.State).IsEqualTo(ResumeState.Resuming);
+        await Assert.That(resuming.EndCommittedAt).IsNull();
+        await Assert.That(resuming.EndCommittedSoft).IsNull();
+        await orch.DisposeAsync();
+    }
+
+    /// <summary>A stamp that names no session stands for ends the fence could not tell apart: it fences whichever session
+    /// discovery settled on.</summary>
+    [Test]
+    public async Task An_end_naming_no_session_keeps_the_agent_from_being_marked_resuming() {
+        var orch  = Build(new CaptureServerConnection());
+        var agent = Seed(orch, "ambiguous-1");
+        agent.SessionId = "session-b";
+        orch.UpdateLedgerSession(agent);
+        var entry = Ledger().TryRead("ambiguous-1")!;
+        Ledger().Write(entry with { EndCommittedAt = TimeProvider.System.GetUtcNow(), EndCommittedSession = null });
+
+        await orch.PrepareForResumeAsync(agent, CancellationToken.None);
+
+        await Assert.That(Ledger().TryRead("ambiguous-1")!.State).IsEqualTo(ResumeState.Interrupted);
         await orch.DisposeAsync();
     }
 

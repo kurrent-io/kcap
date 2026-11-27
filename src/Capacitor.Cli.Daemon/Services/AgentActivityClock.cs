@@ -46,7 +46,18 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
     // When the flag last went from true to false. Unlike _notAwaitingSince, a repeated "not
     // waiting" verdict mid-turn (every pre-tool-use hook) must not move it.
     long    _workingSince = time.GetTimestamp();
+    // UTC ticks of the latest real turn evidence: a runtime's turn start or a hook's prompt submit or tool call. A key
+    // that clears the wait or output after a silence wait is not one. Zero before the first.
+    long    _lastTurnStartedUtcTicks;
     string? _launchStage;
+
+    /// <summary>UTC ticks of the latest turn start the runtime or a hook attested, on the wall clock a session end is
+    /// stamped with, so a soft end can be compared with it. Zero before the first.</summary>
+    public long LastTurnStartedUtcTicks {
+        get {
+            lock (_gate) return _lastTurnStartedUtcTicks;
+        }
+    }
 
     /// <summary>Starts at 1 on spawn — a freshly-launched agent is never "already idle"; the
     /// daemon's own first report always shows real activity, never a zero-evidence agent.</summary>
@@ -293,7 +304,10 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
             _silenceWait = false;
             awaitingChanged = awaiting != _awaitingInput;
             if (ended) _waitGeneration++;
-            if (value) _turnAttestations++;
+            if (value) {
+                _turnAttestations++;
+                _lastTurnStartedUtcTicks = time.GetUtcNow().UtcTicks;
+            }
             if (!awaiting) _notAwaitingSince = time.GetTimestamp();
             if (_awaitingInput && !awaiting) _workingSince = _notAwaitingSince;
             _awaitingInput = awaiting;
@@ -310,21 +324,26 @@ internal sealed class AgentActivityClock(TimeProvider time, ulong initialSeq = 1
 
     /// <summary>A PTY vendor's relayed hook verdict: Stop is true, a prompt submit or tool call
     /// false. Moves the wait and <see cref="TurnAttested"/> alone — see <see cref="AwaitingInput"/>.</summary>
-    public void SetAwaitingInput(bool value) {
+    /// <param name="attestsTurn">False for a child's verdict: it moves the wait and nothing else. No turn of the agent's own
+    /// began, so it is no turn attestation, no proof a prompt reached the agent, and no turn start.</param>
+    public void SetAwaitingInput(bool value, bool attestsTurn = true) {
         bool changed, attestedChanged;
         lock (_gate) {
             // A hook verdict replaces a silence wait, so later output cannot clear a real stop.
             _silenceWait = false;
             changed = _awaitingInput != value;
-            attestedChanged = !_turnInFlight && _hookTurn == value;
+            attestedChanged = attestsTurn && !_turnInFlight && _hookTurn == value;
             if (value) _waitGeneration++;
             else {
-                _turnAttestations++;
+                if (attestsTurn) {
+                    _turnAttestations++;
+                    _lastTurnStartedUtcTicks = time.GetUtcNow().UtcTicks;
+                }
                 _notAwaitingSince = time.GetTimestamp();
                 if (changed) _workingSince = _notAwaitingSince;
             }
             _awaitingInput = value;
-            _hookTurn = !value;
+            if (attestsTurn) _hookTurn = !value;
         }
         if (changed) OnAwaitingInputChanged?.Invoke(value);
         if (attestedChanged) OnTurnAttestedChanged?.Invoke();

@@ -630,7 +630,7 @@ class WatchCommand(
             var claimant = LiveClaimant(sessionId);
             var hosted   = HostedAgent.FromEnvironment();
 
-            switch (SessionEnd.DecideSessionEnd(SessionRunsOnElsewhere(vendor, agentId, claimant), hosted, h => SessionEndFence.ShouldHold(h, sessionId))) {
+            switch (SessionEnd.DecideSessionEnd(SessionRunsOnElsewhere(vendor, agentId, claimant), hosted, h => SessionEndFence.ShouldHold(h, sessionId, soft: SessionEnd.IsSoftEnd(endReason)))) {
                 case SessionEndAction.RunsOnElsewhere:
                     Log(time, $"Not posting a {endReason} session-end: the session runs on in pid {claimant}");
                     await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, claimant);
