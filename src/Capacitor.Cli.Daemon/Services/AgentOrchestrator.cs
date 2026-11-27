@@ -6902,9 +6902,14 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // Before the project link goes. Finalization has done this already on every path but a failed launch's.
         if (_recorder is { } recorder) await recorder.FinishAgentAsync(agentId, RecordingDrainBudget);
 
+        // One decision for every step below, read under the ledger lock: a shutdown's mark that took the lock before the
+        // latch has set its flag by now, and one that takes it after sees the latch and keeps nothing.
+        bool keepsResumeState;
+        lock (_ledgerLock) keepsResumeState = agent.KeepsResumeState;
+
         // The launcher's teardown deletes the MCP config and the vendor's project link, which a
         // pending resume still needs.
-        if (!agent.KeepsResumeState && _launchers.TryGetValue(agent.Vendor, out var launcher)) {
+        if (!keepsResumeState && _launchers.TryGetValue(agent.Vendor, out var launcher)) {
             try { launcher.Cleanup(agent); } catch (Exception ex) { LogCleanupStepFailed(ex, "launcher.Cleanup", agentId); }
         }
 
@@ -6914,11 +6919,11 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // A pending resume keeps everything the successor daemon resumes from.
         bool? worktreeRemoved = null;
 
-        if (agent is { Work: WorkLocation.OwnedWorktree, KeepsResumeState: false }) {
+        if (!keepsResumeState && agent.Work == WorkLocation.OwnedWorktree) {
             try { worktreeRemoved = await RemoveOwnedWorktreeAsync(agent.Worktree, agentId); } catch (Exception ex) { LogCleanupStepFailed(ex, "removing worktree", agentId); }
         }
 
-        if (!agent.KeepsResumeState) {
+        if (!keepsResumeState) {
             try { _attachmentStore.Remove(agentId); } catch (Exception ex) { LogCleanupStepFailed(ex, "removing attachments", agentId); }
         }
 
@@ -6936,7 +6941,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
         // still matches (true) OR is uncomparable (null — unreadable/foreign token). Delete only on a
         // proven-gone pid: dead, a conclusive recycle (MatchesTri == false), or an agent that was never
         // identified. Collapsing the uncomparable case to "gone" would drop a live child's record.
-        if (agent.KeepsResumeState) {
+        if (keepsResumeState) {
             // The record stays for the successor daemon.
         } else if (agent.StartIdentity is { } startIdentity
             && ProcessIdentity.IsAlive(pid)
@@ -6949,7 +6954,7 @@ internal partial class AgentOrchestrator : IAsyncDisposable {
             DeletePidRecord(agentId); // confirmed dead / conclusively recycled pid / never-identified
         }
 
-        if (!agent.KeepsResumeState) DeleteLedger(agentId);
+        if (!keepsResumeState) DeleteLedger(agentId);
 
         // Now drop the agent from the live registry — after a surviving child is already in quarantine,
         // so a concurrent launch never sees EffectiveCount transiently under-count this agent.
