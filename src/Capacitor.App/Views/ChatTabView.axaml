@@ -222,10 +222,9 @@
             <Setter Property="FontFamily" Value="{StaticResource KcapFontFamilyMono}" />
             <Setter Property="TextTrimming" Value="{x:Static views:ChatTrimming.MiddleEllipsis}" />
         </Style>
-        <!-- A card's body is inset from its header on both sides, so a row's status pill reads as
-             part of the body rather than as a second column of card chrome under the chevron. The
-             left edge hangs off the header's label, never its icon: 14px icon box plus the 8px gap
-             ChatKindHeader puts after it. -->
+        <!-- A card's body is inset from its header on both sides. The left edge hangs off the
+             header's label, never its icon: 14px icon box plus the 8px gap ChatKindHeader puts
+             after it. A tool row reaches back across the right one (see Button.toolRow). -->
         <Style Selector="Border.toolGroup > StackPanel > ItemsControl,
                          Border.systemNote > StackPanel > views|MarkdownView,
                          Border.shellOutput > StackPanel > SelectableTextBlock">
@@ -282,7 +281,11 @@
         <!-- A tool row is the toggle for what its call recorded, so it keeps the row's own height
              rather than a summary header's. -->
         <Style Selector="Button.toolSummary.toolRow">
-            <Setter Property="Padding" Value="8,1" />
+            <!-- Keeps the body's left inset, so the row stays nested and its status dot sits under the
+                 header's label. It reaches 22px past the right inset, so its chevron sits under the
+                 header's. The 5px of padding is the header's own, so their hover fills line up. -->
+            <Setter Property="Padding" Value="5,1" />
+            <Setter Property="Margin" Value="-5,0,-27,0" />
             <Setter Property="MinHeight" Value="20" />
         </Style>
         <Style Selector="Border.toolInspection">
@@ -595,14 +598,35 @@
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" MinWidth="0" />
                                         <ColumnDefinition Width="Auto" />
-                                        <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="ToolRowLabel" Grid.Column="0" Classes="toolLine" Text="{Binding Label}"
+                                    <!-- The status leads the row, so a column of them reads top to bottom. 14px matches
+                                         the header's icon box. -->
+                                    <Panel Grid.Column="0" Width="14" Margin="0,0,8,0">
+                                        <Border x:Name="ToolStatusPill" Classes="toolStatus" Width="8" Height="8"
+                                                CornerRadius="4" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                IsVisible="{Binding IsSettled}"
+                                                Background="{Binding IsError, Converter={x:Static views:ToolOutcomeBrushConverter.Instance}}" />
+                                        <Border Classes="toolRunning toolStatus" Width="8" Height="8"
+                                                CornerRadius="4" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                IsVisible="{Binding IsRunning}" views:PulseClock.IsActive="{Binding IsRunning}"
+                                                Background="{StaticResource KcapActivityBrush}"
+                                                ToolTip.Tip="Running" AutomationProperties.Name="Running" AutomationProperties.AccessibilityView="Content" />
+                                        <!-- A hollow ring: with work in progress in neutral ink, it differs from the running dot by shape. -->
+                                        <Border x:Name="ToolUnknownStatusPill" Classes="toolStatus" Width="8" Height="8"
+                                                CornerRadius="4" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                IsVisible="{Binding IsOutcomeUnknown}" BorderBrush="{StaticResource KcapMutedBrush}" BorderThickness="1.5"
+                                                ToolTip.Tip="Outcome unknown" AutomationProperties.Name="Outcome unknown" AutomationProperties.AccessibilityView="Content" />
+                                        <views:AppIcon Kind="CircleQuestionMark" Size="14" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       IsVisible="{Binding IsAwaitingPermission}"
+                                                       Foreground="{Binding IsError, Converter={x:Static views:ToolOutcomeBrushConverter.Instance}}" />
+                                    </Panel>
+                                    <TextBlock x:Name="ToolRowLabel" Grid.Column="1" Classes="toolLine" Text="{Binding Label}"
                                                Foreground="{StaticResource KcapTextBrush}" Margin="0,0,8,0"
                                                IsVisible="{Binding HasLabel}" />
-                                    <TextBlock x:Name="ToolRowDetail" Grid.Column="1" Classes="toolLine"
+                                    <TextBlock x:Name="ToolRowDetail" Grid.Column="2" Classes="toolLine"
                                                Classes.prose="{Binding DetailIsProse}"
                                                Classes.path="{Binding DetailIsPath}"
                                                Classes.labelled="{Binding HasLabel}"
@@ -613,7 +637,7 @@
                                                IsVisible="{Binding HasDetail}" />
                                     <!-- A bare name is fallback chrome only; a label already names the call, so the raw
                                          identifier never shows beside one. -->
-                                    <TextBlock Grid.Column="1" Classes="toolLine" Text="{Binding Name}"
+                                    <TextBlock Grid.Column="2" Classes="toolLine" Text="{Binding Name}"
                                                Foreground="{StaticResource KcapMutedBrush}">
                                         <TextBlock.IsVisible>
                                             <MultiBinding Converter="{x:Static BoolConverters.And}">
@@ -622,26 +646,7 @@
                                             </MultiBinding>
                                         </TextBlock.IsVisible>
                                     </TextBlock>
-                                    <Panel Grid.Column="2">
-                                        <Border x:Name="ToolStatusPill" Classes="toolStatus" Width="8" Height="8"
-                                                CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
-                                                IsVisible="{Binding IsSettled}"
-                                                Background="{Binding IsError, Converter={x:Static views:ToolOutcomeBrushConverter.Instance}}" />
-                                        <Border Classes="toolRunning toolStatus" Width="8" Height="8"
-                                                CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
-                                                IsVisible="{Binding IsRunning}" views:PulseClock.IsActive="{Binding IsRunning}"
-                                                Background="{StaticResource KcapActivityBrush}"
-                                                ToolTip.Tip="Running" AutomationProperties.Name="Running" AutomationProperties.AccessibilityView="Content" />
-                                        <!-- A hollow ring: with work in progress in neutral ink, it differs from the running dot by shape. -->
-                                        <Border x:Name="ToolUnknownStatusPill" Classes="toolStatus" Width="8" Height="8"
-                                                CornerRadius="4" Margin="16,0,0,0" VerticalAlignment="Center"
-                                                IsVisible="{Binding IsOutcomeUnknown}" BorderBrush="{StaticResource KcapMutedBrush}" BorderThickness="1.5"
-                                                ToolTip.Tip="Outcome unknown" AutomationProperties.Name="Outcome unknown" AutomationProperties.AccessibilityView="Content" />
-                                        <views:AppIcon Kind="CircleQuestionMark" Size="14" Margin="16,0,0,0" VerticalAlignment="Center"
-                                                       IsVisible="{Binding IsAwaitingPermission}"
-                                                       Foreground="{Binding IsError, Converter={x:Static views:ToolOutcomeBrushConverter.Instance}}" />
-                                    </Panel>
-                                    <Panel Grid.Column="3" Width="12" Height="12" Margin="8,0,0,0" VerticalAlignment="Center">
+                                    <Panel Grid.Column="3" Width="12" Height="12" Margin="16,0,0,0" VerticalAlignment="Center">
                                         <views:AppIcon Kind="ChevronDown" Size="12" IsVisible="{Binding IsExpanded}"
                                                        Foreground="{StaticResource KcapMutedBrush}" />
                                         <views:AppIcon Kind="ChevronRight" Size="12" IsVisible="{Binding !IsExpanded}"
