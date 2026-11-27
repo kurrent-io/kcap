@@ -1094,13 +1094,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 initialValue: !IsReadOnlyParticipant && _input.Availability != SendAvailability.Ended && Handoff is null)
             .DisposeWith(_disposables);
 
-        _controlNote = Observable.CombineLatest(
-                _input.WhenAnyValue(i => i.ControlNote),
-                _input.WhenAnyValue(i => i.WorkingControlNote),
-                this.WhenAnyValue(x => x.AgentStatus, x => x.IsReadOnlyParticipant, x => x.HasTerminalMenu, x => x.ShowsInterrupt,
-                    (status, readOnly, menu, shows) => !shows && !readOnly && !menu
-                        && (status.Kind == AgentStatusKind.Working || status.IsRunningUnknownTurn)),
-                (note, workingNote, working) => note ?? (working ? workingNote : null))
+        _controlNote = _input.WhenAnyValue(i => i.ControlNote)
             .ToProperty(this, x => x.ControlNote, initialValue: _input.ControlNote)
             .DisposeWith(_disposables);
 
