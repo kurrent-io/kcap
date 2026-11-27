@@ -26,6 +26,8 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
     internal const string MissingNote = "The transcript is not available";
     /// The chat's read-only line for a live session no daemon hosts.
     public const string TerminalNote = "Running in a terminal · read-only here: answer it where it runs";
+    /// The chat's read-only line for a flow participant parked between rounds.
+    public const string ParkedNote = "Parked between review rounds · the flow resumes it for the next round";
     /// The chat's read-only line for a session the server lists as ended.
     public const string EndedNote = "This session has ended";
 
@@ -710,11 +712,12 @@ public sealed class RemoteSessionViewModel : ReactiveObject, ISessionWorkspace {
         && daemons.FirstOrDefault(d => d.Name == name && d.OwnerUserId == owner) is { } daemon
         && LaunchAttachments.IsCapable(daemon.Version);
 
-    /// A session-only row's chat is never messageable: the notice says why, ended or in a terminal,
-    /// unless the ended session's hand-off composer stands in its place.
+    /// A session-only row's chat is never messageable: the notice says why, ended, parked or in a
+    /// terminal, unless the ended session's hand-off composer stands in its place.
     ChatSessionInfo SessionInfo(AgentRow row, bool ended) =>
         ChatSessionInfo.FromRemote(row, ended,
-            row.Origin != AgentOrigin.Server ? "" : ended ? _handoff is null ? EndedNote : "" : TerminalNote);
+            row.Origin != AgentOrigin.Server ? "" : ended ? _handoff is null ? EndedNote : ""
+            : row.Status == AgentRow.ParkedStatus ? ParkedNote : TerminalNote);
 
     /// An ended session-only row offers a hand-off for as long as it stays ended.
     void SyncHandoff() {

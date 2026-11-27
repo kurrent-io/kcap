@@ -28,5 +28,8 @@ public sealed record RepoSessionDto {
     /// Where the session was recorded. Listed to the owner only; null from an older server, and for a
     /// session recorded before its CLI reported it.
     [JsonPropertyName("recording")]         public RepoSessionRecordingDto? Recording { get; init; }
+    /// A live flow participant parked between rounds: no agent runs it until the flow resumes it. An older
+    /// server does not send it.
+    [JsonPropertyName("parked")]            public bool Parked { get; init; }
     [JsonPropertyName("repo")]              public RepoSessionRepositoryDto? Repo { get; init; }
 }

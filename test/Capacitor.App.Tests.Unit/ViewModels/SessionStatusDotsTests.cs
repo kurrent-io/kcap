@@ -102,6 +102,23 @@ public class SessionStatusDotsTests {
         await Assert.That(status.ShowsClock).IsTrue();
     }
 
+    /// A parked reviewer waits on its flow rather than on the user, so it settles instead of asking for attention,
+    /// and the server's idle flag, normal for a reviewer between rounds, never turns it Stale.
+    [Test]
+    public async Task A_parked_row_reads_parked_and_settled_rather_than_stale() {
+        var status = SessionStatusDots.Present(AgentRow.ParkedStatus, awaitingInput: null, waitsOnUser: false,
+            liveSubagents: null, pending: false, usageLimitSummary: null, launchStage: null, elapsed: null, stale: true);
+
+        await Assert.That(status.Kind).IsEqualTo(AgentStatusKind.Parked);
+        await Assert.That(status.Label).IsEqualTo("Parked");
+        await Assert.That(status.AccessibleName).IsEqualTo("Parked between review rounds");
+        await Assert.That(status.Tip).Contains(SessionStatusDots.ParkedNextStep);
+        await Assert.That(status.IsWarning).IsFalse();
+        await Assert.That(status.IsInFlight).IsFalse();
+        await Assert.That(status.ShowsClock).IsFalse();
+        await Assert.That(status.ShowsSettledMark).IsTrue();
+    }
+
     /// Only the bare "Running" gives way: what the daemon reported about the agent still stands.
     [Test]
     [Arguments("Running", false, AgentStatusKind.Working)]

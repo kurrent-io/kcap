@@ -134,6 +134,25 @@ public class AgentRowTests {
         await Assert.That(hosted.IsTerminalSession).IsFalse();
     }
 
+    /// Nothing runs a parked participant between rounds, which can take hours, so no daemon row stands for it.
+    [Test]
+    public async Task Parked_server_row_is_parked_rather_than_a_stale_terminal_session() {
+        var row = AgentRow.FromServer(Listed(status: "active", stale: true) with { Parked = true }, hostedPresentation: false);
+
+        await Assert.That(row.Status).IsEqualTo(AgentRow.ParkedStatus);
+        await Assert.That(row.IsTerminalSession).IsFalse();
+        await Assert.That(row.IsStale).IsFalse();
+        await Assert.That(row.IsEndedSession).IsFalse();
+    }
+
+    [Test]
+    public async Task Ended_server_row_stays_ended_whatever_the_parked_flag_says() {
+        var row = AgentRow.FromServer(Listed(status: "ended") with { Parked = true }, hostedPresentation: false);
+
+        await Assert.That(row.Status).IsEqualTo("Completed");
+        await Assert.That(row.IsEndedSession).IsTrue();
+    }
+
     [Test]
     public async Task Remote_row_carries_the_registry_owner() {
         var row = AgentRow.FromRemote(new AgentInstanceDto {

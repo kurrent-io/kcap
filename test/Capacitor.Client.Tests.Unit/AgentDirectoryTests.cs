@@ -1180,6 +1180,27 @@ public class AgentDirectoryTests {
         await Assert.That(dir.Rows.Lookup("server:S").Value.IsTerminalSession).IsTrue();
     }
 
+    /// A reviewer the daemon parks between rounds leaves its registry, so past the grace only the listing stands
+    /// for it, and that listing says it is parked.
+    [Test]
+    public async Task A_parked_participant_past_the_grace_reads_parked_rather_than_a_terminal_session() {
+        var (local, _, sessions, time, dir) = BuildWithSessions();
+        using var _d = dir;
+        using var _s = sessions;
+        LocalConnected(local);
+        local.Agents.AddOrUpdate(LocalAgent("a1", sessionId: "S"));
+        var parked = Listed("S", "active") with { Parked = true };
+        sessions.LiveCache.AddOrUpdate(parked);
+        sessions.MineLiveCache.AddOrUpdate(parked);
+
+        local.Agents.RemoveKey("a1");
+        time.Advance(AgentDirectory.HandoverGrace + TimeSpan.FromSeconds(1));
+
+        var row = dir.Rows.Lookup("server:S").Value;
+        await Assert.That(row.IsTerminalSession).IsFalse();
+        await Assert.That(row.Status).IsEqualTo(AgentRow.ParkedStatus);
+    }
+
     /// A registry row names no worktree; the listing's cwd fills that in, while the repository the
     /// daemon reported still stands.
     [Test]
