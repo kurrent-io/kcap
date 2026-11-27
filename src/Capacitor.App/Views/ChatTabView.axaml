@@ -224,13 +224,18 @@
         </Style>
         <!-- A card's body is inset from its header on both sides. The left edge hangs off the
              header's label, never its icon: 14px icon box plus the 8px gap ChatKindHeader puts
-             after it. A tool row reaches back across the right one (see Button.toolRow). -->
+             after it. -->
         <Style Selector="Border.toolGroup > StackPanel > ItemsControl,
                          Border.systemNote > StackPanel > views|MarkdownView,
                          Border.shellOutput > StackPanel > SelectableTextBlock">
             <Setter Property="Margin" Value="22,0,22,0" />
             <Setter Property="HorizontalAlignment" Value="Stretch" />
             <Setter Property="ClipToBounds" Value="False" />
+        </Style>
+        <!-- Tool rows run to the card's right edge instead, so a row's chevron sits under the
+             header's and what the row opens ends where its chevron does. Must stay after the rule above. -->
+        <Style Selector="Border.toolGroup > StackPanel > ItemsControl">
+            <Setter Property="Margin" Value="22,0,0,0" />
         </Style>
         <Style Selector="SelectableTextBlock.toolLine,
                          TextBlock.toolLine">
@@ -281,11 +286,9 @@
         <!-- A tool row is the toggle for what its call recorded, so it keeps the row's own height
              rather than a summary header's. -->
         <Style Selector="Button.toolSummary.toolRow">
-            <!-- Keeps the body's left inset, so the row stays nested and its status dot sits under the
-                 header's label. It reaches 22px past the right inset, so its chevron sits under the
-                 header's. The 5px of padding is the header's own, so their hover fills line up. -->
+            <!-- The 5px of padding is the header's own, so their hover fills line up. -->
             <Setter Property="Padding" Value="5,1" />
-            <Setter Property="Margin" Value="-5,0,-27,0" />
+            <Setter Property="Margin" Value="-5,0" />
             <Setter Property="MinHeight" Value="20" />
         </Style>
         <Style Selector="Border.toolInspection">
