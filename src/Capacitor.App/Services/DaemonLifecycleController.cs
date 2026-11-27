@@ -138,7 +138,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     readonly BehaviorSubject<string?> _staleMarkerOffer = new(null);
     readonly BehaviorSubject<string?> _outsideServiceOffer = new(null);
     string? _outsideServiceShown; // under _markerLock: the exact line Attention received, so Withdraw can match it
-    string? _outsideServiceFound; // under _markerLock: the line the latest reconcile found, shown once no marker line stands
+    string? _outsideServiceFound; // under _markerLock: the line the newest read found, shown once no marker line stands
     // Serializes the marker offer and its withdrawal, which status reads inside and outside _gate both drive.
     readonly Lock _markerLock = new();
     long _markerSeq;           // under _markerLock: start stamp of the newest read that spoke about the marker
@@ -916,8 +916,8 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     /// The stale-marker offer follows every status read, passive ones included, since a later attach
     /// only reads passively. Reads overlap, so the one that started last decides; a marker an operation
     /// still holds is left as it stands.
-    /// The outside-service line follows the same reads, so a later attach, which only reads passively, still
-    /// finds or clears it.
+    /// The outside-service line follows the same reads in the same order, so a later attach, which only reads
+    /// passively, still finds or clears it, and an older read finishing late never brings it back.
     void NoteMarker(ServiceSnapshot snap, long readStart) {
         var attached = IsCurrentlyAttached();
         lock (_markerLock) {
@@ -957,15 +957,6 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     /// <summary>Whether a replace ends a daemon started outside the service: launchd's and Windows' engines
     /// do, the Linux one leaves it holding the name, so the install it starts could only time out</summary>
     internal Func<bool> ReplacesOutsideDaemon { get; init; } = () => !OperatingSystem.IsLinux();
-
-    /// Found while attached to such a daemon, cleared once a read no longer finds one. Every caller holds
-    /// the gate, so reads arrive here in order.
-    void NoteOutsideService(ServiceSnapshot snap, bool attached) {
-        lock (_markerLock) {
-            _outsideServiceFound = OutsideServiceLine(snap, attached);
-            PublishOutsideService();
-        }
-    }
 
     static string? OutsideServiceLine(ServiceSnapshot snap, bool attached) =>
         attached && RunsOutsideStoppedService(snap) ? OutsideServiceMessage(snap.DaemonPid!.Value) : null;
@@ -1086,8 +1077,6 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
 
         if (snap.TxnActive && allowTxnActiveRequery)
             _ = RunTxnActiveRequeryAsync();
-
-        NoteOutsideService(snap, attached);
     }
 
     // The inline, AWAITED building block: used by RunStartupBranchAsync, which already holds the

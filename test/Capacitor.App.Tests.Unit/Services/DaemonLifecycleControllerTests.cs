@@ -1032,6 +1032,35 @@ public class DaemonLifecycleControllerTests {
         await Assert.That(h.Offer()).IsNull();
     }
 
+    [Test]
+    public async Task An_older_read_finishing_late_never_brings_back_a_withdrawn_outside_offer() {
+        await using var h = new Harness();
+        var calls = 0;
+        var outside = true;
+        var slowOld = new TaskCompletionSource<ServiceSnapshot?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Cli.StatusBehavior = _ => ++calls == 2
+            ? slowOld.Task
+            : Task.FromResult<ServiceSnapshot?>(
+                outside ? OutsideStoppedService() : Snap(unitPresent: true, state: "running", jobPid: 42, daemonPid: 42));
+        h.Start();
+        h.PushConnected();
+        await WaitUntilAsync(() => h.Offer() is not null, what: "the replace offer");
+        await h.Controller.PhaseClosed;
+
+        h.PushConnecting();
+        h.PushConnected();
+        await WaitUntilAsync(() => calls == 2, what: "the passive read to start");
+
+        outside = false;
+        await h.Controller.RepairAsync(CancellationToken.None);
+        await Assert.That(h.Offer()).IsNull();
+
+        slowOld.SetResult(OutsideStoppedService());
+        await Task.Delay(50);
+
+        await Assert.That(h.Offer()).IsNull();
+    }
+
     /// A daemon started by hand after the app attached is found on the next attach.
     [Test]
     public async Task An_outside_daemon_first_found_on_a_later_attach_is_offered() {
