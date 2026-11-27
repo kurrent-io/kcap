@@ -143,6 +143,13 @@
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
         </Style>
+        <!-- A card's header fill sits as far in from the card's sides as from its top. The card's
+             side padding runs 5px wider than its top in both densities, so the header takes back
+             only those 5px; its label stays where the card's padding puts it. -->
+        <Style Selector="Border.chatSystemCard > StackPanel > Button.toolSummary">
+            <Setter Property="Padding" Value="5" />
+            <Setter Property="Margin" Value="-5,0" />
+        </Style>
         <!-- Fluent shrinks a pressed button, which on a row this wide pulls its edge several pixels
              inward, so a click near the edge (a topic's chevron) is released outside it and never fires. -->
         <Style Selector="Button.toolSummary:pressed">
