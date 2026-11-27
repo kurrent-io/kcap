@@ -227,8 +227,9 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     /// A Focus mode drops notifications without a trace, so the one place a user looks is told how kcap fares in one.
     public string? NotificationFocusText => _access != DesktopNotificationAccess.Allowed ? null : _timeSensitive switch {
         true => "During a Focus, permission requests, questions and usage limits come through if the Focus allows " +
-            "time-sensitive notifications. Waiting-for-you notices appear only if the Focus allows kcap.",
-        false => "A Focus holds back kcap's notifications unless it allows kcap.",
+            "time-sensitive notifications. Waiting-for-you notices appear only if the Focus allows kcap. " +
+            "Both are set in System Settings → Focus.",
+        false => "A Focus holds back kcap's notifications unless it allows kcap, in System Settings → Focus.",
         null => null,
     };
 
