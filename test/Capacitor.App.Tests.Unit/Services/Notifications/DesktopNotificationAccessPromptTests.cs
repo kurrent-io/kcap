@@ -11,7 +11,7 @@ namespace Capacitor.App.Tests.Unit.Services.Notifications;
 public class DesktopNotificationAccessPromptTests {
     [Test]
     public async Task An_alerts_only_Mac_install_requests_badges_once_while_notifications_are_enabled_and_foreground() {
-        var native = new FakeMacNotificationCenter { Settings = (DesktopNotificationAccess.Allowed, false) };
+        var native = new FakeMacNotificationCenter { Settings = (DesktopNotificationAccess.Allowed, false, false) };
         using var sink = new MacOsDesktopNotificationSink(native, action => action(), new FakeTimeProvider());
         using var preferences = new BehaviorSubject<NotificationPreferences>(new(false, false, false));
         using var activated = new Subject<ReactiveUnit>();

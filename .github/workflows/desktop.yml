@@ -127,6 +127,27 @@ jobs:
               bash scripts/bundle-app-plugin.sh publish/app "$VERSION" ;;
           esac
 
+      # Only a Developer ID profile can back the time-sensitive notification entitlement; without the
+      # secret the bundle is signed with the base entitlements, as a restricted one alone stops the app launching.
+      - name: Embed the provisioning profile
+        if: inputs.release && runner.os == 'macOS'
+        env:
+          APPLE_APP_PROVISIONING_PROFILE: ${{ secrets.APPLE_APP_PROVISIONING_PROFILE }}
+        run: |
+          set -euo pipefail
+          profile=()
+          if [ -n "$APPLE_APP_PROVISIONING_PROFILE" ]; then
+            printf '%s' "$APPLE_APP_PROVISIONING_PROFILE" | base64 --decode > "$RUNNER_TEMP/kcap.provisionprofile"
+            # The profile must name the certificate the binaries were just signed with.
+            codesign -d --extract-certificates="$RUNNER_TEMP/signer." publish/app/kcap-desktop
+            certificate="$(shasum -a 1 "$RUNNER_TEMP/signer.0" | cut -c1-40)"
+            profile=("$RUNNER_TEMP/kcap.provisionprofile" "$certificate")
+          else
+            echo "::warning::secrets.APPLE_APP_PROVISIONING_PROFILE is not set; the app ships without time-sensitive notifications"
+          fi
+          bash scripts/app-bundle-entitlements.sh src/Capacitor.App/Packaging/app.entitlements publish/kcap.app \
+            "$RUNNER_TEMP/kcap-app.entitlements" ${profile[@]+"${profile[@]}"}
+
       - name: Fetch the delta baseline
         if: inputs.release
         env: *r2
@@ -167,7 +188,7 @@ jobs:
             Linux)   args=(--mainExe "kcap-desktop" --packDir publish/app --icon src/Capacitor.App/Assets/kcap-icon.png) ;;
           esac
           if [ "$RELEASE" = true ] && [ "$RUNNER_OS" = macOS ]; then
-            args+=(--signAppIdentity "$APPLE_SIGNING_IDENTITY" --signEntitlements src/Capacitor.App/Packaging/app.entitlements
+            args+=(--signAppIdentity "$APPLE_SIGNING_IDENTITY" --signEntitlements "$RUNNER_TEMP/kcap-app.entitlements"
                    --signDisableDeep --notaryProfile kcap-notary --keychain "$KEYCHAIN")
           fi
           if [ "$RELEASE" = true ] && [ "$RUNNER_OS" = Windows ]; then
@@ -208,7 +229,15 @@ jobs:
           if [ -n "$not_code" ]; then
             echo "::error::Contents/MacOS holds files codesign cannot sign:"; echo "$not_code"; exit 1
           fi
-          # Signed, this is also JIT under the hardened runtime: the app must still be alive after 15 s.
+          if [ -f "$RUNNER_TEMP/kcap.provisionprofile" ]; then
+            cmp "$RUNNER_TEMP/kcap.provisionprofile" "$APP/Contents/embedded.provisionprofile" \
+              || { echo "::error::the bundle does not embed the provisioning profile it was given"; exit 1; }
+            codesign -d --entitlements - --xml "$APP" > "$RUNNER_TEMP/signed.entitlements"
+            granted="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.usernotifications.time-sensitive' "$RUNNER_TEMP/signed.entitlements" 2>/dev/null || true)"
+            [ "$granted" = true ] || { echo "::error::the bundle is not signed with the time-sensitive entitlement"; exit 1; }
+          fi
+          # Signed, this is also JIT under the hardened runtime, and a restricted entitlement its profile does
+          # not back stops it outright: the app must still be alive after 15 s.
           SCRATCH="$(mktemp -d)"
           KCAP_CONFIG_DIR="$SCRATCH" KCAP_APP_UPDATE_URL="http://127.0.0.1:9/" DO_NOT_TRACK=1 "$APP/Contents/MacOS/kcap-desktop" &
           APP_PID=$!

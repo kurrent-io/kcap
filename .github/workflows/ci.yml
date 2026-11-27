@@ -184,6 +184,11 @@ jobs:
         if: runner.os == 'Linux'
         run: bash scripts/run-shell-tests.sh
 
+      # Release signing runs only on macOS, which skips it in the Linux run above.
+      - name: Run the signing entitlements script test
+        if: runner.os == 'macOS'
+        run: bash scripts/app-bundle-entitlements.test.sh
+
       # The runner has no user manager until lingering is on, and the local server's live service test
       # needs one to load its unit.
       - name: Start a systemd user session

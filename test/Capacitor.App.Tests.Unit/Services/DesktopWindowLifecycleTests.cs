@@ -52,12 +52,12 @@ public class DesktopWindowLifecycleTests {
     public Task Badge_denial_and_native_errors_do_not_keep_an_empty_Dock_entry() =>
         AvaloniaSession.RunOnUiAsync(async () => {
             using var fixture = new Fixture();
-            var native = new FakeMacNotificationCenter { Settings = (DesktopNotificationAccess.Allowed, false) };
+            var native = new FakeMacNotificationCenter { Settings = (DesktopNotificationAccess.Allowed, false, false) };
             using var sink = new MacOsDesktopNotificationSink(native, action => action(), new FakeTimeProvider());
             using var count = sink.BadgeCounts.Subscribe(fixture.Lifecycle.SetPendingNotificationCount);
             sink.Show(new DesktopNotification("denied", "Agent needs you", "Respond in app", []), _ => { });
             await Assert.That(fixture.DockVisibility.Last()).IsFalse();
-            native.Settings = (DesktopNotificationAccess.Allowed, true);
+            native.Settings = (DesktopNotificationAccess.Allowed, true, false);
             native.BadgeResults.Enqueue(false);
             sink.Show(new DesktopNotification("failed", "Agent needs you", "Respond in app", []), _ => { });
             await Assert.That(fixture.DockVisibility.Last()).IsFalse();

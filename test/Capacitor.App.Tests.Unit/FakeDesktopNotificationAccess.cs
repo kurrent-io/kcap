@@ -10,6 +10,7 @@ public sealed class FakeDesktopNotificationAccess(DesktopNotificationAccess curr
     public int Reads { get; private set; }
     public int Requests { get; private set; }
     public int SettingsOpened { get; private set; }
+    public bool? TimeSensitive { get; set; }
 
     public Task<DesktopNotificationAccess> GetAsync() {
         Reads++;
@@ -23,6 +24,8 @@ public sealed class FakeDesktopNotificationAccess(DesktopNotificationAccess curr
         if (Current == DesktopNotificationAccess.NotDetermined) Current = AfterRequest;
         return Task.FromResult(Current);
     }
+
+    public Task<bool?> TimeSensitiveAsync() => Task.FromResult(TimeSensitive);
 
     public void OpenSystemSettings() => SettingsOpened++;
 }
