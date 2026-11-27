@@ -819,7 +819,7 @@ public class DaemonLifecycleControllerTests {
         await WaitUntilAsync(() => h.Surface.AttentionMessages.Count == 1, what: "the stale-marker attention");
         var message = h.Surface.AttentionMessages[0];
 
-        await h.Controller.RepairStaleMarkerAsync(CancellationToken.None);
+        await h.Controller.RepairAsync(CancellationToken.None);
 
         await Assert.That(h.Surface.Prompts.Single().Kind).IsEqualTo(LifecyclePrompt.KindRepair);
         await Assert.That(h.Lane.Requests.Single().Verb).IsEqualTo(MutationVerb.Replace);
@@ -863,7 +863,7 @@ public class DaemonLifecycleControllerTests {
         h.PushConnected();
         await WaitUntilAsync(() => calls == 2, what: "the passive read to start");
 
-        await h.Controller.RepairStaleMarkerAsync(CancellationToken.None);
+        await h.Controller.RepairAsync(CancellationToken.None);
         slowOld.SetResult(Snap(unitPresent: true, state: "running", jobPid: 7, daemonPid: 7));
         await Task.Delay(50);
 
@@ -903,10 +903,171 @@ public class DaemonLifecycleControllerTests {
         h.PushConnected();
         await WaitUntilAsync(() => h.Surface.AttentionMessages.Count == 1, what: "the stale-marker attention");
 
-        await h.Controller.RepairStaleMarkerAsync(CancellationToken.None);
+        await h.Controller.RepairAsync(CancellationToken.None);
 
         await Assert.That(h.Lane.Requests).IsEmpty();
         await Assert.That(h.RepairOffer()).IsNull();
+    }
+
+    // ---- a daemon running outside its stopped service ----
+
+    static ServiceSnapshot OutsideStoppedService(int pid = 9196) => Snap(unitPresent: true, state: "not_installed", daemonPid: pid);
+
+    [Test]
+    public async Task A_daemon_outside_the_stopped_service_is_explained_and_offered_for_replacement() {
+        await using var h = new Harness();
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(OutsideStoppedService());
+        h.Start();
+
+        h.PushConnected();
+
+        await WaitUntilAsync(() => h.Surface.AttentionMessages.Count == 1, what: "the outside-service attention");
+        var message = h.Surface.AttentionMessages[0];
+        await Assert.That(message).Contains("9196");
+        await Assert.That(message).StartsWith("Background service isn't running.");
+        await Assert.That(message).Contains("was started outside it");
+        await Assert.That(h.Offer()).IsEqualTo(new DaemonRepairOffer(message, DaemonLifecycleController.ReplaceActionLabel));
+    }
+
+    [Test]
+    public async Task Replace_confirmed_stops_the_outside_daemon_starts_the_service_and_withdraws_the_offer() {
+        await using var h = new Harness();
+        var replaced = false;
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(
+            replaced ? Snap(unitPresent: true, state: "running", jobPid: 42, daemonPid: 42) : OutsideStoppedService());
+        h.Surface.ConfirmBehavior = (_, _) => Task.FromResult(true);
+        h.Lane.Behavior = (_, _) => {
+            replaced = true;
+            return Task.FromResult<MutationOutcome>(new MutationOutcome.Succeeded());
+        };
+        h.Start();
+        h.PushConnected();
+        await WaitUntilAsync(() => h.Surface.AttentionMessages.Count == 1, what: "the outside-service attention");
+        var message = h.Surface.AttentionMessages[0];
+
+        await h.Controller.RepairAsync(CancellationToken.None);
+
+        var prompt = h.Surface.Prompts.Single();
+        await Assert.That(prompt.Kind).IsEqualTo(LifecyclePrompt.KindReplaceDaemon);
+        await Assert.That(prompt.Disclosure).Contains("stops the daemon (PID 9196)");
+        await Assert.That(h.Lane.Requests.Single().Verb).IsEqualTo(MutationVerb.Replace);
+        await Assert.That(h.Surface.Withdrawn).Contains(message);
+        await Assert.That(h.Offer()).IsNull();
+    }
+
+    [Test]
+    public async Task Replace_declined_changes_nothing_and_keeps_the_offer() {
+        await using var h = new Harness();
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(OutsideStoppedService());
+        h.Start();
+        h.PushConnected();
+        await WaitUntilAsync(() => h.Surface.AttentionMessages.Count == 1, what: "the outside-service attention");
+
+        await h.Controller.RepairAsync(CancellationToken.None);
+
+        await Assert.That(h.Surface.Prompts.Count).IsEqualTo(1);
+        await Assert.That(h.Lane.Requests).IsEmpty();
+        await Assert.That(h.Surface.Withdrawn).IsEmpty();
+        await Assert.That(h.Offer()?.Action).IsEqualTo(DaemonLifecycleController.ReplaceActionLabel);
+    }
+
+    [Test]
+    public async Task Replace_does_nothing_when_another_daemon_took_over_while_the_prompt_was_open() {
+        await using var h = new Harness();
+        var pid = 9196;
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(OutsideStoppedService(pid));
+        h.Surface.ConfirmBehavior = (_, _) => {
+            pid = 9300; // the consent named the daemon the prompt described
+            return Task.FromResult(true);
+        };
+        h.Start();
+        h.PushConnected();
+        await WaitUntilAsync(() => h.Surface.AttentionMessages.Count == 1, what: "the outside-service attention");
+
+        await h.Controller.RepairAsync(CancellationToken.None);
+
+        await Assert.That(h.Lane.Requests).IsEmpty();
+        await Assert.That(h.Surface.StatusMessages).Contains(DaemonLifecycleController.PromptStaleStatus);
+    }
+
+    [Test]
+    public async Task A_stale_marker_keeps_the_banner_until_it_clears_then_the_outside_daemon_is_offered() {
+        await using var h = new Harness();
+        var markerLeft = true;
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(OutsideStoppedService() with { TxnMarker = markerLeft });
+        h.Start();
+        h.PushConnected();
+        await WaitUntilAsync(() => h.Offer() is not null, what: "the marker offer");
+        await h.Controller.PhaseClosed;
+
+        await Assert.That(h.Offer()?.Action).IsEqualTo(DaemonLifecycleController.RepairActionLabel);
+        await Assert.That(h.Surface.AttentionMessages[^1]).IsEqualTo(h.Offer()?.Line);
+        await Assert.That(h.Surface.AttentionMessages).DoesNotContain(DaemonLifecycleController.OutsideServiceMessage(9196));
+
+        markerLeft = false;
+        h.PushConnecting();
+        h.PushConnected();
+
+        await WaitUntilAsync(() => h.Offer()?.Action == DaemonLifecycleController.ReplaceActionLabel, what: "the replace offer");
+        await Assert.That(h.Surface.AttentionMessages[^1]).IsEqualTo(DaemonLifecycleController.OutsideServiceMessage(9196));
+    }
+
+    /// A later attach only reads passively, which must still clear a line the service has since answered.
+    [Test]
+    public async Task A_later_attach_to_the_service_withdraws_the_outside_daemon_offer() {
+        await using var h = new Harness();
+        var outside = true;
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(
+            outside ? OutsideStoppedService() : Snap(unitPresent: true, state: "running", jobPid: 42, daemonPid: 42));
+        h.Start();
+        h.PushConnected();
+        await WaitUntilAsync(() => h.Offer() is not null, what: "the replace offer");
+        var message = h.Surface.AttentionMessages.Single();
+
+        outside = false;
+        h.PushConnecting();
+        h.PushConnected();
+
+        await WaitUntilAsync(() => h.Surface.Withdrawn.Contains(message), what: "the withdrawn outside line");
+        await Assert.That(h.Offer()).IsNull();
+    }
+
+    /// A daemon started by hand after the app attached is found on the next attach.
+    [Test]
+    public async Task An_outside_daemon_first_found_on_a_later_attach_is_offered() {
+        await using var h = new Harness();
+        var outside = false;
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(
+            outside ? OutsideStoppedService() : Snap(unitPresent: true, state: "running", jobPid: 42, daemonPid: 42));
+        h.Start();
+        h.PushConnected();
+        await h.Controller.PhaseClosed;
+        await WaitUntilAsync(() => h.Cli.StatusCallCount >= 1, what: "the reconciliation read");
+
+        outside = true;
+        h.PushConnecting();
+        h.PushConnected();
+
+        await WaitUntilAsync(() => h.Offer() is not null, what: "the replace offer");
+        await Assert.That(h.Offer()?.Action).IsEqualTo(DaemonLifecycleController.ReplaceActionLabel);
+        await Assert.That(h.Surface.AttentionMessages).Contains(DaemonLifecycleController.OutsideServiceMessage(9196));
+    }
+
+    /// The Linux engine leaves a hand-started daemon holding the name, so a replace could only time out there.
+    [Test]
+    public async Task Where_a_replace_cannot_end_the_outside_daemon_the_line_shows_without_a_button() {
+        await using var h = new Harness { ReplacesOutsideDaemon = false };
+        h.Cli.StatusBehavior = _ => Task.FromResult<ServiceSnapshot?>(OutsideStoppedService());
+        h.Surface.ConfirmBehavior = (_, _) => Task.FromResult(true);
+        h.Start();
+        h.PushConnected();
+        await WaitUntilAsync(() => h.Surface.AttentionMessages.Count == 1, what: "the outside-service attention");
+        await h.Controller.PhaseClosed;
+
+        await Assert.That(h.Offer()).IsNull();
+        await h.Controller.RepairAsync(CancellationToken.None);
+        await Assert.That(h.Surface.Prompts).IsEmpty();
+        await Assert.That(h.Lane.Requests).IsEmpty();
     }
 
     [Test]
@@ -918,7 +1079,7 @@ public class DaemonLifecycleControllerTests {
         h.PushConnected();
         await WaitUntilAsync(() => h.Surface.AttentionMessages.Count == 1, what: "the stale-marker attention");
 
-        await h.Controller.RepairStaleMarkerAsync(CancellationToken.None);
+        await h.Controller.RepairAsync(CancellationToken.None);
 
         await Assert.That(h.Surface.Prompts.Count).IsEqualTo(1);
         await Assert.That(h.Lane.Requests).IsEmpty();
@@ -1890,7 +2051,7 @@ public class DaemonLifecycleControllerTests {
         h.PushConnected();
 
         await WaitUntilAsync(() => h.Surface.Prompts.Count == 1, what: "the replace offer");
-        await Assert.That(h.Surface.Prompts[0].Disclosure).Contains("The daemon runs 1.4.1; replacing it installs 1.5.0.");
+        await Assert.That(h.Surface.Prompts[0].VersionMove).IsEqualTo(("1.4.1", "1.5.0"));
     }
 
     /// A snapshot outlives the attach that delivered it, so once an attach fails the version is that attach's own.
@@ -1919,8 +2080,12 @@ public class DaemonLifecycleControllerTests {
 
         await Assert.That(DaemonLifecycleController.WithVersionChange(prompt, null, "1.4.0")).IsSameReferenceAs(prompt);
         await Assert.That(DaemonLifecycleController.WithVersionChange(prompt, "1.4.0+abc", "1.4.0+def")).IsSameReferenceAs(prompt);
-        await Assert.That(DaemonLifecycleController.WithVersionChange(prompt, "1.3.9", "1.4.0").Disclosure)
-            .IsEqualTo("Replace it.\n\nThe daemon runs 1.3.9; replacing it installs 1.4.0.");
+        var upgrade = DaemonLifecycleController.WithVersionChange(prompt, "1.3.9", "1.4.0");
+        await Assert.That(upgrade.VersionMove).IsEqualTo(("1.3.9", "1.4.0"));
+        await Assert.That(upgrade.Disclosure).IsEqualTo("Replace it.");
+        var downgrade = DaemonLifecycleController.WithVersionChange(prompt, "1.4.1", "1.4.0");
+        await Assert.That(downgrade.VersionMove).IsEqualTo(("1.4.1", "1.4.0"));
+        await Assert.That(downgrade.Disclosure).Contains("downgrades it to 1.4.0");
     }
 
     /// Where the platform has no verified replace, a mismatch is reported with the command to run by hand.
@@ -2407,6 +2572,7 @@ public class DaemonLifecycleControllerTests {
         public string? ProfileName = "default";
         public bool NeedsAppRestart;
         public bool OffersSupervision = true;
+        public bool ReplacesOutsideDaemon = true;
 
         public Harness(
                 string? canonicalServer = "https://kcap.example.com:443", bool autoActionsPermanentlyClosed = false) {
@@ -2416,6 +2582,7 @@ public class DaemonLifecycleControllerTests {
                 Client, Cli, Probe, Surface, () => Task.FromResult<string?>(ProfileName), Time,
                 CanonicalServer, Lane.RunAsync, autoActionsPermanentlyClosed, () => NeedsAppRestart) {
                 OffersSupervision = () => OffersSupervision,
+                ReplacesOutsideDaemon = () => ReplacesOutsideDaemon,
             };
         }
 
@@ -2437,7 +2604,8 @@ public class DaemonLifecycleControllerTests {
         public bool Background() { bool? v = null; using (Controller.BackgroundPriority.Subscribe(x => v = x)) { } return v ?? false; }
         public ReloadState? Reload() { ReloadState? v = null; using (Controller.ReloadState.Subscribe(x => v = x)) { } return v; }
         public bool Reloading() { bool? v = null; using (Controller.IsReloading.Subscribe(x => v = x)) { } return v ?? false; }
-        public string? RepairOffer() { string? v = null; using (Controller.RepairOffer.Subscribe(x => v = x)) { } return v; }
+        public string? RepairOffer() => Offer()?.Line;
+        public DaemonRepairOffer? Offer() { DaemonRepairOffer? v = null; using (Controller.RepairOffer.Subscribe(x => v = x)) { } return v; }
 
         public ValueTask DisposeAsync() => Controller.DisposeAsync();
     }

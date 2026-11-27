@@ -45,6 +45,9 @@
 
                     <StackPanel Margin="0,12,0,0" Orientation="Horizontal" Spacing="10"
                                 HorizontalAlignment="Left" IsVisible="{Binding ShowVersionChange}">
+                        <TextBlock Text="{Binding VersionCaption}" VerticalAlignment="Center" FontSize="{StaticResource KcapFontSizeSmall}"
+                                   Foreground="{StaticResource KcapMutedBrush}"
+                                   IsVisible="{Binding VersionCaption, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         <views:StatusBadge Text="{Binding InstalledVersion}" FontFamily="{StaticResource OnboardingMonoFont}" IsVisible="{Binding ShowInstalledVersion}" />
                         <views:AppIcon Kind="ArrowRight" Size="12" VerticalAlignment="Center" IsVisible="{Binding ShowInstalledVersion}"
                                        Foreground="{StaticResource KcapMutedBrush}" />

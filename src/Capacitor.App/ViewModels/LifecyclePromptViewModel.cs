@@ -60,6 +60,8 @@ public sealed class LifecyclePromptViewModel : ReactiveObject {
     public bool ShowInstalledVersion => InstalledVersion is not null;
     public bool ShowCurrentVersion => ShowInstalledVersion && !ShowVersionChange;
     public bool IsUpdate { get; }
+    /// Names whose versions the change row shows, where the title does not already say; null hides it.
+    public string? VersionCaption { get; }
 
     /// Fires once, on Accept or Decline — the window closes itself on this; the ViewModel owns no
     /// window.
@@ -76,6 +78,11 @@ public sealed class LifecyclePromptViewModel : ReactiveObject {
         if (IsUpdate) InstalledVersion = prompt.CliVersion?.Split('+', 2)[0];
         if (prompt.Kind is LifecyclePrompt.KindUpdateReady or LifecyclePrompt.KindUpdateWaiting)
             UpdateVersion = prompt.DaemonVersion?.Split('+', 2)[0];
+        if (!IsUpdate && prompt.VersionMove is var (from, to)) {
+            InstalledVersion = from;
+            UpdateVersion    = to;
+            VersionCaption   = "Daemon version";
+        }
         ShowDeclineButton = prompt.Kind is not (LifecyclePrompt.KindQuarantine or LifecyclePrompt.KindUpdateInfo);
         AcceptButtonText  = prompt.Kind switch {
             LifecyclePrompt.KindQuarantine     => "Acknowledge",
@@ -88,6 +95,7 @@ public sealed class LifecyclePromptViewModel : ReactiveObject {
             LifecyclePrompt.KindSwitchProfile  => "Switch and relaunch",
             LifecyclePrompt.KindSetup          => "Restart and continue",
             LifecyclePrompt.KindUninstall      => "Uninstall",
+            LifecyclePrompt.KindReplaceDaemon  => "Replace daemon",
             _                                  => "Continue",
         };
 
@@ -107,6 +115,7 @@ public sealed class LifecyclePromptViewModel : ReactiveObject {
 
     internal static string TitleFor(string kind) => kind switch {
         LifecyclePrompt.KindTakeover      => "Take over daemon management",
+        LifecyclePrompt.KindReplaceDaemon => "Replace the daemon",
         LifecyclePrompt.KindShim          => "Install command-line tool",
         LifecyclePrompt.KindQuarantine    => "Corrupted consent claims file",
         LifecyclePrompt.KindUpdateReady   => "Update ready",

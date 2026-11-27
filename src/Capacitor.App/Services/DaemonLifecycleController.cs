@@ -136,6 +136,9 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     DaemonActivity? _latestActivity;
     readonly BehaviorSubject<string?> _identityReport = new(null);
     readonly BehaviorSubject<string?> _staleMarkerOffer = new(null);
+    readonly BehaviorSubject<string?> _outsideServiceOffer = new(null);
+    string? _outsideServiceShown; // under _markerLock: the exact line Attention received, so Withdraw can match it
+    string? _outsideServiceFound; // under _markerLock: the line the latest reconcile found, shown once no marker line stands
     // Serializes the marker offer and its withdrawal, which status reads inside and outside _gate both drive.
     readonly Lock _markerLock = new();
     long _markerSeq;           // under _markerLock: start stamp of the newest read that spoke about the marker
@@ -164,9 +167,18 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     /// a banner that resets on connect returns to it rather than losing it to however the two are ordered.
     public IObservable<string?> IdentityReport => _identityReport;
 
-    /// The banner line <see cref="RepairStaleMarkerAsync"/> answers while a leftover transaction marker
-    /// stands, else null. A Repair button shows only beside this exact line.
-    public IObservable<string?> RepairOffer => _staleMarkerOffer.DistinctUntilChanged();
+    /// The banner line <see cref="RepairAsync"/> answers, with its button's label, else null: a leftover
+    /// transaction marker first, then a daemon running outside its stopped service. The button shows only
+    /// beside this exact line.
+    public IObservable<DaemonRepairOffer?> RepairOffer => _staleMarkerOffer
+        .CombineLatest(_outsideServiceOffer, (marker, outside) =>
+            marker is not null ? new DaemonRepairOffer(marker, RepairActionLabel)
+            : outside is not null ? new DaemonRepairOffer(outside, ReplaceActionLabel)
+            : null)
+        .DistinctUntilChanged();
+
+    internal const string RepairActionLabel  = "Repair";
+    internal const string ReplaceActionLabel = "Replace daemon";
     // Running or starting, admitted launches included; an older daemon that sends no Busy falls back to the lists.
     volatile bool _latestBusy;
     bool _latestResumes;
@@ -828,11 +840,15 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
             : null;
     }
 
-    /// The replace installs the app's own kcap, so the prompt says which version that moves the daemon to.
-    internal static LifecyclePrompt WithVersionChange(LifecyclePrompt prompt, string? daemonVersion, string? cliVersion) =>
-        DaemonVersionChange.Describe(daemonVersion, cliVersion) is { } change
+    /// The replace installs the app's own kcap, so the prompt shows which version that moves the daemon to.
+    /// A downgrade also says so in words, with how to avoid it.
+    internal static LifecyclePrompt WithVersionChange(LifecyclePrompt prompt, string? daemonVersion, string? cliVersion) {
+        if (DaemonVersionChange.Versions(daemonVersion, cliVersion) is not { } move) return prompt;
+        prompt = prompt with { VersionMove = move };
+        return DaemonVersionChange.IsDowngrade(daemonVersion, cliVersion) && DaemonVersionChange.Describe(daemonVersion, cliVersion) is { } change
             ? prompt with { Disclosure = $"{prompt.Disclosure}\n\n{change}" }
             : prompt;
+    }
 
     /// The rail's Reload button. One operation at a time, claimed before the prompt: the confirmation
     /// surface queues dialogs and releases its gate when one is answered, so a claim taken on acceptance
@@ -900,28 +916,84 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
     /// The stale-marker offer follows every status read, passive ones included, since a later attach
     /// only reads passively. Reads overlap, so the one that started last decides; a marker an operation
     /// still holds is left as it stands.
+    /// The outside-service line follows the same reads, so a later attach, which only reads passively, still
+    /// finds or clears it.
     void NoteMarker(ServiceSnapshot snap, long readStart) {
+        var attached = IsCurrentlyAttached();
         lock (_markerLock) {
             if (readStart < _markerSeq) return;
             _markerSeq = readStart;
 
             if (snap.TxnMarker) {
-                if (snap.TxnActive) return;
-                var message = StaleMarkerMessage(_client.DaemonName, snap);
-                _staleMarkerShown = message;
-                _staleMarkerOffer.OnNext(message);
-                _surface.Attention(message);
+                if (!snap.TxnActive) {
+                    var message = StaleMarkerMessage(_client.DaemonName, snap);
+                    _staleMarkerShown = message;
+                    _staleMarkerOffer.OnNext(message);
+                    _surface.Attention(message);
+                }
             } else if (_staleMarkerShown is { } shown) {
                 _staleMarkerShown = null;
                 _staleMarkerOffer.OnNext(null);
                 _surface.Withdraw(shown);
             }
+
+            _outsideServiceFound = OutsideServiceLine(snap, attached);
+            PublishOutsideService();
         }
     }
 
-    /// The banner's Repair button: a confirmed reinstall, whose transaction recovers the leftover
-    /// marker. Caller-awaited from the UI, so every path is exception-safe.
-    public async Task RepairStaleMarkerAsync(CancellationToken ct) {
+    /// A daemon started outside the service (by hand, or by another kcap) answers while the installed
+    /// service is stopped: nothing restarts it if it exits, and it may not be this app's build.
+    internal static bool RunsOutsideStoppedService(ServiceSnapshot snap) =>
+        ServiceStateClassifier.Parse(snap.State) == ServiceState.NotInstalled && snap is { UnitPresent: true, DaemonPid: not null };
+
+    internal static string OutsideServiceMessage(int pid) =>
+        "Background service isn't running. " +
+        $"The kcap background service is installed, but the daemon (PID {pid}) was started outside it.";
+
+    internal static string ReplaceOutsideDisclosure(int pid) =>
+        $"kcap stops the daemon (PID {pid}) and starts the background service with the daemon bundled with this app. {TakeoverDisclosure}";
+
+    /// <summary>Whether a replace ends a daemon started outside the service: launchd's and Windows' engines
+    /// do, the Linux one leaves it holding the name, so the install it starts could only time out</summary>
+    internal Func<bool> ReplacesOutsideDaemon { get; init; } = () => !OperatingSystem.IsLinux();
+
+    /// Found while attached to such a daemon, cleared once a read no longer finds one. Every caller holds
+    /// the gate, so reads arrive here in order.
+    void NoteOutsideService(ServiceSnapshot snap, bool attached) {
+        lock (_markerLock) {
+            _outsideServiceFound = OutsideServiceLine(snap, attached);
+            PublishOutsideService();
+        }
+    }
+
+    static string? OutsideServiceLine(ServiceSnapshot snap, bool attached) =>
+        attached && RunsOutsideStoppedService(snap) ? OutsideServiceMessage(snap.DaemonPid!.Value) : null;
+
+    /// The marker line keeps the banner while it stands, so the line shown is always the one the button answers;
+    /// the outside line follows once it clears. Raised only when it changes, so a read that found nothing new never
+    /// takes the banner back from a newer line. Under _markerLock.
+    void PublishOutsideService() {
+        var show = _staleMarkerShown is null ? _outsideServiceFound : null;
+        if (show is null) {
+            if (_outsideServiceShown is not { } shown) return;
+            _outsideServiceShown = null;
+            _outsideServiceOffer.OnNext(null);
+            _surface.Withdraw(shown);
+            return;
+        }
+
+        if (_outsideServiceShown == show) return;
+        if (_outsideServiceShown is { } previous && previous != show) _surface.Withdraw(previous);
+        _outsideServiceShown = show;
+        _outsideServiceOffer.OnNext(ReplacesOutsideDaemon() ? show : null);
+        _surface.Attention(show);
+    }
+
+    /// The banner's action button: a confirmed reinstall, whose transaction recovers a leftover marker or
+    /// stops a daemon running outside the stopped service and starts the service from this app's bundle.
+    /// Caller-awaited from the UI, so every path is exception-safe.
+    public async Task RepairAsync(CancellationToken ct) {
         try {
             if (RequireAppRestart() || _cli.CliPath is null) return;
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
@@ -946,6 +1018,26 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
                     // The marker can be settled while the prompt is open, which moves no attach generation.
                     await ConfirmAndReplaceAsync(prompt, lct, stillEligible: async token =>
                             await QueryStatusForActionAsync(token).ConfigureAwait(false) is { TxnMarker: true, TxnActive: false })
+                        .ConfigureAwait(false);
+
+                    snap = await QueryStatusForActionAsync(lct).ConfigureAwait(false);
+                    if (snap is null) return;
+                } else if (ReplacesOutsideDaemon() && IsCurrentlyAttached() && RunsOutsideStoppedService(snap)) {
+                    var missing = await FailingRepairPreconditionAsync(snap).ConfigureAwait(false);
+                    if (missing is not null) {
+                        _surface.Status(missing);
+                        return;
+                    }
+
+                    var pid          = snap.DaemonPid!.Value;
+                    var terminalPath = await _probe.TerminalPathAsync(lct).ConfigureAwait(false);
+                    var prompt = new LifecyclePrompt(
+                        LifecyclePrompt.KindReplaceDaemon, null, null, terminalPath is null, ReplaceOutsideDisclosure(pid),
+                        RepairInterruptsWarning(LatestActivity?.ActiveAgents ?? 0));
+                    // Another daemon, or the service itself, may have taken over while the prompt was open.
+                    await ConfirmAndReplaceAsync(prompt, lct, stillEligible: async token =>
+                            await QueryStatusForActionAsync(token).ConfigureAwait(false) is { } now
+                            && RunsOutsideStoppedService(now) && now.DaemonPid == pid)
                         .ConfigureAwait(false);
 
                     snap = await QueryStatusForActionAsync(lct).ConfigureAwait(false);
@@ -995,9 +1087,7 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
         if (snap.TxnActive && allowTxnActiveRequery)
             _ = RunTxnActiveRequeryAsync();
 
-        if (attached && snap.UnitPresent && state == ServiceState.NotInstalled && snap.DaemonPid is not null)
-            _surface.Attention(
-                $"A daemon (PID {snap.DaemonPid}) is running outside the installed service, which is stopped.");
+        NoteOutsideService(snap, attached);
     }
 
     // The inline, AWAITED building block: used by RunStartupBranchAsync, which already holds the
@@ -1344,3 +1434,8 @@ public sealed class DaemonLifecycleController : IAsyncDisposable {
         _gate.Dispose();
     }
 }
+
+/// <summary>A banner line the lifecycle controller can act on</summary>
+/// <param name="Line">The exact line the banner shows</param>
+/// <param name="Action">The label of the button that acts on it</param>
+public sealed record DaemonRepairOffer(string Line, string Action);

@@ -248,7 +248,7 @@
                         <StackPanel x:Name="BannerActions" Classes="noticeActions" IsVisible="{Binding BannerActionsVisible}">
                             <Button x:Name="StartDaemonButton" Classes="kcapPrimary" Content="Start daemon"
                                     Command="{Binding StartDaemonCommand}" IsVisible="{Binding DaemonStartVisible}" />
-                            <Button x:Name="RepairDaemonButton" Classes="kcapPrimary" Content="Repair"
+                            <Button x:Name="RepairDaemonButton" Classes="kcapPrimary" Content="{Binding DaemonRepairLabel}"
                                     Command="{Binding RepairDaemonCommand}" IsVisible="{Binding DaemonRepairVisible}" />
                             <Button x:Name="RetryDaemonButton" Classes.kcapPrimary="{Binding !DaemonRepairVisible}" Classes.kcapChip="{Binding DaemonRepairVisible}" Content="Reconnect"
                                     Command="{Binding RetryDaemonCommand}" IsVisible="{Binding DaemonRetryVisible}" />

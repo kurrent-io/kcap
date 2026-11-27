@@ -256,4 +256,18 @@ public class LifecyclePromptViewModelTests {
             await Assert.That(vm.Disclosure).IsEqualTo("the unit will be replaced.");
         });
     }
+
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_replace_shows_the_daemon_version_it_moves_between() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var prompt = Prompt(LifecyclePrompt.KindReplaceDaemon) with { VersionMove = ("1.4.2-beta.2.123", "1.4.2-beta.4") };
+            var vm = new LifecyclePromptViewModel(prompt, new TaskCompletionSource<bool>());
+
+            await Assert.That(vm.ShowVersionChange).IsTrue();
+            await Assert.That(vm.InstalledVersion).IsEqualTo("1.4.2-beta.2.123");
+            await Assert.That(vm.UpdateVersion).IsEqualTo("1.4.2-beta.4");
+            await Assert.That(vm.VersionCaption).IsEqualTo("Daemon version");
+        });
+    }
 }
