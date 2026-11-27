@@ -40,6 +40,32 @@ internal sealed class InputLogs(string directory, TimeProvider time, ILogger log
         }
     }
 
+    /// <summary>A log nobody wrote for this long is a session that stopped part-way and never came back. All it could
+    /// still stamp is what that session left unacknowledged, and a row that goes without goes on as unstamped.</summary>
+    internal static readonly TimeSpan Retention = TimeSpan.FromDays(30);
+
+    /// <summary>Deletes each log last written longer than <see cref="Retention"/> ago, but not one this daemon holds open
+    /// or one of <paramref name="keep"/>, the sources a boot restores. One it cannot delete waits for the next boot.</summary>
+    public void Reap(IEnumerable<string> keep) {
+        var now = time.GetUtcNow();
+
+        lock (_gate) {
+            var kept = keep.Concat(_logs.Keys).Select(PathFor).ToHashSet(StringComparer.Ordinal);
+
+            try {
+                foreach (var file in Directory.EnumerateFiles(directory, "*.json")) {
+                    try {
+                        if (!kept.Contains(file) && now - File.GetLastWriteTimeUtc(file) > Retention) File.Delete(file);
+                    } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                        logger.LogDebug(ex, "Could not delete the stale input log {File}", file);
+                    }
+                }
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                // No directory yet, so no log to delete.
+            }
+        }
+    }
+
     internal string PathFor(string key) => Path.Combine(directory, $"{FileName(key)}.json");
 
     // A key is a session id, which a vendor spells: anything that isn't plainly a file name is hashed into one.
