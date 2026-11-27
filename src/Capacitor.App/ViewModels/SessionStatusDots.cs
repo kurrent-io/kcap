@@ -59,6 +59,8 @@ public static class SessionStatusDots {
     /// whether the agent is still running: an agent killed without a session end stays stale.
     public const string StaleNextStep = "No end has been recorded, so the agent may still be running. You can still open the session.";
 
+    public const string ParkedNextStep = "The flow resumes it for the next round.";
+
     /// First match wins, so two surfaces cannot draw different marks for the same facts.
     /// <paramref name="usageLimitSummary"/> is set only for a question the user must answer.
     /// <paramref name="stale"/> is the server's idle flag, which outranks only the bare "Running" that
@@ -81,6 +83,7 @@ public static class SessionStatusDots {
             : status == "Resuming" ? AgentStatusKind.Resuming
             : IsWorking(status, awaitingInput, liveSubagents, liveCommands) ? AgentStatusKind.Working
             : waitsOnUser || status == "Idle" ? AgentStatusKind.Idle
+            : status == AgentRow.ParkedStatus ? AgentStatusKind.Parked
             : stale && status == "Running" ? AgentStatusKind.Stale
             : status == "Completed" ? AgentStatusKind.Done
             : AgentStatusKind.Other;
@@ -94,6 +97,7 @@ public static class SessionStatusDots {
             AgentStatusKind.Resuming    => "Resuming",
             AgentStatusKind.Working     => "Working",
             AgentStatusKind.Idle        => "Idle",
+            AgentStatusKind.Parked      => "Parked",
             AgentStatusKind.Stale       => "Stale",
             AgentStatusKind.Done        => "Done",
             _                           => status,
@@ -110,12 +114,14 @@ public static class SessionStatusDots {
             : kind == AgentStatusKind.Resuming ? "Resuming after a daemon restart"
             : kind == AgentStatusKind.Interrupted ? "Not resumed after a daemon restart"
             : kind == AgentStatusKind.Stale ? "No activity for over an hour"
+            : kind == AgentStatusKind.Parked ? "Parked between review rounds"
             : label;
         var facts = new List<AgentStatusFact> { new(sentence, null) };
         Add(facts, harness, "Harness");
         Add(facts, model, "Model");
         Add(facts, usageLimitSummary, "Usage limit");
         if (kind == AgentStatusKind.Stale) Add(facts, StaleNextStep);
+        if (kind == AgentStatusKind.Parked) Add(facts, ParkedNextStep);
         if (kind == AgentStatusKind.Interrupted) {
             Add(facts, InterruptionReasons.Describe(interruption), "Reason");
             Add(facts, $"Retry with `kcap agent resume{(agentId is null ? "" : " " + agentId)}`, or stop it to discard it.");

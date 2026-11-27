@@ -69,6 +69,9 @@ public sealed record AgentRow(
     /// lists it live until the server notices the disconnect, and nothing can stop or message it meanwhile.
     public const string DaemonDownStatus = "DaemonDown";
 
+    /// A listed session whose flow participant is parked between rounds: no daemon hosts it until the flow resumes it.
+    public const string ParkedStatus = "Parked";
+
     /// A session the server lists as ended; a daemon row's Completed is not this.
     public bool IsEndedSession => Origin == AgentOrigin.Server && Status == "Completed";
 
@@ -125,12 +128,15 @@ public sealed record AgentRow(
     /// Running for a live session, Completed for an ended one, with IsEndedSession telling the two
     /// kinds of Completed apart. `hostedPresentation` keeps a live row looking hosted while a daemon
     /// row for the same session has just gone, so a hand-over never flashes as a terminal session.
+    /// A parked flow participant has no daemon row by design and can wait hours for its next round,
+    /// so it is neither a terminal session nor stale.
     public static AgentRow FromServer(RepoSessionDto dto, bool hostedPresentation) {
         var active = dto.Status == "active";
+        var parked = active && dto.Parked;
         var (repoPath, worktreePath, repo) = ListedCheckout(dto);
         return new(
             Key: $"server:{dto.SessionId}", Origin: AgentOrigin.Server, Id: dto.SessionId, SessionId: dto.SessionId,
-            Kind: "session", Vendor: dto.Vendor ?? "", Status: active ? "Running" : "Completed",
+            Kind: "session", Vendor: dto.Vendor ?? "", Status: parked ? ParkedStatus : active ? "Running" : "Completed",
             CreatedAt: dto.StartedAt.UtcDateTime, RepoPath: repoPath, Title: dto.Title, Model: null, RequesterDisplay: null,
             WorktreePath: worktreePath, WorkLocation: null, BorrowedFrom: null,
             MachineBadge: null, RepoGroupKey: repo.Key, RepoGroupLabel: repo.Label,
@@ -138,7 +144,7 @@ public sealed record AgentRow(
             OwnerUserId: dto.Owner?.UserId, OwnerName: dto.Owner?.DisplayName ?? dto.Owner?.Username,
             OwnerAvatarUrl: dto.Owner?.AvatarUrl,
             LastActivityAt: dto.LastActivityAt.UtcDateTime, EndedAt: dto.EndedAt?.UtcDateTime,
-            IsStale: dto.Stale, IsTerminalSession: active && !hostedPresentation, AccessLevel: dto.AccessLevel,
+            IsStale: dto.Stale && !parked, IsTerminalSession: active && !parked && !hostedPresentation, AccessLevel: dto.AccessLevel,
             ListedPullRequests: dto.PullRequests, Branch: dto.Branch, Recording: dto.Recording);
     }
 

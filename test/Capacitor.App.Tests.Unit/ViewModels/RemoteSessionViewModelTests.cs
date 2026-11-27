@@ -47,12 +47,13 @@ public class RemoteSessionViewModelTests {
             });
 
         /// A row the server lists with no daemon behind it: ended, or live in a terminal.
-        public static AgentRow ServerRow(string sessionId = "s1", string status = "ended", bool hosted = false) =>
+        public static AgentRow ServerRow(string sessionId = "s1", string status = "ended", bool parked = false, bool hosted = false) =>
             AgentRow.FromServer(new Capacitor.Remote.Models.RepoSessionDto {
                 SessionId = sessionId, Status = status, AccessLevel = "full", Vendor = "claude", Title = "Desktop app RAM growth",
                 Owner = new() { UserId = "u1", DisplayName = "Alexey" },
                 StartedAt = DateTimeOffset.UnixEpoch, LastActivityAt = DateTimeOffset.UnixEpoch.AddHours(1),
                 EndedAt = status == "ended" ? DateTimeOffset.UnixEpoch.AddHours(1) : null,
+                Parked = parked,
                 Repo = new() { Hash = "h", Owner = "kurrent-io", Name = "kcap-cli" },
             }, hosted);
 
@@ -2064,6 +2065,23 @@ public class RemoteSessionViewModelTests {
             await Assert.That(vm.Chat.ReadOnlyNotice).IsEqualTo(RemoteSessionViewModel.TerminalNote);
             await Assert.That(vm.Chat.ShowsComposer).IsFalse();
             await Assert.That(vm.ShowsStop).IsFalse();
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// A parked reviewer runs nowhere until its flow resumes it, so there is no terminal to answer it in.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_parked_row_says_it_is_parked_rather_than_running_in_a_terminal() {
+        await RunOnUiAsync(async () => {
+            using var h = new Harness();
+            var vm = h.Build(Harness.ServerRow(status: "active", parked: true));
+
+            await WaitUntilAsync(() => vm.Access == RemoteSessionAccess.Ready, what: "ready");
+
+            await Assert.That(vm.SessionEnded).IsFalse();
+            await Assert.That(vm.Chat.ReadOnlyNotice).IsEqualTo(RemoteSessionViewModel.ParkedNote);
+            await Assert.That(vm.Chat.ShowsComposer).IsFalse();
             await vm.TeardownAsync();
         });
     }
