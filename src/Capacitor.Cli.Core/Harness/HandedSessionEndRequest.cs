@@ -45,6 +45,10 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
     /// <summary>Whether <paramref name="vendor"/>'s SessionEnd hook hands its end to the session's watcher.</summary>
     public static bool HandedOverBy(string vendor) => vendor is "muse" or "codex";
 
+    /// <summary>The coding-agent process whose hook handed the end over, when it could tell: an end of a process the
+    /// session has since moved on from is not the session's.</summary>
+    public int? AgentPid { get; init; }
+
     /// <summary>How many times its end has failed to be sent or kept.</summary>
     public int Attempts { get; init; }
 
@@ -111,7 +115,7 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
         Path.Combine(paths.Directory, $"{sessionId}.muse-resumed");
 
     /// <summary>A request as stored: the payload to send, the server it is for, and its failed sends.</summary>
-    readonly record struct Stored(string Payload, string? Server, int Attempts, DateTimeOffset NotBefore, string Vendor);
+    readonly record struct Stored(string Payload, string? Server, int Attempts, DateTimeOffset NotBefore, string Vendor, int? AgentPid = null);
 
     static Stored Parse(string content) {
         try {
@@ -121,21 +125,23 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
                     handoff["server"]?.GetValue<string>(),
                     handoff["attempts"]?.GetValue<int>() ?? 0,
                     handoff["not_before"]?.GetValue<long>() is { } ticks ? new DateTimeOffset(ticks, TimeSpan.Zero) : DateTimeOffset.MinValue,
-                    handoff["vendor"]?.GetValue<string>() is { Length: > 0 } vendor ? vendor : DefaultVendor);
+                    handoff["vendor"]?.GetValue<string>() is { Length: > 0 } vendor ? vendor : DefaultVendor,
+                    handoff["agent_pid"]?.GetValue<int>());
             }
         } catch (Exception ex) when (ex is JsonException or InvalidOperationException or FormatException) { }
 
         return new Stored(content, null, 0, DateTimeOffset.MinValue, DefaultVendor);
     }
 
-    static string Render(string payload, string? server, int attempts, DateTimeOffset notBefore, string vendor) {
+    static string Render(string payload, string? server, int attempts, DateTimeOffset notBefore, string vendor, int? agentPid) {
         try {
-            if ((server is not null || attempts > 0 || vendor != DefaultVendor) && JsonNode.Parse(payload) is JsonObject end) {
+            if ((server is not null || attempts > 0 || vendor != DefaultVendor || agentPid is not null) && JsonNode.Parse(payload) is JsonObject end) {
                 end[HandoffKey] = new JsonObject {
                     ["server"]     = server,
                     ["attempts"]   = attempts,
                     ["not_before"] = notBefore.UtcTicks,
                     ["vendor"]     = vendor,
+                    ["agent_pid"]  = agentPid,
                 };
                 return end.ToJsonString();
             }
@@ -154,13 +160,25 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
 
     /// <summary>Written whole, then renamed into place, so a reader never sees a partial request, nor one without the
     /// server <paramref name="server"/> it is for or the <paramref name="vendor"/> whose route it is posted on.</summary>
-    public static void Write(WatcherPaths paths, string sessionId, string payload, string? server = null, string vendor = DefaultVendor) {
+    /// <param name="agentPid">The coding-agent process whose hook hands the end over, when known.</param>
+    public static void Write(WatcherPaths paths, string sessionId, string payload, string? server = null, string vendor = DefaultVendor, int? agentPid = null) {
         Directory.CreateDirectory(paths.Directory);
         var target = PathFor(paths, sessionId, payload, vendor);
         var temp   = $"{target}.{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}.tmp";
 
-        File.WriteAllText(temp, Render(payload, server, 0, DateTimeOffset.MinValue, vendor));
+        File.WriteAllText(temp, Render(payload, server, 0, DateTimeOffset.MinValue, vendor, agentPid));
         File.Move(temp, target, overwrite: true);
+    }
+
+    /// <summary>True while a request for the session is on disk, unclaimed or held by a taker.</summary>
+    public static bool Outstanding(WatcherPaths paths, string sessionId) {
+        try {
+            return Directory.Exists(paths.Directory)
+                && Directory.EnumerateFiles(paths.Directory).Any(f => Path.GetFileName(f) is var name && OfSession(name, sessionId)
+                                                                    && name.Contains(RequestedSuffix, StringComparison.Ordinal) && !name.EndsWith(".tmp", StringComparison.Ordinal));
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return false;
+        }
     }
 
     /// <summary>True while an unclaimed request is on disk.</summary>
@@ -221,7 +239,7 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
         var stored = Parse(content);
         if (!string.IsNullOrWhiteSpace(stored.Payload))
             return new HandedSessionEndRequest(stored.Payload, claimed, new DateTimeOffset(handedAt, TimeSpan.Zero), source) {
-                Server = stored.Server, Attempts = stored.Attempts, Vendor = stored.Vendor
+                Server = stored.Server, Attempts = stored.Attempts, Vendor = stored.Vendor, AgentPid = stored.AgentPid
             };
 
         Release(claimed);
@@ -282,7 +300,7 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
         var temp     = $"{request.SourcePath}.{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}.tmp";
 
         try {
-            File.WriteAllText(temp, Render(request.Payload, request.Server, attempts, time.GetUtcNow() + delay, request.Vendor));
+            File.WriteAllText(temp, Render(request.Payload, request.Server, attempts, time.GetUtcNow() + delay, request.Vendor, request.AgentPid));
             File.SetLastWriteTimeUtc(temp, request.HandedAt.UtcDateTime);
             File.Move(temp, request.SourcePath);
             File.Delete(request.ClaimedPath);

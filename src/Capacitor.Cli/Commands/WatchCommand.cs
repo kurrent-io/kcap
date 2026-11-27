@@ -791,7 +791,8 @@ class WatchCommand(
     async Task FinalizeCodexChildrenAsync(string sessionId, string transcriptPath) {
         try {
             var finalized = await TimeBudget.RunCappedAsync(
-                () => new CodexSubagentTeardown(profiles, http, watchers, time).DrainAsync(sessionId, transcriptPath),
+                () => new CodexSubagentTeardown(profiles, http, watchers, time)
+                    .DrainAsync(sessionId, transcriptPath, () => new HookSpool(config, time, Url).IsDisabledByPerson(sessionId)),
                 CodexSubagentTeardown.DrainCap, time);
 
             if (!finalized) Log(time, "Codex subagent teardown cap elapsed; unfinalized subagents recover via: kcap import --codex");
@@ -857,8 +858,10 @@ class WatchCommand(
             // Neither the children's stops nor the end may bring back a session a person disabled.
             if (DisabledByPerson(sessionId, handed)) continue;
 
-            // Before the fence: a stale end must not stamp the entry of the run that resumed past it.
-            if (HandedSessionEndRequest.ResumedSince(_paths, sessionId, handed.HandedAt, handed.Server)) {
+            // Before the fence: a stale end must not stamp the entry of the run that resumed past it. A process the session
+            // has moved on from is stale too, even when its hook wrote the end after the resume was marked.
+            if (HandedSessionEndRequest.ResumedSince(_paths, sessionId, handed.HandedAt, handed.Server)
+             || (handed.AgentPid is { } origin && LiveClaimant(sessionId) is { } live && live != origin)) {
                 Log(time, "Handed session-end dropped: the session was resumed after its end was handed over");
                 HandedSessionEndRequest.Release(handed.ClaimedPath);
                 await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, LiveClaimant(sessionId));
@@ -956,20 +959,26 @@ class WatchCommand(
 
     /// <summary>The run the hook that claimed <paramref name="followedPid"/> for the session recorded, for a vendor whose
     /// hosted run has no marker: a successor that lost it would end a resuming run on its own parent exit.</summary>
-    WatcherRun ClaimedRun(string sessionId, int? followedPid) {
-        if (followedPid is null || SessionId.Parse(sessionId) is not { } session) return new(null, null);
+    WatcherRun ClaimedRun(string sessionId, int? followedPid) =>
+        ClaimedOrigin(sessionId, followedPid) is { AgentId: { Length: > 0 } agentId } origin ? new(agentId, origin.DaemonEpoch) : new(null, null);
 
-        var claimed = AgentSessions.OnThisMachine(config).LiveClaimantOrigin(session);
-
-        return claimed is { Pid: var pid, Origin.AgentId: { Length: > 0 } agentId } && pid == followedPid
-            ? new(agentId, claimed.Value.Origin!.DaemonEpoch)
-            : new(null, null);
-    }
+    /// <summary>What the claim of <paramref name="followedPid"/>, the session's live claimant, recorded; null for any other.</summary>
+    ClaimOrigin? ClaimedOrigin(string sessionId, int? followedPid) =>
+        followedPid is { } pid && SessionId.Parse(sessionId) is { } session
+     && AgentSessions.OnThisMachine(config).LiveClaimantOrigin(session) is { } claimed && claimed.Pid == pid
+            ? claimed.Origin
+            : null;
 
     /// <summary>Spawns the watcher a resumed session is left without once this one exits; this watcher's
     /// pid file is already retired, so the spawn sees no live watcher. The successor follows the resumed
     /// process when one is claimed; a watcher cannot resolve it from its own ancestry.</summary>
     async Task ArmSuccessorAsync(string sessionId, string transcriptPath, string? cwd, string vendor, int? parentPid) {
+        // The resumed process may read another copy of the rollout, in another directory: its claim says which.
+        if (ClaimedOrigin(sessionId, parentPid) is { TranscriptPath: { Length: > 0 } claimedTranscript } claimed) {
+            transcriptPath = claimedTranscript;
+            cwd            = claimed.Cwd ?? cwd;
+        }
+
         try {
             await watchers.EnsureWatcherRunning(sessionId, transcriptPath, agentId: null, sessionIdOverride: null, cwd: cwd, skipTitle: true, vendor: vendor, parentPid: parentPid,
                 runsAs: SuccessorRun(home, sessionId, parentPid) is { AgentId: not null } marked ? marked : ClaimedRun(sessionId, parentPid));

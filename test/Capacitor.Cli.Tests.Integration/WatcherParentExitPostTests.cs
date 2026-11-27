@@ -453,6 +453,28 @@ public class WatcherParentExitPostTests : IDisposable {
         await Assert.That(spawner.Spawned.Count).IsEqualTo(1);
     }
 
+    /// <summary>An end the previous Codex process handed over after another process resumed the session is not the
+    /// session's, whatever order the resume and the end were written in; the successor follows the resumed process and
+    /// reads the rollout its claim named.</summary>
+    [Test]
+    public async Task An_end_of_a_process_the_session_moved_on_from_is_dropped() {
+        var sessionId = Guid.NewGuid().ToString("N");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        var spawner   = new FakeWatcherSpawner();
+        AgentSessions.OnThisMachine(Config.Root).Claim(Environment.ProcessId, SessionId.Parse(sessionId)!,
+            new ClaimOrigin("codex", _server.Url, "/tmp/resumed.jsonl", "/repo"));
+        Core.Harness.HandedSessionEndRequest.Write(paths, sessionId, """{"hook_event_name":"SessionEnd","reason":"other"}""", _server.Url, vendor: "codex", agentPid: 1);
+        var handed = Core.Harness.HandedSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+
+        await Watch(spawner).SettleHandedEndsAsync(sessionId, "/tmp/old.jsonl", cwd: "/old", "codex", repository: null, run: null, handed);
+
+        await Assert.That(_server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/codex").UsingPost())).IsEmpty();
+        await Assert.That(File.Exists(handed.ClaimedPath)).IsFalse();
+        var successor = spawner.Spawned.Single();
+        await Assert.That(successor.TranscriptPath).IsEqualTo("/tmp/resumed.jsonl");
+        await Assert.That(successor.ParentPid).IsEqualTo(Environment.ProcessId);
+    }
+
     /// <summary>A person who disabled the session gets neither its children's stops nor its end: the claim just goes.</summary>
     [Test]
     public async Task A_handed_end_of_a_disabled_session_is_dropped_unsent() {

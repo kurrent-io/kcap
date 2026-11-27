@@ -577,7 +577,8 @@ sealed class CodexHookCommand(
         // cannot be handed over goes to the spool, which keeps its own directory.
         async Task<bool> TryHandOffAsync() {
             try {
-                HandedSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString(), Url, vendor: "codex");
+                HandedSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString(), Url, vendor: "codex",
+                    agentPid: ProcessHelpers.GetCodingAgentPid("codex", allowFallback: false));
                 return true;
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
                 await env.Stderr.WriteLineAsync($"[kcap] codex session-end handoff failed ({sessionId}): {ex.Message}");

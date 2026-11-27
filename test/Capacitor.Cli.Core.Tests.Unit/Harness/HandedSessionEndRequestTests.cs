@@ -126,6 +126,35 @@ public class HandedSessionEndRequestTests {
         await Assert.That(HandedSessionEndRequest.TryClaim(paths, SessionId.ToUpperInvariant(), "upper")).IsNotNull();
     }
 
+    /// <summary>The process that handed the end over travels with it through a deferral.</summary>
+    [Test]
+    public async Task A_request_keeps_the_process_that_handed_it_over() {
+        var paths = new WatcherPaths(Tmp.PathTo("watchers"));
+        var time  = new FakeTimeProvider(DateTimeOffset.UtcNow);
+        HandedSessionEndRequest.Write(paths, SessionId, """{"reason":"other"}""", vendor: "codex", agentPid: 4242);
+
+        var claimed = HandedSessionEndRequest.TryClaim(paths, SessionId, "watcher", time)!;
+        await Assert.That(claimed.AgentPid).IsEqualTo(4242);
+
+        HandedSessionEndRequest.Defer(claimed, time);
+        time.Advance(TimeSpan.FromMinutes(1));
+        await Assert.That(HandedSessionEndRequest.TryClaim(paths, SessionId, "retry", time)!.AgentPid).IsEqualTo(4242);
+    }
+
+    /// <summary>An end is outstanding while it waits and while a taker holds it, so the exit reaper leaves it alone.</summary>
+    [Test]
+    public async Task A_request_is_outstanding_until_released() {
+        var paths = new WatcherPaths(Tmp.PathTo("watchers"));
+        HandedSessionEndRequest.Write(paths, SessionId, """{"reason":"other"}""", vendor: "codex");
+        await Assert.That(HandedSessionEndRequest.Outstanding(paths, SessionId)).IsTrue();
+
+        var claimed = HandedSessionEndRequest.TryClaim(paths, SessionId, "watcher")!;
+        await Assert.That(HandedSessionEndRequest.Outstanding(paths, SessionId)).IsTrue();
+
+        HandedSessionEndRequest.Release(claimed.ClaimedPath);
+        await Assert.That(HandedSessionEndRequest.Outstanding(paths, SessionId)).IsFalse();
+    }
+
     /// <summary>A request written before requests recorded a vendor is Muse's, the only vendor that handed ends over then.</summary>
     [Test]
     public async Task A_request_with_no_vendor_is_muses() {
