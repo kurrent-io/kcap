@@ -128,6 +128,7 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     ObservableAsPropertyHelper<AttachState>? _state;
     public AttachState State => _state?.Value ?? AttachState.Connecting;
     ObservableAsPropertyHelper<bool>? _loadingSessions;
+    /// The rail is empty and a lane has not finished its first listing yet.
     public bool LoadingSessions => _loadingSessions?.Value ?? true;
     ObservableAsPropertyHelper<bool>? _showsNoSessions;
     public bool ShowsNoSessions => _showsNoSessions?.Value ?? false;
@@ -148,6 +149,8 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     /// the same instance.
     public ActivityViewModel Activity { get; }
     public WebWorkspaceViewModel? Web { get; init; }
+    /// <summary>The rail footer's notification bell; null without a server.</summary>
+    public Inbox.InboxBellViewModel? Inbox { get; init; }
     public ReactiveCommand<Unit, Unit> OpenLaunchApprovalsCommand { get; }
 
     /// The launcher pane's view model, built at the composition root over the SAME
@@ -650,12 +653,21 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
                 .ToProperty(this, x => x.State, AttachState.Connecting)
                 .DisposeWith(disposables);
 
-            var loadingSessions = status.Select(s => s.State == AttachState.Connecting).DistinctUntilChanged();
-            _loadingSessions = loadingSessions
-                .ToProperty(this, x => x.LoadingSessions, true)
-                .DisposeWith(disposables);
+            // An empty rail says "No sessions" only once both lanes have had their say: the daemon has
+            // attached, and a lane that is connecting or connected has finished its first listing read.
+            var serverPending = laneStates
+                .CombineLatest(sessions?.Answered ?? Observable.Return(true), SessionsPendingOnLane)
+                .ObserveOn(RxSchedulers.MainThreadScheduler);
+            var sessionsPending = status.Select(s => s.State == AttachState.Connecting)
+                .CombineLatest(serverPending, (daemon, server) => daemon || server)
+                .DistinctUntilChanged();
             var railEmpty = Rail?.WhenAnyValueUnsafe(r => r.IsEmpty) ?? Observable.Return(false);
-            _showsNoSessions = loadingSessions.CombineLatest(railEmpty, (loading, empty) => !loading && empty)
+            var emptyRail = sessionsPending.CombineLatest(railEmpty, (pending, empty) => (Pending: pending, Empty: empty));
+            _loadingSessions = emptyRail.Select(r => r.Pending && r.Empty)
+                .DistinctUntilChanged()
+                .ToProperty(this, x => x.LoadingSessions, Rail is not null)
+                .DisposeWith(disposables);
+            _showsNoSessions = emptyRail.Select(r => !r.Pending && r.Empty)
                 .DistinctUntilChanged()
                 .ToProperty(this, x => x.ShowsNoSessions, false)
                 .DisposeWith(disposables);
@@ -1415,6 +1427,13 @@ public sealed class MainWindowViewModel : ReactiveObject, IActivatableViewModel 
     }
 
     /// Connected only on the daemon's own word, and never beside an alert, so the two cannot disagree.
+    // A lane with no server, signed out or retrying has nothing coming, so it holds nothing back.
+    static bool SessionsPendingOnLane(ServerLaneStatus lane, bool answered) => lane.State switch {
+        ServerLaneState.Connecting => true,
+        ServerLaneState.Connected => !answered,
+        _ => false,
+    };
+
     internal static bool ShowsConnectedFor(AttachStatus status, string daemonConnection, RailAlert? alert) =>
         alert is null && status.State == AttachState.Connected && daemonConnection == "connected";
 

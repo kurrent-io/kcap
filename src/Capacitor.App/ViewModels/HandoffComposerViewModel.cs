@@ -770,7 +770,7 @@ public sealed class HandoffComposerViewModel : ReactiveObject, IDisposable, ICom
                 var uploadError = upload.Kind switch {
                     UploadKind.Uploaded => null,
                     UploadKind.Unauthorized => HomeViewModel.SignInToAttach,
-                    _ => upload.Reason ?? "the upload failed",
+                    _ => upload.FailureText,
                 };
                 if (_disposed) {
                     _drafts.HoldFailed(_session.SessionId, draft with { Error = uploadError });

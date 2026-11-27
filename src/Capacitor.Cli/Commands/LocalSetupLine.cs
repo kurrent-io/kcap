@@ -38,9 +38,13 @@ sealed record LocalSetupLine {
 
     public long? Bytes { get; init; }
 
+    public long? BytesLeft { get; init; }
+
     public string? Sha256 { get; init; }
 
     public string? Path { get; init; }
+
+    public bool? ClientIsDesktopApp { get; init; }
 
     public string? Unit { get; init; }
 

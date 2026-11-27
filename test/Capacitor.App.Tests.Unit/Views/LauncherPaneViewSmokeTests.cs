@@ -30,16 +30,6 @@ namespace Capacitor.App.Tests.Unit.Views;
 public class LauncherPaneViewSmokeTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
-    [Test]
-    public async Task Folder_access_accepts_a_picker_path_through_a_symlink() {
-        Skip.When(OperatingSystem.IsWindows(), "Unix folder picker aliases; Windows symlinks require privileges");
-        var repository = Directory.CreateDirectory(Tmp.PathTo("repository")).FullName;
-        var alias = Tmp.PathTo("alias");
-        Directory.CreateSymbolicLink(alias, repository);
-        await Assert.That(LauncherPaneView.IsSameRepositoryFolder(alias + Path.DirectorySeparatorChar, repository)).IsTrue();
-        await Assert.That(LauncherPaneView.IsSameRepositoryFolder(Tmp.PathTo("other"), repository)).IsFalse();
-    }
-
     /// A row's ▶ and menu show under the pointer, on the picked row and while the menu is open, not on the focus a click
     /// leaves behind.
     [Test]
@@ -689,7 +679,10 @@ public class LauncherPaneViewSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task StartErrorText_visibility_follows_StartError() {
+    [Arguments("Daemon 'kcap-dev' is at capacity.", "Daemon 'kcap-dev' is at capacity. " + HomeViewModel.AtCapacityAdvice)]
+    [Arguments("Unable to load shared library 'libpty_shim' or one of its dependencies.\nDYLD_PRINT_LIBRARIES\ndlopen(/Applications/kcap.app/Contents/MacOS/libpty_shim.dylib)",
+        HomeViewModel.TerminalComponentUnavailable)]
+    public async Task Start_error_shows_readable_copy_until_the_next_success(string failure, string expected) {
         var (visibleBefore, visibleAfterFailure, errorMessage, visibleAfterSuccess) = await AvaloniaSession.DispatchAsync(async () => {
             var (vm, _, launch, tmp) = Build();
             using var _tmp = tmp;
@@ -702,7 +695,7 @@ public class LauncherPaneViewSmokeTests {
             var before = errorText.IsVisible;
 
             await vm.SelectRepositoryAsync("/repos/kcap-cli");
-            launch.Next = new LaunchOutcome(false, null, "Daemon 'kcap-dev' is at capacity.");
+            launch.Next = new LaunchOutcome(false, null, failure);
             await vm.StartCommand.Execute();
             Dispatcher.UIThread.RunJobs();
             var afterFailure = errorText.IsVisible;
@@ -722,7 +715,7 @@ public class LauncherPaneViewSmokeTests {
 
         await Assert.That(visibleBefore).IsFalse();
         await Assert.That(visibleAfterFailure).IsTrue();
-        await Assert.That(errorMessage).IsEqualTo("Daemon 'kcap-dev' is at capacity.");
+        await Assert.That(errorMessage).IsEqualTo(expected);
         await Assert.That(visibleAfterSuccess).IsFalse();
     }
 

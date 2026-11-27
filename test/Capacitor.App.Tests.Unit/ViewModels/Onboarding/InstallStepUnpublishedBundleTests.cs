@@ -58,7 +58,7 @@ public class InstallStepUnpublishedBundleTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task Off_windows_an_unpublished_bundle_keeps_the_installers_own_words() {
+    public async Task Off_windows_an_unpublished_bundle_explains_how_to_continue() {
         var cli = Fails("bundle_not_published", "No local bundle is published at https://dl.test/osx-arm64/kcap-local-1.3.0-osx-arm64.json.");
 
         var (message, title, tryAgain, other, progress) = await AvaloniaSession.DispatchAsync(async () => {
@@ -68,7 +68,7 @@ public class InstallStepUnpublishedBundleTests {
             return (install.FailureMessage, install.Title, install.TryAgainVisible, install.OtherEditionVisible, install.ProgressVisible);
         });
 
-        await Assert.That(message).IsEqualTo("No local bundle is published at https://dl.test/osx-arm64/kcap-local-1.3.0-osx-arm64.json.");
+        await Assert.That(message).IsEqualTo("A local server download isn't available for this version of kcap. Update kcap when a newer version is available, then try setup again.");
         await Assert.That(title).IsEqualTo($"Installing kcap on {ThisDevice.Name}");
         await Assert.That(tryAgain).IsFalse();
         await Assert.That(other).IsFalse();

@@ -25,6 +25,8 @@ internal static class Program
     static AppCrashLog? _crashLog;
 
     internal static void StopCrashLoggingForUninstall() => _crashLog = null;
+    internal static void RecordStartupFailure(Exception ex) => _crashLog?.Record("startup", ex);
+    internal static string? StartupCrashLogPath => _crashLog?.Path;
 
     [STAThread]
     public static void Main(string[] args) {

@@ -1,4 +1,8 @@
 using System.Globalization;
+using System.Security.Cryptography;
+using System.Text;
+using Capacitor.Cli.Core.Config;
+using Capacitor.Cli.Core.Skills;
 using System.Text.Json.Nodes;
 
 namespace Capacitor.Cli.Core.Telemetry;
@@ -9,8 +13,34 @@ namespace Capacitor.Cli.Core.Telemetry;
 /// a permanently offline machine can never grow the file without limit.
 /// </summary>
 public sealed class TelemetrySpool(string path, int maxEvents = 2000) {
-    /// The spool every kcap process sharing this config directory reads and writes.
-    public static TelemetrySpool For(ConfigRoot config) => new(config.Path("telemetry-spool.jsonl"));
+    const string DefaultName = "telemetry-spool.jsonl";
+
+    /// <summary>
+    /// The spool every kcap process sharing this config directory and sending to
+    /// <paramref name="endpoint"/> reads and writes. One per endpoint, so an event captured under one
+    /// profile's host is never replayed to another's; the default host keeps the unsuffixed name an
+    /// older CLI wrote.
+    /// </summary>
+    public static TelemetrySpool For(ConfigRoot config, string endpoint = HostsSettings.DefaultTelemetry) {
+        var key = endpoint.Trim().TrimEnd('/').ToLowerInvariant();
+
+        if (key == HostsSettings.DefaultTelemetry) return new(config.Path(DefaultName));
+
+        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(key)))[..16];
+
+        return new(config.Path($"telemetry-spool-{hash}.jsonl"));
+    }
+
+    /// <summary>Deletes every endpoint's spool and unreachable marker.</summary>
+    public static void ClearAll(ConfigRoot config) {
+        try {
+            var dir = Path.GetDirectoryName(config.Path(DefaultName))!;
+            if (!Directory.Exists(dir)) return;
+
+            foreach (var file in Directory.EnumerateFiles(dir, "telemetry-spool*"))
+                try { File.Delete(file); } catch { /* ignored */ }
+        } catch { /* ignored */ }
+    }
 
     public void Append(IReadOnlyList<TelemetryEvent> events) {
         if (events.Count == 0) return;
@@ -65,6 +95,34 @@ public sealed class TelemetrySpool(string path, int maxEvents = 2000) {
             // can't reliably create (exclusive locks), so this is not unit-tested. The constraint
             // is absolute: a failed delete means duplicates on the next drain, not lost events.
         }
+    }
+
+    string UnreachablePath => path + ".unreachable";
+
+    /// <summary>When a send last failed to reach the host, for every kcap process sharing the spool.</summary>
+    public DateTimeOffset? UnreachableSince() {
+        try {
+            return File.Exists(UnreachablePath)
+                && DateTimeOffset.TryParse(File.ReadAllText(UnreachablePath), CultureInfo.InvariantCulture, DateTimeStyles.None, out var at)
+                ? at
+                : null;
+        } catch {
+            return null;
+        }
+    }
+
+    public void MarkUnreachable(DateTimeOffset at) {
+        try {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            // Replaced whole, so a concurrent UnreachableSince never reads a truncated marker as no marker.
+            AtomicFile.Replace(UnreachablePath, at.ToString("o", CultureInfo.InvariantCulture));
+        } catch { /* ignored */ }
+    }
+
+    public void ClearUnreachable() {
+        try {
+            if (File.Exists(UnreachablePath)) File.Delete(UnreachablePath);
+        } catch { /* ignored */ }
     }
 
     void Trim() {

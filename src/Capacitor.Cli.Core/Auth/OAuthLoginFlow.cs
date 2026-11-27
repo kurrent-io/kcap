@@ -28,9 +28,10 @@ public static class OAuthLoginFlow {
     internal static async Task<AuthDiscoveryResponse?> FetchAuthConfigAsync(
             HttpClient http, string serverUrl, CancellationToken ct, IAuthProgress progress) {
         HttpResponseMessage configResponse;
+        var                 asked = new Uri($"{serverUrl}/auth/config");
 
         try {
-            configResponse = await http.GetAsync($"{serverUrl}/auth/config", ct);
+            configResponse = await http.GetAsync(asked, ct);
         } catch (HttpRequestException ex) {
             progress.Error(HttpClientExtensions.UnreachableErrorText(serverUrl, ex));
 
@@ -43,7 +44,9 @@ public static class OAuthLoginFlow {
 
         if (config is null) progress.Error($"Error: Failed to fetch auth config from {serverUrl}/auth/config");
 
-        return config;
+        return config is null
+            ? null
+            : config with { MachineTokenUrl = AuthProviderDiscovery.TrustedTokenUrl(asked, configResponse, config.MachineTokenUrl) };
     }
 
     internal static GitHubFlow ChooseGitHubFlow(bool forceDevice, bool isHeadless, bool hasExchangeUrl)

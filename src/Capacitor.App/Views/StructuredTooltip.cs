@@ -19,8 +19,8 @@ public sealed class StructuredTooltip : AvaloniaObject, IDisposable {
 
     public static IMultiValueConverter Session { get; } = new FuncMultiValueConverter<object?, KcapTip?>(values => {
         var fields = values.ToArray();
-        return fields is [AgentStatusPresentation status, var title, var machine, var checkout]
-            ? KcapTip.Session(status, title as string, machine as string, checkout as string) : null;
+        return fields is [AgentStatusPresentation status, var title, var machine, var checkout, var laneNote]
+            ? KcapTip.Session(status, title as string, machine as string, checkout as string, laneNote as string) : null;
     });
 
     readonly Control _target;

@@ -21,6 +21,7 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Capacitor.App.Services;
 using Capacitor.App.Services.Composer;
+using Capacitor.App.Services.Inbox;
 using Capacitor.App.Services.CliAdoption;
 using Capacitor.App.Services.LocalSetup;
 using Capacitor.App.Services.Mutation;
@@ -30,10 +31,12 @@ using Capacitor.App.Services.Update;
 using Capacitor.Cli.Core.Install;
 using Capacitor.App.ProgressiveDisclosure;
 using Capacitor.App.ViewModels;
+using Capacitor.App.ViewModels.Inbox;
 using Capacitor.App.ViewModels.NextWork;
 using Capacitor.App.ViewModels.Onboarding;
 using ReactiveUI.Reactive;
 using Capacitor.App.Views;
+using Capacitor.App.Views.Inbox;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Auth;
@@ -118,9 +121,9 @@ public partial class App : Application {
     readonly UiScaleSetting _uiScale;
     readonly string? _openingDesktopColorScheme;
     readonly IReadOnlyDictionary<string, string>? _openingDesktopAppearance;
-    ClassicAppearancePreview? _classicPreview;
+    DesktopColorSchemeSettings? _colorScheme;
     DesktopAppearanceSettings? _desktopAppearance;
-    CompositeDisposable? _classicPreviewSubscription;
+    CompositeDisposable? _appearanceSubscription;
     ChatMarksFiles? _chatMarksFiles;
     readonly ProgressiveDisclosurePreferences? _progressiveDisclosure;
     readonly BetaUpdatesSetting _betaUpdates;
@@ -302,6 +305,7 @@ public partial class App : Application {
     AgentDirectory? _directory;
     ServerVendorModelCatalog? _modelCatalog;
     GitHubCliReaderProvider? _gh;
+    GitHubLinkStatuses? _githubLinks;
     TrayViewModel? _trayVm;
     TrayIconManager? _tray;
     DaemonRestartPendingWatcher? _restartPending;
@@ -311,7 +315,7 @@ public partial class App : Application {
     // disposed, and the window that owns dialogs while no main window exists. Both are cleared again
     // by the handoff at the end of RunWizardModeAsync.
     WizardAuthService? _wizardAuth;
-    // The History step, kept past the handoff: its import outlives onboarding and only shutdown stops it.
+    // The History step, kept past the handoff: its import outlives onboarding, so shutdown must still stop it.
     HistoryStepViewModel? _historyImport;
     // Imports of earlier chats started from Settings → Harnesses; shutdown stops every one like setup's.
     readonly List<HistoryImportRun> _settingsImports = [];
@@ -324,11 +328,12 @@ public partial class App : Application {
     // The onboarding window once its flow has finished, waiting for BuildAndShowMainWindow to take
     // it over so the main surface opens in place rather than in a second window.
     (MainWindow Window, AppState State)? _adoptableWindow;
-    // Steady-state re-auth dialog, one at a time — a second Sign in click focuses it. The settle
+    // Steady-state re-auth dialog, one at a time, and the graph it runs on. The settle
     // task is FinishSignInAsync for the most recent close; shutdown awaits it so a live attempt is
     // cancelled (or a commit past the boundary finishes) before the process exits — the dialog's
     // counterpart of the wizard sign-in quiesce.
     SignInWindow? _signInWindow;
+    ReauthGraph? _signInGraph;
     SettingsWindow? _settingsWindow;
     readonly BehaviorSubject<Action?> _openSearchSettings = new(null);
     readonly BehaviorSubject<Func<bool>?> _openHarnessesSettings = new(null);
@@ -371,6 +376,10 @@ public partial class App : Application {
 
     public override void Initialize() {
         AvaloniaXamlLoader.Load(this);
+        // The themed brushes are declared without colors. A fixed Light start keeps the headless tests
+        // independent of the machine's theme; the app paints the saved or system scheme before its first window.
+        if (!new DesktopPalette(this).TryApply(DesktopTheme.Light))
+            throw new InvalidOperationException("The Light theme in Design/Themes.axaml is missing a palette entry.");
         ScrollReveal.Register();
         ProgressiveDisclosureViewModel.Shared.Restore(_progressiveDisclosure, _appState);
         LineSelection.Install();
@@ -392,6 +401,8 @@ public partial class App : Application {
                 () => _shutdownStarted ? null : MainWindowAction(_coordinator), AppKitDock.SetVisible);
             _windowLifecycle = windowLifecycle;
             desktop.Exit += (_, _) => { windowLifecycle.Dispose(); Program.Host.Dispose(); };
+            // The install, update and uninstall paths below can open dialogs: they open in the user's scheme.
+            ConfigureDesktopAppearance();
             Program.Host.SingleInstance.UninstallRequested += () => Dispatcher.UIThread.Post(() => {
                 // A copy started to uninstall is already asking or removing; a second question would start a second removal.
                 if (_shutdownStarted || _uninstalling || _uninstallRun is not null || _uninstallMode is not null) return;
@@ -452,10 +463,6 @@ public partial class App : Application {
                 if (RunInstallLocationGuard(desktop)) return; // the guard window owns the rest of this run
                 if (await RunLegacyInstallGuardAsync(desktop)) return;
             }
-            var appearanceFlag = new ExperimentalSwitch(new ExperimentalSettingsStore(_config), profile: null, ExperimentalFeatures.DesktopAppearance);
-            var appearanceEnabled = await Task.Run(() => appearanceFlag.IsOn, _shutdown.Token);
-            if (_shutdown.IsCancellationRequested) return;
-            ConfigureDesktopAppearance(appearanceFlag, appearanceEnabled);
             _updater = CreateUpdater(_betaUpdates);
             if (UpdateCoordinator.TryApplyPendingAtStartup(_updater, Program.Host.UpdateRelaunch,
                     HandOver(AppUpdateTransition.PendingAtStartup), LifecycleLog)) return; // the process is being replaced
@@ -548,6 +555,7 @@ public partial class App : Application {
             if (_wizardWindow is { IsVisible: true } wizard) wizard.Close();
             if (TakeAdoptableWindow() is { } adoptable) adoptable.Window.Close();
             Console.Error.WriteLine($"kcap app failed to start: {ex}");
+            Program.RecordStartupFailure(ex);
             await QuiesceAppAsync(_wizardAuth, _historyImport, _localInstall,
                 lifecycle: null, lane: null, QuiesceShutdownCap, _time);
             await _workspaceTeardown.DrainAsync();
@@ -1123,48 +1131,29 @@ public partial class App : Application {
     internal static bool ShouldShowWizard(GateResult gate, string[]? args, bool firstRunAfterInstall = false) =>
         gate is GateResult.Incomplete || firstRunAfterInstall || args?.Contains("--setup", StringComparer.Ordinal) == true;
 
-    void ConfigureDesktopAppearance(ExperimentalSwitch flag, bool enabledAtStartup) {
-        var palette = new ClassicPreviewPalette(this);
+    void ConfigureDesktopAppearance() {
+        var palette = new DesktopPalette(this);
         var platform = PlatformSettings;
+        var system = new SystemColorScheme(platform, OperatingSystem.IsLinux() ? LinuxColorScheme.PrefersDark() : null);
         var systemChanges = platform is null ? Observable.Never<Unit>() :
             Observable.FromEventPattern<PlatformColorValues>(h => platform.ColorValuesChanged += h, h => platform.ColorValuesChanged -= h)
                 .Select(_ => Unit.Default).ObserveOn(RxSchedulers.MainThreadScheduler);
-        var preview = new ClassicAppearancePreview(_appState, _openingDesktopColorScheme,
-            palette.TryApply, () => platform?.GetColorValues().ThemeVariant != PlatformThemeVariant.Light, systemChanges);
         var reading = new DesktopReadingResources(this);
         var contrastWatch = new SerialDisposable();
-        var zoomWatch = new SerialDisposable();
+        // Contrast is settled before the first paint, so the scheme paints once.
         var appearance = new DesktopAppearanceSettings(_appState, _openingDesktopAppearance, preferences => {
             reading.Apply(preferences);
-            var highContrast = preferences?.HighContrast == true;
+            var highContrast = preferences.HighContrast;
             void ApplyContrast() => palette.SetHigherContrast(highContrast ||
                 platform?.GetColorValues().ContrastPreference == ColorContrastPreference.High);
-            contrastWatch.Disposable = preferences is not null && !highContrast
-                ? systemChanges.Subscribe(_ => ApplyContrast()) : null;
-            if (preferences is null) palette.SetHigherContrast(false);
-            else ApplyContrast();
+            contrastWatch.Disposable = !highContrast ? systemChanges.Subscribe(_ => ApplyContrast()) : null;
+            ApplyContrast();
         });
-        void SetEnabled(bool enabled) {
-            if (appearance.Enabled == enabled) return;
-            if (enabled) {
-                zoomWatch.Disposable = _uiScale.Changes.ObserveOn(RxSchedulers.MainThreadScheduler)
-                    .Subscribe(reading.SetZoom);
-                appearance.SetEnabled(true);
-                preview.SetEnabled(true);
-            } else {
-                preview.SetEnabled(false);
-                appearance.SetEnabled(false);
-                zoomWatch.Disposable = null;
-            }
-        }
-
-        SetEnabled(enabledAtStartup);
-        _classicPreview = preview;
+        var zoomWatch = _uiScale.Changes.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(reading.SetZoom);
+        _colorScheme = new DesktopColorSchemeSettings(_appState, _openingDesktopColorScheme,
+            palette.TryApply, () => system.IsDark, systemChanges);
         _desktopAppearance = appearance;
-        _classicPreviewSubscription = new CompositeDisposable(contrastWatch, zoomWatch, _experimentalSaved.Merge(
-                Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default))
-            .ObserveOn(TaskPoolScheduler.Default).Select(_ => flag.IsOn).DistinctUntilChanged()
-            .ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(SetEnabled));
+        _appearanceSubscription = new CompositeDisposable(system, contrastWatch, zoomWatch);
     }
 
     void BuildDaemonGraph(
@@ -1372,6 +1361,8 @@ public partial class App : Application {
         var railShown = new ReplaySubject<Func<AgentRow, bool>>(1);
         var pullRequestTones = new PullRequestToneCache(directory, readers, TimeProvider.System, railShown);
         _pullRequestTones = pullRequestTones;
+        var githubLinks = _githubLinks = new GitHubLinkStatuses(new GitHubCliLinkLookup(gh, _gh, _time).LookUpAsync, _time,
+            RxSchedulers.MainThreadScheduler, pullRequestTones.Summaries);
         _permissionFeed = permissionFeed;
         _attention = attention;
 
@@ -1595,7 +1586,7 @@ public partial class App : Application {
                 agentsAwaitingAnswer: permissions.AgentsAwaitingAnswer, agentsRunningWork: commands.Running,
                 requestSignIn: requestSignIn,
                 lifecycleAttention: lifecycleAttention, identityReport: lifecycle.IdentityReport,
-                pullRequestSummaries: pullRequestTones.Summaries, railShown: railShown,
+                pullRequestSummaries: pullRequestTones.Summaries, railShown: railShown, githubLinks: githubLinks,
                 directory: directory, remoteAgents: remoteAgents, lane: serverLane, localAccounts: accounts.Snapshot, readings: readings,
                 viewerId: viewerId, localMachineId: machineId, restartPending: restartPending.Wait,
                 daemonOnOtherInstall: daemonOnOtherInstall,
@@ -1624,6 +1615,8 @@ public partial class App : Application {
                 nextWork: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : new NextWorkApi(sessionHttp, profiles),
                 openUrl: url => LinkPolicy.Open(opener, url), pickers: pickers, sessionCli: lifecycleCli,
                 nextWorkEnabled: () => launcherNextWork.IsOn,
+                inbox: string.IsNullOrEmpty(profiles?.Resolution.ServerUrl) ? null : new InboxApi(sessionHttp, profiles),
+                inboxSignInCompleted: serverClients.SignInCompleted,
                 nextWorkSwitchMayChange: _experimentalSaved.Merge(
                     Window.IsActiveProperty.Changed.Where(change => change.NewValue.GetValueOrDefault()).Select(_ => Unit.Default)))))),
             releaseWorkspace: window => (window.DataContext as MainWindowViewModel)?.CloseWorkspace(),
@@ -2034,7 +2027,7 @@ public partial class App : Application {
                             _userHome, AccountStore.Beside(_daemonStore).TryLoad() ?? new AccountRegistry(), Environment.GetEnvironmentVariable),
                         pickDirectory: PickAccountDirectoryAsync, daemonStatus: service.Status, usageClock: _usageClock, appLifetime: _shutdown.Token)
                     : null,
-                Appearance = new AppearanceSettingsViewModel(_uiScale, _classicPreview, _desktopAppearance),
+                Appearance = new AppearanceSettingsViewModel(_uiScale, _colorScheme, _desktopAppearance),
                 Privacy    = new PrivacySettingsViewModel(_telemetry, _config, _usageNotice),
                 Search     = _localStack?.Search,
                 Intelligence = _localUpgrade is { } upgrade && _localSearch is { } search
@@ -2047,7 +2040,8 @@ public partial class App : Application {
                     followsBetas: () => _updater.AllowsPrerelease, setBetaUpdates: SetBetaUpdatesAsync, appLifetime: _shutdown.Token),
             };
         } catch (Exception ex) {
-            notifier.Notify($"Could not open settings: {ex.Message}");
+            Console.Error.WriteLine($"kcap: could not open settings: {ex.Message}");
+            notifier.Notify("Could not open settings. Try again.");
             return false;
         }
 
@@ -2135,6 +2129,7 @@ public partial class App : Application {
     void OpenSignInDialog(string profile, string serverUrl, bool refreshAppState) {
         if (_signInWindow is { } open) {
             open.Activate();
+            if (_signInGraph is { } openGraph) _ = openGraph.SignInAgainAsync(profile, serverUrl);
             return;
         }
 
@@ -2168,10 +2163,12 @@ public partial class App : Application {
         window.Closed += (_, _) => {
             graph.SignIn.PropertyChanged -= OnSignInChanged;
             _signInWindow = null;
+            _signInGraph  = null;
             _reauthSettle = FinishSignInAsync(graph, refreshAppState);
         };
 
         _signInWindow = window;
+        _signInGraph  = graph;
         window.Show();
     }
 
@@ -2484,9 +2481,6 @@ public partial class App : Application {
             try {
                 await service.DisposeAsync();
             } catch (Exception disposeEx) {
-                // The ORIGINAL startup exception (ex, already captured and about to be shown
-                // below) must never be masked by a secondary dispose failure — append it to the
-                // same Console.Error channel instead of letting it propagate.
                 Console.Error.WriteLine($"kcap app failed to dispose the daemon client service during startup-failure cleanup: {disposeEx}");
             }
         }
@@ -2528,7 +2522,7 @@ public partial class App : Application {
         // Showing a window is legal before Avalonia's main loop starts (StartWithClassicDesktopLifetime
         // does the same); calling desktop.Shutdown(1) directly throws when startup faulted
         // synchronously, before the main loop began.
-        var errorWindow = BuildStartupErrorWindow(ex);
+        var errorWindow = BuildStartupErrorWindow(ex, Program.StartupCrashLogPath);
         if (desktop.MainWindow is null) desktop.MainWindow = errorWindow;
         errorWindow.Closed += (_, _) => desktop.Shutdown(1);
         errorWindow.Show();
@@ -2538,11 +2532,7 @@ public partial class App : Application {
     static IBrush? KcapBrush(string key) =>
         Current?.TryGetResource(key, null, out var brush) == true ? brush as IBrush : null;
 
-    // Last-resort UI for a startup failure: Console.Error above is invisible on a normal GUI
-    // launch (OutputType=WinExe has no console), so this window is the only channel that
-    // actually reaches the user. SelectableTextBlock (not TextBlock) keeps the stack trace
-    // copyable for a bug report.
-    internal static Window BuildStartupErrorWindow(Exception ex) =>
+    internal static Window BuildStartupErrorWindow(Exception ex, string? crashLogPath = null) =>
         new() {
             Title = "kcap — startup failed",
             Icon = ProductIcon.WindowIcon,
@@ -2552,7 +2542,15 @@ public partial class App : Application {
             Foreground = KcapBrush("KcapTextBrush"),
             Content = new ScrollViewer {
                 Content = new SelectableTextBlock {
-                    Text = $"The app failed to start. Details:\n{ex}",
+                    Text = ex switch {
+                        DllNotFoundException or EntryPointNotFoundException or BadImageFormatException =>
+                            "kcap couldn’t load a required component. Update or reinstall kcap, then open it again.",
+                        UnauthorizedAccessException =>
+                            "kcap couldn’t access files it needs to start. Check your permissions, then open kcap again.",
+                        _ when crashLogPath is not null =>
+                            $"kcap couldn’t start. Close this window and open kcap again. If it keeps happening, look for the crash log at {crashLogPath} and contact support.",
+                        _ => "kcap couldn’t start. Close this window and open kcap again. Contact support if it keeps happening.",
+                    },
                     TextWrapping = TextWrapping.Wrap,
                 },
             },
@@ -2588,7 +2586,7 @@ public partial class App : Application {
             IObservable<string?>? lifecycleAttention = null, IObservable<string?>? identityReport = null,
             IObservable<IReadOnlyDictionary<string, RunningWork>>? agentsRunningWork = null,
             IObservable<IReadOnlyDictionary<string, RailPullRequestSummary>>? pullRequestSummaries = null,
-            IObserver<Func<AgentRow, bool>>? railShown = null,
+            IObserver<Func<AgentRow, bool>>? railShown = null, GitHubLinkStatuses? githubLinks = null,
             IAgentDirectory? directory = null, IRemoteAgentsService? remoteAgents = null,
             IServerLane? lane = null, IObservable<AccountsSnapshotDto?>? localAccounts = null,
             Func<CancellationToken, Task<string?>>? viewerId = null,
@@ -2614,7 +2612,10 @@ public partial class App : Application {
             IObservable<Func<bool>?>? harnessesSettingsAction = null, IObservable<NewHarnesses?>? newHarnesses = null, INextWorkApi? nextWork = null, Action<string>? openUrl = null,
             ComposerPickers? pickers = null,
             IKcapCli? sessionCli = null,
-            Func<bool>? nextWorkEnabled = null, IObservable<Unit>? nextWorkSwitchMayChange = null) {
+            Func<bool>? nextWorkEnabled = null,
+            IInboxApi? inbox = null,
+            IObservable<Unit>? inboxSignInCompleted = null,
+            IObservable<Unit>? nextWorkSwitchMayChange = null) {
         // Notifier is set on the WINDOW (the toast overlay), not the ViewModel — the toast
         // is a View-level concern (WindowNotificationManager lives on MainWindow) independent of
         // the VM's WhenActivated-scoped projections.
@@ -2644,7 +2645,7 @@ public partial class App : Application {
         HomeViewModel? homeRef = null;
         var knownRepos = new RepoPathStore(config, time).GetSortedPathsAsync;
         var enabled = nextWorkEnabled ?? (() => false);
-        var checkouts = new LocalRepoCheckouts(knownRepos, new RepoIdentityResolver());
+        var checkouts = new LocalRepoCheckouts(knownRepos);
         var nextWorkBand = nextWork is null ? null : new NextWorkBandViewModel(
             nextWork, time, appServerUrl is { Length: > 0 } seenServer ? new NextWorkSeenStore(appState, seenServer) : null,
             openUrl: openUrl, openSession: sessionId => vm?.OpenSession(sessionId, AgentOrigin.Server), notify: notifier.Notify,
@@ -2675,7 +2676,10 @@ public partial class App : Application {
             retryListing: remoteAgents is null ? null : remoteAgents.RefreshDaemonsAsync, readings: readings,
             branches: new GitBranchReader(new ProcessRunner(time), time),
             pickers: pickers,
-            launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) { LocalStack = localStack, UsageNotice = usageNotice, NextWork = nextWorkBand };
+            launchFailed: agentId => vm?.CloseFailedLaunch(agentId)) {
+                LocalStack = localStack, UsageNotice = usageNotice, NextWork = nextWorkBand,
+                OpenFolderPrivacySettings = OperatingSystem.IsMacOS() ? () => MacPrivacySettings.OpenFilesAndFolders(new ShellUrlOpener()) : null,
+            };
         homeRef = home;
         if (localServer is not null) home.AttachLocalServerRecovery(localServer);
         if (lane is ServerConnectionService serverLane) home.AttachServerRetry(() => serverLane.RestartAsync());
@@ -2727,6 +2731,26 @@ public partial class App : Application {
                 time, RxSchedulers.MainThreadScheduler, open, sidebar: () => rail.Groups.SelectMany(group => group.Sessions),
                 openSidebar: row => vm?.OpenSession(row.Id, row.IsServer ? AgentOrigin.Server : row.IsRemote ? AgentOrigin.Remote : AgentOrigin.Local) == true,
                 viewerUserId: sessions.ViewerUserId.ObserveOn(RxSchedulers.MainThreadScheduler));
+        InboxSettingsWindow? inboxSettings = null;
+        InboxBellViewModel? inboxBell = null;
+        if (inbox is not null && lane is not null) {
+            var inboxChanged = lane.NotificationsChanged;
+            inboxBell = new InboxBellViewModel(inbox, lane.Status, inboxChanged, url => openUrl?.Invoke(url), () => {
+                if (inboxSettings is { } shown) {
+                    shown.Activate();
+                    return;
+                }
+                var settingsVm = new InboxSettingsViewModel(inbox, inboxChanged, inboxBell?.PassesOffered == true,
+                    () => { if (appServerUrl is { Length: > 0 } server) openUrl?.Invoke(server); });
+                var settingsWindow = new InboxSettingsWindow { DataContext = settingsVm };
+                inboxSettings = settingsWindow;
+                settingsWindow.Closed += (_, _) => { inboxSettings = null; settingsVm.Dispose(); };
+                if (railOwner is { } owner) settingsWindow.Show(owner);
+                else settingsWindow.Show();
+            }, time, inboxSignInCompleted);
+            // One settings window serves one account; reopening it reads the account signed in now.
+            inboxBell.AccountChanged += () => inboxSettings?.Close();
+        }
         vm = new MainWindowViewModel(
             service, shutdownToken, activity, time, startAction, lifecycleStatus, home: home,
             navigation: navigation, trackWorkspaceTeardown: trackWorkspaceTeardown, workspaceFactory: workspaceFactory,
@@ -2741,16 +2765,22 @@ public partial class App : Application {
             movingToWindowsService: movingToWindowsService) {
             LocalStack = localStack,
             Web = web,
+            Inbox = inboxBell,
         };
         var window = adopt?.Window ?? new MainWindow();
         railOwner = window;
         window.DataContext = vm;
         window.Closed += (_, _) => vm.Search?.Dispose();
+        window.Closed += (_, _) => {
+            inboxSettings?.Close();
+            inboxBell?.Dispose();
+        };
         // An adopted window still holds the labels over the directory it was built with.
         window.GetValue(MarkdownView.AgentLinksProperty)?.Dispose();
         var agentLinks = new AgentLinkLabels(appServerUrl, resolvedDirectory.Rows, RxSchedulers.MainThreadScheduler);
         MarkdownView.SetAgentLinks(window, agentLinks);
         window.Closed += (_, _) => agentLinks.Dispose();
+        MarkdownView.SetGitHubLinks(window, githubLinks);
         window.Notifier = notifier;
         window.ContentScale = uiScale;
         window.Onboarding = null;
@@ -3532,8 +3562,8 @@ public partial class App : Application {
     void LatchNavigation() {
         _notificationAccessPrompt?.Dispose();
         _desktopNotifications?.Dispose();
-        _classicPreviewSubscription?.Dispose();
-        _classicPreview?.Dispose();
+        _appearanceSubscription?.Dispose();
+        _colorScheme?.Dispose();
         _desktopAppearance?.Dispose();
         _notificationBadgeSubscription?.Dispose();
         _windowLifecycle?.SetPendingNotificationCount(0);
@@ -3640,6 +3670,8 @@ public partial class App : Application {
         _sessions?.Dispose();
         _remoteAgents?.Dispose();
         _modelCatalog?.Dispose();
+        _githubLinks?.Dispose();
+        _githubLinks = null;
         if (_gh is { } gh) { _gh = null; await gh.DisposeAsync().ConfigureAwait(false); }
         if (_serverClients is null) return;
         await _serverClients.DisposeAsync().ConfigureAwait(false);

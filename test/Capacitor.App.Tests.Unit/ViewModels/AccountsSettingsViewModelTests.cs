@@ -227,7 +227,7 @@ public class AccountsSettingsViewModelTests {
 
         rig.Outcome = _ => Task.FromResult<MutationOutcome>(new MutationOutcome.Failed(1, "plugin: hooks.json is read-only", RecoverySurface.Attention));
         await vm.RewireCommand.Execute(work).ToTask();
-        await Assert.That(vm.Notice).IsEqualTo(new AccountsNotice("Could not re-wire work", "plugin: hooks.json is read-only"));
+        await Assert.That(vm.Notice).IsEqualTo(new AccountsNotice("Could not re-wire work", "Check the account settings and try again."));
         await Assert.That(vm.Groups.Single(g => g.Vendor == "claude").Notice).IsEqualTo(vm.Notice);
         await Assert.That(vm.Groups.Single(g => g.Vendor == "codex").Notice).IsNull();
 
@@ -247,7 +247,7 @@ public class AccountsSettingsViewModelTests {
     public async Task Refresh_outcome_notices() {
         await Assert.That(AccountsSettingsViewModel.OutcomeNotice(MutationVerb.AccountRefresh, "work", new MutationOutcome.Succeeded())).IsNull();
         await Assert.That(AccountsSettingsViewModel.OutcomeNotice(MutationVerb.AccountRefresh, "work", new MutationOutcome.Failed(2, null, RecoverySurface.Attention)))
-            .IsEqualTo(new AccountsNotice("Could not refresh work", "kcap's command line stopped with an error (code 2)."));
+            .IsEqualTo(new AccountsNotice("Could not refresh work", "Check the account settings and try again."));
     }
 
     [Test]
@@ -341,7 +341,7 @@ public class AccountsSettingsViewModelTests {
     public async Task Outcome_notices_name_the_action_and_never_read_an_unconfirmed_outcome_as_done() {
         await Assert.That(AccountsSettingsViewModel.OutcomeNotice(MutationVerb.AccountAdd, "work", new MutationOutcome.Succeeded())).IsNull();
         await Assert.That(AccountsSettingsViewModel.OutcomeNotice(MutationVerb.AccountRemove, "work", new MutationOutcome.Failed(2, null, RecoverySurface.Attention)))
-            .IsEqualTo(new AccountsNotice("Could not remove work", "kcap's command line stopped with an error (code 2)."));
+            .IsEqualTo(new AccountsNotice("Could not remove work", "Check the account settings and try again."));
         await Assert.That(AccountsSettingsViewModel.OutcomeNotice(MutationVerb.AccountRemove, "work", new MutationOutcome.UnconfirmedNoAttach()))
             .IsEqualTo(new AccountsNotice("Removing work could not be confirmed", "The list shows the current state.", IsWarning: true));
     }
@@ -352,8 +352,8 @@ public class AccountsSettingsViewModelTests {
     [Arguments("cli_override_missing", "Update kcap on this machine to manage accounts.")]
     [Arguments("cli_not_found", "Reinstall kcap to manage accounts.")]
     [Arguments("daemon_renamed_restart_app", "Restart the app to manage accounts.")]
-    [Arguments("some_new_refusal", "some_new_refusal")]
-    public async Task A_refusal_reads_as_what_to_do_and_an_unknown_one_keeps_its_reason(string reason, string expected) =>
+    [Arguments("some_new_refusal", "Check the account settings and try again.")]
+    public async Task A_refusal_reads_as_what_to_do_including_for_unknown_reasons(string reason, string expected) =>
         await Assert.That(AccountsSettingsViewModel.OutcomeNotice(
             MutationVerb.AccountAdd, "work", new MutationOutcome.Refused(reason, RecoverySurface.Attention)))
             .IsEqualTo(new AccountsNotice("Could not add work", expected));
@@ -439,6 +439,6 @@ public class AccountsSettingsViewModelTests {
         pending.SetResult(new MutationOutcome.Failed(1, "daemon went away", RecoverySurface.Attention));
         await removing;
 
-        await Assert.That(vm.UnplacedNotice).IsEqualTo(new AccountsNotice("Could not remove work", "daemon went away"));
+        await Assert.That(vm.UnplacedNotice).IsEqualTo(new AccountsNotice("Could not remove work", "Check the account settings and try again."));
     });
 }

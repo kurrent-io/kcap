@@ -1,0 +1,240 @@
+using System.Reactive;
+using System.Reactive.Disposables;
+using System.Reactive.Disposables.Fluent;
+using System.Reactive.Linq;
+using Avalonia.Collections;
+using Capacitor.App.Services.Inbox;
+using Capacitor.Remote.Models;
+using ReactiveUI.Reactive;
+
+namespace Capacitor.App.ViewModels.Inbox;
+
+/// <summary>The notification settings the web bell's dialog offers: Slack delivery, each type's In-app and Slack
+/// switches, and the pass controls where passes are offered. Every write is followed by a re-read, so the switches
+/// always show what the server holds. One window serves one account: the app closes it when the signed-in account
+/// changes.</summary>
+public sealed class InboxSettingsViewModel : ReactiveObject, IDisposable {
+    readonly IInboxApi _api;
+    readonly CompositeDisposable _disposables = new();
+    readonly CancellationTokenSource _lifetime = new();
+    readonly AvaloniaList<InboxTypeRowViewModel> _types = new();
+    readonly AvaloniaList<InboxMutedSenderViewModel> _muted = new();
+    // Every reload and every write advances it, so a read begun before a write never lands over what the write set.
+    int _generation;
+    int _mutations;
+    // Per type, the switches to send next: a write in flight is followed by only the newest pair, so the server ends on
+    // the person's last choice whatever order the requests would have completed in.
+    readonly Dictionary<string, (bool Enabled, bool SlackEnabled)> _pendingWrites = new(StringComparer.Ordinal);
+    readonly HashSet<string> _writing = new(StringComparer.Ordinal);
+    // Advances with every pass-control write; only the newest one's answer is shown.
+    int _controlWrites;
+    bool? _pendingTellAgent;
+    bool _tellWriting;
+    bool _disposed;
+
+    public IAvaloniaReadOnlyList<InboxTypeRowViewModel> Types => _types;
+    public IAvaloniaReadOnlyList<InboxMutedSenderViewModel> MutedSenders => _muted;
+    public bool PassesOffered { get; }
+
+    public bool IsLoading {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    }
+
+    public string? LoadError {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    }
+
+    public bool IsLoaded {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    }
+
+    public string SlackNote {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    } = "";
+
+    /// <summary>Slack is connected and disconnected in Chat accounts, on the web.</summary>
+    public bool CanOpenChatAccounts {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    }
+
+    public bool TellAgent {
+        get;
+        set {
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
+            if (!_applyingControls) _ = SetTellAgentAsync(value);
+        }
+    }
+
+    public bool HasMutedSenders => _muted.Count > 0;
+
+    /// <summary>The pass controls loaded: until then the section shows their error and a retry, never default values.</summary>
+    public bool PassesLoaded {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    }
+
+    public string? PassesError {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    }
+
+    /// <summary>A re-read after the window loaded failed: what is shown may be out of date, and Retry reads again.</summary>
+    public string? RefreshError {
+        get;
+        private set => this.RaiseAndSetIfChanged(ref field, value);
+    }
+
+    bool _applyingControls;
+
+    public ReactiveCommand<Unit, Unit> RetryCommand            { get; }
+    public ReactiveCommand<Unit, Unit> OpenChatAccountsCommand { get; }
+
+    public InboxSettingsViewModel(IInboxApi api, IObservable<Unit> changed, bool passesOffered, Action openChatAccounts) {
+        _api = api;
+        PassesOffered = passesOffered;
+        RetryCommand = ReactiveCommand.Create(Reload);
+        OpenChatAccountsCommand = ReactiveCommand.Create(openChatAccounts);
+        changed.ObserveOn(RxSchedulers.MainThreadScheduler).Subscribe(_ => Reload()).DisposeWith(_disposables);
+        Reload();
+    }
+
+    public void Reload() {
+        if (_disposed || _mutations > 0) return;
+        _ = LoadAsync(++_generation);
+    }
+
+    async Task LoadAsync(int generation) {
+        IsLoading = !IsLoaded;
+        LoadError = null;
+        RefreshError = null;
+        var prefs = await Guard(_api.PrefsAsync(_lifetime.Token));
+        var controls = PassesOffered ? await Guard(_api.PassControlsAsync(_lifetime.Token)) : null;
+        if (_disposed || generation != _generation) return;
+        IsLoading = false;
+        if (prefs is not { Kind: InboxReadKind.Ready, Value: { } value }) {
+            if (IsLoaded) RefreshError = "Couldn't refresh your notification preferences. What's shown may be out of date.";
+            else LoadError = "Couldn't load your notification preferences.";
+            return;
+        }
+        ApplyPrefs(value);
+        IsLoaded = true;
+        if (!PassesOffered) return;
+        if (controls is { Kind: InboxReadKind.Ready, Value: { } c }) {
+            ApplyControls(c);
+            PassesLoaded = true;
+            PassesError = null;
+        } else if (!PassesLoaded) {
+            PassesError = "Couldn't load your pass settings.";
+        } else {
+            RefreshError = "Couldn't refresh your pass settings. What's shown may be out of date.";
+        }
+    }
+
+    // A write invalidates every read already in flight; once the last write settles, one fresh read shows the result.
+    async Task MutateAsync(Func<Task> write) {
+        _generation++;
+        _mutations++;
+        try {
+            await write();
+        } finally {
+            _mutations--;
+        }
+        if (_mutations == 0) Reload();
+    }
+
+    void ApplyPrefs(NotificationPrefsDto prefs) {
+        var connected = prefs.Slack.Delivery == "connected";
+        SlackNote = !prefs.Slack.TenantConfigured ? "Ask your admin to set up the Slack notifications app to receive these in Slack."
+            : connected                            ? "Enabled types arrive as Slack direct messages"
+            : prefs.Slack.Delivery == "needs_reconnect" ? "Slack delivery stopped. Reconnect Slack in Chat accounts on the kcap web app to resume"
+            : "Connect Slack in Chat accounts on the kcap web app to receive these in Slack";
+        CanOpenChatAccounts = prefs.Slack.TenantConfigured && !connected;
+
+        var same = _types.Count == prefs.Types.Count && _types.Zip(prefs.Types).All(p => p.First.Type == p.Second.Type && p.First.SlackUsable == (p.Second.SlackCapable && connected));
+        if (same) {
+            foreach (var (row, dto) in _types.Zip(prefs.Types)) row.Apply(dto);
+            return;
+        }
+        _types.Clear();
+        _types.AddRange(prefs.Types.Select(t => new InboxTypeRowViewModel(t, connected, WriteTypeAsync)));
+    }
+
+    void ApplyControls(PassControlsDto controls) {
+        _applyingControls = true;
+        try {
+            TellAgent = !controls.AgentOptedOut;
+        } finally {
+            _applyingControls = false;
+        }
+        _muted.Clear();
+        _muted.AddRange(controls.MutedSenders.Select(s => new InboxMutedSenderViewModel(s.UserId, s.Name,
+            ReactiveCommand.CreateFromTask(() => UnmuteAsync(s.UserId)))));
+        this.RaisePropertyChanged(nameof(HasMutedSenders));
+    }
+
+    // The whole queue for a type drains inside one mutation, so no read lands between its writes.
+    async Task WriteTypeAsync(InboxTypeRowViewModel row, bool enabled, bool slackEnabled) {
+        if (_disposed) return;
+        _pendingWrites[row.Type] = (enabled, slackEnabled);
+        if (!_writing.Add(row.Type)) return;
+        try {
+            await MutateAsync(async () => {
+                while (!_disposed && _pendingWrites.Remove(row.Type, out var pair))
+                    await Guard(_api.PutPrefAsync(row.Type, pair.Enabled, pair.SlackEnabled, _lifetime.Token));
+            });
+        } finally {
+            _writing.Remove(row.Type);
+        }
+    }
+
+    // Only the newest choice is sent after the one in flight, so the server ends on the last toggle.
+    async Task SetTellAgentAsync(bool tell) {
+        _pendingTellAgent = tell;
+        if (_tellWriting) return;
+        _tellWriting = true;
+        try {
+            while (!_disposed && _pendingTellAgent is { } next) {
+                _pendingTellAgent = null;
+                await ControlsAsync(() => _api.SetAgentOptOutAsync(!next, _lifetime.Token));
+            }
+        } finally {
+            _tellWriting = false;
+        }
+    }
+
+    Task UnmuteAsync(string senderId) => ControlsAsync(() => _api.UnmuteAsync(senderId, _lifetime.Token));
+
+    Task ControlsAsync(Func<Task<InboxRead<PassControlsDto>>> write) {
+        if (_disposed) return Task.CompletedTask;
+        var dispatched = ++_controlWrites;
+        return MutateAsync(async () => {
+            var read = await Guard(write());
+            // Only the newest write's answer describes the server; an older one, or one with a toggle still to send,
+            // would put a superseded value on screen.
+            if (_disposed || dispatched != _controlWrites || _pendingTellAgent is not null) return;
+            if (read is { Kind: InboxReadKind.Ready, Value: { } c }) ApplyControls(c);
+        });
+    }
+
+    async Task<T?> Guard<T>(Task<T> read) {
+        try {
+            return await read;
+        } catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) {
+            return default;
+        }
+    }
+
+    public void Dispose() {
+        if (_disposed) return;
+        _disposed = true;
+        _disposables.Dispose();
+        try { _lifetime.Cancel(); } catch (ObjectDisposedException) { }
+        _lifetime.Dispose();
+    }
+}

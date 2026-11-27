@@ -197,6 +197,7 @@ public sealed class LocalInstallController(
                 break;
             // A run the app's own quit stopped is not an install failure.
             case LocalInstallOutcome.Failed f when !quitting:
+                Console.Error.WriteLine($"kcap: local installation failed ({f.Code}): {f.Message}");
                 funnel.LocalInstallFailed(f.Code ?? unexplained, f.LockedToLocal);
                 break;
         }

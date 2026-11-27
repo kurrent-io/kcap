@@ -116,6 +116,7 @@ public class ServerConnectionServiceTests {
         [HubBroadcasts.SessionAccessChanged]    = ["s1"],
         [HubBroadcasts.RawStreamAccessRevoked]  = ["AgentSession-s1"],
         [HubBroadcasts.HeldMessagesChanged]     = ["a1"],
+        [HubBroadcasts.NotificationsChanged]    = [],
     };
 
     /// A push carrying arguments that no handler binds is dropped only after the client throws and
@@ -198,6 +199,27 @@ public class ServerConnectionServiceTests {
         await Assert.That(outcome.Started).IsTrue();
         await Assert.That(outcome.AgentId).IsEqualTo("agent-42");
         await Assert.That(HubTestHost.LaunchCalls).IsEqualTo(1);
+    }
+
+    [Test]
+    public async Task A_failed_launch_records_the_exception_in_the_lifecycle_log() {
+        const string diagnostic = "test launch diagnostic";
+        await using var host = await HubTestHost.StartAsync();
+        HubTestHost.LaunchHandler = _ => throw new HubException(diagnostic);
+        (string Key, string? Value)[]? failure = null;
+        await using var lane = new ServerConnectionService(TimeProvider.System, host.Url, () => Task.FromResult<string?>(null),
+            log: (evt, fields) => {
+                if (evt == "server_launch_failed") failure = fields;
+            });
+        lane.Start();
+        await Next(lane.Status, s => s.State == ServerLaneState.Connected);
+
+        var outcome = await lane.StartAsync(new LaunchRequest("work-mac", "/work/repo", "claude", null), CancellationToken.None);
+
+        await Assert.That(outcome.Started).IsFalse();
+        await Assert.That(failure).IsNotNull();
+        await Assert.That(failure!.Single(field => field.Key == "detail").Value).Contains(diagnostic);
+        await Assert.That(failure.Single(field => field.Key == "exception_type").Value).IsEqualTo("HubException");
     }
 
     [Test]

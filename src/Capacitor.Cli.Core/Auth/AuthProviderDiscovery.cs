@@ -18,6 +18,8 @@ public sealed class AuthProviderDiscovery(IHttpClientFactory factory, TimeProvid
     // before it can answer correctly.
     readonly ConcurrentDictionary<string, string> _memo = new(StringComparer.Ordinal);
 
+    readonly ConcurrentDictionary<string, string?> _machineTokenUrls = new(StringComparer.Ordinal);
+
     public async Task<string> DiscoverAsync(
             string baseUrl, ConfigRoot config, ProfileContext profiles, TokenStore store,
             CancellationToken ct = default) {
@@ -42,26 +44,74 @@ public sealed class AuthProviderDiscovery(IHttpClientFactory factory, TimeProvid
             return cached;
         }
 
+        if (await FetchAsync(baseUrl, config, ct) is { } provider) return provider;
+
+        // Fallback: try existing tokens (don't cache — allow re-discovery next time)
+        return (await store.LoadForProfileAsync(profiles.Name, ct))?.Provider ?? "None";
+    }
+
+    /// <summary>
+    /// The server's <c>machine_token_url</c>, or null when it names none or cannot be asked — the
+    /// caller then falls back to the default endpoint. A cached entry written without the field
+    /// is not an answer, so it is asked again.
+    ///
+    /// <para>Only a server reached over https, or http on loopback, is believed: the mint sends the
+    /// client secret to this URL, so a plaintext <c>/auth/config</c> anyone on the path could rewrite
+    /// would hand them the credential.</para>
+    /// </summary>
+    public async Task<string?> MachineTokenUrlAsync(string baseUrl, ConfigRoot config, CancellationToken ct = default) {
+        if (!MayNameTokenUrl(baseUrl)) return null;
+
+        if (_machineTokenUrls.TryGetValue(baseUrl, out var memo)) return memo;
+
+        if (AuthProviderCache.TryGetMachineTokenUrl(baseUrl, config, time, out var cached)) {
+            _machineTokenUrls[baseUrl] = cached;
+
+            return cached;
+        }
+
+        await FetchAsync(baseUrl, config, ct);
+
+        return _machineTokenUrls.GetValueOrDefault(baseUrl);
+    }
+
+    /// <summary>
+    /// The <c>machine_token_url</c> an <c>/auth/config</c> answer may record, or null. Every writer of
+    /// the field goes through this: the mint sends the client secret there.
+    ///
+    /// <para>The anonymous lane follows redirects, and a plaintext hop anywhere in the chain could have
+    /// rewritten the answer, so only an unredirected answer from a server reached safely names it.</para>
+    /// </summary>
+    public static string? TrustedTokenUrl(Uri asked, HttpResponseMessage response, string? named) =>
+        response.RequestMessage?.RequestUri == asked && MayNameTokenUrl(asked.AbsoluteUri) ? named : null;
+
+    static bool MayNameTokenUrl(string baseUrl) =>
+        Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri)
+     && (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback));
+
+    async Task<string?> FetchAsync(string baseUrl, ConfigRoot config, CancellationToken ct) {
         using var http = factory.CreateClient(CapacitorClients.Anonymous);
 
         try {
-            var response = await http.GetAsync($"{baseUrl}/auth/config", ct);
+            var request  = new Uri($"{baseUrl}/auth/config");
+            var response = await http.GetAsync(request, ct);
 
             if (response.IsSuccessStatusCode) {
                 var discovered = await response.Content.ReadFromJsonAsync(CapacitorJsonContext.Default.AuthDiscoveryResponse, ct);
                 var provider   = discovered?.Provider ?? "None";
-                _memo[baseUrl] = provider;
-                AuthProviderCache.Set(baseUrl, provider, config, time); // only cache successful discovery
+                var tokenUrl   = TrustedTokenUrl(request, response, discovered?.MachineTokenUrl);
+                _memo[baseUrl]             = provider;
+                _machineTokenUrls[baseUrl] = tokenUrl;
+                AuthProviderCache.Set(baseUrl, provider, config, time, tokenUrl); // only cache successful discovery
 
                 return provider;
             }
         } catch {
-            // Unreachable, refused or cancelled: fall back to the stored token rather than failing
-            // discovery. Cancellation is not swallowed by this — the read below takes the same token
-            // and surfaces it once the answer is not already in hand.
+            // Unreachable, refused or cancelled: the caller falls back rather than failing discovery.
+            // Cancellation is not swallowed by this — the fallback takes the same token and surfaces
+            // it once the answer is not already in hand.
         }
 
-        // Fallback: try existing tokens (don't cache — allow re-discovery next time)
-        return (await store.LoadForProfileAsync(profiles.Name, ct))?.Provider ?? "None";
+        return null;
     }
 }

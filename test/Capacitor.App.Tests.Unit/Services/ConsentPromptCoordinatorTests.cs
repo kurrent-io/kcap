@@ -239,7 +239,7 @@ public class ConsentPromptCoordinatorTests {
         });
 
         await Assert.That(visibleAfterAck).IsTrue();
-        await Assert.That(rendered).Contains("Decision applied — rule not saved: store full");
+        await Assert.That(rendered).Contains("Decision applied, but the rule couldn’t be saved. Open Launch Approvals to check your rules.");
         await Assert.That(visibleAfterHold).IsFalse(); // disclosed for the hold, then closed
         await Assert.That(builds).IsEqualTo(1);
     }

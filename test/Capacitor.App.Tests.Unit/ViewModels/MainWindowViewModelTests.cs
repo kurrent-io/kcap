@@ -840,6 +840,69 @@ public class MainWindowViewModelTests {
         });
     }
 
+    /// An empty rail reads as loading, never "No sessions", until the daemon has attached and the server
+    /// lane has finished its first listing read; a lane with nothing coming holds nothing back.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task An_empty_rail_is_loading_until_both_lanes_have_listed() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var lane = new FakeServerLane();
+            using var sessions = new FakeServerSessionsService();
+            sessions.AnsweredSubject.OnNext(false);
+            using var directory = new FakeAgentDirectory();
+            using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
+            var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+                rail: rail, laneStatus: lane.Status, sessions: sessions);
+            using var _ = vm.Activator.Activate();
+
+            await Assert.That(vm.LoadingSessions).IsTrue();
+            await Assert.That(vm.ShowsNoSessions).IsFalse();
+
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+            lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connecting));
+            await Assert.That(vm.LoadingSessions).IsTrue();
+            await Assert.That(vm.ShowsNoSessions).IsFalse();
+
+            lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
+            await Assert.That(vm.LoadingSessions).IsTrue();
+            await Assert.That(vm.ShowsNoSessions).IsFalse();
+
+            sessions.AnsweredSubject.OnNext(true);
+            await Assert.That(vm.LoadingSessions).IsFalse();
+            await Assert.That(vm.ShowsNoSessions).IsTrue();
+
+            sessions.AnsweredSubject.OnNext(false);
+            lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.SignedOut));
+            await Assert.That(vm.LoadingSessions).IsFalse();
+            await Assert.That(vm.ShowsNoSessions).IsTrue();
+        });
+    }
+
+    /// Rows already showing are the answer: the rail shows them, not a loading state, while a lane catches up.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_rail_with_rows_is_not_loading_while_a_lane_catches_up() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var service = new FakeDaemonClientService();
+            var lane = new FakeServerLane();
+            using var sessions = new FakeServerSessionsService();
+            sessions.AnsweredSubject.OnNext(false);
+            using var directory = new FakeAgentDirectory();
+            using var rail = new SessionRailViewModel(directory, _ => { }, _ => { }, TimeProvider.System);
+            var vm = new MainWindowViewModel(service, CancellationToken.None, TestActivity.New(), TimeProvider.System,
+                rail: rail, laneStatus: lane.Status, sessions: sessions);
+            using var _ = vm.Activator.Activate();
+            service.StatusSubject.OnNext(new AttachStatus(AttachState.Connected, null, null));
+            lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Connected));
+
+            directory.Rows.AddOrUpdate(RemoteHost.ServerRow("s1"));
+
+            await Assert.That(vm.LoadingSessions).IsFalse();
+            await Assert.That(vm.ShowsNoSessions).IsFalse();
+        });
+    }
+
     /// The local server's state reaches the rail only through the alert, and only while it needs the user.
     [Test]
     [NotInParallel("AvaloniaSession")]

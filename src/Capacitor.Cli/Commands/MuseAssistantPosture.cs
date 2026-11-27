@@ -1,5 +1,4 @@
 using Capacitor.Cli.Core.Auth;
-using Capacitor.Cli.Core.Telemetry;
 
 namespace Capacitor.Cli.Commands;
 
@@ -68,8 +67,10 @@ internal static class MuseAssistantPosture {
         return Uri.TryCreate(text, UriKind.Absolute, out var uri) ? uri.Host : serverArg;
     }
 
-    /// <summary>The hosts contacted before the server names its sign-in provider.</summary>
-    public static IReadOnlyList<string> ApprovalHosts(string serverArg) => Distinct(HostOf(serverArg), CliTelemetry.EndpointHost);
+    /// <summary>The hosts contacted before the server names its sign-in provider: the server, then the telemetry
+    /// endpoint the profile posts to.</summary>
+    public static IReadOnlyList<string> ApprovalHosts(string serverArg, string telemetryEndpoint) =>
+        Distinct(HostOf(serverArg), HostOf(telemetryEndpoint));
 
     /// <summary>The hosts the device sign-in for <paramref name="provider"/> contacts. WorkOS also
     /// serves its verification page from the kcap sign-in domain.</summary>

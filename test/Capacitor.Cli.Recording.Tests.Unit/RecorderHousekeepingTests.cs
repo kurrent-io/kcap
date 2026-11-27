@@ -4,6 +4,7 @@ using Capacitor.Cli.Core.Commands;
 using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Harness.Titles;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.RepoInstructions;
 using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.Recording.PrDetection;
 using Microsoft.Extensions.Time.Testing;
@@ -154,6 +155,31 @@ public class RecorderHousekeepingTests {
         await housekeeping.BeforeDrainAsync(state, CancellationToken.None);
 
         await Assert.That(state.LastHarnessTitleProbe).IsNotEqualTo(default(DateTimeOffset));
+    }
+
+    /// <summary>The instruction files are read and uploaded beside the watch loop, so a slow read holds up no drain.</summary>
+    [Test]
+    public async Task A_repo_instructions_read_that_has_not_finished_holds_up_no_drain() {
+        using var server  = Answering("/hooks/harness-title", 400);
+        using var repo    = GitRepo.CreateWithCommit();
+        repo.AddRemote("https://github.com/acme/widgets.git");
+        var       reading = new TaskCompletionSource<RepoInstructionsRead>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var housekeeping = new RecorderHousekeeping(
+            new RecordingSource(Session, null, CreateParentLog(), "claude", repo.Path), skipTitle: false, parentPid: null, _host,
+            Config.Root, Resolutions.At(server.Url!, Config.Root), TestHarnesses.Under(Home), new FixedCapacitorHttpClient(),
+            new GitProviderRouter(), TimeProvider.System, new AccountStore(Config.PathTo("accounts")), Home, _ => { }, () => { }) {
+            ReadRepoInstructions = (_, _, _) => reading.Task,
+        };
+        var state = new WatchState {
+            Repository = new RepositoryPayload { Host = "github.com", Owner = "acme", RepoName = "widgets" }, LastRepoDetection = DateTimeOffset.UtcNow,
+        };
+
+        await housekeeping.BeforeDrainAsync(state, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System);
+
+        await Assert.That(housekeeping.RepoInstructionsRun).IsNotNull();
+        await Assert.That(housekeeping.RepoInstructionsRun!.IsCompleted).IsFalse();
+        reading.SetResult(RepoInstructionsRead.Not("done"));
+        await housekeeping.RepoInstructionsRun.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System);
     }
 
     [Test]

@@ -4,13 +4,13 @@ using ReactiveUI.Reactive;
 namespace Capacitor.App.ViewModels;
 
 public sealed partial class WorkContextViewModel {
-    public bool ShowsPlanMergeNote => Plan.HasTasks && Plan.DoneCount < Plan.Tasks.Count
+    public bool ShowsPlanMergeNote => Plan.HasTasks && Plan.SettledCount < Plan.Tasks.Count
         && PullRequests is { MergedPullRequests.Length: > 0 };
 
     public string PlanMergeNote {
         get {
             if (!ShowsPlanMergeNote) return "";
-            var remaining = Plan.Tasks.Count - Plan.DoneCount;
+            var remaining = Plan.Tasks.Count - Plan.SettledCount;
             var tasks = remaining == 1 ? "1 task" : $"{remaining} tasks";
             return $"{PullRequests!.MergedPullRequests} merged with {tasks} still open. Merges don’t update the plan.";
         }

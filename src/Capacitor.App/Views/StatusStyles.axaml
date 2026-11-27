@@ -25,11 +25,11 @@
         <Setter Property="VerticalAlignment" Value="Center" />
     </Style>
     <Style Selector="Border.kcapBadge.inflight">
-        <Setter Property="Background" Value="{StaticResource KcapPurpleDimBrush}" />
+        <Setter Property="Background" Value="{StaticResource KcapActivityDimBrush}" />
         <Setter Property="BorderBrush" Value="Transparent" />
     </Style>
     <Style Selector="TextBlock.kcapStatusWord.inflight, Border.kcapBadge.inflight TextBlock.kcapStatusWord">
-        <Setter Property="Foreground" Value="{StaticResource KcapPurpleBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapActivityBrush}" />
     </Style>
     <Style Selector="Border.kcapBadge.success">
         <Setter Property="Background" Value="{StaticResource KcapSuccessDimBrush}" />
@@ -60,7 +60,7 @@
         <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
     </Style>
     <Style Selector="Border.kcapBadge.inflight views|AppIcon">
-        <Setter Property="Foreground" Value="{StaticResource KcapPurpleBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource KcapActivityBrush}" />
     </Style>
     <Style Selector="Border.kcapBadge.success views|AppIcon">
         <Setter Property="Foreground" Value="{StaticResource KcapSuccessBrush}" />

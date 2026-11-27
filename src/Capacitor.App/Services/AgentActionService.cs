@@ -114,12 +114,16 @@ public sealed class AgentActionService {
                 case HubCallResult.Ok: accepted?.Invoke(); break;
                 case HubCallResult.NotConnected: _notifier.Notify(attached ? Disconnect("not connected to the server") : "Not connected to the server"); break;
                 case HubCallResult.Denied: _notifier.Notify(attached ? Disconnect("the server declined") : $"The server declined to stop {label}"); break;
-                default: _notifier.Notify(attached ? Disconnect(outcome.Reason) : $"Couldn't stop {label}: {outcome.Reason}"); break;
+                default:
+                    Console.Error.WriteLine($"kcap: remote stop {agentId} failed: {outcome.Reason}");
+                    _notifier.Notify(attached ? Disconnect(null) : $"Couldn’t stop {label}. Try again.");
+                    break;
             }
         } catch (OperationCanceledException) {
             // Deliberate shutdown: absorbed quietly, no toast, no log.
         } catch (Exception ex) {
-            _notifier.Notify(attached ? Disconnect(ex.Message) : $"Couldn't stop {label}: {ex.Message}");
+            Console.Error.WriteLine($"kcap: stop {agentId} failed: {ex.Message}");
+            _notifier.Notify(attached ? Disconnect(null) : $"Couldn’t stop {label}. Try again.");
         } finally {
             lock (_lock) {
                 _inFlight = _inFlight.Remove(key);
@@ -157,13 +161,12 @@ public sealed class AgentActionService {
             // Deliberate shutdown: absorbed quietly, no toast, no log.
         } catch (LocalControlOpsException ex) {
             var unreachable = ex.Reason == DaemonUnreachableReason;
-            _notifier.Notify(attached ? Disconnect(unreachable ? "the daemon is not reachable" : ex.Message)
-                : unreachable ? UnreachableCopy : $"Couldn't stop {label}: {ex.Message}");
+            Console.Error.WriteLine($"kcap: stop {agentId} failed: {ex.Message}");
+            _notifier.Notify(attached ? Disconnect(unreachable ? "the daemon is not reachable" : null)
+                : unreachable ? UnreachableCopy : $"Couldn’t stop {label}. Try again.");
         } catch (Exception ex) {
-            // An unmapped exception still gets a toast (never a silent drop) — AppNotifier.Notify
-            // covers both the toast AND stderr, so this one call satisfies both
-            // without a separate Console.Error write. The finally below still runs either way.
-            _notifier.Notify(attached ? Disconnect(ex.Message) : $"Couldn't stop {label}: {ex.Message}");
+            Console.Error.WriteLine($"kcap: stop {agentId} failed: {ex.Message}");
+            _notifier.Notify(attached ? Disconnect(null) : $"Couldn’t stop {label}. Try again.");
         } finally {
             // A completion into an already-vanished row/entry is naturally a no-op — the set
             // just loses a member nothing is rendering against anymore.
@@ -216,7 +219,8 @@ public sealed class AgentActionService {
         try {
             _opener.Open(serverUrl.TrimEnd('/') + path);
         } catch (Exception ex) {
-            _notifier.Notify($"Couldn't open the browser: {ex.Message}");
+            Console.Error.WriteLine($"kcap: could not open the browser: {ex.Message}");
+            _notifier.Notify("Couldn’t open the browser. Try again.");
         }
     }
 }

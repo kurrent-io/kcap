@@ -163,7 +163,7 @@ public class LocalServerRecoveryViewModelTests {
     [NotInParallel("AvaloniaSession")]
     [Arguments(1, false)]
     [Arguments(-1, true)]
-    public async Task A_failed_or_contended_start_shows_the_cli_output_and_can_be_pressed_again(int exitCode, bool timedOut) {
+    public async Task A_failed_or_contended_start_offers_retry_without_showing_cli_output(int exitCode, bool timedOut) {
         await AvaloniaSession.WithImmediateRxScheduler(async () => {
             var recorder = new Recorder {
                 Next = _ => Task.FromResult(new ProcessResult(exitCode, "Starting the local server...\n", "lifecycle_busy: another kcap local command is running\n", timedOut)),
@@ -173,8 +173,9 @@ public class LocalServerRecoveryViewModelTests {
 
             await vm.StartCommand.Execute().ToTask();
 
-            await Assert.That(vm.Message).Contains("lifecycle_busy: another kcap local command is running");
-            await Assert.That(vm.Message).Contains("Starting the local server...");
+            await Assert.That(vm.Message).IsEqualTo(timedOut
+                ? "The local server took too long to start. Try again."
+                : "Another local server operation is running. Wait for it to finish and try again.");
             await Assert.That(vm.Failed).IsTrue();
             await Assert.That(recorder.Reconnects).IsEqualTo(0);
             await Assert.That(vm.Visible).IsTrue();
@@ -245,7 +246,7 @@ public class LocalServerRecoveryViewModelTests {
                 () => throw new ObjectDisposedException("lane"), CancellationToken.None);
 
             await Assert.That(await vm.StartAsync()).IsFalse();
-            await Assert.That(vm.Message).Contains("reconnecting failed");
+            await Assert.That(vm.Message).Contains("couldn’t reconnect");
         });
     }
 

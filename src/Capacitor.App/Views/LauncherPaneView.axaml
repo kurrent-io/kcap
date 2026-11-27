@@ -25,7 +25,7 @@
             <Setter Property="Foreground" Value="{StaticResource KcapMutedBrush}" />
             <Setter Property="Background" Value="{StaticResource KcapBorderBrush}" />
         </Style>
-        <Style Selector="Button.importDismiss.kcapGhost">
+        <Style Selector="Button.importQuiet.kcapGhost">
             <Setter Property="Padding" Value="0,5" />
             <Setter Property="HorizontalContentAlignment" Value="Left" />
         </Style>
@@ -72,15 +72,22 @@
                             <Panel>
                                 <Button Classes="kcapPrimary" Content="Dismiss" Opacity="0" IsHitTestVisible="False"
                                         Focusable="False" IsEnabled="False" AutomationProperties.AccessibilityView="Raw" />
-                                <Button x:Name="HistoryImportDismissButton" Classes="importDismiss" Content="Dismiss"
-                                        Classes.kcapPrimary="{Binding !ShowsReopenSetup}" Classes.kcapGhost="{Binding ShowsReopenSetup}"
-                                        Command="{Binding DismissCommand}" Click="OnHistoryImportDismissClick" AutomationProperties.Name="Dismiss history import status" />
+                                <Button x:Name="HistoryImportDismissButton" Classes="importQuiet" Content="{Binding DismissLabel}"
+                                        Classes.kcapPrimary="{Binding DismissIsMain}" Classes.kcapGhost="{Binding !DismissIsMain}"
+                                        Command="{Binding DismissCommand}" Click="OnHistoryImportDismissClick"
+                                        AutomationProperties.Name="{Binding DismissAccessibleName}" />
                             </Panel>
-                            <!-- Keep the action's footprint when it is unavailable, so wrapping cannot move the composer. -->
+                            <!-- Cancel import and Reopen setup share one footprint, kept when neither is shown, so wrapping cannot move the composer. -->
                             <Panel>
                                 <Button Classes="kcapPrimary" Content="{x:Static vm:HistoryImportBannerViewModel.ReopenSetupLabel}"
                                         Opacity="0" IsHitTestVisible="False" Focusable="False"
                                         IsEnabled="False" AutomationProperties.AccessibilityView="Raw" />
+                                <Button Classes="importQuiet kcapGhost" Content="{x:Static vm:HistoryImportBannerViewModel.CancelImportLabel}"
+                                        Opacity="0" IsHitTestVisible="False" Focusable="False"
+                                        IsEnabled="False" AutomationProperties.AccessibilityView="Raw" />
+                                <Button x:Name="HistoryImportCancelButton" Classes="importQuiet kcapGhost"
+                                        Content="{x:Static vm:HistoryImportBannerViewModel.CancelImportLabel}"
+                                        Command="{Binding CancelCommand}" IsVisible="{Binding Running}" LostFocus="OnHistoryImportCancelLostFocus" />
                                 <Button x:Name="HistoryImportSetupButton" Classes="kcapPrimary"
                                         Content="{x:Static vm:HistoryImportBannerViewModel.ReopenSetupLabel}"
                                         Command="{Binding ReopenSetupCommand}" IsVisible="{Binding ShowsReopenSetup}" />
@@ -93,7 +100,7 @@
                 <Grid ColumnDefinitions="16,*" ColumnSpacing="10">
                     <!-- Matches the update window's running steps. -->
                     <views:AppIcon x:Name="UpdateBusyIcon" Classes="noticeIcon" views:BusyIndicator.IsBusy="True" Size="16" Kind="LoaderCircle"
-                                   Foreground="{StaticResource KcapPurpleBrush}" VerticalAlignment="Top" />
+                                   Foreground="{StaticResource KcapActivityBrush}" VerticalAlignment="Top" />
                     <StackPanel Grid.Column="1" Spacing="4">
                         <TextBlock x:Name="UpdateTitle" Classes="noticeTitle" Text="Finishing the update…" />
                         <TextBlock x:Name="UpdateDetailText" Classes="noticeBody" Text="{Binding UpdateDetail}"
@@ -409,7 +416,7 @@
                                                FontSize="{StaticResource KcapFontSizeBody}" LineHeight="18" TextWrapping="Wrap" VerticalAlignment="Center"
                                                IsVisible="{Binding StartError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                                     <Button Grid.Row="1" Grid.Column="1" x:Name="RequestRepositoryAccessButton" Classes="kcapChip"
-                                            Content="Allow folder access" Click="OnRequestRepositoryAccessClick"
+                                            Content="Open Privacy settings" Click="OnRequestRepositoryAccessClick"
                                             IsVisible="{Binding CanRequestRepositoryAccess}"
                                             HorizontalAlignment="Left" Margin="0,8,0,0" Padding="12,4" />
                                     <Button Grid.Column="2" x:Name="UseDefaultAccountButton" Classes="kcapChip" Content="Use default"

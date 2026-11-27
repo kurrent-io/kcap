@@ -88,18 +88,31 @@ public class CodexHostedPolicySeamTests : IDisposable {
         await Assert.That(_decisions.Single().Seam).IsEqualTo(PolicySeams.HostedCodexApproval);
     }
 
+    /// Codex names the app-server's own host <c>local</c> on every command it runs there, so a rule answers it.
+    [Test]
+    public async Task A_command_approval_for_codexs_own_host_is_evaluated() {
+        var request = JsonNode.Parse(Command("rm -rf build").GetRawText())!.AsObject();
+        request["kind"]          = "command";
+        request["environmentId"] = "local";
+
+        await Assert.That(await Seam().EvaluateAsync(CommandApproval, Element(request), CancellationToken.None))
+            .IsEqualTo(CodexHostedVerdict.Decline);
+        await Assert.That(_decisions.Single().Seam).IsEqualTo(PolicySeams.HostedCodexApproval);
+    }
+
     /// A rule names a command, so it cannot answer an approval that also asks for network access, stdin or another environment.
     [Test]
     [Arguments("network")]
     [Arguments("stdin")]
-    [Arguments("environment")]
+    [Arguments("prod")]
+    [Arguments("remote")]
     public async Task A_command_approval_asking_for_more_reaches_the_card_unevaluated(string shape) {
         Judge("allow");
         var request = JsonNode.Parse(Command("git fetch origin").GetRawText())!.AsObject();
         switch (shape) {
             case "network": request["networkApprovalContext"] = new JsonObject { ["host"] = "evil.example.com" }; break;
             case "stdin":   request["kind"] = "writeStdin"; break;
-            default:        request["environmentId"] = "prod"; break;
+            default:        request["environmentId"] = shape; break;
         }
 
         await Assert.That(await Seam().EvaluateAsync(CommandApproval, Element(request), CancellationToken.None))

@@ -20,7 +20,7 @@ public class IdeHostTests {
     static readonly string App = OperatingSystem.IsWindows() ? @"C:\src\app" : "/src/app";
     static readonly string Lib = OperatingSystem.IsWindows() ? @"C:\src\lib" : "/src/lib";
 
-    sealed class Requests : TextReader {
+    internal sealed class Requests : TextReader {
         readonly Channel<string> _lines = Channel.CreateUnbounded<string>();
 
         public void Send(string line) => _lines.Writer.TryWrite(line);
@@ -31,7 +31,7 @@ public class IdeHostTests {
             await _lines.Reader.WaitToReadAsync(cancellationToken) && _lines.Reader.TryRead(out var line) ? line : null;
     }
 
-    sealed class Messages : TextWriter {
+    internal sealed class Messages : TextWriter {
         readonly Channel<JsonObject> _messages = Channel.CreateUnbounded<JsonObject>();
 
         public override Encoding Encoding => Encoding.UTF8;

@@ -140,10 +140,10 @@ running notes file that every PR edits.
 - **Desktop-app green / orange / yellow are status only.** `KcapSuccess*` is shipped, settled,
   passing; `KcapWarning*` is blocked, stale, needs-you. Identity must not share them: a work-item
   key, vendor chip, "this session" mark, or title in success green reads as done, and a Claude chip
-  in warning orange reads as attention. `KcapPurple*` is in-flight execution (a running session or
-  an in-progress task and its count); selection and open items (the selected rail session or selected
-  master-list row) use `KcapInfo*` / `KcapSelectionBrush`; labels and keys use text/muted/surface
-  tokens.
+  in warning orange reads as attention. `KcapActivity*` is in-flight execution (a running session or
+  an in-progress task and its count), in neutral ink. PR lifecycle uses `KcapPrOpen` / `KcapPrMerged` / `KcapPrClosed`, never the outcome tones
+  directly. Selection and open items (the selected rail session or selected master-list row) use
+  `KcapInfo*` / `KcapSelectionBrush`; labels and keys use text/muted/surface tokens.
 - **Desktop-app chrome is the kcap theme, not Fluent's defaults.** `FluentTheme` is the substrate
   in `App.axaml`; menus, flyouts, buttons, fields and list rows opt into `kcapPanel`, `kcapGhost`,
   `kcapChip`, `kcapField`. A bare `MenuFlyout`/`MenuItem` keeps Fluent's grey hover bar on the dark
@@ -314,6 +314,13 @@ Description: **before writing it, open [.github/PULL_REQUEST_TEMPLATE.md](.githu
 
 **Desktop app UI** lives under `src/Capacitor.App/`. Shared tokens and control styles live under `Design/` and are loaded by `App.axaml`.
 
+- Warnings and errors: never render raw exceptions, stack traces, stderr, HTTP bodies, or internal
+  reason codes in app-owned UI, including tooltips and accessibility text. Say what happened, why it
+  happened when the cause is known, and what the user can do next whenever possible. Use a next step
+  that can resolve the known cause, and name what succeeded when only part of an operation failed.
+  Give unknown outcomes an operation-specific fallback without guessing the cause. Keep technical
+  details in logs or explicitly opened diagnostics, and redact sensitive values before copying or
+  exporting them. Preserve terminal and transcript content.
 - Icons: use Lucide through `Views/AppIcon.cs`, with named `LucideIconKind` mappings.
   Reuse `ToolCategoryIcons` for system/chat headings. No custom UI icon paths, copied SVG
   geometry, text/emoji stand-ins, or additional icon families. Existing vendor/product
@@ -321,8 +328,8 @@ Description: **before writing it, open [.github/PULL_REQUEST_TEMPLATE.md](.githu
   conventions are in `src/Capacitor.App/AGENTS.md`.
 - Status tokens: `KcapSuccess*` (green) and `KcapWarning*` (orange/yellow) only on badges, pills, and
   glyphs that mean outcome or attention. Never on keys, titles, vendor/model chips, or "you are here".
-- In-flight vs. selection: `KcapPurple*` is active execution (running session indicator, `InProgress`
-  plan task dot and count); `KcapInfo*` / `KcapSelectionBrush` is selection and open state (selected
+- In-flight vs. selection: `KcapActivity*` is active execution (running session indicator, `InProgress`
+  plan task dot and count, busy indicators); `KcapPr*` is PR lifecycle; `KcapInfo*` / `KcapSelectionBrush` is selection and open state (selected
   rail session, selected list row). Everything else uses `KcapTextBrush`, `KcapMutedBrush`,
   `KcapFaintBrush`, and surface brushes.
 - Controls: `kcapPanel` flyouts, `kcapGhost` rows and icon buttons, `kcapChip` compact buttons,

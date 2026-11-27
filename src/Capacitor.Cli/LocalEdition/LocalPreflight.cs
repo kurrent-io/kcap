@@ -89,8 +89,8 @@ sealed class LocalPreflight(
         var found = old.Version is { } v ? $"is {v}" : "did not report its version";
         var fix   = old.Kind == ClientCopyKind.DesktopApp ? "Update the desktop app" : "Update or remove it";
 
-        throw Refuse(LocalInstallFailureCode.ClientBelowFloor,
-            $"{which} {found}, and a local installation needs a kcap newer than {LocalClientFloor.NewestRefusedOn(platform.IsWindows)}. {fix} before setting up a local installation.");
+        throw new LocalInstallFailure(LocalInstallFailureCode.ClientBelowFloor,
+            $"{which} {found}, and a local installation needs a kcap newer than {LocalClientFloor.NewestRefusedOn(platform.IsWindows)}. {fix} before setting up a local installation.") { BlockingClient = old };
     }
 
     void CheckSockets() {

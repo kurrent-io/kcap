@@ -51,7 +51,10 @@ public sealed class WebWorkspaceViewModel : ReactiveObject, IDisposable {
         }
         if (_shutdown.IsCancellationRequested) return;
         try { _opener.Open(_url); }
-        catch (Exception ex) { _notify($"Couldn't open the browser: {ex.Message}"); }
+        catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: could not open the browser: {ex.Message}");
+            _notify("Couldn’t open the browser. Try again.");
+        }
     }
 
     public void Dispose() => _disposables.Dispose();

@@ -421,7 +421,7 @@ public class PauseControllerTests {
 
     [Test]
     [Arguments("daemon_unreachable", "The daemon is not reachable")]
-    [Arguments("unexpected_reply", "Couldn't update launch pause: unexpected_reply")]
+    [Arguments("unexpected_reply", "Couldn’t update launch pause. Try again.")]
     public async Task Get_or_put_failure_notifies_and_still_attempts_trailing_refresh(string reason, string expectedNotification) {
         var ops = new ScriptedLocalControlOps();
         var notifications = new List<string>();

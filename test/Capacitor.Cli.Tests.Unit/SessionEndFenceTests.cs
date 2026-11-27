@@ -44,6 +44,99 @@ public class SessionEndFenceTests {
         await Assert.That(entry.EndCommittedSession).IsEqualTo("session-1");
     }
 
+    /// <summary>The watcher's idle timeout stamps its end as soft, which a later turn of the session may clear.</summary>
+    [Test]
+    public async Task A_soft_end_is_stamped_soft() {
+        var store = Seed(ResumeState.Running);
+
+        await Assert.That(SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-1", _ => store, new FakeTimeProvider(Now), soft: true)).IsFalse();
+
+        var entry = store.TryRead("agent-1")!;
+        await Assert.That(entry.EndCommittedAt).IsEqualTo(Now);
+        await Assert.That(entry.EndCommittedSoft).IsTrue();
+    }
+
+    /// <summary>A real end after a soft one replaces it, so no turn can clear the end that is now on its way.</summary>
+    [Test]
+    public async Task A_real_end_replaces_a_soft_one() {
+        var store = Seed(ResumeState.Running);
+        SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-1", _ => store, new FakeTimeProvider(Now), soft: true);
+
+        await Assert.That(SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-1", _ => store, new FakeTimeProvider(Now.AddMinutes(5)))).IsFalse();
+
+        var entry = store.TryRead("agent-1")!;
+        await Assert.That(entry.EndCommittedAt).IsEqualTo(Now.AddMinutes(5));
+        await Assert.That(entry.EndCommittedSoft).IsNull();
+    }
+
+    /// <summary>A soft end never weakens a real one already stamped.</summary>
+    [Test]
+    public async Task A_soft_end_leaves_a_real_one() {
+        var store = Seed(ResumeState.Running);
+        Hold("agent-1", "epoch-1", store);
+
+        SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-1", _ => store, new FakeTimeProvider(Now.AddMinutes(5)), soft: true);
+
+        var entry = store.TryRead("agent-1")!;
+        await Assert.That(entry.EndCommittedAt).IsEqualTo(Now);
+        await Assert.That(entry.EndCommittedSoft).IsNull();
+    }
+
+    /// <summary>After a Claude /clear the entry runs a new session while the stamp still names the old one: the current
+    /// session's end replaces it, or a restart would resume a run whose end is on its way.</summary>
+    [Test]
+    public async Task The_current_sessions_end_replaces_an_earlier_sessions_stamp() {
+        var store = Seed(ResumeState.Running);
+        SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-0", _ => store, new FakeTimeProvider(Now));
+
+        await Assert.That(SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-1", _ => store, new FakeTimeProvider(Now.AddMinutes(5)))).IsFalse();
+
+        var entry = store.TryRead("agent-1")!;
+        await Assert.That(entry.EndCommittedSession).IsEqualTo("session-1");
+        await Assert.That(entry.EndCommittedAt).IsEqualTo(Now.AddMinutes(5));
+    }
+
+    /// <summary>A late end of the earlier session never displaces the current session's.</summary>
+    [Test]
+    public async Task A_late_end_of_an_earlier_session_leaves_the_current_sessions_stamp() {
+        var store = Seed(ResumeState.Running);
+        Hold("agent-1", "epoch-1", store);
+
+        SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-0", _ => store, new FakeTimeProvider(Now.AddMinutes(5)));
+
+        var entry = store.TryRead("agent-1")!;
+        await Assert.That(entry.EndCommittedSession).IsEqualTo("session-1");
+        await Assert.That(entry.EndCommittedAt).IsEqualTo(Now);
+    }
+
+    /// <summary>Two sessions' real ends both let through before discovery: the stamp then names no session, so it fences
+    /// whichever one discovery settles on.</summary>
+    [Test]
+    public async Task Conflicting_ends_before_discovery_fence_either_session() {
+        Store.Write(ResumeLedgerEntries.For("agent-1", ResumeState.Running) with { RunEpoch = "epoch-1", LaunchEpoch = "epoch-1", SessionId = null });
+        SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-a", _ => Store, new FakeTimeProvider(Now));
+
+        await Assert.That(SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-b", _ => Store, new FakeTimeProvider(Now.AddMinutes(5)))).IsFalse();
+
+        var entry = Store.TryRead("agent-1")!;
+        await Assert.That(entry.EndCommittedAt).IsEqualTo(Now.AddMinutes(5));
+        await Assert.That(entry.EndCommittedSession).IsNull();
+        await Assert.That(entry.EndCommittedSoft).IsNull();
+    }
+
+    /// <summary>A second idle end of the same session records its own time, so a turn between the two clears neither.</summary>
+    [Test]
+    public async Task A_second_soft_end_records_its_own_time() {
+        var store = Seed(ResumeState.Running);
+        SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-1", _ => store, new FakeTimeProvider(Now), soft: true);
+
+        SessionEndFence.ShouldHold("agent-1", "epoch-1", "session-1", _ => store, new FakeTimeProvider(Now.AddHours(2)), soft: true);
+
+        var entry = store.TryRead("agent-1")!;
+        await Assert.That(entry.EndCommittedAt).IsEqualTo(Now.AddHours(2));
+        await Assert.That(entry.EndCommittedSoft).IsTrue();
+    }
+
     [Test]
     public async Task An_end_from_an_earlier_run_holds() {
         await Assert.That(Hold("agent-1", "epoch-1", Seed(ResumeState.Running, runEpoch: "epoch-2"))).IsTrue();

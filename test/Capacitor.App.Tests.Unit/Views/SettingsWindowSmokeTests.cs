@@ -609,7 +609,9 @@ public class SettingsWindowSmokeTests {
     });
 
     [Test]
-    public Task Failed_grok_bot_save_restores_the_checkbox_to_the_saved_setting() => AvaloniaSession.RunOnUiAsync(async () => {
+    [Arguments(true, "restore a working copy")]
+    [Arguments(false, "Restart the app")]
+    public Task Failed_grok_bot_save_restores_the_checkbox_and_explains_how_to_recover(bool malformed, string nextStep) => AvaloniaSession.RunOnUiAsync(async () => {
         ConfigMutator.Mutate(Config.Root, c => c with { Profiles = new() {
             ["work"] = new Profile { ServerUrl = "https://work.example" }
         } });
@@ -625,11 +627,14 @@ public class SettingsWindowSmokeTests {
             Click(window, window.FindControl<TabItem>("HarnessesTab")!);
             var view = window.GetVisualDescendants().OfType<HarnessesSettingsView>().Single();
             var checkbox = view.FindControl<CheckBox>("GrokBotRecordCheck")!;
-            await File.WriteAllTextAsync(AppConfig.GetConfigPath(Config.Root), "{not json");
+            if (malformed)
+                await File.WriteAllTextAsync(AppConfig.GetConfigPath(Config.Root), "{not json");
+            else
+                ConfigMutator.Mutate(Config.Root, c => c with { Profiles = new() });
             Click(window, checkbox);
             await WaitUntilAsync(() => !harnesses.Busy && harnesses.GrokBotMessage is not null);
             Settle(window);
-            await Assert.That(harnesses.GrokBotMessage!).StartsWith("Could not change Grok Bot recording");
+            await Assert.That(harnesses.GrokBotMessage!).Contains(nextStep);
             await Assert.That(checkbox.IsChecked).IsFalse();
         } finally { window.Close(); }
     });
@@ -781,7 +786,7 @@ public class SettingsWindowSmokeTests {
     });
 
     [Test]
-    public Task Reading_choices_work_from_the_keyboard_and_hide_with_the_preview() => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task Reading_choices_work_from_the_keyboard() => AvaloniaSession.RunOnUiAsync(async () => {
         ConfigMutator.Mutate(Config.Root, config => config with {
             Profiles = new() { ["work"] = new Profile { ServerUrl = "https://work.example" } },
         });
@@ -797,10 +802,6 @@ public class SettingsWindowSmokeTests {
             var density = window.FindControl<ComboBox>("DensityPicker")!;
             var font = window.FindControl<ComboBox>("ReadingFontPicker")!;
             var contrast = window.FindControl<CheckBox>("HigherContrastToggle")!;
-            await Assert.That(density.IsEffectivelyVisible).IsFalse();
-
-            reading.SetEnabled(true);
-            Settle(window);
             foreach (var picker in new[] { density, font }) {
                 await Assert.That(picker.Focus(NavigationMethod.Tab)).IsTrue();
                 window.KeyPressQwerty(PhysicalKey.ArrowDown, RawInputModifiers.None);
@@ -815,11 +816,6 @@ public class SettingsWindowSmokeTests {
             await Assert.That(reading.Density).IsEqualTo(DesktopDensity.Compact);
             await Assert.That(reading.ReadingFont).IsEqualTo(DesktopReadingFont.Monospace);
             await Assert.That(reading.HighContrast).IsTrue();
-            reading.SetEnabled(false);
-            Settle(window);
-            await Assert.That(font.IsEffectivelyVisible).IsFalse();
-            reading.SetEnabled(true);
-            Settle(window);
             await Assert.That(density.SelectedItem).IsEqualTo(DesktopDensity.Compact);
         } finally { window.Close(); }
     });
@@ -827,25 +823,22 @@ public class SettingsWindowSmokeTests {
     [Test]
     [Arguments(true)]
     [Arguments(false)]
-    public Task Appearance_offers_three_keyboard_choices_only_while_the_preview_is_enabled(bool lightAvailable) => AvaloniaSession.RunOnUiAsync(async () => {
+    public Task Appearance_offers_three_keyboard_choices(bool lightAvailable) => AvaloniaSession.RunOnUiAsync(async () => {
         ConfigMutator.Mutate(Config.Root, config => config with {
             Profiles = new() { ["work"] = new Profile { ServerUrl = "https://work.example" } },
         });
         var state = new AppStateStore(Config.PathTo("app-state.json"));
-        var palette = new ClassicPreviewPalette(Application.Current!);
-        using var preview = new ClassicAppearancePreview(state, null,
-            theme => (theme != ClassicAppearance.Light || lightAvailable) && palette.TryApply(theme), () => true, System.Reactive.Linq.Observable.Never<System.Reactive.Unit>());
+        var palette = new DesktopPalette(Application.Current!);
+        using var scheme = new DesktopColorSchemeSettings(state, null,
+            theme => (theme != DesktopTheme.Light || lightAvailable) && palette.TryApply(theme), () => true, System.Reactive.Linq.Observable.Never<System.Reactive.Unit>());
         using var notifications = new NotificationSettingsService(Config.PathTo("notifications.json"));
-        using var vm = MakeViewModel(notifications, appearance: new AppearanceSettingsViewModel(UiScaleSetting.From(state, new AppState()), preview));
+        using var vm = MakeViewModel(notifications, appearance: new AppearanceSettingsViewModel(UiScaleSetting.From(state, new AppState()), scheme));
         var window = new SettingsWindow { DataContext = vm };
         try {
             window.Show();
             window.FindControl<TabItem>("AppearanceTab")!.IsSelected = true;
             Settle(window);
             var picker = window.FindControl<ListBox>("ColorSchemePicker")!;
-            await Assert.That(picker.IsEffectivelyVisible).IsFalse();
-            preview.SetEnabled(true);
-            Settle(window);
             var auto = (ListBoxItem)picker.ContainerFromIndex(0)!;
             await Assert.That(auto.IsSelected).IsTrue();
             await Assert.That(auto.Focus(NavigationMethod.Tab)).IsTrue();
@@ -853,7 +846,7 @@ public class SettingsWindowSmokeTests {
                 window.KeyPressQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
                 window.KeyReleaseQwerty(PhysicalKey.ArrowRight, RawInputModifiers.None);
                 Settle(window);
-                await Assert.That(preview.Selected).IsEqualTo(DesktopColorScheme.Light);
+                await Assert.That(scheme.Selected).IsEqualTo(DesktopColorScheme.Light);
             }
             var next = lightAvailable ? PhysicalKey.ArrowRight : PhysicalKey.End;
             window.KeyPressQwerty(next, RawInputModifiers.None);
@@ -861,20 +854,17 @@ public class SettingsWindowSmokeTests {
             Settle(window);
             var dark = (ListBoxItem)picker.ContainerFromIndex(2)!;
             await Assert.That(dark.IsFocused && dark.IsSelected).IsTrue();
-            await Assert.That(preview.Selected).IsEqualTo(DesktopColorScheme.Dark);
+            await Assert.That(scheme.Selected).IsEqualTo(DesktopColorScheme.Dark);
             await Assert.That(ControlAutomationPeer.CreatePeerForElement(dark).GetName()).IsEqualTo("Dark");
             Click(window, picker.ContainerFromIndex(1)!);
             var expected = lightAvailable ? DesktopColorScheme.Light : DesktopColorScheme.Dark;
-            await Assert.That(preview.Selected).IsEqualTo(expected);
+            await Assert.That(scheme.Selected).IsEqualTo(expected);
             await Assert.That(picker.SelectedItem).IsEqualTo(expected);
-            if (lightAvailable) await preview.SelectAsync(expected);
+            if (lightAvailable) await scheme.SelectAsync(expected);
             await Assert.That((await state.LoadAsync()).DesktopColorScheme).IsEqualTo(lightAvailable ? "light" : "dark");
-            preview.SetEnabled(false);
-            Settle(window);
-            await Assert.That(picker.IsEffectivelyVisible).IsFalse();
         } finally {
-            preview.SetEnabled(false);
             window.Close();
+            palette.TryApply(DesktopTheme.Light);
         }
     });
 

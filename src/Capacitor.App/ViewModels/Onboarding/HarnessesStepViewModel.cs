@@ -242,7 +242,8 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
 
             IReadOnlyDictionary<HarnessId, DetectedAgent> detected;
             try { detected = await _detect(ct).ConfigureAwait(true); } catch (OperationCanceledException) { return; } catch (Exception ex) {
-                Message = $"Could not check your harnesses: {ex.Message}. Go back and try again, or continue setup later.";
+                Console.Error.WriteLine($"kcap: could not check coding tools: {ex.Message}");
+                Message = "Could not check your coding tools. Go back and try again, or continue setup later.";
                 return;
             }
 
@@ -262,7 +263,8 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
                     }
                 }
             } catch (Exception ex) {
-                Message = $"Could not read your settings: {ex.Message}. Go back and try again.";
+                Console.Error.WriteLine($"kcap: could not read setup settings: {ex.Message}");
+                Message = "Could not read your settings. Go back and try again.";
                 return;
             }
 
@@ -378,7 +380,8 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
                 return c with { Profiles = new Dictionary<string, Profile>(c.Profiles) { [activeName] = profile } };
             }, ct).ConfigureAwait(true);
         } catch (Exception ex) when (ex is not OperationCanceledException) {
-            Message = $"We could not save that: {ex.Message}";
+            Console.Error.WriteLine($"kcap: could not save harness setup: {ex.Message}");
+            Message = "Could not save your choices. Try again.";
 
             return false;
         }
@@ -421,11 +424,13 @@ public sealed class HarnessesStepViewModel : ReactiveObject, IWizardStep {
                 row.Status = AgentInstallStatus.Succeeded;
             } else {
                 row.Status = AgentInstallStatus.Failed;
-                row.Message = string.IsNullOrWhiteSpace(result.Stderr) ? $"Install failed (exit {result.ExitCode})." : result.Stderr.Trim();
+                Console.Error.WriteLine($"kcap: harness installation failed ({result.ExitCode}): {result.Stderr}");
+                row.Message = "Could not finish setting up this tool. Try again.";
             }
         } catch (Exception ex) {
             row.Status = AgentInstallStatus.Failed;
-            row.Message = ex.Message;
+            Console.Error.WriteLine($"kcap: harness setup failed: {ex.Message}");
+            row.Message = "Could not set up this tool. Try again.";
         }
 
         var selected = Rows.Where(r => r.Selected).ToList();

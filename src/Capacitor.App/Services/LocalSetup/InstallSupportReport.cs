@@ -2,6 +2,8 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using Capacitor.Cli.Core.LocalEdition;
+using Capacitor.Cli.Recording;
+using Capacitor.Cli.Recording.Capture;
 
 namespace Capacitor.App.Services.LocalSetup;
 
@@ -13,6 +15,19 @@ public static class InstallSupportReport {
     const int MaxLineLength = 500;
 
     public static string Build(IReadOnlyList<string> failures, LocalRoot root) {
+        var report = ReadReport(failures, root);
+        try {
+            var budget = new RedactionBudget(TimeProvider.System, TimeSpan.FromMilliseconds(250));
+            var redacted = SecretRedactor.WatcherPatterns.Redact(report, keyIsSecret: false, budget) ?? report;
+            return string.Join('\n', redacted.Split('\n').Select(line =>
+                line.Length > MaxLineLength ? line[..MaxLineLength] + "…" : line));
+        } catch (Exception ex) {
+            Console.Error.WriteLine($"kcap: could not redact install diagnostics: {ex.GetType().Name}");
+            return "kcap didn't finish starting during setup. Diagnostics could not be prepared for sharing.";
+        }
+    }
+
+    static string ReadReport(IReadOnlyList<string> failures, LocalRoot root) {
         var report = new StringBuilder();
         report.Append(CultureInfo.InvariantCulture, $"kcap didn't finish starting during setup, after {failures.Count} attempts.\n\n");
         report.Append(CultureInfo.InvariantCulture, $"{RuntimeInformation.OSDescription} · {RuntimeInformation.OSArchitecture}\n\n");
@@ -68,7 +83,7 @@ public static class InstallSupportReport {
         var lines = new Queue<string>(LogLines);
         while (reader.ReadLine() is { } line) {
             if (lines.Count == LogLines) lines.Dequeue();
-            lines.Enqueue(line.Length > MaxLineLength ? line[..MaxLineLength] + "…" : line);
+            lines.Enqueue(line);
         }
 
         return lines;

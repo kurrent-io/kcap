@@ -139,7 +139,7 @@ public class DisableCommandTests : IDisposable {
         await Assert.That(await Run()).IsEqualTo(1);
 
         await Assert.That(_err.ToString()).Contains("Forbidden.");
-        await Assert.That(Printed).IsEmpty();
+        await Assert.That(Printed).StartsWith("Session disabled locally");
     }
 
     /// <summary>A hook or a launch racing the command reads the marker, so it has to be down before the daemon is told to

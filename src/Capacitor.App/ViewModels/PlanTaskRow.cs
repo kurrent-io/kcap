@@ -1,4 +1,3 @@
-using Capacitor.Cli.Core.Plans;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
@@ -20,6 +19,8 @@ public sealed class PlanTaskRow(string taskId) : ReactiveObject {
             this.RaisePropertyChanged(nameof(IsCompleted));
             this.RaisePropertyChanged(nameof(IsBlocked));
             this.RaisePropertyChanged(nameof(IsSettled));
+            this.RaisePropertyChanged(nameof(IsStarted));
+            this.RaisePropertyChanged(nameof(StateLabel));
         }
     }
 
@@ -31,22 +32,34 @@ public sealed class PlanTaskRow(string taskId) : ReactiveObject {
     public bool IsSettled    => State is PlanTaskState.Completed or PlanTaskState.Skipped;
 
     /// In progress in a session that is still running: the only state that pulses.
-    public bool IsActive { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public bool IsActive {
+        get;
+        private set {
+            if (field == value) return;
+            this.RaiseAndSetIfChanged(ref field, value);
+            this.RaisePropertyChanged(nameof(IsStarted));
+            this.RaisePropertyChanged(nameof(StateLabel));
+        }
+    }
 
-    public void Present(PlanLedgerTaskDto task, bool sessionOver) {
+    /// In progress in a session that has ended: the task was started and never settled.
+    public bool IsStarted => IsInProgress && !IsActive;
+
+    /// The mark's state in words, so it is not told by colour or shape alone.
+    public string StateLabel => State switch {
+        PlanTaskState.InProgress => IsActive ? "In progress" : "Started",
+        PlanTaskState.Completed  => "Done",
+        PlanTaskState.Blocked    => "Blocked",
+        PlanTaskState.Skipped    => "Skipped",
+        _                        => "Pending",
+    };
+
+    public void Present(PlanBoardTask task, bool sessionOver) {
         Title = task.Title;
-        Note = string.IsNullOrWhiteSpace(task.Note) ? null : task.Note;
-        State = StateOf(task.Status);
+        Note = task.Note;
+        State = task.State;
         Present(sessionOver);
     }
 
     public void Present(bool sessionOver) => IsActive = IsInProgress && !sessionOver;
-
-    static PlanTaskState StateOf(string status) => status switch {
-        "in_progress" => PlanTaskState.InProgress,
-        "completed"   => PlanTaskState.Completed,
-        "blocked"     => PlanTaskState.Blocked,
-        "skipped"     => PlanTaskState.Skipped,
-        _             => PlanTaskState.Pending,
-    };
 }

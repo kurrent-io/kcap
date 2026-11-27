@@ -1,7 +1,6 @@
 using System.Reactive;
 using System.Reactive.Concurrency;
 using Avalonia.Collections;
-using Capacitor.App.Services;
 using Capacitor.Cli.Core.Plans;
 using ReactiveUI.Reactive;
 
@@ -14,9 +13,7 @@ namespace Capacitor.App.ViewModels;
 /// read; a result applies only for the current lease, every lease is kept until its read settles
 /// so teardown can await them all, and every lease transition happens on the UI thread.
 public sealed class PlanSectionViewModel : ReactiveObject {
-    /// The server answers a read from a projection that can trail the write that prompted it, so a
-    /// write is read twice: at once, and again after this long.
-    internal static readonly TimeSpan SettleDelay = TimeSpan.FromSeconds(2);
+    internal static readonly TimeSpan SettleDelay = WorkContextTiming.PlanSettleDelay;
 
     readonly IPlanSource? _source;
     readonly SingleFlightReader<string, SessionPlansRead> _reader;
@@ -44,13 +41,22 @@ public sealed class PlanSectionViewModel : ReactiveObject {
     public bool HasInProgress => _inProgress.Count > 0;
     /// Whether the section has task rows to show: every task expanded, only the in-progress ones collapsed.
     public bool ShowsBody => IsExpanded ? HasPlan : HasInProgress;
-    public int DoneCount => _tasks.Count(task => task.IsSettled);
+    /// Completed or skipped: the server's rule for whether the plan's work is finished.
+    public int SettledCount => _tasks.Count(task => task.IsSettled);
+    public int CompletedCount => _tasks.Count(task => task.IsCompleted);
     public int BlockedCount => _tasks.Count(task => task.IsBlocked);
-    /// What the expanded header says; collapsed, the header shows Counts.
-    public string HeaderText => BlockedCount is > 0 and var blocked
-        ? $"{DoneCount} of {_tasks.Count} done · {blocked} blocked"
-        : $"{DoneCount} of {_tasks.Count} done";
-    /// Pending, in progress, blocked, done: one entry per state something is in, so the numbers
+    public int SkippedCount => _tasks.Count(task => task.State == PlanTaskState.Skipped);
+    /// What the expanded header says; collapsed, the header shows Counts. A skipped task is
+    /// settled but not done, and a blocked one is open but not pending, so each is named apart.
+    public string HeaderText {
+        get {
+            var text = $"{CompletedCount} of {_tasks.Count} done";
+            if (BlockedCount is > 0 and var blocked) text += $" · {blocked} blocked";
+            if (SkippedCount is > 0 and var skipped) text += $" · {skipped} skipped";
+            return text;
+        }
+    }
+    /// Pending, in progress, blocked, done, skipped: one entry per state something is in, so the numbers
     /// add up to the list.
     public IReadOnlyList<PlanTaskCount> Counts { get; private set; } = [];
 
@@ -76,6 +82,7 @@ public sealed class PlanSectionViewModel : ReactiveObject {
             },
             Apply,
             "plan section",
+            UiReads.Post,
             onSettled: RaiseLoading,
             cached: id => _source?.Cached(id));
         _activity = activity;
@@ -129,7 +136,7 @@ public sealed class PlanSectionViewModel : ReactiveObject {
         switch (read.Kind) {
             case SessionPlansReadKind.Ready:
                 _readOnce = true;
-                Show(read.Plans.FirstOrDefault(plan => plan.IsCurrent) ?? (read.Plans.Count > 0 ? read.Plans[0] : null));
+                Show(PlanBoard.From(read));
                 return;
             case SessionPlansReadKind.Unreachable:
                 return;
@@ -140,25 +147,21 @@ public sealed class PlanSectionViewModel : ReactiveObject {
         }
     }
 
-    void Show(SessionPlanDto? plan) {
-        if (plan is null) { Clear(); return; }
+    void Show(PlanBoard? board) {
+        if (board is null) { Clear(); return; }
 
-        var tasks = plan.Tasks.OrderBy(task => task.Ordinal).ToList();
-        StableRows.Sync(_tasks, RowsFor(tasks));
-        for (var i = 0; i < tasks.Count; i++) _tasks[i].Present(tasks[i], _activity.SessionOver);
+        StableRows.Sync(_tasks, RowsFor(board.Tasks));
+        for (var i = 0; i < board.Tasks.Count; i++) _tasks[i].Present(board.Tasks[i], _activity.SessionOver);
 
         RaiseShape();
     }
 
     /// A task the plan still names keeps its row, whatever was added, dropped or moved around it.
-    List<PlanTaskRow> RowsFor(List<PlanLedgerTaskDto> tasks) {
+    List<PlanTaskRow> RowsFor(IReadOnlyList<PlanBoardTask> tasks) {
         var known = new Dictionary<string, PlanTaskRow>(StringComparer.Ordinal);
         foreach (var row in _tasks) known.TryAdd(row.TaskId, row);
-        return [.. tasks.Select(task => known.Remove(RowKey(task), out var row) ? row : new PlanTaskRow(RowKey(task)))];
+        return [.. tasks.Select(task => known.Remove(task.TaskId, out var row) ? row : new PlanTaskRow(task.TaskId))];
     }
-
-    /// A task the server sent without an id is still one row per position.
-    static string RowKey(PlanLedgerTaskDto task) => task.TaskId is { Length: > 0 } id ? id : $"#{task.Ordinal}";
 
     void Clear() {
         if (_tasks.Count == 0) return;
@@ -174,8 +177,10 @@ public sealed class PlanSectionViewModel : ReactiveObject {
         this.RaisePropertyChanged(nameof(HasTasks));
         this.RaisePropertyChanged(nameof(HasInProgress));
         this.RaisePropertyChanged(nameof(ShowsBody));
-        this.RaisePropertyChanged(nameof(DoneCount));
+        this.RaisePropertyChanged(nameof(SettledCount));
+        this.RaisePropertyChanged(nameof(CompletedCount));
         this.RaisePropertyChanged(nameof(BlockedCount));
+        this.RaisePropertyChanged(nameof(SkippedCount));
         this.RaisePropertyChanged(nameof(HeaderText));
     }
 
@@ -194,13 +199,13 @@ public sealed class PlanSectionViewModel : ReactiveObject {
     }
 
     PlanTaskCount[] CountStates() {
-        var done = DoneCount;
         var blocked = BlockedCount;
         PlanTaskCount[] states = [
-            new(PlanTaskState.Pending, _tasks.Count - _inProgress.Count - blocked - done),
+            new(PlanTaskState.Pending, _tasks.Count - _inProgress.Count - blocked - SettledCount),
             new(PlanTaskState.InProgress, _inProgress.Count, _inProgress.Count > 0 && !_activity.SessionOver),
             new(PlanTaskState.Blocked, blocked),
-            new(PlanTaskState.Completed, done),
+            new(PlanTaskState.Completed, CompletedCount),
+            new(PlanTaskState.Skipped, SkippedCount),
         ];
         return [.. states.Where(state => state.Count > 0)];
     }

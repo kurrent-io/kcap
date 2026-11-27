@@ -17,6 +17,7 @@ public sealed class FakeServerSessionsService : IServerSessionsService, IDisposa
     public BehaviorSubject<IReadOnlySet<string>> ViewerIdsSubject { get; } = new(FrozenSet<string>.Empty);
     public BehaviorSubject<string?> ViewerUserIdSubject { get; } = new(null);
     public BehaviorSubject<bool> CurrentSubject { get; } = new(true);
+    public BehaviorSubject<bool> AnsweredSubject { get; } = new(true);
     readonly BehaviorSubject<RailScope> _scope = new(RailScope.Mine);
     public BehaviorSubject<RepoSessionDto?> PinnedSubject { get; } = new(null);
     public BehaviorSubject<string?> PinnedIdSubject { get; } = new(null);
@@ -96,6 +97,7 @@ public sealed class FakeServerSessionsService : IServerSessionsService, IDisposa
     public IObservable<IReadOnlySet<string>> ViewerIds => ViewerIdsSubject;
     public IObservable<string?> ViewerUserId => ViewerUserIdSubject;
     public IObservable<bool> Current => CurrentSubject;
+    public IObservable<bool> Answered => AnsweredSubject;
     public RailScope Scope { get => _scope.Value; set { if (_scope.Value != value) _scope.OnNext(value); } }
     public IObservable<RailScope> ScopeChanges => _scope;
 

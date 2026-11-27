@@ -66,6 +66,9 @@ public sealed class MachineTokenProvider(MachineAuth machine, TimeProvider time)
     /// credentials, or one credential against two endpoints, serves the first token to the second
     /// caller.</para>
     ///
+    /// <para><paramref name="serverTokenUrl"/> is the server's <c>machine_token_url</c>, which the
+    /// environment's override outranks.</para>
+    ///
     /// <para>Never throws: this runs on the client-construction path, whose contract is to report an auth
     /// outcome rather than explode — a hook that cannot authenticate must exit quietly, not stack-trace
     /// into a transcript.</para>
@@ -74,9 +77,10 @@ public sealed class MachineTokenProvider(MachineAuth machine, TimeProvider time)
             WorkOSClient      workos,
             MachineCredential credential,
             string?           rejectedToken,
-            CancellationToken ct
+            CancellationToken ct,
+            string?           serverTokenUrl = null
         ) {
-        var tokenUrl = machine.TryResolveTokenUrl(out var urlProblem);
+        var tokenUrl = machine.TryResolveTokenUrl(serverTokenUrl, out var urlProblem);
 
         if (tokenUrl is null) return new(null, urlProblem);
 

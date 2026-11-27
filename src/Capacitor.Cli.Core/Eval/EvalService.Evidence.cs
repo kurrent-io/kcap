@@ -4,6 +4,7 @@ using System.Text.Json;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Eval.Contracts;
 using Capacitor.Cli.Core.Eval.Evidence;
+using Capacitor.Cli.Core.Eval.RepoContext;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
 
@@ -32,8 +33,10 @@ public static partial class EvalService {
 
     static async Task<SessionEvalCompletedPayloadV4?> RunEvidenceAsync(
             string baseUrl, HttpClient httpClient, Profile? profile, HarnessRegistry harnesses, string sessionId, IReadOnlyList<EvalQuestionDto> questions,
-            EvalCatalogDto catalog, string model, IEvalObserver observer, TimeProvider time, CancellationToken ct, string? evalRunId) {
-        var setup = await PrepareEvidenceAsync(baseUrl, httpClient, profile, harnesses, sessionId, questions, catalog, model, observer, time, ct, evalRunId);
+            EvalCatalogDto catalog, string model, IEvalObserver observer, TimeProvider time, CancellationToken ct, string? evalRunId,
+            RepoEvalContextSource? repoContext) {
+        var setup = await PrepareEvidenceAsync(baseUrl, httpClient, profile, harnesses, sessionId, questions, catalog, model, observer, time, ct, evalRunId,
+            repoContext: repoContext);
         if (setup is null) return null;
 
         try {
@@ -54,7 +57,7 @@ public static partial class EvalService {
     public static async Task<EvidenceRunSetup?> PrepareEvidenceAsync(
             string baseUrl, HttpClient httpClient, Profile? profile, HarnessRegistry harnesses, string sessionId, IReadOnlyList<EvalQuestionDto> questions,
             EvalCatalogDto catalog, string model, IEvalObserver observer, TimeProvider time, CancellationToken ct,
-            string? evalRunId = null, string? tempRoot = null) {
+            string? evalRunId = null, string? tempRoot = null, RepoEvalContextSource? repoContext = null) {
         var ad = catalog.EvidenceRetrieval ?? throw new ArgumentException("the catalog does not advertise the evidence route", nameof(catalog));
         evalRunId ??= Guid.NewGuid().ToString();
 
@@ -89,8 +92,9 @@ public static partial class EvalService {
                 return null;
             }
 
-            var reader = new EvidenceReadClient(httpClient, baseUrl, sessionId);
-            var limit  = EvidenceRouteChoice.OneShotLimitChars(ad.OneShotLimitChars, TraceTokenBudget());
+            var reader    = new EvidenceReadClient(httpClient, baseUrl, sessionId);
+            var repoBlock = repoContext is null ? "" : await repoContext.ForSessionAsync(httpClient, baseUrl, sessionId, observer, ct);
+            var limit     = Math.Max(0, EvidenceRouteChoice.OneShotLimitChars(ad.OneShotLimitChars, TraceTokenBudget()) - repoBlock.Length);
             var (route, trace) = await EvidenceRouteChoice.ChooseAsync(new EvidenceTraceAssembler(reader, state.Token, ad.PageBudgetBytes), state.Sources, limit, ct);
             if (trace.FailedStatus is { } failed && !await ContinuesAfterReadFailureAsync(failed, scope, observer, ct)) return null;
 
@@ -110,7 +114,7 @@ public static partial class EvalService {
                 ReportingQuestionId = EvalStrategiesMirror.ReportingQuestion(catalog, [.. reconciled.Select(q => q.Id)]),
                 EvalRunId = evalRunId, SessionId = sessionId, EncodedSessionId = Uri.EscapeDataString(sessionId),
                 RetrospectivePrompt = catalog.RetrospectivePrompt, RetrospectivePromptVersion = catalog.RetrospectivePromptVersion,
-                Model = model, Profile = profile, Harnesses = harnesses
+                Model = model, Profile = profile, Harnesses = harnesses, RepoContext = repoBlock
             };
         } finally {
             if (!prepared) {
@@ -171,7 +175,7 @@ public static partial class EvalService {
         if (route == EvidenceRoute.OneShot) {
             WriteOneShotLedger(setup, index, question, state, time);
             outcome = await ClaudeCliRunner.RunDetailedAsync(
-                BuildOneShotPrompt(question, state.RootSessionId, setup.EvalRunId, setup.Trace.TraceJson), setup.OneShotTimeout, time, Log, setup.Profile, setup.Harnesses,
+                setup.RepoContext + BuildOneShotPrompt(question, state.RootSessionId, setup.EvalRunId, setup.Trace.TraceJson), setup.OneShotTimeout, time, Log, setup.Profile, setup.Harnesses,
                 model: JudgeModelFor(model), maxTurns: JudgeMaxTurns, promptViaStdin: true, jsonSchema: EvidenceVerdictJsonSchema, ct: ct);
         } else {
             if (question.Strategy is { Length: > 0 } strategy && !setup.FirstViews.TryGetValue(strategy, out view)) {
@@ -190,7 +194,7 @@ public static partial class EvalService {
             setup.Context.WriteRunFile(index, new EvidenceRunFile(setup.EvalRunId, question.Id, state.RootSessionId, state.ScopeVersion, state.Token, state.Deadline,
                 [.. state.Sources.Select(EvidenceRunSource.From)], setup.Budgets, soft, ledgerPath, seeded));
             try {
-                var prompt = BuildEvidenceQuestionPrompt(question, state.RootSessionId, setup.EvalRunId, setup.Orientation.Text + view?.Text, setup.Advertisement.MaxToolCalls)
+                var prompt = setup.RepoContext + BuildEvidenceQuestionPrompt(question, state.RootSessionId, setup.EvalRunId, setup.Orientation.Text + view?.Text, setup.Advertisement.MaxToolCalls)
                            + (reporting ? "\n" + EvalObligationContract.ReporterMarker : "");
                 outcome = await ClaudeCliRunner.RunDetailedAsync(prompt,
                     setup.RetrievalTimeout, time, Log, setup.Profile, setup.Harnesses,
@@ -383,7 +387,7 @@ public static partial class EvalService {
         var overallText  = aggregate.OverallScore is { } score ? $"{score}/5" : "not scored";
         var sessionMeta  = $"session-id: {setup.Scope.State!.RootSessionId}\nrun-id: {setup.EvalRunId}\nmodel: {model}\noverall-score: {overallText}";
         var verdictsJson = RetrospectiveVerdictsJson(assessments);
-        var prompt       = EvidencePromptBlocks.Preamble(EvidencePromptBlocks.RetrospectivePreambleResource)
+        var prompt       = setup.RepoContext + EvidencePromptBlocks.Preamble(EvidencePromptBlocks.RetrospectivePreambleResource)
                          + BuildRetrospectivePrompt(setup.RetrospectivePrompt, sessionMeta, verdictsJson, knownPatterns: "", trace);
         try {
             var result = await ClaudeCliRunner.RunAsync(prompt, setup.RetrospectiveTimeout, time, msg => observer.OnInfo($"  {msg}"), setup.Profile, setup.Harnesses,

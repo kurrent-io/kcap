@@ -24,6 +24,22 @@ public class ChatFindViewModelTests {
         await Assert.That(find.Summary).IsEqualTo("1 of 5");
     });
 
+    /// A GitHub link chip shows `owner/repo#n`, not its address, and the view cannot mark text inside it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_link_shown_as_a_chip_is_not_found_by_its_address() => RunOnUiAsync(async () => {
+        var items = new AvaloniaList<ChatItemViewModel> {
+            new UserTurnItem("review https://github.com/kurrent-io/kcap/pull/2625 on github"),
+            new AssistantTextItem("Opened https://github.com/kurrent-io/kcap/pull/2625/files on github."),
+        };
+        var find = new ChatFindViewModel(items);
+        find.Open(0);
+        find.Query = "github";
+
+        await Assert.That(find.Matches.Select(m => (m.ItemIndex, m.Ordinal)))
+            .IsEquivalentTo(new[] { (0, 0), (1, 0), (1, 1) });
+    });
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task A_new_query_starts_at_the_item_in_view_and_steps_wrap() => RunOnUiAsync(async () => {

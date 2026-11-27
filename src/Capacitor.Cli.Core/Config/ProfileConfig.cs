@@ -134,6 +134,11 @@ public record Profile {
     [JsonPropertyName("disable_harness_nudge")]
     public bool? DisableHarnessNudge { get; init; }
 
+    /// <summary>When true, the watcher does not upload the repository's instruction files (<c>CLAUDE.md</c>,
+    /// <c>AGENTS.md</c>, <c>GEMINI.md</c> and their imports) for the server's evaluations.</summary>
+    [JsonPropertyName("disable_repo_instructions_upload")]
+    public bool? DisableRepoInstructionsUpload { get; init; }
+
     /// <summary>
     /// When true, kcap keeps <c>ANTHROPIC_API_KEY</c> / <c>OPENAI_API_KEY</c>
     /// in the spawn environment for headless agent CLIs (title generation,
@@ -195,6 +200,9 @@ public record Profile {
 
     [JsonPropertyName("grok_bot")]
     public GrokBotSettings? GrokBot { get; init; }
+
+    [JsonPropertyName("hosts")]
+    public HostsSettings? Hosts { get; init; }
 
     /// <summary>
     /// Provider + canonical server identity learned at the last successful sign-in (Plan C's

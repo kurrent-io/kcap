@@ -15,6 +15,10 @@ public static class SessionEnd {
       : copilotShutdown ? "session_shutdown"
       :                   null;
 
+    /// <summary>An end the session can outlive: the recorder stopped for silence while the agent process may live on, so a
+    /// later turn reopens the session. The resume fence records it as soft for the daemon to clear on that turn.</summary>
+    public static bool IsSoftEnd(string endReason) => endReason == "idle_timeout";
+
     /// <summary>
     /// Whether the recorder posts the session's end itself: only a session's own source does, never a subagent's.
     /// Whether the session had a real turn does not enter into it: the start hook registered the session before the

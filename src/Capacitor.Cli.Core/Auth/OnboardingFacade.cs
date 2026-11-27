@@ -60,7 +60,7 @@ static class CommitBoundary {
         const string changed = "the profiles kept changing during sign-in; nothing saved.";
         progress.Error($"Error: {changed}");
 
-        return new AuthResult.Failed(changed);
+        return new AuthResult.Failed(changed, AuthFailureReason.ProfileChanged);
     }
 
     /// <summary>Null when <paramref name="stillNamed"/> refused the config under the lock: nothing
@@ -112,11 +112,11 @@ static class CommitBoundary {
             } catch (CommitPreconditionFailedException ex) {
                 progress.Error($"Error: {ex.Message}");
 
-                return new AuthResult.Failed(ex.Message);
+                return new AuthResult.Failed(ex.Message, AuthFailureReason.ProfileChanged);
             } catch (ConfigUnreadableException) {
                 progress.Error("Error: sign-in could not be saved: the configuration file could not be read.");
 
-                return new AuthResult.Failed("config unreadable");
+                return new AuthResult.Failed("config unreadable", AuthFailureReason.ConfigUnreadable);
             } catch (Exception ex) {
                 // A durable publication's directory sync can throw after the rename, so a Failed commit may already be visible; the caller retries.
                 progress.Error($"Error: sign-in could not be saved: {ex.Message}");
@@ -165,16 +165,15 @@ static class CommitBoundary {
     }
 
     /// Every writer of <c>active_profile</c> settles the outgoing profile's legacy credential first,
-    /// so the name the legacy file follows never moves away from it. Null on success, else the line
-    /// to report.
-    internal static async Task<string?> SettleLegacyCredentialAsync(ConfigRoot root, TokenStore store, CancellationToken ct) {
+    /// so the name the legacy file follows never moves away from it.
+    internal static async Task<AuthResult.Failed?> SettleLegacyCredentialAsync(ConfigRoot root, TokenStore store, CancellationToken ct) {
         if (!ConfigMutator.TryLoadPure(AppConfig.GetConfigPath(root), out var before))
-            return "Error: the configuration file could not be read.";
+            return new AuthResult.Failed("Error: the configuration file could not be read.", AuthFailureReason.ConfigUnreadable);
         try {
             await store.MigrateLegacyAsync(before.ActiveName, ct);
             return null;
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TimeoutException or ArgumentException) {
-            return $"Error: could not move the saved sign-in of profile '{before.ActiveName}': {ex.Message}";
+            return new AuthResult.Failed($"Error: could not move the saved sign-in of profile '{before.ActiveName}': {ex.Message}");
         }
     }
 
@@ -303,7 +302,7 @@ public sealed class OnboardingFacade(
 
         // Hooks read the provider from this cache for a day, keyed as CapacitorServer.Url trims it; a
         // server that changed provider would otherwise be treated as the old one until it expired.
-        AuthProviderCache.Set(serverUrl.TrimEnd('/'), config.Provider, root, time);
+        AuthProviderCache.Set(serverUrl.TrimEnd('/'), config.Provider, root, time, config.MachineTokenUrl);
 
         if (!ServerIdentity.TryCanonicalizeForStamping(serverUrl, out var canonical, out var identityError)) {
             return Fail($"Error: {identityError}", identityError, ct);
@@ -575,7 +574,7 @@ public sealed class OnboardingFacade(
         }
 
         if (await CommitBoundary.SettleLegacyCredentialAsync(root, store, ct) is { } settleError)
-            return Fail(settleError, settleError, ct);
+            return Fail(settleError.Message, ct, settleError.Reason);
 
         return await CommitBoundary.CommitNamedAsync(root, outcome.Tenants, outcome.Picked!, (tenants, picked) => new CommitRequest(
                 [.. tenants.Select(t => new AuthIdentity(t.ProfileName, canonicalByOrigin[t.Origin]))],

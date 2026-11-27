@@ -76,7 +76,9 @@ public sealed class LocalSearchController(Func<IKcapCli> cli, Action<Action> pos
         var outcome = LocalInstallOutcome.Settle(progress, result.ExitCode, lockedToLocal: true);
         if (outcome is LocalInstallOutcome.Failed failed) {
             if (progress is { FailedCode: null, FailedMessage: null } && StderrTail.Text(result) is { } stderr)
-                outcome = failed with { Message = stderr };
+                failed = failed with { Message = stderr };
+            Console.Error.WriteLine($"kcap: search setup failed ({failed.Code}): {failed.Message}");
+            outcome = failed;
             progress.Halt();
         }
 

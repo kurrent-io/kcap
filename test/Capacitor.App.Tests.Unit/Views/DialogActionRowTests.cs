@@ -78,7 +78,7 @@ public class DialogActionRowTests {
     public Task A_failed_uninstall_ends_with_retry_off_enter() => AvaloniaSession.RunOnUiAsync(async () => {
         var cli = new FakeKcapCli { UninstallBehavior = _ => Task.FromResult(
             new StreamingResult(1, false, [new StreamedLine(ProcessStreamKind.Stderr, "Could not stop the daemon.")])) };
-        var run = new UninstallRunViewModel(cli, new KeptRemoval(), false, () => { }, action => action());
+        var run = new UninstallRunViewModel(cli, new KeptRemoval(), false, () => { });
         var window = new UninstallWindow { DataContext = run };
         try {
             window.Show();

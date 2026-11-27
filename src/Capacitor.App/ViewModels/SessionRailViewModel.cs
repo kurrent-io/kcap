@@ -151,6 +151,7 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     public static string SortName(RailSort sort) => sort switch {
         RailSort.LastUpdated => "Last updated",
         RailSort.Created => "Created",
+        RailSort.NeedsYou => "Needs you",
         _ => "Title",
     };
 
@@ -590,8 +591,14 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
     static DateOnly LocalDay(DateTime utc, TimeZoneInfo zone) =>
         DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), zone));
 
+    /// Needs you puts attention first whatever the direction; the direction orders last updated
+    /// within each rank.
     internal static IComparer<RailSessionViewModel> RowComparer(RailSort sort, bool descending) =>
         Comparer<RailSessionViewModel>.Create((a, b) => {
+            if (sort == RailSort.NeedsYou) {
+                var rank = AttentionRank(a).CompareTo(AttentionRank(b));
+                if (rank != 0) return rank;
+            }
             var order = sort switch {
                 RailSort.Created => a.CreatedAt.CompareTo(b.CreatedAt),
                 RailSort.Title => StringComparer.OrdinalIgnoreCase.Compare(a.Primary ?? a.Vendor, b.Primary ?? b.Vendor),
@@ -602,6 +609,17 @@ public sealed class SessionRailViewModel : ReactiveObject, IDisposable {
             var id = StringComparer.Ordinal.Compare(a.Id, b.Id);
             return id != 0 ? id : StringComparer.Ordinal.Compare(a.Key, b.Key);
         });
+
+    /// Lower ranks first under Needs you: a question, an answer, or a prompt waiting on the user;
+    /// then a session the user must recover, even once ended; then everything else, which the
+    /// direction orders by last updated. A Resuming row keeps the input wait of its last snapshot,
+    /// so only a live Idle or Working row's wait counts.
+    internal static int AttentionRank(RailSessionViewModel row) => row.Status.Kind switch {
+        AgentStatusKind.NeedsYou or AgentStatusKind.Answer => 0,
+        AgentStatusKind.Idle or AgentStatusKind.Working when SessionStatusDots.WaitsOnUser(row.Row) => 0,
+        AgentStatusKind.Failed or AgentStatusKind.DaemonDown or AgentStatusKind.Interrupted => 1,
+        _ => 2,
+    };
 
     /// Repositories by label with "No repository" last; days newest first; statuses in their fixed order.
     internal static IComparer<RailGroupViewModel> GroupComparer(RailGrouping grouping) =>

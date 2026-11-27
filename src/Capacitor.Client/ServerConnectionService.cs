@@ -55,6 +55,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     readonly Subject<SessionPush> _sessionPushes = new();
     readonly Subject<PendingInputUpdate> _pendingInput = new();
     readonly Subject<string> _heldMessagesChanged = new();
+    readonly Subject<Unit> _notificationsChanged = new();
     readonly Subject<TerminalOutputFrame> _terminalOutput = new();
     readonly Subject<TerminalSize> _terminalDimensions = new();
     // The subscription client of the live hub, replaced with it: it registers the StreamEvent
@@ -141,6 +142,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
     public IObservable<SessionPush> SessionPushes => _sessionPushes.AsObservable();
     public IObservable<PendingInputUpdate> PendingInputChanged => _pendingInput.AsObservable();
     public IObservable<string> HeldMessagesChanged => _heldMessagesChanged.AsObservable();
+    public IObservable<Unit> NotificationsChanged => _notificationsChanged.AsObservable();
     public IObservable<TerminalOutputFrame> TerminalOutput => _terminalOutput.AsObservable();
     public IObservable<TerminalSize> TerminalDimensions => _terminalDimensions.AsObservable();
 
@@ -447,6 +449,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
             if (ParseQueue(items) is { } queue) Push(generation, _pendingInput, new PendingInputUpdate(sessionId, queue));
         });
         hub.On<string>(HubBroadcasts.HeldMessagesChanged, id => Push(generation, _heldMessagesChanged, id));
+        hub.On(HubBroadcasts.NotificationsChanged, () => Push(generation, _notificationsChanged, Unit.Default));
         hub.On<string, string>(HubBroadcasts.TerminalOutput, (agentId, base64) => Push(generation, _terminalOutput, new(agentId, base64)));
         hub.On<string, int, int>(HubBroadcasts.TerminalDimensions, (agentId, cols, rows) => {
             Push(generation, _terminalDimensions, new TerminalSize(agentId, cols, rows));
@@ -718,6 +721,8 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
                 HubMethods.RequestLaunchAgentV2, LaunchPayload.For(request), ct).ConfigureAwait(false);
             return new LaunchOutcome(Started: true, AgentId: agentId, Error: null);
         } catch (Exception ex) {
+            if (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+                Log("server_launch_failed", ("exception_type", ex.GetType().Name), ("detail", ex.Message));
             return new LaunchOutcome(false, null, ex.Message, IsUnauthorized(ex));
         }
     }
@@ -800,6 +805,7 @@ public sealed class ServerConnectionService : IServerLane, ILaunchClient, IAsync
         _sessionPushes.Dispose();
         _pendingInput.Dispose();
         _heldMessagesChanged.Dispose();
+        _notificationsChanged.Dispose();
         _terminalOutput.Dispose();
         _terminalDimensions.Dispose();
     }

@@ -176,7 +176,7 @@ public class ButtonAutomationNameTests {
             string[] expected = ["Parts, 1 open", "Parts, 0 of 1", "Who's on it", "Copy Ada", "Copy Bob", "Issues", "Plan", "Agents",
                                  "Usage, expanded", "Usage, collapsed", "Compact context", "Checkout, collapsed", "Checkout, expanded",
                                  "Session, collapsed", "Session, expanded",
-                                 "x-design.md", pullRequestCard ? "Pull requests" : "#7: Fix",
+                                 "Choose a page or document", pullRequestCard ? "Pull requests" : "#7: Fix",
                                  .. titledIssues ? ["WK-1: One", "WK-2: Two"] : new[] { "WK-1: Title not available" }];
             await Assert.That(expected.Where(n => !names.Contains(n))).IsEmpty();
         } finally {

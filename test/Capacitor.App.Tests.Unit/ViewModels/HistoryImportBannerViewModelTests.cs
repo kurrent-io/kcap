@@ -76,4 +76,45 @@ public class HistoryImportBannerViewModelTests {
             await Assert.That(((ICommand)withoutSetup.ReopenSetupCommand).CanExecute(null)).IsFalse();
         });
     }
+
+    [Test]
+    public async Task Cancel_import_stops_the_running_pass_once_and_lands_on_the_unfinished_state() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            var settled = new TaskCompletionSource();
+            var passToken = CancellationToken.None;
+            var imports = 0;
+            var run = new HistoryImportRun(3, 1, "recent history", 2, action => action());
+            var banner = new HistoryImportBannerViewModel(run, () => { });
+            using var watch = banner.Watch();
+            run.Start(new FakeKcapCli {
+                ImportBehavior = async (_, onLine, ct) => {
+                    imports++;
+                    passToken = ct;
+                    onLine(new StreamedLine(ProcessStreamKind.Stdout, "  Loading s1 (claude)"));
+                    try { await Task.Delay(Timeout.InfiniteTimeSpan, ct); }
+                    catch (OperationCanceledException) { await settled.Task; throw; }
+                    return new StreamingResult(0, false, []);
+                },
+            }, [new ImportRequest(ImportScopeChoice.Repo, null, [], ["a/b"]), new ImportRequest(ImportScopeChoice.Repo, null, [], ["c/d"])]);
+
+            await Assert.That(banner.DismissLabel).IsEqualTo("Hide");
+            await Assert.That(banner.DismissAccessibleName).IsEqualTo("Hide history import status");
+            await Assert.That(((ICommand)banner.CancelCommand).CanExecute(null)).IsTrue();
+
+            var cancelling = banner.CancelCommand.Execute().ToTask();
+            await Assert.That(passToken.IsCancellationRequested).IsTrue();
+            await Assert.That(run.Running).IsTrue();
+            await Assert.That(((ICommand)banner.CancelCommand).CanExecute(null)).IsFalse();
+
+            settled.SetResult();
+            await cancelling;
+            await Assert.That(imports).IsEqualTo(1);
+            await Assert.That(run.State).IsEqualTo(ImportRunState.Cancelled);
+            await Assert.That(banner.IsVisible).IsTrue();
+            await Assert.That(banner.Status).IsEqualTo("History import didn’t finish · 1 of 3 sessions processed");
+            await Assert.That(banner.ShowsReopenSetup).IsTrue();
+            await Assert.That(banner.DismissLabel).IsEqualTo("Dismiss");
+            await Assert.That(((ICommand)banner.CancelCommand).CanExecute(null)).IsFalse();
+        });
+    }
 }

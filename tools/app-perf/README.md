@@ -11,13 +11,16 @@ guest, not a prediction for a laptop.
 ```bash
 swiftc -O ocr.swift -o ocr       # Vision OCR, used to read when text appeared on screen
 swiftc -O click.swift -o click   # synthetic left click at a point
+swiftc -O type.swift -o type     # synthetic typing, or one key by its virtual key code (type --key 36 is Return)
 python3 seed_sessions.py 20 200 1500
 ```
 
 `seed_sessions.py` writes Claude transcripts shaped like real work (prompt, text, three tool calls with results,
 reply) and imports them with `kcap import --claude`: about nine events a turn, so `20 200 1500` gives sessions of
 184, 1,804 and 13,505 events. Give the guest's terminal Screen Recording permission once; macOS asks for it on the
-first `screencapture` and ignores synthetic clicks on that prompt.
+first `screencapture` and ignores synthetic clicks on that prompt. `click` and `type` post events, which Screen Recording
+does not cover: whatever runs them needs Accessibility too (System Settings > Privacy & Security > Accessibility). The
+Tart base image grants both to `tart-guest-agent`, so commands run through `tart exec` already have them.
 
 Stamp every build with the same version, so swapping one bundle for another does not start the post-update flow,
 and discard the first launch after a swap anyway: it may finish an update and hold the main window on purpose.
@@ -39,3 +42,14 @@ CPU from the guest.
 
 Output lands under `~/app-perf-out/`. A session-open run starts after a restart and 20 s of idle, so the first open
 pays for whatever the app builds lazily.
+
+## Hosted sessions without a model
+
+`claude_stub.py` stands in for the `claude` CLI, so a daemon in the guest can host a Claude session with no account
+or model. Put it on the daemon's `PATH` as `claude` (`sudo install -m 755 claude_stub.py /usr/local/bin/claude`) and
+start a session from the app or with `kcap agent start claude`. It fires the kcap plugin's hooks with Claude-shaped
+payloads, writes a Claude transcript, and on each prompt raises one Bash permission through the PermissionRequest
+hook, then writes `KCAP_STUB_TURNS` (default 60) turns of tool work while the request waits, about seven events a
+turn, so the request ends up older than the app's 300-event tail window. Answering the card settles the call. Hook
+exits and outputs go to `~/claude-stub.log`. It draws no dialogs in the terminal and runs no tools, so it exercises
+kcap's hook, daemon bridge and server paths, not Claude's own behaviour.

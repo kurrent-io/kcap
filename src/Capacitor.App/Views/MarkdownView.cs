@@ -60,6 +60,13 @@ public sealed class MarkdownView : ContentControl {
 
     public static void SetAgentLinks(Control control, AgentLinkLabels? value) => control.SetValue(AgentLinksProperty, value);
 
+    /// Where a GitHub link chip in chat reads its pull request's or issue's state. Inherited, so the
+    /// window sets it once; unset, a chip shows no state.
+    public static readonly AttachedProperty<GitHubLinkStatuses?> GitHubLinksProperty =
+        AvaloniaProperty.RegisterAttached<MarkdownView, Control, GitHubLinkStatuses?>("GitHubLinks", inherits: true);
+
+    public static void SetGitHubLinks(Control control, GitHubLinkStatuses? value) => control.SetValue(GitHubLinksProperty, value);
+
     /// Takes a code block's text. Left unset on a surface with nowhere to run it, which is what
     /// withdraws the offer from the block.
     public static readonly StyledProperty<ICommand?> RunCodeProperty =
@@ -141,9 +148,13 @@ public sealed class MarkdownView : ContentControl {
         AddHandler(ContextRequestedEvent, (_, e) => {
             ContextLinkUrl = LinkAt(e);
             ContextListItems = ListAt(e);
-            ContextImage = ImageUnder(e.Source as Visual) is { ShowsPicture: true } image ? image : null;
+            ContextImage = Under<MarkdownImage>(e.Source as Visual) is { ShowsPicture: true } image ? image : null;
         }, RoutingStrategies.Tunnel, handledEventsToo: true);
         MarkViewSelection.Attach(this, _viewer, CopySelectionAsync);
+        // The viewer swaps in new content at the end of every render, its selection index built by then.
+        _viewer.PropertyChanged += (_, e) => {
+            if (e.Property == ContentProperty) MarkViewSelection.AlignEmbedded(_viewer);
+        };
         // Bubble on the host runs after the viewer's own move, which has already chosen Hand or
         // the arrow. Prose takes the I-beam and a link the hand; a bare image stays on the arrow.
         AddHandler(PointerMovedEvent, OnPointerMoved, RoutingStrategies.Bubble, handledEventsToo: true);
@@ -158,6 +169,14 @@ public sealed class MarkdownView : ContentControl {
     }
 
     internal bool IsSelecting => Content is MarkdownViewer && MarkViewSelection.IsSelecting(_viewer);
+
+    internal void ResetMessageState() {
+        ContextLinkUrl = null;
+        ContextListItems = null;
+        ContextImage = null;
+        _nonLeftRelease = false;
+        ClearSelection();
+    }
 
     internal bool TryStartSelectionFromLeft(PointerPressedEventArgs e) {
         if (Content is not MarkdownViewer) return false;
@@ -215,8 +234,8 @@ public sealed class MarkdownView : ContentControl {
     void OnPointerMoved(object? sender, PointerEventArgs e) {
         if (_hasMarks) _hover.Move(this, e);
         var link = FindHyperlinkAt(_viewer, e.GetPosition(_viewer));
-        var image = ImageUnder(e.Source as Visual);
-        var tip = link?.NavigateUri?.ToString() ?? image?.Target;
+        var image = Under<MarkdownImage>(e.Source as Visual);
+        var tip = link?.NavigateUri?.ToString() ?? image?.Target ?? Under<GitHubLinkChip>(e.Source as Visual)?.Url;
         if (!string.Equals(ToolTip.GetTip(_viewer) as string, tip, StringComparison.Ordinal))
             ToolTip.SetTip(_viewer, tip);
         // Cursor inherits, so the viewer's value is what a child with none of its own shows.
@@ -230,7 +249,8 @@ public sealed class MarkdownView : ContentControl {
 
     string? LinkAt(ContextRequestedEventArgs e) =>
         e.TryGetPosition(_viewer, out var point)
-            ? FindHyperlinkAt(_viewer, point)?.NavigateUri?.ToString() ?? ImageUnder(e.Source as Visual)?.Target
+            ? FindHyperlinkAt(_viewer, point)?.NavigateUri?.ToString() ?? Under<MarkdownImage>(e.Source as Visual)?.Target
+                ?? Under<GitHubLinkChip>(e.Source as Visual)?.Url
             : _linkKeys.CurrentUrl;
 
     /// The items of the list a context menu was opened on, if it was opened on one.
@@ -289,9 +309,9 @@ public sealed class MarkdownView : ContentControl {
         await clipboard.SetTextAsync(url);
     }
 
-    static MarkdownImage? ImageUnder(Visual? visual) {
+    static T? Under<T>(Visual? visual) where T : Visual {
         for (; visual is not null && visual is not MarkdownViewer; visual = visual.GetVisualParent())
-            if (visual is MarkdownImage image) return image;
+            if (visual is T found) return found;
         return null;
     }
 

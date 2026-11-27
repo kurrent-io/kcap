@@ -16,4 +16,8 @@ namespace Capacitor.Cli.Ide;
 [JsonSerializable(typeof(ScopeChanged))]
 [JsonSerializable(typeof(SessionsSnapshot))]
 [JsonSerializable(typeof(SessionsChanged))]
+[JsonSerializable(typeof(ContextSubscribeParams))]
+[JsonSerializable(typeof(ContextRefParams))]
+[JsonSerializable(typeof(ContextSnapshot))]
+[JsonSerializable(typeof(ContextChanged))]
 internal partial class IdeJsonContext : JsonSerializerContext;

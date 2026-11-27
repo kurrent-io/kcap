@@ -321,7 +321,7 @@ public sealed class ChatTopics : ReactiveObject {
             Prune();
         } finally { _editing = false; }
         Lay();
-        AssistantReplies.RefreshAll(Everything());
+        AssistantReplies.RefreshAll(_items);
     }
 
     // An end with no topic open before it ends nothing, as when the topic it ended is taken away.

@@ -1,12 +1,14 @@
 <Styles xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:Capacitor.App.Views">
-    <!-- Width comes from the surrounding ChatCardRow, which fills the chat column. -->
+    <!-- Width comes from the surrounding ChatCardRow, which fills the chat column. Unfilled, so
+         tool and system output sits on the canvas beneath the conversation; a surface fill makes
+         it outrank the prose on a light canvas. -->
     <Style Selector="Border.chatSystemCard">
         <Setter Property="HorizontalAlignment" Value="Left" />
-        <Setter Property="Padding" Value="{DynamicResource KcapChatCardPadding}" />
+        <Setter Property="Padding" Value="{DynamicResource KcapSystemCardPadding}" />
         <Setter Property="CornerRadius" Value="{StaticResource KcapChatCardRadius}" />
-        <Setter Property="Background" Value="{StaticResource KcapSurfaceBrush}" />
+        <Setter Property="Background" Value="Transparent" />
         <Setter Property="BorderBrush" Value="{StaticResource KcapBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
     </Style>

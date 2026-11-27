@@ -305,6 +305,116 @@ public class AgentOrchestratorResumeLedgerTests {
         await Assert.That(busy.State).IsEqualTo(ResumeState.Running);
     }
 
+    /// <summary>The watcher's idle timeout ends a Codex session while its process lives, and the fence stamps that end
+    /// on the entry as soft. A turn afterwards means the session ran on, so the stamp must go, or the next restart leaves
+    /// the agent behind.</summary>
+    [Test]
+    public async Task A_turn_after_a_soft_end_clears_the_end() {
+        await using var orch  = Build();
+        var             agent = await SeedWaitingAsync(orch, "ledger-reopened");
+        StampEnd(orch, "ledger-reopened", soft: true);
+
+        agent.ActivityClock.SetAwaitingInput(false);
+        var reopened = await EntryOnceAsync(orch, "ledger-reopened", e => e.EndCommittedAt is null);
+
+        await Assert.That(reopened.EndCommittedAt).IsNull();
+        await Assert.That(reopened.EndCommittedEpoch).IsNull();
+        await Assert.That(reopened.EndCommittedSession).IsNull();
+        await Assert.That(reopened.EndCommittedSoft).IsNull();
+    }
+
+    /// <summary>A turn that starts and ends before the write runs leaves the clock waiting again, yet the session ran on:
+    /// the clock keeps the turn's start, so the write, which runs with the clock waiting, still clears the soft end.</summary>
+    [Test]
+    public async Task A_turn_that_ends_before_the_write_still_clears_a_soft_end() {
+        await using var orch  = Build();
+        var             agent = await SeedWaitingAsync(orch, "ledger-fast-turn");
+        StampEnd(orch, "ledger-fast-turn", soft: true);
+        HoldWrites(agent);
+
+        agent.ActivityClock.SetAwaitingInput(false);
+        agent.ActivityClock.SetAwaitingInput(true);
+        orch.PersistWaiting(agent);
+
+        await Assert.That(agent.ActivityClock.NothingInFlight).IsTrue();
+        await Assert.That(orch.ResumeLedger!.TryRead("ledger-fast-turn")!.EndCommittedAt).IsNull();
+    }
+
+    /// <summary>A key that clears the terminal's wait is no turn: no prompt reached the agent, so the session did not
+    /// outlive its idle end.</summary>
+    [Test]
+    public async Task A_cleared_terminal_wait_does_not_clear_a_soft_end() {
+        await using var orch      = Build();
+        var             agent     = await SeedWaitingAsync(orch, "ledger-enter");
+        var             committed = StampEnd(orch, "ledger-enter", soft: true);
+
+        agent.ActivityClock.ClearAwaitingInputSince(agent.ActivityClock.WaitGeneration);
+        await EntryOnceAsync(orch, "ledger-enter", e => e.AwaitingInput == false);
+        await WritesDrainedAsync(agent);
+
+        await Assert.That(agent.ActivityClock.LastTurnStartedUtcTicks).IsEqualTo(0L);
+        await Assert.That(orch.ResumeLedger!.TryRead("ledger-enter")!.EndCommittedAt).IsEqualTo(committed);
+    }
+
+    /// <summary>A real end, such as a Claude SessionEnd, may be on its way to the server: no turn clears it.</summary>
+    [Test]
+    public async Task A_turn_never_clears_a_real_end() {
+        await using var orch      = Build();
+        var             agent     = await SeedWaitingAsync(orch, "ledger-real-end");
+        var             committed = StampEnd(orch, "ledger-real-end", soft: false);
+
+        agent.ActivityClock.SetAwaitingInput(false);
+        await EntryOnceAsync(orch, "ledger-real-end", e => e.AwaitingInput == false);
+        await WritesDrainedAsync(agent);
+
+        await Assert.That(orch.ResumeLedger!.TryRead("ledger-real-end")!.EndCommittedAt).IsEqualTo(committed);
+    }
+
+    /// <summary>A soft end committed after the agent's latest turn started is not outlived by it: a write the turn's end
+    /// queues keeps it.</summary>
+    [Test]
+    public async Task A_soft_end_committed_after_the_turn_started_stays() {
+        await using var orch  = Build();
+        var             agent = await SeedWaitingAsync(orch, "ledger-later-end");
+        agent.ActivityClock.SetAwaitingInput(false);
+        await EntryOnceAsync(orch, "ledger-later-end", e => e.AwaitingInput == false);
+        await WritesDrainedAsync(agent);
+        var turnStarted = agent.ActivityClock.LastTurnStartedUtcTicks;
+        var committed   = StampEnd(orch, "ledger-later-end", soft: true, at: TimeProvider.System.GetUtcNow().AddMinutes(1));
+
+        agent.ActivityClock.SetAwaitingInput(true);
+        var settled = await EntryOnceAsync(orch, "ledger-later-end", e => e.AwaitingInput == true);
+
+        await Assert.That(turnStarted).IsGreaterThan(0L);
+        await Assert.That(turnStarted).IsLessThan(committed.UtcTicks);
+        await Assert.That(settled.EndCommittedAt).IsEqualTo(committed);
+    }
+
+    /// <summary>Keeps the edges from starting a writer of their own, so a test runs the write itself at the moment it
+    /// chooses: a writer starts only on the edge that raises the count from zero.</summary>
+    static void HoldWrites(AgentInstance agent) => Interlocked.Add(ref agent.UnpersistedWaitEdges, 1_000);
+
+    static async Task<AgentInstance> SeedWaitingAsync(AgentOrchestrator orch, string agentId) {
+        var agent = orch.SeedAgentForTest(agentId);
+        orch.WriteLedger(agent, cmd: null, origin: "local", consent: null);
+        agent.ActivityClock.SetAwaitingInput(true);
+        await EntryOnceAsync(orch, agentId, e => e.AwaitingInput == true);
+        await WritesDrainedAsync(agent);
+
+        return agent;
+    }
+
+    /// <summary>Stamps an end on the entry as the fence would, a minute ago unless told otherwise.</summary>
+    static DateTimeOffset StampEnd(AgentOrchestrator orch, string agentId, bool soft, DateTimeOffset? at = null) {
+        var committed = at ?? TimeProvider.System.GetUtcNow().AddMinutes(-1);
+        var entry     = orch.ResumeLedger!.TryRead(agentId)!;
+        orch.ResumeLedger.Write(entry with {
+            EndCommittedAt = committed, EndCommittedEpoch = "epoch-1", EndCommittedSession = entry.SessionId, EndCommittedSoft = soft ? true : null
+        });
+
+        return committed;
+    }
+
     /// <summary>The written value is read when the write runs, so a quick run of edges ends on the latest one.</summary>
     [Test]
     public async Task A_burst_of_waiting_edges_settles_on_the_last() {

@@ -268,16 +268,11 @@ public class AppStartupTests {
         });
     }
 
-    /// App is OutputType=WinExe, so a normal GUI launch has no console: a startup failure (bad
-    /// config, window construction throw) reported only to Console.Error would make the app
-    /// silently vanish. BuildStartupErrorWindow is a plain, visible window with a copyable (SelectableTextBlock) lead
-    /// line plus the exception's full ToString(). This proves the rendered text actually carries
-    /// both, the same way MainWindowSmokeTests proves bound VM text actually reaches the screen.
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public async Task BuildStartupErrorWindow_renders_lead_line_and_exception_details() {
+    public async Task The_startup_error_window_shows_recovery_guidance() {
         var rendered = await AvaloniaSession.DispatchAsync(() => {
-            var window = AppUnderTest.BuildStartupErrorWindow(new InvalidOperationException("boom-marker"));
+            var window = AppUnderTest.BuildStartupErrorWindow(new DllNotFoundException("boom-marker\nat kcap.Start()"));
             window.Show();
             Dispatcher.UIThread.RunJobs();
 
@@ -294,8 +289,8 @@ public class AppStartupTests {
             return joined;
         });
 
-        await Assert.That(rendered).Contains("The app failed to start. Details:");
-        await Assert.That(rendered).Contains("boom-marker");
+        await Assert.That(rendered).Contains("Update or reinstall kcap");
+        await Assert.That(rendered).DoesNotContain("boom-marker");
     }
 
     /// With the app's default ShutdownMode (OnLastWindowClose, never set elsewhere), closing the

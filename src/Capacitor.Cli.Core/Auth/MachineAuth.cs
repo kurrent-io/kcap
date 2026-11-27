@@ -23,13 +23,9 @@ public sealed record MachineAuth(string? ClientId, string? ClientSecret, string?
     public const string TokenUrlVar     = "KCAP_WORKOS_TOKEN_URL";
 
     /// <summary>
-    /// WorkOS AuthKit's OAuth2 token endpoint.
-    ///
-    /// <para>Hardcoded, with an env override, for the same reason
-    /// <see cref="AuthEndpoints.DefaultProxyUrl"/> is: it is one value for the whole fleet, since every
-    /// tenant shares a single WorkOS environment and application. It deliberately is NOT derived from
-    /// the tenant's <c>/auth/config</c>, because the field that would carry it — <c>authkit_domain</c> —
-    /// is blank on every tenant, so deriving it would produce a broken URL on all of them.</para>
+    /// WorkOS AuthKit's OAuth2 token endpoint, used when neither the environment nor the server's
+    /// <c>/auth/config</c> names one. <c>authkit_domain</c> is blank on every tenant, so it cannot
+    /// stand in for the server's <c>machine_token_url</c>.
     ///
     /// <para>Measured, not assumed: this host answers <c>grant_type=client_credentials</c> with an
     /// OAuth2 credential rejection for bad credentials. <c>api.workos.com/oauth2/token</c> 404s.</para>
@@ -46,9 +42,11 @@ public sealed record MachineAuth(string? ClientId, string? ClientSecret, string?
         Environment.GetEnvironmentVariable(ClientSecretVar),
         Environment.GetEnvironmentVariable(TokenUrlVar));
 
-    /// <summary><c>KCAP_WORKOS_TOKEN_URL</c> is an internal dev/test override; not documented for
-    /// end users.</summary>
-    public string TokenUrl => (TokenUrlOverride ?? DefaultTokenUrl).Trim();
+    /// <summary>The environment's override, then the server's <c>machine_token_url</c>, then
+    /// <see cref="DefaultTokenUrl"/>. <c>KCAP_WORKOS_TOKEN_URL</c> is an internal dev/test override;
+    /// not documented for end users.</summary>
+    public string TokenUrlFor(string? serverTokenUrl) =>
+        (TokenUrlOverride ?? (string.IsNullOrWhiteSpace(serverTokenUrl) ? null : serverTokenUrl) ?? DefaultTokenUrl).Trim();
 
     /// <summary>
     /// The token URL, refusing any override that could exfiltrate the credential.
@@ -67,11 +65,14 @@ public sealed record MachineAuth(string? ClientId, string? ClientSecret, string?
     /// <para>Reports rather than throws: this whole path's contract is to return an auth outcome, and a
     /// member that throws would surface as an unhandled exception inside a hook.</para>
     /// </summary>
-    public string? TryResolveTokenUrl(out string? problem) {
-        var raw = TokenUrl;
+    public string? TryResolveTokenUrl(string? serverTokenUrl, out string? problem) {
+        var raw    = TokenUrlFor(serverTokenUrl);
+        var source = TokenUrlOverride is null && !string.IsNullOrWhiteSpace(serverTokenUrl)
+            ? "The server's machine_token_url"
+            : TokenUrlVar;
 
         if (!Uri.TryCreate(raw, UriKind.Absolute, out var uri)) {
-            problem = $"{TokenUrlVar} is not a valid absolute URL ({raw}).";
+            problem = $"{source} is not a valid absolute URL ({raw}).";
 
             return null;
         }
@@ -88,7 +89,7 @@ public sealed record MachineAuth(string? ClientId, string? ClientSecret, string?
             return raw;
         }
 
-        problem = $"{TokenUrlVar} must be https (or http on loopback for testing) — refusing to send a "
+        problem = $"{source} must be https (or http on loopback for testing) — refusing to send a "
                 + $"machine credential to {uri.Scheme}://{uri.Host}.";
 
         return null;

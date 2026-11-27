@@ -1,0 +1,90 @@
+{
+  "jsonrpc": "2.0",
+  "method": "context/snapshot",
+  "params": {
+    "subscription_id": "ctx-1",
+    "session_id": "4f2b9c1e7a3d4e8f9b6c2d1a0e5f3c7b",
+    "work": {
+      "phase": "ready",
+      "stale": false,
+      "work_item_id": "wi_01J8Z3K4M5N6P7Q8R9S0T1V2W3",
+      "work_item_url": "https://kcap.example.com/work-items/wi_01J8Z3K4M5N6P7Q8R9S0T1V2W3",
+      "key": "APP-412",
+      "title": "Retry uploads that time out",
+      "overview": "Uploads that hit the gateway timeout are dropped without a trace. Retry them with backoff and report the last failure.",
+      "state": "in_flight",
+      "part_of": "Reliable uploads",
+      "blocked_by": [
+        "Expose the upload queue depth"
+      ],
+      "cycle": "none",
+      "parts": [
+        {
+          "title": "Add a retry policy",
+          "mark": "settled"
+        },
+        {
+          "title": "Report the last failure",
+          "mark": "this_session"
+        },
+        {
+          "title": "Document the retry limits",
+          "mark": "open"
+        }
+      ],
+      "issues": [
+        {
+          "key": "APP-388",
+          "title": "Large uploads fail silently",
+          "url": "https://issues.example.com/APP-388"
+        }
+      ],
+      "people": [
+        {
+          "avatar_url": "https://avatars.example.com/viewer.png",
+          "last_activity_at": "2026-03-04T10:15:00Z",
+          "is_viewer": true
+        },
+        {
+          "name": "Dana Example",
+          "avatar_url": "https://avatars.example.com/dana.png",
+          "last_activity_at": "2026-03-03T16:40:00Z",
+          "is_viewer": false
+        },
+        {
+          "last_activity_at": "2026-03-02T09:05:00Z",
+          "is_viewer": false
+        }
+      ],
+      "session_count": 3
+    },
+    "plan": {
+      "state": "ready",
+      "tasks": [
+        {
+          "id": "t1",
+          "title": "Write the failing retry test",
+          "status": "completed"
+        },
+        {
+          "id": "t2",
+          "title": "Add the retry policy",
+          "note": "Backoff starts at one second",
+          "status": "in_progress"
+        },
+        {
+          "id": "t3",
+          "title": "Drop the old retry flag",
+          "status": "skipped"
+        },
+        {
+          "id": "t4",
+          "title": "Document the retry limits",
+          "status": "pending"
+        }
+      ],
+      "done": 2,
+      "total": 4
+    }
+  }
+}

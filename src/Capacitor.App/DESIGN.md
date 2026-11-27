@@ -7,12 +7,13 @@ The transcript is the reading surface. Session identity belongs in the rail, wri
 | File under `Design/`                                              | Use                                                                                                                                                                                 |
 | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Palette.axaml`                                                   | Semantic canvas, surface, ink, field edge, status, selection and scrollbar brushes. Use the field edge for boundaries that identify an input and the quieter border for decoration. |
+| `Themes.axaml`                                                    | The Light and Dark colors painted over the palette's brushes. Keep the same keys in both.                                                                                           |
 | `Brand.axaml`                                                     | Vendor colors and onboarding artwork brushes. Use the existing icon controls for the marks.                                                                                         |
 | `Typography.axaml` and `Text.axaml`                               | The embedded Inter type scale, platform monospace stack and shared text styles. Use `TypeScale` in C# for size values.                                                              |
 | `Metrics.axaml`                                                   | Shared action, choice and chat-card insets, corner radii, minimum target size and disabled opacity. All lengths are device-independent.                                             |
 | `Buttons.axaml`, `Fields.axaml`, `Overlays.axaml`, `Scroll.axaml` | Control variants and their interaction states. `App.axaml` loads these over Fluent in cascade order.                                                                                |
 
-The shipped palette is paired with Fluent Dark. Changing only the application theme can put a light Fluent hover fill beneath a light KCAP label. Check all control states together when introducing a palette. The opaque primary action has a dedicated foreground on every interaction fill.
+Each theme is paired with the matching Fluent variant. Changing only the application theme can put a light Fluent hover fill beneath a light KCAP label. Check all control states together when changing a theme. The opaque primary action has a dedicated foreground on every interaction fill.
 
 ## Adding a component
 
@@ -22,13 +23,13 @@ Use Lucide through `AppIcon`. Keep its 12, 14 or 16 DIP artwork inside a target 
 
 Run `tools/ui-audit/contrast.py`, `type_scale.py` and `axaml_a11y.py`. Exercise changed interactions with the corresponding Avalonia smoke tests. Compare a synthetic workspace at the 1200×560 minimum and 1400×760 default, including keyboard focus, the composer and a PR with a failing check.
 
-## Desktop redesign preview
+## Themes
 
-**Desktop redesign preview** is on by default. Turn it off under App-wide in Settings → Experimental to restore the original appearance. Under Appearance, the Auto, Light and Dark tiles show the same miniature workspace. Auto splits the illustration down the middle. Auto is the default and follows system changes while the preview is open. Explicit choices stay fixed. The scheme is saved for this computer and applies across profiles. Disabling the experiment keeps the saved scheme for the next opt-in.
+Under Settings → Appearance, the Auto, Light and Dark tiles show the same miniature workspace. Auto splits the illustration down the middle. Auto is the default and follows the system's light or dark setting, live. Explicit choices stay fixed. The scheme is saved for this computer and applies across profiles. The app paints it before its first window, so the install, update, uninstall and startup-error dialogs open in it too.
 
-`ClassicPreview.axaml` contains paired color dictionaries. The palette validates every entry before applying a change, updates the shared brush instances held by existing controls, and selects the corresponding Fluent variant. Rollback restores the captured colors and Fluent variant. Keep the same keys in both dictionaries. Add theme-dependent UI to the semantic palette. Keep the terminal's authored ANSI colors and the onboarding artwork on their intended backgrounds.
+`Themes.axaml` contains paired Light and Dark color dictionaries. `DesktopPalette` validates every entry before applying a change, recolors the shared brush instances held by existing controls, and selects the corresponding Fluent variant. Keep the same keys in both dictionaries. `Palette.axaml` declares those brushes without colors, so each color lives in one place; `App.Initialize` paints Light as soon as the resources load, and the app paints the saved or system scheme before its first window. Add theme-dependent UI to the semantic palette. Keep the terminal's authored ANSI colors and the onboarding artwork on their intended backgrounds.
 
-| Role                                | Classic Light         | Classic Dark          |
+| Role                                | Light                 | Dark                  |
 | ----------------------------------- | --------------------- | --------------------- |
 | Reading canvas / supporting surface | `#FAF9FB` / `#FFFFFF` | `#202123` / `#262729` |
 | Primary / secondary text            | `#171320` / `#625C70` | `#E2E2E0` / `#BDBEBD` |
@@ -37,9 +38,11 @@ Run `tools/ui-audit/contrast.py`, `type_scale.py` and `axaml_a11y.py`. Exercise 
 
 Segmented controls and sidebar filter dropdowns share neutral hover and pressed fills. Selection keeps the blue fill, with a semibold label on the active workspace tab. Higher contrast strengthens borders independently of these fills.
 
-The work-context pane uses its resize grabber as the divider with the preview enabled. PR lifecycle, health text, and work-in-progress keep their existing meanings during the comparison. The dark preview uses graphite surfaces, soft neutral text, a pearl primary action and slate-blue selection. Modern and transcript interaction experiments have separate flags.
+The work-context pane has no left border of its own, so the resize grabber's line is the only divider. Dark uses graphite surfaces, soft neutral text, a pearl primary action and slate-blue selection.
 
 In Dark, use emerald `#64D998` for success, amber `#EBB64F` for attention, coral `#FF9087` for failure and violet `#C6A0F6` for the purple status role. Each of the five semantic inks, including blue, has at least 5.80:1 contrast across the base surfaces and its own tinted fill. On a selected row, the minimum is 4.79:1 for the danger label. The audit checks every status ink on the selection fill. Bookmarks keep their user-selected colors.
+
+Status is colored by role. Work in progress (`KcapActivity*`) uses neutral ink rather than purple, so it does not read as a merged PR; a started task's dot and an unknown outcome's hollow ring tell it apart from its neighbours by shape. PR lifecycle follows GitHub: open green, merged violet, closed red, draft muted.
 
 On the graphite canvas, primary text measures 12.42:1 and secondary text 8.64:1. The keyboard focus outline uses the primary text token around the entire tile. Selection uses the blue outline around the miniature and a semibold caption. At 150% zoom on macOS each tile occupies 171 × 150 device-independent pixels, including its caption.
 
@@ -47,23 +50,29 @@ Appearance offers Comfortable and Compact density. Compact reduces padding and r
 
 ## Transcript message metadata
 
-Right-aligned inset prompts and left-aligned assistant prose distinguish roles by shape and placement. This message chrome applies whether or not the redesign preview is on. Ordinary author labels are hidden. When the transcript identifies a different participant, their name stays visible beside their prompt.
+Right-aligned inset prompts and left-aligned assistant prose distinguish roles by shape and placement. Ordinary author labels are hidden. When the transcript identifies a different participant, their name stays visible beside their prompt.
 
-A reply is every assistant message of one turn. A turn starts at a prompt, or at a note the agent answers on its own: a finished background task, a subagent's report, another agent's or session's message, or a trigger. Its timestamp and Copy sit once, under its last message, aligned left. Copy puts the whole reply on the clipboard: its messages in order, separated by blank lines, as rich text with Markdown source as plain text. Tool calls, thinking and other notes, such as compaction and interruption, sit inside a reply without splitting it. All notes stay out of the copy, since they are not part of the answer and read as noise when pasted. A prompt carries its own timestamp and Copy under its bubble, aligned right. When a new assistant message streams in, it takes over the end of its reply.
+A reply is one turn of the agent. A turn starts at a prompt, or at a note the agent answers on its own: a finished background task, a subagent's report, another agent's or session's message, or a trigger. Its messages, tool calls, thinking and other notes, such as compaction and interruption, all belong to it. Its timestamp and Copy sit once, aligned left, after its last row, whatever that row is, so a message the agent continues from with a tool call keeps no space for them. A question card or topic header is never the last row, and neither is a row folded into a topic. Copy puts the reply's messages on the clipboard in order, separated by blank lines, as rich text with Markdown source as plain text. Notes stay out of the copy, since they are not part of the answer and read as noise when pasted. A turn of tool calls alone has nothing to copy and no footer. A prompt carries its own timestamp and Copy under its bubble, aligned right. As rows stream in, the footer moves to the reply's new last row. A whitespace-only message adds no row.
 
-Hover the last message of a reply, or a prompt, or move keyboard focus into it, to reveal the timestamp and Copy. The pointer can move from the body onto them. The timestamp tooltip, accessibility metadata and context menu carry the full sender and time. The context menu opens by right click, Shift+F10 or touch long press, keeps the existing selection, link and image actions, and its Copy message copies that one message.
+Hover any row of a reply, or a prompt, or move keyboard focus into one, to reveal its timestamp and Copy. The pointer can move from the row onto them. A click hands them back to the pointer, even on a control that already has focus, and a key press returns them to the keyboard. The timestamp tooltip, accessibility metadata and context menu carry the full sender and time. The context menu opens by right click, Shift+F10 or touch long press, keeps the existing selection, link and image actions, and its Copy message copies that one message.
 
 In sessions that support bookmarks and topics, each message keeps its own marks in a side slot beside its first line, revealed on hover. Existing marks remain visible and actionable at rest. The slot reserves space for both targets so revealing them keeps prose and link positions stable.
 
-In a 1400 × 760 synthetic workspace in Light Comfortable, including the item gaps, an “ok” prompt measures 94 DIP, and a one-line assistant message inside and ending a reply 44 and 72 DIP. In Dark Compact at 130% zoom they measure 81, 37 and 65 DIP. Rows hold their bounds on hover.
+The footer sits inside the bottom gap of the row it follows and adds its own height there, 28 DIP with its 4 DIP gap; the row's gap follows the footer. In a 1400 × 760 synthetic workspace in Light Comfortable, including the item gaps, an “ok” prompt measures 94 DIP, and a one-line assistant message inside and ending a reply 44 and 72 DIP. Rows hold their bounds on hover.
+
+When the viewport moves, a row's container can serve another item with the same template: it keeps the row and rebinds it, after clearing the old message's selection, context-menu state and drag and find marks. A row holding focus or a pressed pointer is never recycled. Prompt and reply rows park attached and hidden, up to 12, so taking one back skips styling a fresh row; resetting the feed releases them.
 
 Inline and fenced code keep their own typography when switching reading faces.
 
+## GitHub links in chat
+
+A github.com pull request or issue address in a prompt or reply shows as a chip: the pull request reader's lifecycle glyph, or the issue circle, then `owner/repo#n`, then Open, Draft, Merged or Closed once the state is known, in the PR lifecycle tones. Until then, and when the state cannot be read, the chip is the neutral glyph and label. The state comes from the PRs linked to listed sessions, else from the signed-in GitHub CLI, one lookup at a time for chips on screen; without a signed-in CLI chips stay neutral. A chip opens in the browser, shows its address on hover, takes a keyboard stop with the other links and copies as its address. A link with a label of its own, another GitHub page, an Enterprise host and `#123` shorthand stay ordinary links or text.
+
 ## Baseline measurements
 
-Pilot questions remain around recognition of lightly filled selections, separation of raised surfaces in Light, and distinguishing a filled destructive action from a primary action. Test those with readers on Windows, macOS and Linux before widening the preview.
+Pilot questions remain around recognition of lightly filled selections, separation of raised surfaces in Light, and distinguishing a filled destructive action from a primary action. Test those with readers on Windows, macOS and Linux.
 
-Compare the stock app, preview-off and default appearance under Light and Dark with the same native synthetic transcript. Compare startup, typing, scrolling and jumps independently.
+Compare Light and Dark with the same native synthetic transcript. Compare startup, typing, scrolling and jumps independently.
 
 ## Session and linked-work tooltips
 

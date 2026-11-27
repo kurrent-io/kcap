@@ -46,7 +46,7 @@ public class AgentActionServiceTests {
 
         await Assert.That(ops.StopPayloads).IsEquivalentTo([("mod-1", false)], CollectionOrdering.Matching);
         await Assert.That(notifier.Notified).IsEquivalentTo(
-            ["Failed to disconnect steering", "Failed to disconnect steering: daemon offline"], CollectionOrdering.Matching);
+            ["Failed to disconnect steering", "Failed to disconnect steering"], CollectionOrdering.Matching);
     }
 
     [Test]
@@ -106,7 +106,7 @@ public class AgentActionServiceTests {
     }
 
     [Test]
-    public async Task Stop_other_reason_banners_with_message() {
+    public async Task Stop_unknown_reason_offers_retry() {
         var ops = new ScriptedLocalControlOps();
         var notifier = new RecordingNotifier();
         var service = NewService(ops, notifier, new RecordingOpener());
@@ -115,7 +115,7 @@ public class AgentActionServiceTests {
         service.RequestStop("a", "agent-a", "agent");
 
         await WaitUntilAsync(() => notifier.Notified.Count >= 1, what: "unmapped-reason banner");
-        await Assert.That(notifier.Notified).IsEquivalentTo(["Couldn't stop agent-a: unexpected_reply"], CollectionOrdering.Matching);
+        await Assert.That(notifier.Notified).IsEquivalentTo(["Couldn’t stop agent-a. Try again."], CollectionOrdering.Matching);
     }
 
     [Test]
@@ -151,7 +151,7 @@ public class AgentActionServiceTests {
         service.RequestStop("a", "agent-a", "agent");
 
         await WaitUntilAsync(() => states[^1].Count == 0 && states.Count >= 3, what: "stop to settle after unmapped exception");
-        await Assert.That(notifier.Notified).IsEquivalentTo(["Couldn't stop agent-a: boom"], CollectionOrdering.Matching);
+        await Assert.That(notifier.Notified).IsEquivalentTo(["Couldn’t stop agent-a. Try again."], CollectionOrdering.Matching);
 
         // Lane-freed proof: a subsequent stop for the SAME id is accepted, not dropped forever.
         ops.QueueStop(new StopAgentResult(true, "stopped", null));
@@ -269,7 +269,7 @@ public class AgentActionServiceTests {
         service.OpenInWeb("a");
 
         await Assert.That(notifier.Notified).IsEquivalentTo(
-            ["Couldn't open the browser: no handler registered"], CollectionOrdering.Matching);
+            ["Couldn’t open the browser. Try again."], CollectionOrdering.Matching);
     }
 
     // ---- open in web: local vs remote origin ----
@@ -472,7 +472,7 @@ public class AgentActionServiceTests {
     }
 
     [Test]
-    public async Task A_remote_stop_failed_toasts_with_reason() {
+    public async Task A_remote_stop_failure_offers_retry() {
         var lane = new FakeServerLane { StopHandler = _ => Task.FromResult(HubCallOutcome.Failed("boom")) };
         var ops = new ScriptedLocalControlOps();
         var notifier = new RecordingNotifier();
@@ -482,7 +482,7 @@ public class AgentActionServiceTests {
 
         await WaitUntilAsync(() => notifier.Notified.Count == 1, what: "toast");
         await Assert.That(notifier.Notified).IsEquivalentTo(
-            ["Couldn't stop gemini · repo: boom"], CollectionOrdering.Matching);
+            ["Couldn’t stop gemini · repo. Try again."], CollectionOrdering.Matching);
     }
 
     [Test]

@@ -4,6 +4,8 @@ using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.LocalEdition;
+using Capacitor.Cli.Core.Plans;
+using Capacitor.Cli.Core.WorkItems;
 using Capacitor.Cli.Ide;
 using Capacitor.Client;
 using Capacitor.Client.Mutation;
@@ -11,8 +13,9 @@ using Capacitor.Client.Mutation;
 namespace Capacitor.Cli.Commands;
 
 /// <summary>
-/// Serves the session services to one client over stdin and stdout until the client closes stdin. It reads the
-/// local daemon and the server and changes neither: a daemon that is not running is reported, never started.
+/// Serves the session services, and a session's work item and plan, to one client over stdin and stdout until the client
+/// closes stdin. It reads the local daemon and the server and changes neither: a daemon that is not running is reported,
+/// never started.
 /// </summary>
 public sealed class IdeCommand(
         DaemonStore daemons, ProfileContext profiles, ICredentialSource credentials, ICapacitorHttpClient http,
@@ -49,16 +52,23 @@ public sealed class IdeCommand(
         var host = new IdeHost(
             daemon, lane, sessions, directory, repoIdentity, GitRepository.ResolveMainRepoRoot, machineId, reconnect.ReconnectAsync, time,
             CapacitorVersion.Current());
+        var workContext = new ServerWorkContextSource(config, profiles, ClientsFrom<WorkContextClient>(http), time);
+        var plans = new ServerPlanSource(config, profiles, ClientsFrom<SessionPlansClient>(http));
+        var context = new ContextHost(workContext, plans, lane.Status, profiles.Resolution.ServerUrl, time, host.Outbox, () => host.IsInitialized);
 
         try {
             host.Attach(loop);
+            context.Attach(loop);
             daemon.Start();
             lane.Start();
 
             await loop.RunAsync(CancellationToken.None);
         } finally {
             await CloseSteps.RunAsync([
+                ("work context", () => Close(context)),
                 ("host", () => Close(host)),
+                ("work item reads", workContext.DisposeAsync),
+                ("plan reads", plans.DisposeAsync),
                 ("agent directory", () => Close(directory)),
                 ("server sessions", () => Close(sessions)),
                 ("server connection", lane.DisposeAsync),
@@ -71,6 +81,15 @@ public sealed class IdeCommand(
 
         return 0;
     }
+
+    /// <summary>Clients come from the command's own HTTP lane. A source keeps the one it took until a signed-out read or an
+    /// invalidation retires it.</summary>
+    static AuthenticatedServerReads<T>.ClientFactory ClientsFrom<T>(ICapacitorHttpClient http) where T : class =>
+        async (_, _, _, ct) => {
+            var (client, status, _, _) = await http.ForWaitAsync(ct);
+
+            return (client, status);
+        };
 
     static ValueTask Close(IDisposable disposable) {
         disposable.Dispose();

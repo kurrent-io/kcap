@@ -765,7 +765,7 @@ sealed class SetupCommand(
 
         // Plain Console.Out: an agent reads this from redirected output. Ahead of the funnel event,
         // which flushes to the telemetry host at once, so no card appears before its explanation.
-        var museHosts = museAssistant ? MuseAssistantPosture.ApprovalHosts(serverUrlArg!) : null;
+        var museHosts = museAssistant ? MuseAssistantPosture.ApprovalHosts(serverUrlArg!, HostsSettings.EffectiveTelemetry(profiles.Effective?.Hosts)) : null;
 
         if (museHosts is not null) {
             foreach (var line in MuseAssistantPosture.HostNoticeLines(museHosts)) await Console.Out.WriteLineAsync(line);
@@ -1592,7 +1592,8 @@ sealed class SetupCommand(
         WriteNextSteps(
             ShouldOfferGuidedTour(detectedSummary is not null, claudeSettingsPath, stepPaths),
             importResult.PasteBlock,
-            LocalEndpoints.Read(localRoot).Classify(serverUrl) is LocalEndpointClass.Local ? serverUrl : null);
+            LocalEndpoints.Read(localRoot).Classify(serverUrl) is LocalEndpointClass.Local ? serverUrl : null,
+            HostsSettings.EffectiveDocs(saved.Effective?.Hosts));
 
         // Same fields as Result.AnyHooksInstalled, counted instead of OR'd: CodingAgentsStep
         // doesn't surface a count directly, so this sums the per-vendor hook-install outcomes
@@ -1632,11 +1633,11 @@ sealed class SetupCommand(
     }
 
     /// <summary>The closing "Next steps" box: a question per item, its answer indented beneath.</summary>
-    static void WriteNextSteps(bool offerGuidedTour, string? handoffPaste, string? localServerUrl) {
+    static void WriteNextSteps(bool offerGuidedTour, string? handoffPaste, string? localServerUrl, string docs) {
         var rows = new List<IRenderable>();
 
         // Padder, not a "  " prefix: these lines wrap, and a prefix indents only the first of them.
-        foreach (var (question, answer) in NextStepItems(offerGuidedTour, handoffPaste, localServerUrl)) {
+        foreach (var (question, answer) in NextStepItems(offerGuidedTour, handoffPaste, localServerUrl, docs)) {
             if (rows.Count > 0) rows.Add(Text.Empty);
 
             rows.Add(new Markup($"[bold]{Markup.Escape(question)}[/]"));
@@ -1656,11 +1657,12 @@ sealed class SetupCommand(
     /// <paramref name="localServerUrl"/> replaces the hosted server-setup item: the local installation
     /// has no server setup to complete.</summary>
     internal static List<(string Question, string Answer)> NextStepItems(
-            bool offerGuidedTour, string? handoffPaste = null, string? localServerUrl = null) {
+            bool offerGuidedTour, string? handoffPaste = null, string? localServerUrl = null,
+            string docs = HostsSettings.DefaultDocs) {
         var items = new List<(string, string)> {
             localServerUrl is null
                 ? (ServerSetupQuestion,
-                   $"{Markup.Escape(ServerSetupAction)}\n[cyan]{Markup.Escape(ServerSetupDocsUrl)}[/]")
+                   $"{Markup.Escape(ServerSetupAction)}\n[cyan]{Markup.Escape(ServerSetupDocsUrl(docs))}[/]")
                 : (LocalServerQuestion,
                    $"{Markup.Escape(LocalServerAction)}\n[cyan]{Markup.Escape(localServerUrl)}[/]"),
         };
@@ -1835,8 +1837,8 @@ sealed class SetupCommand(
 
     internal const string ServerSetupAction = "Complete server setup with instructions here:";
 
-    internal const string ServerSetupDocsUrl =
-        "https://capacitor.kurrent.io/docs/getting-started/setup-server/";
+    /// <param name="docs">The profile's <c>hosts.docs</c> base, ending in <c>/</c>.</param>
+    internal static string ServerSetupDocsUrl(string docs = HostsSettings.DefaultDocs) => docs + "getting-started/setup-server/";
 
     internal const string LocalServerQuestion = "Where is your local kcap server?";
 
@@ -3117,7 +3119,7 @@ sealed class SetupCommand(
             return 0;
         } catch (Exception ex) {
             var failure = LocalSetupJsonLines.Classify(ex);
-            WriteJsonLine(LocalSetupJsonLines.Failed(failure.Code, failure.Message));
+            WriteJsonLine(LocalSetupJsonLines.Failed(failure.Code, failure.Message, blockingClient: failure.BlockingClient));
 
             return LocalSetupJsonLines.Exit(failure.Code);
         }

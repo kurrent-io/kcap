@@ -17,10 +17,15 @@ internal static class DaemonBridgeRelay {
     /// <summary>
     /// The agent's turn ended (the user's move) or a new one began, so the daemon's own status
     /// surfaces show a PTY vendor's wait the way an ACP runtime's turn end already does.
+    /// <paramref name="subagentId"/> names the child whose hook it was: the agent is busy, but no turn of its own began.
     /// </summary>
     public static Task NotifyInputWaitAsync(
-            HostedAgent hosted, string vendor, string? sessionId, string? cwd, bool waiting, HookBudget budget) =>
-        PostAsync(hosted, vendor, "input-wait", new JsonObject { ["session_id"] = sessionId, ["cwd"] = cwd, ["waiting"] = waiting }, budget);
+            HostedAgent hosted, string vendor, string? sessionId, string? cwd, bool waiting, HookBudget budget, string? subagentId = null) {
+        var body = new JsonObject { ["session_id"] = sessionId, ["cwd"] = cwd, ["waiting"] = waiting };
+        if (subagentId is not null) body["subagent_id"] = subagentId;
+
+        return PostAsync(hosted, vendor, "input-wait", body, budget);
+    }
 
     /// <summary>
     /// The agent's SessionStart hook ran, so its composer is up and a launch prompt held behind a

@@ -499,13 +499,17 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     bool _coverReleasing;
     int _coverGeneration;
     IReadOnlyList<TerminalMenuChoiceViewModel> _terminalMenuChoices = [];
+    TerminalMenuChoiceViewModel? _terminalMenuClose;
     bool _terminalMenuChoiceTaken;
 
     /// A vendor menu is on the terminal: a usage-limit question or a select dialog. Text sent now
     /// would be typed into it. Stays set while a pending card hides the card itself.
     public bool HasTerminalMenu {
         get;
-        private set => this.RaiseAndSetIfChanged(ref field, value);
+        private set {
+            this.RaiseAndSetIfChanged(ref field, value);
+            this.RaisePropertyChanged(nameof(ShowsComposerInput));
+        }
     }
 
     /// The menu card. A pending hook card hides the screen's copy of the dialog it raised.
@@ -575,6 +579,13 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         private set => this.RaiseAndSetIfChanged(ref _terminalMenuChoices, value);
     }
 
+    /// Escape for a dialog whose choices could not be read. It sits beside Open Terminal rather
+    /// than among the choices, since the terminal is where such a dialog gets answered.
+    public TerminalMenuChoiceViewModel? TerminalMenuClose {
+        get => _terminalMenuClose;
+        private set => this.RaiseAndSetIfChanged(ref _terminalMenuClose, value);
+    }
+
     /// False once a choice has been sent, until the menu changes. A failed send turns it back on.
     public bool TerminalMenuChoicesOpen => !_terminalMenuChoiceTaken;
 
@@ -582,6 +593,10 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// Input + Send stay in the tree only while messaging is still possible. An ended session
     /// hides them and leaves the hint — a greyed empty box is the wrong affordance.
     public bool ShowsComposer => _showsComposer.Value;
+
+    /// The message box itself. Text typed while a terminal menu is up would land in the menu, so
+    /// the box leaves rather than sitting empty and greyed under the card.
+    public bool ShowsComposerInput => ShowsComposer && !HasTerminalMenu;
 
     /// A terminal session the daemon steers: the server refuses its Escape, so its interrupt shows disabled.
     public bool IsAttached {
@@ -1093,6 +1108,9 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             .ToProperty(this, x => x.ShowsComposer,
                 initialValue: !IsReadOnlyParticipant && _input.Availability != SendAvailability.Ended && Handoff is null)
             .DisposeWith(_disposables);
+        this.WhenAnyValue(x => x.ShowsComposer)
+            .Subscribe(_ => this.RaisePropertyChanged(nameof(ShowsComposerInput)))
+            .DisposeWith(_disposables);
 
         _controlNote = Observable.CombineLatest(
                 _input.WhenAnyValue(i => i.ControlNote),
@@ -1115,7 +1133,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                 _input.WhenAnyValue(i => i.AttachHint).Select(_ => Unit.Default),
                 this.WhenAnyValue(x => x.IsReadOnlyParticipant).Select(_ => Unit.Default),
                 this.WhenAnyValue(x => x.TakesAttachments).Select(_ => Unit.Default),
-                this.WhenAnyValue(x => x.IsAttached).Select(_ => Unit.Default))
+                this.WhenAnyValue(x => x.IsAttached).Select(_ => Unit.Default),
+                this.WhenAnyValue(x => x.HasTerminalMenu).Select(_ => Unit.Default))
             .Subscribe(_ => {
                 this.RaisePropertyChanged(nameof(IAttachmentSink.CanAttach));
                 this.RaisePropertyChanged(nameof(IAttachmentSink.AttachHint));
@@ -1464,6 +1483,8 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         _terminalDialog = dialog;
         _terminalDialogShown = shown;
         foreach (var old in _terminalMenuChoices) old.Choose.Dispose();
+        _terminalMenuClose?.Choose.Dispose();
+        TerminalMenuChoiceViewModel? close = null;
         if (!sameMenu) SetTerminalMenuChoiceTaken(false);
         TerminalMenuError = "";
         List<(string Label, byte[] Keys)> choices = [];
@@ -1472,7 +1493,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         if (question) {
             TerminalMenuSummary = limit!.Summary;
             TerminalMenuPrompt = limit.Prompt;
-            TerminalMenuHint = "Choose how to handle the usage limit. A message here would be typed into that menu.";
+            TerminalMenuHint = "Choose how to handle the usage limit. The chat continues once you do.";
             choices = limit.Options.Where(o => o.Index is >= 1 and <= 9)
                 .Select(o => (o.Label, new[] { (byte)('0' + o.Index) })).ToList();
         } else if (shown && !_input.CanSendKeys) {
@@ -1482,7 +1503,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             TerminalMenuScreen = dialog!.Screen;
         } else if (shown) {
             TerminalMenuTitle = "Waiting for you in Terminal";
-            TerminalMenuHint = "Answer the terminal dialog first. A message here would be typed into it.";
+            TerminalMenuHint = "Answer the terminal dialog first";
             if (dialog!.Options.Count > 0) {
                 TerminalMenuHeading = dialog.Heading;
                 TerminalMenuSummary = dialog.Body;
@@ -1490,18 +1511,19 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                     .Select((label, i) => (label, TerminalInputEncoder.ChooseMenuOption(dialog.Selected, i))).ToList();
             } else {
                 TerminalMenuScreen = dialog.Screen;
-                choices = [("Close", new byte[] { 0x1b })];
+                close = TerminalMenuChoice("Close", [0x1b]);
             }
         }
         HasTerminalMenu = question || dialog is not null;
         ShowsTerminalMenu = question || shown;
-        TerminalMenuChoices = choices.Select(choice => new TerminalMenuChoiceViewModel(
-                choice.Label, choice.Keys,
-                ReactiveCommand.CreateFromTask(
-                    () => ChooseTerminalMenuAsync(choice.Keys),
-                    this.WhenAnyValue(x => x.TerminalMenuChoicesOpen))))
-            .ToList();
+        TerminalMenuChoices = choices.Select(choice => TerminalMenuChoice(choice.Label, choice.Keys)).ToList();
+        TerminalMenuClose = close;
     }
+
+    TerminalMenuChoiceViewModel TerminalMenuChoice(string label, byte[] keys) =>
+        new(label, keys, ReactiveCommand.CreateFromTask(
+            () => ChooseTerminalMenuAsync(keys),
+            this.WhenAnyValue(x => x.TerminalMenuChoicesOpen)));
 
     static bool SameDialog(TerminalDialogDto a, TerminalDialogDto b) =>
         a.Heading == b.Heading && a.Options.SequenceEqual(b.Options);
@@ -1778,7 +1800,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         }
         var draftRevision = ownsDraft ? _drafts?.Revision(_origin, _agentId) ?? 0 : 0;
         var files = includeTray ? Tray.Snapshot() : [];
-        if (files.Count > 0 && !Attachments.CanAttach) { Notice(Attachments.AttachHint); return null; }
+        if (files.Count > 0 && !CanSendAttachments) { Notice(SendAttachmentsHint); return null; }
         IReadOnlyList<string> ids = [];
         if (files.Count > 0) {
             // The bytes have to be on the server before the prompt names them: a prompt that
@@ -1790,15 +1812,15 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
             finally { UploadingFiles = 0; }
             if (_lifetimeToken.IsCancellationRequested) return null;
             if (upload.Kind != UploadKind.Uploaded) {
-                Notice(upload.Kind == UploadKind.Unauthorized ? "sign in to attach files" : upload.Reason ?? "the upload failed");
+                Notice(upload.Kind == UploadKind.Unauthorized ? "sign in to attach files" : upload.FailureText);
                 return null;
             }
             ids = upload.Ids;
             // Re-asked after the upload: the window is long enough for the session to end or the
             // daemon to drop the capability, and the channel would otherwise refuse the send with
             // the chips still staged and nothing said about them.
-            if (!Attachments.CanAttach) {
-                Notice(Attachments.AttachHint ?? LocalFrameChatInput.AttachmentsRefused);
+            if (!CanSendAttachments) {
+                Notice(SendAttachmentsHint ?? LocalFrameChatInput.AttachmentsRefused);
                 return null;
             }
         }
@@ -1902,11 +1924,33 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
     /// The one surface every intake source hands its result to.
     public IAttachmentSink Attachments => this;
 
-    bool IAttachmentSink.CanAttach => _input.CanAttach && !IsReadOnlyParticipant && TakesAttachments;
-    string? IAttachmentSink.AttachHint => TakesAttachments ? _input.AttachHint : IsAttached ? AttachedAgentCopy.NoFiles : NoAttachmentsHint;
+    /// Staging stops while a terminal menu is up: the message the files would go with cannot be
+    /// written until the menu closes. Files already staged stay and go with that message.
+    bool IAttachmentSink.CanAttach => CanSendAttachments && !HasTerminalMenu;
+    string? IAttachmentSink.AttachHint => CanSendAttachments && HasTerminalMenu ? TerminalMenuAttachHint : SendAttachmentsHint;
+
+    internal const string TerminalMenuAttachHint = "answer the terminal dialog first";
+
+    string NotAttachedNotice(IReadOnlyList<StagedAttachment> files) {
+        var (what, them) = files.Count == 1 ? ($"`{files[0].FileName}` was not attached", "it") : ($"{files.Count} files were not attached", "them");
+        return CanSendAttachments && HasTerminalMenu
+            ? $"{what} because a terminal dialog opened. Add {them} again once it closes"
+            : $"{what}: {SendAttachmentsHint ?? LocalFrameChatInput.AttachmentsRefused}";
+    }
+
+    bool CanSendAttachments => _input.CanAttach && !IsReadOnlyParticipant && TakesAttachments;
+    string? SendAttachmentsHint => TakesAttachments ? _input.AttachHint : IsAttached ? AttachedAgentCopy.NoFiles : NoAttachmentsHint;
     int IAttachmentSink.FreeSlots => Tray.FreeSlots;
 
     void IAttachmentSink.Accept(IntakeResult result) {
+        // Each source checks the gate when it starts, but a read can outlast it: a picker still open
+        // when a terminal menu appears stages nothing and says so.
+        if (result.Accepted.Count > 0 && !Attachments.CanAttach) {
+            Notice(RefusalNotice.Render(result.Refused) is { } others
+                ? $"{NotAttachedNotice(result.Accepted)}; {others}"
+                : NotAttachedNotice(result.Accepted));
+            return;
+        }
         var refused = Tray.AddAll(result.Accepted).Concat(result.Refused).ToList();
         Notice(RefusalNotice.Render(refused));
     }
@@ -2092,10 +2136,17 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
                         cursor.Fresh.Add(new UserTurnItem(typed, [.. files.Select(file => UserAttachment.From(file, _origin == AgentOrigin.Local ? _root : null))],
                             SenderOf(e, offset), TimeOf(e), undelivered: e.ToolKind == ChatDisplayKind.Undelivered) { Key = new(offset, message++) });
                         break;
+                    // A whitespace-only message, often written beside a tool call, would be a row with nothing in
+                    // it. It still takes its index, so the keys of the messages after it, and their bookmarks, hold.
+                    case AcpEventKind.AssistantText when string.IsNullOrWhiteSpace(e.Text):
+                        cursor.OpenGroup = null;
+                        cursor.OpenShell = null;
+                        message++;
+                        break;
                     case AcpEventKind.AssistantText:
                         cursor.OpenGroup = null;
                         cursor.OpenShell = null;
-                        cursor.Fresh.Add(new AssistantTextItem(e.Text ?? "", TimeOf(e)) { Key = new(offset, message++) });
+                        cursor.Fresh.Add(new AssistantTextItem(e.Text!, TimeOf(e)) { Key = new(offset, message++) });
                         break;
                     case AcpEventKind.AssistantThinking when !string.IsNullOrWhiteSpace(e.Text):
                         cursor.OpenGroup = null;
@@ -2530,6 +2581,7 @@ public sealed class ChatTabViewModel : ReactiveObject, IComposer {
         // Ahead of the disposables: the input is one of them, and an in-flight send has to see
         // the cancellation before the channel it is sending through goes away.
         foreach (var choice in _terminalMenuChoices) choice.Choose.Dispose();
+        _terminalMenuClose?.Choose.Dispose();
         try { _lifetime.Cancel(); } catch (ObjectDisposedException) { }
         // The bookmark list outlives the tab, so the tab lets go of it.
         Bookmarks.Reset(null);

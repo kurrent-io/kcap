@@ -63,8 +63,8 @@ public class WebWorkspaceViewModelTests {
         using var vm = new WebWorkspaceViewModel("http://localhost:5050", opener, notifications.Add, CancellationToken.None, recovery);
         await vm.OpenCommand.Execute().ToTask();
         await Assert.That(opener.Opened).IsEmpty();
-        await Assert.That(recovery.Message!).Contains("start failed");
-        await Assert.That(notifications.Single()).Contains("start failed");
+        await Assert.That(recovery.Message!).Contains("Could not start the local server");
+        await Assert.That(notifications.Single()).Contains("Could not start the local server");
     });
 
     [Test]
@@ -105,8 +105,8 @@ public class WebWorkspaceViewModelTests {
         using var vm = new WebWorkspaceViewModel("http://localhost:5050", opener, notifications.Add, CancellationToken.None, recovery);
         await vm.OpenCommand.Execute().ToTask();
         await Assert.That(opener.Opened).IsEmpty();
-        await Assert.That(recovery.Message!).Contains("reconnect failed");
-        await Assert.That(notifications.Single()).Contains("The local server started, but reconnecting failed");
+        await Assert.That(recovery.Message!).Contains("couldn’t reconnect");
+        await Assert.That(notifications.Single()).Contains("The local server started, but kcap couldn’t reconnect");
     });
 
 }

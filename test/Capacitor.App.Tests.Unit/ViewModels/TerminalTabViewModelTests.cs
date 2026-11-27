@@ -435,7 +435,7 @@ public class TerminalTabViewModelTests {
             await vm.CurrentRunForTesting!;
 
             await Assert.That(vm.State.Phase).IsEqualTo(TerminalSessionPhase.Failed);
-            await Assert.That(vm.State.Detail).IsEqualTo("boom");
+            await Assert.That(vm.State.Detail).IsEqualTo("Couldn’t open the terminal.");
         });
     }
 

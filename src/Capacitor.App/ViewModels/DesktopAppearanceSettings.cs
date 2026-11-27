@@ -3,18 +3,21 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
+/// Density, reading font and contrast, saved for this computer across profiles and applied as soon
+/// as this is built.
 public sealed class DesktopAppearanceSettings : ReactiveObject, IDisposable {
     readonly IAppStateStore _store;
-    readonly Action<DesktopAppearancePreferences?> _apply;
+    readonly Action<DesktopAppearancePreferences> _apply;
     DesktopAppearancePreferences _selected;
     DesktopAppearancePreferences _saved;
     bool _disposed;
 
     internal DesktopAppearanceSettings(IAppStateStore store, IReadOnlyDictionary<string, string>? preferences,
-            Action<DesktopAppearancePreferences?> apply) {
+            Action<DesktopAppearancePreferences> apply) {
         _store = store;
         _apply = apply;
         _saved = _selected = DesktopAppearancePreferences.Read(preferences);
+        _apply(_selected);
     }
 
     public static IReadOnlyList<DesktopDensity> Densities { get; } = [DesktopDensity.Comfortable, DesktopDensity.Compact];
@@ -32,18 +35,11 @@ public sealed class DesktopAppearanceSettings : ReactiveObject, IDisposable {
         get => _selected.HighContrast;
         set => Select(_selected with { HighContrast = value });
     }
-    public bool Enabled { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     public string? Problem { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
     internal Task PendingSave { get; private set; } = Task.CompletedTask;
 
-    internal void SetEnabled(bool enabled) {
-        if (_disposed || Enabled == enabled) return;
-        Enabled = enabled;
-        _apply(enabled ? _selected : null);
-    }
-
     void Select(DesktopAppearancePreferences choice) {
-        if (_disposed || !Enabled || _selected == choice) return;
+        if (_disposed || _selected == choice) return;
         Show(choice);
         Problem = null;
         if (PendingSave.IsCompleted) PendingSave = SaveAsync();
@@ -52,7 +48,7 @@ public sealed class DesktopAppearanceSettings : ReactiveObject, IDisposable {
     void Show(DesktopAppearancePreferences choice) {
         var previous = _selected;
         _selected = choice;
-        if (Enabled) _apply(choice);
+        _apply(choice);
         if (previous.Density != choice.Density) this.RaisePropertyChanged(nameof(Density));
         if (previous.ReadingFont != choice.ReadingFont) this.RaisePropertyChanged(nameof(ReadingFont));
         if (previous.HighContrast != choice.HighContrast) this.RaisePropertyChanged(nameof(HighContrast));
@@ -82,8 +78,5 @@ public sealed class DesktopAppearanceSettings : ReactiveObject, IDisposable {
         return state with { DesktopAppearance = values };
     }
 
-    public void Dispose() {
-        SetEnabled(false);
-        _disposed = true;
-    }
+    public void Dispose() => _disposed = true;
 }

@@ -50,6 +50,7 @@ public static class HubBroadcasts {
     public const string RawStreamAccessRevoked = "RawStreamAccessRevoked";
     public const string DaemonAccountsChanged  = "DaemonAccountsChanged";
     public const string HeldMessagesChanged    = "HeldMessagesChanged";
+    public const string NotificationsChanged   = "NotificationsChanged";
 }
 
 public static class ApiRoutes {
@@ -94,6 +95,20 @@ public static class ApiRoutes {
     public const string NextWorkLaunch           = "api/next-work/launch";
     public const string LooseEndClose            = "api/loose-ends/close";
     public const string LooseEndDefer            = "api/loose-ends/defer";
+    /// The server caps limit at 200.
+    public static string Notifications(int limit) => $"api/notifications?limit={limit}";
+    public const string NotificationsUnreadCount = "api/notifications/unread-count";
+    public const string NotificationsReadAll     = "api/notifications/read-all";
+    public const string NotificationsDismissAll  = "api/notifications/dismiss-all";
+    public const string NotificationPrefs        = "api/notifications/prefs";
+    /// action is read, dismiss or answer.
+    public static string Notification(string logicalId, string action) =>
+        $"api/notifications/{Uri.EscapeDataString(logicalId)}/{action}";
+    public static string NotificationPref(string type) => $"{NotificationPrefs}/{Uri.EscapeDataString(type)}";
+    public const string UserSurfaces             = "api/users/me/surfaces";
+    public const string PassControls             = "api/passes/controls";
+    public const string PassAgentOptOut          = "api/passes/agent-opt-out";
+    public static string PassMute(string senderId) => $"api/passes/mutes/{Uri.EscapeDataString(senderId)}";
 }
 
 /// Named keys understood by the daemon; wheel reports use TerminalScrollKey.

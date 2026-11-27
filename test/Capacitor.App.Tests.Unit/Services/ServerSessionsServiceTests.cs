@@ -456,6 +456,47 @@ public class ServerSessionsServiceTests {
         await Eventually(() => !seen[^1], "stale after a failed read");
     }
 
+    /// A failed read still answers: the rail stops waiting on it, even though the listing is not current.
+    [Test]
+    public async Task Answered_follows_finished_reads_and_the_lane() {
+        var (lane, listing, _, service) = Build();
+        using var _ = service;
+        ScriptDefault(listing);
+        listing.Fail("ended", "me", 0);
+        var answered = new List<bool>();
+        var current = new List<bool>();
+        using var answeredSub = service.Answered.Subscribe(answered.Add);
+        using var currentSub = service.Current.Subscribe(current.Add);
+        await Assert.That(answered[^1]).IsFalse();
+
+        Connect(lane);
+        await Eventually(() => answered[^1], "answered after a failed read");
+        await Assert.That(current[^1]).IsFalse();
+
+        lane.StatusSubject.OnNext(new ServerLaneStatus(ServerLaneState.Retrying));
+        await Assert.That(answered[^1]).IsFalse();
+    }
+
+    /// Another account's empty caches are not its answer: Answered waits for that account's own read.
+    [Test]
+    public async Task Answered_resets_when_the_account_changes() {
+        var (lane, listing, _, service) = Build();
+        using var _ = service;
+        ScriptDefault(listing);
+        var answered = new List<bool>();
+        using var sub = service.Answered.Subscribe(answered.Add);
+        Connect(lane, "u1");
+        await Eventually(() => answered[^1], "the first account's read");
+
+        var release = new TaskCompletionSource();
+        listing.Gate = _ => release.Task;
+        Connect(lane, "u2", epoch: 2);
+
+        await Assert.That(answered[^1]).IsFalse();
+        release.SetResult();
+        await Eventually(() => answered[^1], "the new account's read");
+    }
+
     [Test]
     public async Task Owners_resolve_the_viewer_ids() {
         var (lane, listing, _, service) = Build(_ => Task.FromResult<SessionOwnerOptionDto[]?>(Owners("a", "b")));
