@@ -221,6 +221,8 @@ public sealed class ConfigCommand(
             "disable_relative_worktrees_nudge" => throw new ArgumentException($"Invalid value for disable_relative_worktrees_nudge: '{value}'. Must be true or false."),
             "disable_harness_nudge" when bool.TryParse(value, out var b) => profile with { DisableHarnessNudge = b },
             "disable_harness_nudge" => throw new ArgumentException($"Invalid value for disable_harness_nudge: '{value}'. Must be true or false."),
+            "disable_repo_instructions_upload" when bool.TryParse(value, out var b) => profile with { DisableRepoInstructionsUpload = b },
+            "disable_repo_instructions_upload" => throw new ArgumentException($"Invalid value for disable_repo_instructions_upload: '{value}'. Must be true or false."),
             "use_provider_api_key" when bool.TryParse(value, out var b) => profile with { UseProviderApiKey = b },
             "use_provider_api_key" => throw new ArgumentException($"Invalid value for use_provider_api_key: '{value}'. Must be true or false."),
             "default_visibility" when value is "private" or "project" or "org_public" or "public" => profile with { DefaultVisibility = value },
@@ -237,6 +239,14 @@ public sealed class ConfigCommand(
             "grok_bot.record" when bool.TryParse(value, out var b) =>
                 profile with { GrokBot = (profile.GrokBot ?? new GrokBotSettings()) with { Record = b } },
             "grok_bot.record" => throw new ArgumentException($"Invalid value for grok_bot.record: '{value}'. Must be true or false."),
+            "hosts.telemetry" when HostsSettings.IsValid(value) =>
+                profile with { Hosts = (profile.Hosts ?? new HostsSettings()) with { Telemetry = value.Trim() } },
+            "hosts.npm_registry" when HostsSettings.IsValid(value) =>
+                profile with { Hosts = (profile.Hosts ?? new HostsSettings()) with { NpmRegistry = value.Trim() } },
+            "hosts.docs" when HostsSettings.IsValid(value) =>
+                profile with { Hosts = (profile.Hosts ?? new HostsSettings()) with { Docs = value.Trim() } },
+            "hosts.telemetry" or "hosts.npm_registry" or "hosts.docs" =>
+                throw new ArgumentException($"Invalid value for {key}: '{value}'. Must be an absolute http or https URL."),
             _ => throw new ArgumentException($"Unknown config key: {key}")
         };
 
@@ -250,6 +260,9 @@ public sealed class ConfigCommand(
             "skills.auto_sync" => profile with { Skills = (profile.Skills ?? new SkillsSettings()) with { AutoSync = null } },
             "grok_bot.record" => profile with { GrokBot = (profile.GrokBot ?? new GrokBotSettings()) with { Record = null } },
             "daemon.auto_resume" => profile with { Daemon = (profile.Daemon ?? new DaemonSettings()) with { AutoResume = null } },
+            "hosts.telemetry" => profile with { Hosts = (profile.Hosts ?? new HostsSettings()) with { Telemetry = null } },
+            "hosts.npm_registry" => profile with { Hosts = (profile.Hosts ?? new HostsSettings()) with { NpmRegistry = null } },
+            "hosts.docs" => profile with { Hosts = (profile.Hosts ?? new HostsSettings()) with { Docs = null } },
             _ => throw new ArgumentException($"Unknown or non-unsettable config key: {key}")
         };
 
@@ -272,12 +285,16 @@ public sealed class ConfigCommand(
         Console.Error.WriteLine("  disable_coordination_notices  Skip injecting coordination notices (others' overlapping work) at SessionStart (true/false)");
         Console.Error.WriteLine("  disable_harness_nudge       Skip new-harness setup nudges (in-session + CLI stderr) (true/false)");
         Console.Error.WriteLine("  disable_relative_worktrees_nudge  Skip the SessionStart nudge to use relative worktree links in a sandbox (true/false)");
+        Console.Error.WriteLine("  disable_repo_instructions_upload  Skip uploading the repo's CLAUDE.md, AGENTS.md and GEMINI.md (origin/HEAD, with imports) for evals (true/false)");
         Console.Error.WriteLine("  use_provider_api_key        Keep ANTHROPIC_API_KEY/OPENAI_API_KEY in headless agent spawns (true/false)");
         Console.Error.WriteLine("  excluded_repos              Excluded repos, comma-separated (owner/repo,local~/folder)");
         Console.Error.WriteLine("  allowed_repos               Capture only these repos, comma-separated (owner/repo,local~/folder); empty allows all");
         Console.Error.WriteLine("  flows.reviewer_vendor       Preferred review-flow reviewer vendor (used only when the definition names none)");
         Console.Error.WriteLine("  skills.auto_sync            Background skills refresh at Claude session start (true/false, default false)");
         Console.Error.WriteLine("  grok_bot.record             The daemon records this computer's Grok Bot chats (true/false, default false)");
+        Console.Error.WriteLine("  hosts.telemetry             PostHog host usage data is sent to (default https://phog.kurrent.io)");
+        Console.Error.WriteLine("  hosts.npm_registry          npm registry the update check reads (default https://registry.npmjs.org/)");
+        Console.Error.WriteLine("  hosts.docs                  Base of the documentation links kcap prints (default https://capacitor.kurrent.io/docs/)");
         Console.Error.WriteLine("  telemetry                   Anonymous CLI usage reporting, machine-wide (on/off)");
         Console.Error.WriteLine();
         Console.Error.WriteLine("Flags:");

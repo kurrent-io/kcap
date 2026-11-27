@@ -935,8 +935,15 @@ public class SetupCommandTests {
         await Assert.That(SetupCommand.ServerSetupAction).IsEqualTo(
             "Complete server setup with instructions here:");
 
-        await Assert.That(SetupCommand.ServerSetupDocsUrl).IsEqualTo(
+        await Assert.That(SetupCommand.ServerSetupDocsUrl()).IsEqualTo(
             "https://capacitor.kurrent.io/docs/getting-started/setup-server/");
+    }
+
+    [Test]
+    public async Task The_server_setup_link_is_under_the_profiles_docs_host() {
+        var items = SetupCommand.NextStepItems(offerGuidedTour: false, docs: "https://docs.example/kcap/");
+
+        await Assert.That(items[0].Answer).Contains("[cyan]https://docs.example/kcap/getting-started/setup-server/[/]");
     }
 
     [Test]
@@ -947,7 +954,7 @@ public class SetupCommandTests {
         await Assert.That(withoutTour.Count).IsEqualTo(1);
         await Assert.That(withoutTour[0].Question).IsEqualTo(SetupCommand.ServerSetupQuestion);
         await Assert.That(withoutTour[0].Answer)
-                    .Contains($"[cyan]{SetupCommand.ServerSetupDocsUrl}[/]");
+                    .Contains($"[cyan]{SetupCommand.ServerSetupDocsUrl()}[/]");
 
         var withTour = SetupCommand.NextStepItems(offerGuidedTour: true);
 

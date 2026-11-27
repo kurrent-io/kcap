@@ -691,6 +691,125 @@ public class ArtefactsTabViewModelTests {
         });
     }
 
+    /// The selector names what is open and where it sits among the pages and then the documents, and
+    /// stepping opens each in turn, a page in the tab and a document in the reader.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_selector_names_the_open_item_and_steps_through_pages_then_documents() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            var now = h.Time.GetUtcNow();
+            h.Source.Enqueue(Ready(Doc("1", "plan", "docs/p.md")));
+            h.Source.EnqueuePages(Pages(Page("a", "Poll", now), Page("b", "Report", now)));
+            await h.SwitchAsync(SessionA);
+
+            await h.Vm.OpenPageCommand.Execute(h.Vm.Pages[0]);
+            await h.PageLoadedAsync();
+            await Assert.That(h.Vm.CurrentItem).IsSameReferenceAs(h.Vm.Pages[0]);
+            await Assert.That((h.Vm.CurrentTitle, h.Vm.CurrentKind, h.Vm.Position)).IsEqualTo(("Poll", "Page", "1 of 3"));
+            await Assert.That(h.Vm.CanChoose).IsTrue();
+            await Assert.That(h.Vm.CanStepPrevious).IsFalse();
+
+            await h.Vm.NextCommand.Execute();
+            await h.PageLoadedAsync();
+            await Assert.That(h.Vm.PageViewer!.ArtefactId).IsEqualTo("b");
+            await Assert.That(h.Vm.Position).IsEqualTo("2 of 3");
+
+            await h.Vm.NextCommand.Execute();
+            await Assert.That(h.Vm.PageViewer).IsNull();
+            await Assert.That(h.Vm.Selected).IsSameReferenceAs(h.Vm.Documents[0]);
+            await Assert.That((h.Vm.CurrentTitle, h.Vm.CurrentKind, h.Vm.Position)).IsEqualTo(("p.md", "Plan", "3 of 3"));
+            await Assert.That(h.Vm.CanStepNext).IsFalse();
+
+            await h.Vm.PreviousCommand.Execute();
+            await h.PageLoadedAsync();
+            await Assert.That(h.Vm.PageViewer!.ArtefactId).IsEqualTo("b");
+            await Assert.That(h.Opener.Opened).IsEmpty();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// With pages going to the browser, stepping moves between documents only: an arrow must never
+    /// launch the browser.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Stepping_skips_pages_that_would_open_in_the_browser() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true) { InAppPages = false };
+            h.Source.Enqueue(Ready(Doc("1", "plan", "docs/p.md", "# p"), Doc("2", "spec", "docs/s.md", "# s")));
+            h.Source.EnqueuePages(Pages(Page("a", "Poll", h.Time.GetUtcNow())));
+            await h.SwitchAsync(SessionA);
+
+            await h.Vm.SelectCommand.Execute(h.Vm.Documents[0]);
+            await Assert.That(h.Vm.Position).IsEqualTo("2 of 3");
+            await Assert.That(h.Vm.CanStepPrevious).IsFalse();
+
+            await h.Vm.NextCommand.Execute();
+            await Assert.That(h.Vm.Selected).IsSameReferenceAs(h.Vm.Documents[1]);
+            await h.Vm.PreviousCommand.Execute();
+            await Assert.That(h.Vm.Selected).IsSameReferenceAs(h.Vm.Documents[0]);
+            await Assert.That(h.Opener.Opened).IsEmpty();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// The in-app switch flipping raises nothing, so the arrows ask again when refreshed: a page that would
+    /// now open in the browser stops being a step.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Refreshing_the_steps_follows_the_in_app_switch() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            var now = h.Time.GetUtcNow();
+            h.Source.EnqueuePages(Pages(Page("a", "Poll", now), Page("b", "Report", now)));
+            await h.SwitchAsync(SessionA);
+            await h.Vm.OpenPageCommand.Execute(h.Vm.Pages[0]);
+            await h.PageLoadedAsync();
+            await Assert.That(h.Vm.CanStepNext).IsTrue();
+
+            var raised = new List<string?>();
+            h.Vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+            h.InAppPages = false;
+            h.Vm.RefreshSteps();
+
+            await Assert.That(raised).Contains(nameof(ArtefactsTabViewModel.CanStepNext));
+            await Assert.That(h.Vm.CanStepNext).IsFalse();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
+    /// The only listed item, open, leaves nothing to choose. A page opened from a link the session does
+    /// not list is named as such and stays open with the listed one a step away.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_lone_open_item_has_no_choice_and_an_unlisted_page_is_marked_as_opened_from_a_link() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness(webView: true);
+            h.Source.EnqueuePages(Pages(Page("a", "Poll", h.Time.GetUtcNow())));
+            await h.SwitchAsync(SessionA);
+
+            await h.Vm.OpenPageCommand.Execute(h.Vm.Pages[0]);
+            await h.PageLoadedAsync();
+            await Assert.That(h.Vm.CanChoose).IsFalse();
+            await Assert.That(h.Vm.Position).IsEqualTo("");
+
+            h.Vm.OpenLink("https://kcap.test/pages/elsewhere");
+            await h.PageLoadedAsync();
+            await Assert.That(h.Vm.PageViewer!.ArtefactId).IsEqualTo("elsewhere");
+            await Assert.That(h.Vm.CurrentItem).IsNull();
+            await Assert.That(h.Vm.ShowsUnlistedPage).IsTrue();
+            await Assert.That((h.Vm.CurrentTitle, h.Vm.CurrentKind)).IsEqualTo(("Page", "Opened from link"));
+            await Assert.That(h.Vm.CanChoose).IsTrue();
+            await Assert.That(h.Vm.CanStepPrevious).IsFalse();
+
+            await h.Vm.NextCommand.Execute();
+            await h.PageLoadedAsync();
+            await Assert.That(h.Vm.PageViewer!.ArtefactId).IsEqualTo("a");
+            await Assert.That(h.Vm.ShowsUnlistedPage).IsFalse();
+            await h.Vm.TeardownAsync();
+        });
+    }
+
     /// Showing the tab with nothing open opens the newest page in-app, and only once both lists have
     /// answered, so the row it picks does not depend on which read landed first.
     [Test]

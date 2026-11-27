@@ -35,6 +35,14 @@ public record AuthDiscoveryResponse {
     // and the CLI can't ship a secret. When null, the CLI uses device flow.
     [JsonPropertyName("github_code_exchange_url")]
     public string? GithubCodeExchangeUrl { get; init; }
+
+    /// <summary>WorkOS only: where a machine credential is exchanged. Absent from an older server.</summary>
+    [JsonPropertyName("machine_token_url")]
+    public string? MachineTokenUrl { get; init; }
+
+    /// <summary>GitHub App only: the auth proxy this server signs in through. Absent from an older server.</summary>
+    [JsonPropertyName("auth_proxy_url")]
+    public string? AuthProxyUrl { get; init; }
 }
 
 // POST {github_code_exchange_url} — CLI → server. Server adds client_id + client_secret

@@ -30,7 +30,7 @@ public class SingleFlightReaderTests {
                     // Queued ahead of any settle a restarted lease would post.
                     Dispatcher.UIThread.Post(() => teardown.SetResult(reader.TeardownAsync()));
                 },
-                "test");
+                "test", UiReads.Post);
 
             reader.Switch("a");
             reader.Refresh();
@@ -49,7 +49,7 @@ public class SingleFlightReaderTests {
             var applied = new List<string>();
             var read = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             var reader = new SingleFlightReader<string, string>(
-                (_, _) => read.Task, _ => "error", applied.Add, "test",
+                (_, _) => read.Task, _ => "error", applied.Add, "test", UiReads.Post,
                 cached: state => state == "a" ? "cached a" : null);
 
             reader.Switch("a");

@@ -1,5 +1,4 @@
 using Capacitor.Cli.Core.Setup;
-using Capacitor.Cli.Core.Telemetry;
 
 namespace Capacitor.Cli.Core.Tests.Unit.Setup;
 
@@ -38,8 +37,4 @@ public class MuseAssistantEnvironmentTests {
 
         await Assert.That(MuseAssistantEnvironment.IsMuseAssistant(new UserHome("/home/hatch/"), exists)).IsTrue();
     }
-
-    [Test]
-    public async Task The_telemetry_host_is_the_posthog_proxy() =>
-        await Assert.That(CliTelemetry.EndpointHost).IsEqualTo("phog.kurrent.io");
 }

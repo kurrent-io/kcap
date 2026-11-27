@@ -1,4 +1,3 @@
-using Capacitor.Cli.Core.Plans;
 using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
@@ -51,19 +50,12 @@ public sealed class PlanTaskRow(string taskId) : ReactiveObject {
         _                        => "Pending",
     };
 
-    public void Present(PlanLedgerTaskDto task, bool sessionOver) {
+    public void Present(PlanBoardTask task, bool sessionOver) {
         Title = task.Title;
-        Note = string.IsNullOrWhiteSpace(task.Note) ? null : task.Note;
-        State = StateOf(task.Status);
+        Note = task.Note;
+        State = task.State;
         Present(sessionOver);
     }
 
     public void Present(bool sessionOver) => IsActive = IsInProgress && !sessionOver;
-
-    static PlanTaskState StateOf(string status) => status switch {
-        "in_progress" => PlanTaskState.InProgress,
-        "completed"   => PlanTaskState.Completed,
-        "skipped"     => PlanTaskState.Skipped,
-        _             => PlanTaskState.Pending,
-    };
 }

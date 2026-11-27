@@ -23,6 +23,10 @@ public sealed class TelemetryClient(
 
     readonly TimeProvider _clock = timeProvider;
 
+    /// <summary>How long after a send fails to reach the host every flush spools instead of trying:
+    /// a blocked network then costs one connect timeout per window rather than one per command.</summary>
+    internal static readonly TimeSpan UnreachableBackoff = TimeSpan.FromMinutes(15);
+
     public void Enqueue(TelemetryEvent e) {
         lock (_queue) _queue.Add(e);
     }
@@ -129,6 +133,12 @@ public sealed class TelemetryClient(
 
             if (pending.Count == 0) return true;
 
+            if (spool.UnreachableSince() is { } since && _clock.GetUtcNow() - since is var age
+             && age >= TimeSpan.Zero && age < UnreachableBackoff) {
+                Spill(queued);
+                return false;
+            }
+
             var body = PostHogPayload.Build(pending, token, distinctId, orgGroup);
 
             // Whatever the drain + build above already spent comes out of the budget before the
@@ -167,6 +177,11 @@ public sealed class TelemetryClient(
             HttpResponseMessage response;
             try {
                 response = await http.PostAsync($"{endpoint.TrimEnd('/')}/batch/", content, cts.Token);
+            } catch when (!cts.IsCancellationRequested || _clock.GetElapsedTime(start) >= budget) {
+                // Anything but a send a discard or a withdrawn consent cancelled: the connect bound, a
+                // refusal, a name that does not resolve, or a host too slow for the budget.
+                spool.MarkUnreachable(_clock.GetUtcNow());
+                throw;
             } finally {
                 lock (_discardLock) _sending = null;
             }
@@ -177,6 +192,7 @@ public sealed class TelemetryClient(
             }
 
             spool.Clear();
+            spool.ClearUnreachable();
             return true;
         } catch {
             // Telemetry code must NEVER throw: under NativeAOT this becomes SIGABRT. Any exception —

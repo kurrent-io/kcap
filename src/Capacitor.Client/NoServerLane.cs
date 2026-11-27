@@ -20,6 +20,7 @@ public sealed class NoServerLane : IServerLane {
     public IObservable<SessionPush> SessionPushes => Observable.Never<SessionPush>();
     public IObservable<PendingInputUpdate> PendingInputChanged => Observable.Never<PendingInputUpdate>();
     public IObservable<string> HeldMessagesChanged => Observable.Never<string>();
+    public IObservable<Unit> NotificationsChanged => Observable.Never<Unit>();
     public Task<IReadOnlyList<DaemonInfo>?> GetConnectedDaemonsAsync(CancellationToken ct) =>
         Task.FromResult<IReadOnlyList<DaemonInfo>?>(null);
     public Task<IReadOnlyList<DaemonAccountsDto>?> GetDaemonAccountsAsync(CancellationToken ct) =>

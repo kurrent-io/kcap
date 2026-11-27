@@ -1,6 +1,7 @@
 using System.Reflection;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Auth;
+using Capacitor.Cli.Core.Config;
 using TUnit.Assertions.Enums;
 
 namespace Capacitor.Cli.Tests.Unit.Commands;
@@ -43,14 +44,22 @@ public class MuseAssistantPostureTests {
 
     [Test]
     public async Task ApprovalHosts_lists_a_self_hosted_server_first_then_the_telemetry_host() {
-        var hosts = MuseAssistantPosture.ApprovalHosts("https://capacitor.example.internal");
+        var hosts = MuseAssistantPosture.ApprovalHosts("https://capacitor.example.internal", HostsSettings.EffectiveTelemetry(null));
 
         await Assert.That(hosts).IsEquivalentTo(["capacitor.example.internal", "phog.kurrent.io"], CollectionOrdering.Matching);
     }
 
     [Test]
+    public async Task ApprovalHosts_names_the_profiles_own_telemetry_host() {
+        var telemetry = HostsSettings.EffectiveTelemetry(new HostsSettings { Telemetry = "https://posthog.acme.internal" });
+        var hosts     = MuseAssistantPosture.ApprovalHosts("https://capacitor.example.internal", telemetry);
+
+        await Assert.That(hosts).IsEquivalentTo(["capacitor.example.internal", "posthog.acme.internal"], CollectionOrdering.Matching);
+    }
+
+    [Test]
     public async Task ApprovalHosts_does_not_repeat_a_server_that_is_also_the_telemetry_host() {
-        var hosts = MuseAssistantPosture.ApprovalHosts("https://phog.kurrent.io");
+        var hosts = MuseAssistantPosture.ApprovalHosts("https://phog.kurrent.io", HostsSettings.EffectiveTelemetry(null));
 
         await Assert.That(hosts.Count(h => h == "phog.kurrent.io")).IsEqualTo(1);
     }

@@ -116,6 +116,7 @@ public class ServerConnectionServiceTests {
         [HubBroadcasts.SessionAccessChanged]    = ["s1"],
         [HubBroadcasts.RawStreamAccessRevoked]  = ["AgentSession-s1"],
         [HubBroadcasts.HeldMessagesChanged]     = ["a1"],
+        [HubBroadcasts.NotificationsChanged]    = [],
     };
 
     /// A push carrying arguments that no handler binds is dropped only after the client throws and

@@ -19,6 +19,8 @@ namespace Capacitor.Cli.Core;
 public static class AuthProviderCache {
     static readonly TimeSpan Ttl = TimeSpan.FromHours(24);
 
+    const string MachineTokenUrlKey = "machine_token_url";
+
     internal static string StorePath(ConfigRoot config) => config.Path("cache", "auth-providers.json");
 
     /// <summary>
@@ -49,11 +51,32 @@ public static class AuthProviderCache {
     }
 
     /// <summary>
+    /// Pure: whether a still-fresh entry for <paramref name="baseUrl"/> records the server's
+    /// <c>machine_token_url</c>, and the value it records (null when the server named none).
+    /// </summary>
+    internal static bool ReadMachineTokenUrl(string? storeJson, string baseUrl, long nowUnix, out string? machineTokenUrl) {
+        machineTokenUrl = null;
+
+        if (Read(storeJson, baseUrl, nowUnix) is null) return false;
+
+        try {
+            if (JsonNode.Parse(storeJson!) is not JsonObject obj || obj[baseUrl] is not JsonObject entry) return false;
+            if (!entry.TryGetPropertyValue(MachineTokenUrlKey, out var value)) return false;
+
+            machineTokenUrl = value?.GetValue<string>();
+
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Pure: returns <paramref name="storeJson"/> with <paramref name="baseUrl"/> upserted to
     /// <paramref name="provider"/> stamped at <paramref name="nowUnix"/>. A malformed store is
     /// replaced rather than propagated.
     /// </summary>
-    internal static string Upsert(string? storeJson, string baseUrl, string provider, long nowUnix) {
+    internal static string Upsert(string? storeJson, string baseUrl, string provider, long nowUnix, string? machineTokenUrl = null) {
         JsonObject obj;
 
         try {
@@ -64,7 +87,10 @@ public static class AuthProviderCache {
 
         obj[baseUrl] = new JsonObject {
             ["provider"]   = provider,
-            ["fetched_at"] = nowUnix
+            ["fetched_at"] = nowUnix,
+            // Written even when null: a present null is the server's answer, an absent key is an
+            // entry from a writer that never asked.
+            [MachineTokenUrlKey] = machineTokenUrl
         };
 
         return obj.ToJsonString();
@@ -83,8 +109,22 @@ public static class AuthProviderCache {
         }
     }
 
+    /// <summary>Best-effort disk read of the server's <c>machine_token_url</c>; see <see cref="ReadMachineTokenUrl"/>.</summary>
+    public static bool TryGetMachineTokenUrl(string baseUrl, ConfigRoot config, TimeProvider time, out string? machineTokenUrl) {
+        machineTokenUrl = null;
+
+        try {
+            var path = StorePath(config);
+
+            return File.Exists(path)
+                && ReadMachineTokenUrl(File.ReadAllText(path), baseUrl, time.GetUtcNow().ToUnixTimeSeconds(), out machineTokenUrl);
+        } catch {
+            return false;
+        }
+    }
+
     /// <summary>Best-effort disk write. Silently no-ops on any failure.</summary>
-    public static void Set(string baseUrl, string provider, ConfigRoot config, TimeProvider time) {
+    public static void Set(string baseUrl, string provider, ConfigRoot config, TimeProvider time, string? machineTokenUrl = null) {
         try {
             var path = StorePath(config);
             var dir  = Path.GetDirectoryName(path);
@@ -93,7 +133,7 @@ public static class AuthProviderCache {
 
             var existing = File.Exists(path) ? File.ReadAllText(path) : null;
 
-            File.WriteAllText(path, Upsert(existing, baseUrl, provider, time.GetUtcNow().ToUnixTimeSeconds()));
+            File.WriteAllText(path, Upsert(existing, baseUrl, provider, time.GetUtcNow().ToUnixTimeSeconds(), machineTokenUrl));
         } catch {
             // Best effort — the cache never breaks auth.
         }

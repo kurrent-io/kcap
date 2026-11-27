@@ -1,0 +1,112 @@
+using Capacitor.App.Services.Inbox;
+using Capacitor.Remote.Models;
+
+namespace Capacitor.App.Tests.Unit.ViewModels.Inbox;
+
+sealed class FakeInboxApi : IInboxApi {
+    public InboxRead<UserSurfacesResponseDto> Surfaces { get; set; } = new(InboxReadKind.Ready, new() { Notifications = true, Passes = true });
+    public InboxRead<NotificationUnreadCountDto> Count { get; set; } = new(InboxReadKind.Ready, new() { Count = 0 });
+    public InboxRead<NotificationPageDto> Page { get; set; } = new(InboxReadKind.Ready, new());
+    public InboxRead<NotificationAnswerResponseDto> Answer { get; set; } = InboxRead<NotificationAnswerResponseDto>.Failed;
+    public InboxRead<NotificationPrefsDto> Prefs { get; set; } = new(InboxReadKind.Ready, new());
+    public InboxRead<PassControlsDto> Controls { get; set; } = new(InboxReadKind.Ready, new());
+    public bool DismissResult { get; set; } = true;
+    /// <summary>When set, count reads wait on it, so a test can push while a read runs.</summary>
+    public TaskCompletionSource? CountGate { get; set; }
+    /// <summary>When set, answers wait on it, so a test can disconnect while one is in flight.</summary>
+    public TaskCompletionSource? AnswerGate { get; set; }
+    /// <summary>When set, surfaces reads wait on it, so a test can push during admission.</summary>
+    public TaskCompletionSource? SurfacesGate { get; set; }
+    /// <summary>When set, preference writes wait on it.</summary>
+    public TaskCompletionSource? PutGate { get; set; }
+    /// <summary>When set, preference reads wait on it.</summary>
+    public TaskCompletionSource? PrefsGate { get; set; }
+    /// <summary>When set, pass-control writes wait on it.</summary>
+    public TaskCompletionSource? ControlsGate { get; set; }
+    /// <summary>When set, delete-all waits on it before it is sent, as a request waits for its credentials.</summary>
+    public TaskCompletionSource? DismissAllGate { get; set; }
+    /// <summary>When set, a dismissal waits on it before it is sent.</summary>
+    public TaskCompletionSource? DismissGate { get; set; }
+    /// <summary>False when a write belongs to another account than the one later reads are for.</summary>
+    public bool WritesChangeControls { get; set; } = true;
+
+    public int CountReads, PageReads, DismissAllCalls, PrefsReads;
+    public readonly List<string> Calls = [];
+
+    public async Task<InboxRead<UserSurfacesResponseDto>> SurfacesAsync(CancellationToken ct) {
+        if (SurfacesGate is { } gate) await gate.Task;
+        return Surfaces;
+    }
+
+    public async Task<InboxRead<NotificationUnreadCountDto>> UnreadCountAsync(CancellationToken ct) {
+        CountReads++;
+        if (CountGate is { } gate) await gate.Task;
+        return Count;
+    }
+
+    public Task<InboxRead<NotificationPageDto>> InboxAsync(int limit, CancellationToken ct) {
+        PageReads++;
+        return Task.FromResult(Page);
+    }
+
+    public Task<bool> MarkReadAsync(string logicalId, long version, CancellationToken ct) => Record($"read {logicalId}@{version}", true);
+    public async Task<bool> DismissAsync(string logicalId, long version, CancellationToken ct) {
+        Calls.Add($"dismiss {logicalId}@{version}");
+        if (DismissGate is { } gate) await gate.Task;
+        ct.ThrowIfCancellationRequested();
+        return DismissResult;
+    }
+    public Task<bool> MarkAllReadAsync(CancellationToken ct) => Record("read-all", true);
+
+    public async Task<bool> DismissAllAsync(CancellationToken ct) {
+        DismissAllCalls++;
+        if (DismissAllGate is { } gate) await gate.Task;
+        ct.ThrowIfCancellationRequested();
+        return await Record("dismiss-all", true);
+    }
+
+    public async Task<InboxRead<NotificationAnswerResponseDto>> AnswerAsync(string logicalId, string answer, string? text, CancellationToken ct) {
+        Calls.Add($"answer {logicalId} {answer} {text}");
+        if (AnswerGate is { } gate) await gate.Task;
+        return Answer;
+    }
+
+    public async Task<InboxRead<NotificationPrefsDto>> PrefsAsync(CancellationToken ct) {
+        PrefsReads++;
+        var prefs = Prefs;
+        if (PrefsGate is { } gate) await gate.Task;
+        return prefs;
+    }
+
+    public async Task<bool> PutPrefAsync(string type, bool enabled, bool slackEnabled, CancellationToken ct) {
+        Calls.Add($"pref {type} {enabled} {slackEnabled}");
+        if (PutGate is { } gate) await gate.Task;
+        return true;
+    }
+
+    public Task<InboxRead<PassControlsDto>> PassControlsAsync(CancellationToken ct) => Task.FromResult(Controls);
+
+    public async Task<InboxRead<PassControlsDto>> SetAgentOptOutAsync(bool optedOut, CancellationToken ct) {
+        Calls.Add($"opt-out {optedOut}");
+        if (ControlsGate is { } gate) await gate.Task;
+        var written = new InboxRead<PassControlsDto>(InboxReadKind.Ready, Controls.Value! with { AgentOptedOut = optedOut });
+        if (WritesChangeControls) Controls = written;
+        return written;
+    }
+
+    // The answer is the server's state when the unmute applied, so a gate held past a later write returns an older state.
+    public async Task<InboxRead<PassControlsDto>> UnmuteAsync(string senderId, CancellationToken ct) {
+        Calls.Add($"unmute {senderId}");
+        Controls = new(InboxReadKind.Ready, Controls.Value! with { MutedSenders = Controls.Value.MutedSenders.Where(s => s.UserId != senderId).ToList() });
+        var answer = Controls;
+        if (ControlsGate is { } gate) await gate.Task;
+        return answer;
+    }
+
+    public string? Resolve(string pathOrUrl) => pathOrUrl.StartsWith('/') ? "https://kcap.example" + pathOrUrl : pathOrUrl;
+
+    Task<bool> Record(string call, bool result) {
+        Calls.Add(call);
+        return Task.FromResult(result);
+    }
+}

@@ -35,6 +35,7 @@ public class RepoEvidenceScannerTests {
         var attributed = await s.OnLineAsync("claude", Line("Edit", "file_path", "/home/u/dev/repo-a/src/x.cs"));
         await Assert.That(attributed).IsEqualTo(new FakeRepo("acme", "repo-a"));
         await Assert.That(s.Done).IsTrue();
+        await Assert.That(s.AttributedRoot).IsEqualTo("/home/u/dev/repo-a");
     }
 
     [Test]
@@ -61,6 +62,7 @@ public class RepoEvidenceScannerTests {
         var promoted = await s.PromoteReadFallbackAsync();
         await Assert.That(promoted).IsEqualTo(new FakeRepo("acme", "repo-b"));
         await Assert.That(s.Done).IsTrue();
+        await Assert.That(s.AttributedRoot).IsEqualTo("/home/u/dev/repo-b");
         await Assert.That(await s.PromoteReadFallbackAsync()).IsNull(); // idempotent
     }
 

@@ -202,6 +202,16 @@ public class ConfigCommandTests {
     }
 
     [Test]
+    [Arguments("true", true)]
+    [Arguments("false", false)]
+    public async Task ApplySet_DisableRepoInstructionsUpload_SetsTheFlag(string value, bool expected) {
+        var updated = ConfigCommand.ApplySet(new Profile(), "disable_repo_instructions_upload", value);
+
+        await Assert.That(updated.DisableRepoInstructionsUpload).IsEqualTo(expected);
+        await Assert.That(() => ConfigCommand.ApplySet(new Profile(), "disable_repo_instructions_upload", "nope")).Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task ApplySet_DisableNextWorkNudge_True_UpdatesProfile() {
         var updated = ConfigCommand.ApplySet(new Profile(), "disable_nextwork_nudge", "true");
 
@@ -390,5 +400,63 @@ public class ConfigCommandTests {
         var profile = new Profile { Flows = new FlowsSettings { ReviewerVendor = "  codex  " } };
 
         await Assert.That(profile.EffectiveReviewerVendorPreference()).IsEqualTo("codex");
+    }
+
+    // ── hosts.* ──────────────────────────────────────────────────────────────
+
+    static string Effective(Profile profile, string key) => key switch {
+        "hosts.telemetry"    => HostsSettings.EffectiveTelemetry(profile.Hosts),
+        "hosts.npm_registry" => HostsSettings.EffectiveNpmRegistry(profile.Hosts),
+        "hosts.docs"         => HostsSettings.EffectiveDocs(profile.Hosts),
+        _                    => throw new ArgumentOutOfRangeException(nameof(key)),
+    };
+
+    /// <summary>Each host is set, survives a save, reads back in the shape its caller needs, and
+    /// leaves the other two on their defaults.</summary>
+    [Test]
+    [Arguments("hosts.telemetry",    "https://ph.example/",       "https://ph.example")]
+    [Arguments("hosts.npm_registry", "https://npm.example",       "https://npm.example/")]
+    [Arguments("hosts.docs",         "https://docs.example/kcap", "https://docs.example/kcap/")]
+    public async Task A_set_host_is_what_its_caller_reads(string key, string value, string expected) {
+        var profileConfig = new ProfileConfig {
+            Profiles = new() { ["default"] = ConfigCommand.ApplySet(new Profile(), key, value) }
+        };
+        var json    = JsonSerializer.Serialize(profileConfig, ProfileConfigJsonContextIndented.Default.ProfileConfig);
+        var decoded = JsonSerializer.Deserialize(json, ProfileConfigJsonContext.Default.ProfileConfig)!.Profiles["default"];
+
+        await Assert.That(Effective(decoded, key)).IsEqualTo(expected);
+
+        foreach (var other in new[] { "hosts.telemetry", "hosts.npm_registry", "hosts.docs" }.Where(k => k != key))
+            await Assert.That(Effective(decoded, other)).IsEqualTo(Effective(new Profile(), other));
+    }
+
+    [Test]
+    [Arguments("hosts.telemetry",    HostsSettings.DefaultTelemetry)]
+    [Arguments("hosts.npm_registry", HostsSettings.DefaultNpmRegistry)]
+    [Arguments("hosts.docs",         HostsSettings.DefaultDocs)]
+    public async Task An_unset_host_reads_its_default(string key, string expected) {
+        var set = ConfigCommand.ApplySet(new Profile(), key, "https://elsewhere.example/");
+
+        await Assert.That(Effective(new Profile(), key)).IsEqualTo(expected);
+        await Assert.That(Effective(ConfigCommand.ApplyUnset(set, key), key)).IsEqualTo(expected);
+    }
+
+    [Test]
+    [Arguments("hosts.telemetry", "phog.example")]
+    [Arguments("hosts.npm_registry", "ftp://npm.example/")]
+    [Arguments("hosts.docs", "")]
+    [Arguments("hosts.npm_registry", "https://mirror.example/npm#registry")]
+    [Arguments("hosts.docs", "https://docs.example/kcap/?lang=en")]
+    public async Task A_host_that_is_not_an_http_url_is_refused(string key, string value) =>
+        await Assert.That(() => ConfigCommand.ApplySet(new Profile(), key, value)).Throws<ArgumentException>();
+
+    /// <summary>A hand-edited value the setter would refuse reads as the default: a route appended inside a query or
+    /// fragment would drop the base's own path.</summary>
+    [Test]
+    [Arguments("hosts.npm_registry", "https://mirror.example/npm#registry", HostsSettings.DefaultNpmRegistry)]
+    [Arguments("hosts.docs",         "https://docs.example/kcap/?lang=en",  HostsSettings.DefaultDocs)]
+    public async Task A_stored_host_with_a_query_or_fragment_reads_as_the_default(string key, string value, string expected) {
+        var hosts = key == "hosts.docs" ? new HostsSettings { Docs = value } : new HostsSettings { NpmRegistry = value };
+        await Assert.That(Effective(new Profile { Hosts = hosts }, key)).IsEqualTo(expected);
     }
 }

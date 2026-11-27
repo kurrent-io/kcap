@@ -5,6 +5,7 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Eval.Contracts;
 using Capacitor.Cli.Core.Eval.Evidence;
+using Capacitor.Cli.Core.Eval.RepoContext;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Harness.Claude;
 
@@ -240,7 +241,11 @@ public static partial class EvalService {
         Profile?                       Profile,
         // Same reasoning for the harnesses the judges are spawned and read through.
         HarnessRegistry                Harnesses
-    );
+    ) {
+        /// <summary>The repository-instructions block every judge and retrospective prompt leads with; empty when the
+        /// session's repository has no checkout here.</summary>
+        public string RepoContext { get; init; } = "";
+    }
 
     /// <summary>
     /// Runs the full eval pipeline for <paramref name="sessionId"/>:
@@ -269,7 +274,8 @@ public static partial class EvalService {
             TimeProvider                    time,
             CancellationToken               ct        = default,
             string?                         evalRunId = null,
-            IReadOnlyList<EvalQuestionDto>? questions = null
+            IReadOnlyList<EvalQuestionDto>? questions = null,
+            RepoEvalContextSource?          repoContext = null
         ) {
         // Wrap the caller-supplied observer so any throw from a callback
         // (e.g. SignalR push failures in the daemon) is caught and logged
@@ -292,11 +298,11 @@ public static partial class EvalService {
             observer.OnTreatment(EvalTreatment.For(catalog));
             // The advertisement is the only oracle; a chain request stays on the legacy path whatever the server offers.
             if (catalog.EvidenceRetrieval is not null && !chain)
-                return await RunEvidenceAsync(baseUrl, httpClient, profile, harnesses, sessionId, questions, catalog, model, observer, time, ct, evalRunId);
+                return await RunEvidenceAsync(baseUrl, httpClient, profile, harnesses, sessionId, questions, catalog, model, observer, time, ct, evalRunId, repoContext);
 
             var ctx = await PrepareAsync(
                 baseUrl, httpClient, profile, harnesses, sessionId, questions, catalog, chain, thresholdBytes,
-                observer, time, ct, model, evalRunId);
+                observer, time, ct, model, evalRunId, repoContext);
             if (ctx is null) return null;
 
             // Iterate the RECONCILED questions (ctx.Questions) — the text path uses
@@ -342,7 +348,8 @@ public static partial class EvalService {
             TimeProvider                   time,
             CancellationToken              ct,
             string                         model,
-            string?                        evalRunId = null
+            string?                        evalRunId = null,
+            RepoEvalContextSource?         repoContext = null
         ) {
         evalRunId ??= Guid.NewGuid().ToString();
 
@@ -424,8 +431,9 @@ public static partial class EvalService {
         // trace is the embed path's hard 400 (no verdict at all). Full
         // chain-aware tools require server-side chain support on
         // eval-summary/search/transcript — tracked separately for future work.
+        var repoBlock   = repoContext is null ? "" : await repoContext.ForSessionAsync(httpClient, baseUrl, sessionId, observer, ct);
         var tokenBudget = TraceTokenBudget();
-        var forceTools  = ShouldForceTools(traceJson.Length, tokenBudget);
+        var forceTools  = ShouldForceTools(traceJson.Length + repoBlock.Length, tokenBudget);
         if (forceTools) {
             observer.OnInfo(
                 $"trace ~{traceJson.Length / 4:N0} est. tokens exceeds budget ({tokenBudget:N0}) — "
@@ -468,7 +476,7 @@ public static partial class EvalService {
             Questions:                  reconciled,
             Model:                      model,
             ForceTools:                 forceTools
-        );
+        ) { RepoContext = repoBlock };
     }
 
     // ── RunQuestion ────────────────────────────────────────────────────────
@@ -510,7 +518,7 @@ public static partial class EvalService {
             // what it needs. ForceTools routes every question here when PrepareAsync's size gate finds the trace too
             // large to embed. The reconciled Prompt is the rendered text-path prompt, so the tools template gets the
             // raw catalog text.
-            var prompt = BuildToolsQuestionPrompt(
+            var prompt = ctx.RepoContext + BuildToolsQuestionPrompt(
                 ctx.ToolsPromptTemplate, ctx.SessionId, ctx.EvalRunId,
                 question with { Prompt = question.RawText ?? question.Prompt }, patterns, ctx.ContextResult.Tasks);
 
@@ -535,7 +543,7 @@ public static partial class EvalService {
             );
         } else {
             // The catalog's server-rendered prompt, with the runtime placeholders filled and any {CACHE_BOUNDARY} stripped.
-            var prompt = BuildTextQuestionPrompt(question, ctx.SessionId, ctx.EvalRunId, ctx.TraceJson, ctx.ContextResult.Tasks);
+            var prompt = ctx.RepoContext + BuildTextQuestionPrompt(question, ctx.SessionId, ctx.EvalRunId, ctx.TraceJson, ctx.ContextResult.Tasks);
 
             outcome = await ClaudeCliRunner.RunDetailedAsync(
                 prompt,
@@ -704,6 +712,7 @@ public static partial class EvalService {
             aggregate:           aggregate,
             verdicts:            verdicts,
             retrospectivePrompt: ctx.RetrospectivePrompt,
+            repoContext:         ctx.RepoContext,
             traceJson:           ctx.TraceJson,
             observer:            observer,
             time:                time,
@@ -764,6 +773,7 @@ public static partial class EvalService {
                 aggregate:           aggregate,
                 assessments:         assessments,
                 retrospectivePrompt: ctx.RetrospectivePrompt,
+                repoContext:         ctx.RepoContext,
                 traceJson:           ctx.TraceJson,
                 observer:            observer,
                 time:                time,
@@ -1584,6 +1594,7 @@ public static partial class EvalService {
             SessionEvalCompletedPayloadV3      aggregate,
             IReadOnlyList<EvalQuestionVerdict> verdicts,
             string                             retrospectivePrompt,
+            string                             repoContext,
             string                             traceJson,
             IEvalObserver                      observer,
             TimeProvider                       time,
@@ -1606,7 +1617,7 @@ public static partial class EvalService {
         // empty knownPatterns string and the replace becomes a no-op.
         // The template comes from the catalog and {TRACE_JSON} is
         // filled with the daemon's already-fetched trace.
-        var prompt = BuildRetrospectivePrompt(
+        var prompt = repoContext + BuildRetrospectivePrompt(
             retrospectivePrompt, sessionMeta, verdictsJson, knownPatterns: "", traceJson);
 
         // DEV-1484: instead of embedding the compacted trace (which blew
@@ -1678,6 +1689,7 @@ public static partial class EvalService {
             SessionEvalCompletedPayloadV4          aggregate,
             IReadOnlyList<EvalQuestionAssessment>  assessments,
             string                                 retrospectivePrompt,
+            string                                 repoContext,
             string                                 traceJson,
             IEvalObserver                          observer,
             TimeProvider                           time,
@@ -1693,7 +1705,7 @@ public static partial class EvalService {
         var sessionMeta  = $"session-id: {sessionId}\nrun-id: {evalRunId}\nmodel: {model}\noverall-score: {overallText}";
         var verdictsJson = JsonSerializer.Serialize(assessments, CapacitorJsonContext.Default.ListEvalQuestionAssessment);
 
-        var prompt = BuildRetrospectivePrompt(
+        var prompt = repoContext + BuildRetrospectivePrompt(
             retrospectivePrompt, sessionMeta, verdictsJson, knownPatterns: "", traceJson);
 
         var commandPath = ResolveJudgeCommandPath();

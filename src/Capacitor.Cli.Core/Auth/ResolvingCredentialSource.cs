@@ -52,7 +52,8 @@ internal sealed class ResolvingCredentialSource(
         // half-configured one is told which is missing.
         if (machine.Intended)
             return machine.TryRead(out var problem) is { } credential
-                ? new MachineCredentials(minter, workos, credential)
+                ? new MachineCredentials(minter, workos, credential,
+                    await discovery.MachineTokenUrlAsync(server.Url, server.Config, ct))
                 : new Unusable(problem!);
 
         return new TokenStoreCredentials(tokens, server.Profiles.Name, server.Url);

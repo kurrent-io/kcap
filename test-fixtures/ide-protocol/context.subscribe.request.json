@@ -1,0 +1,9 @@
+{
+  "jsonrpc": "2.0",
+  "id": 7,
+  "method": "context/subscribe",
+  "params": {
+    "subscription_id": "ctx-1",
+    "session_id": "4f2b9c1e-7a3d-4e8f-9b6c-2d1a0e5f3c7b"
+  }
+}
