@@ -511,19 +511,21 @@ sealed class McpPlansServer(ConfigRoot config, ProfileContext profiles, TokenSto
           + "plan is used, and a session with no plan gets one created. Returns the tasks with their ids and ordinals.",
             new("object", new() {
                 ["tasks"]      = new("array", "The complete ordered task list.",
-                    new("object", "A task: {title, task_id?, status?: pending|in_progress|completed|skipped, note?}.")),
+                    new("object", "A task: {title, task_id?, status?: pending|in_progress|completed|skipped|blocked, note?}. skipped is a task dropped "
+                      + "on purpose; blocked is one waiting on something outside the plan, and its note names what it waits on.")),
                 ["plan_id"]    = new("string", "Plan to write to. Defaults to the session's current plan."),
                 ["session_id"] = new("string", "Session making the declaration. Defaults to the session this server runs in when omitted.")
             }, ["tasks"]), McpToolAnnotations.Replace),
         new(PlanToolNames.UpdateTask,
-            "Record one task's status transition — call it every time a task starts, finishes or is skipped. Name "
+            "Record one task's status transition — call it every time a task starts, finishes, is skipped or becomes blocked. Name "
           + "the task by task_id (from set_plan_tasks or get_plan) or by its 1-based ordinal. Without plan_id the "
           + "session's current plan is used. The result names the plan it acted on.",
             new("object", new() {
                 ["task_id"]    = new("string", "The task's id."),
                 ["ordinal"]    = new("integer", "The task's 1-based position, as an alternative to task_id."),
-                ["status"]     = new("string", "One of 'pending', 'in_progress', 'completed' or 'skipped'."),
-                ["note"]       = new("string", "Optional note on the transition — why a task was skipped, what blocked it."),
+                ["status"]     = new("string", "One of 'pending', 'in_progress', 'completed', 'skipped' or 'blocked'. 'skipped' is a task dropped on purpose; "
+                                                + "'blocked' is one waiting on something outside the plan, and its note names what it waits on."),
+                ["note"]       = new("string", "Optional note on the transition — why a task was skipped, what a blocked task waits on."),
                 ["plan_id"]    = new("string", "Plan the task belongs to. Defaults to the session's current plan."),
                 ["session_id"] = new("string", "Session recording the change. Defaults to the session this server runs in when omitted.")
             }, ["status"]), McpToolAnnotations.Upsert),

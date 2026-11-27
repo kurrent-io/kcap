@@ -781,6 +781,25 @@ public class McpSessionsServerTests {
         await Assert.That(byName["list_repo_plans"].Description).Contains("finished");
     }
 
+    [Test]
+    [Arguments("list_repo_plans")]
+    [Arguments("get_declared_plans")]
+    public async Task The_plan_readers_state_the_next_task_rule_and_the_blocked_count(string tool) {
+        var description = McpSessionsServer.BuildToolsList().Single(t => t.Name == tool).Description;
+
+        await Assert.That(description).Contains("neither completed, skipped nor blocked");
+        await Assert.That(description).Contains("else the first blocked one");
+        await Assert.That(description).Contains("progress.blocked");
+        await Assert.That(description).Contains("reads as zero");
+    }
+
+    [Test]
+    public async Task The_session_summary_names_blocked_in_its_declared_plans_shape() {
+        var description = McpSessionsServer.BuildToolsList().Single(t => t.Name == "get_session_summary").Description;
+
+        await Assert.That(description).Contains("{plan_id, completed, total, total_known, blocked, finished, is_complete, is_current}");
+    }
+
     const string Recap = """[{"type":"whats_done","content":"did X"}]""";
 
     static JsonArray? DeclaredPlans(string? plansBody) =>
@@ -790,7 +809,7 @@ public class McpSessionsServerTests {
     public async Task ProjectRecapToSummary_carries_a_pointer_for_each_declared_plan() {
         const string plans = """
             [
-              {"plan_id":"p-1","progress":{"completed":2,"total":7,"total_known":true,"finished":false},"is_complete":true,"is_current":true,"tasks":[{"title":"ignored"}]},
+              {"plan_id":"p-1","progress":{"completed":2,"total":7,"total_known":true,"blocked":3,"finished":false},"is_complete":true,"is_current":true,"tasks":[{"title":"ignored"}]},
               {"plan_id":"p-2","progress":{"completed":3,"total":3,"total_known":true,"finished":true},"is_complete":true,"is_current":false}
             ]
             """;
@@ -799,8 +818,20 @@ public class McpSessionsServerTests {
 
         await Assert.That(pointers.Count).IsEqualTo(2);
         await Assert.That(pointers[0]!.ToJsonString())
-            .IsEqualTo("""{"plan_id":"p-1","completed":2,"total":7,"total_known":true,"finished":false,"is_complete":true,"is_current":true}""");
+            .IsEqualTo("""{"plan_id":"p-1","completed":2,"total":7,"total_known":true,"blocked":3,"finished":false,"is_complete":true,"is_current":true}""");
         await Assert.That(pointers[1]!["finished"]!.GetValue<bool>()).IsTrue();
+    }
+
+    /// <summary>A server that predates the status omits the count, and one that sends a value that is
+    /// not a number must not break the summary.</summary>
+    [Test]
+    [Arguments("""{"completed":1,"total":2,"total_known":true}""")]
+    [Arguments("""{"completed":1,"total":2,"total_known":true,"blocked":null}""")]
+    [Arguments("""{"completed":1,"total":2,"total_known":true,"blocked":"one"}""")]
+    public async Task ProjectDeclaredPlans_reads_a_blocked_count_the_server_did_not_send_as_zero(string progress) {
+        var plans = $$"""[{"plan_id":"p-1","progress":{{progress}},"is_complete":true,"is_current":false}]""";
+
+        await Assert.That(DeclaredPlans(plans)![0]!["blocked"]!.GetValue<int>()).IsEqualTo(0);
     }
 
     [Test]

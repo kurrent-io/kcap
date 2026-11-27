@@ -1192,6 +1192,29 @@ public class WorkContextViewSmokeTests {
         });
     }
 
+    /// A blocked task carries a mark like every other row, its note says what it waits on, and both
+    /// headers count it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_blocked_task_is_marked_in_its_row_and_counted_in_both_plan_headers() {
+        await RunOnUiAsync(async () => {
+            await using var host = new Host();
+            host.Plans.Enqueue(PlanRead([], ("completed", "Read the route", null), ("blocked", "Wire the key", "waits on the vendor key"), ("pending", "Ship it", null)));
+            await host.ShowAsync(KeyOnlyRead());
+
+            await Assert.That(VisibleTexts(host.Find<ItemsControl>("PlanCounts"))).IsEquivalentTo(new[] { "1", "1", "1" }, CollectionOrdering.Matching);
+
+            await host.Vm.Plan.ToggleCommand.Execute();
+            Dispatcher.UIThread.RunJobs();
+            host.Window.UpdateLayout();
+
+            await Assert.That(host.Find<TextBlock>("PlanHeaderText").Text).IsEqualTo("1 of 3 done · 1 blocked");
+            var list = host.Find<ItemsControl>("PlanTaskList");
+            await Assert.That(VisibleTexts(list)).Contains("waits on the vendor key");
+            await Assert.That(list.GetVisualDescendants().OfType<AppIcon>().Count(icon => icon.IsEffectivelyVisible)).IsEqualTo(3);
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task The_plan_section_is_hidden_without_tasks_even_when_documents_are_declared() {

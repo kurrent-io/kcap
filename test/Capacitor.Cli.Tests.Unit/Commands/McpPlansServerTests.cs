@@ -72,6 +72,24 @@ public class McpPlansServerTests {
     }
 
     [Test]
+    public async Task Both_task_writers_list_blocked_and_tell_it_from_skipped() {
+        var byName = McpPlansServer.BuildToolsList().ToDictionary(t => t.Name);
+        string[] schemas = [
+            byName["set_plan_tasks"].InputSchema.Properties["tasks"].Items!.Description,
+            byName["update_plan_task"].InputSchema.Properties["status"].Description,
+        ];
+
+        foreach (var schema in schemas) {
+            await Assert.That(schema).Contains("blocked");
+            await Assert.That(schema).Contains("dropped on purpose");
+            await Assert.That(schema).Contains("waiting on something outside the plan");
+            await Assert.That(schema).Contains("note names what it waits on");
+        }
+
+        await Assert.That(byName["update_plan_task"].InputSchema.Properties["note"].Description).DoesNotContain("what blocked it");
+    }
+
+    [Test]
     public async Task No_tool_advertises_a_server_owned_source_argument() {
         // The server stamps `mcp` as the source of every write; an advertised argument would be
         // ignored at best and a spoofing surface at worst.
@@ -495,7 +513,12 @@ public class McpPlansServerTests {
 
     /// <summary>Scripted fake transport: each call is recorded, and a GET of the current plan can be
     /// answered with a canned body so the update path's resolve-then-post is observable.</summary>
-    sealed class ScriptedHandler(string currentPlanBody = """{"plan_id":"resolved1"}""", int currentPlanStatus = 200) : HttpMessageHandler {
+    sealed class ScriptedHandler(
+            string currentPlanBody = """{"plan_id":"resolved1"}""",
+            int currentPlanStatus = 200,
+            string writeBody = """{"plan_id":"p1","tasks":[]}""",
+            int writeStatus = 200
+        ) : HttpMessageHandler {
         public List<(HttpMethod Method, string Url, string? Body)> Calls { get; } = [];
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct) {
@@ -505,7 +528,7 @@ public class McpPlansServerTests {
             if (request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/api/plans/current", StringComparison.Ordinal))
                 return new HttpResponseMessage((System.Net.HttpStatusCode)currentPlanStatus) { Content = new StringContent(currentPlanBody) };
 
-            return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent("""{"plan_id":"p1","tasks":[]}""") };
+            return new HttpResponseMessage((System.Net.HttpStatusCode)writeStatus) { Content = new StringContent(writeBody) };
         }
     }
 
@@ -613,6 +636,21 @@ public class McpPlansServerTests {
         await Assert.That(h.Calls.Count).IsEqualTo(1);
         await Assert.That(IsError(response)).IsTrue();
         await Assert.That(ResultText(response)).Contains("declare_plan_document");
+    }
+
+    /// <summary>A server that predates <c>blocked</c> refuses it; the agent must see that refusal, with
+    /// the server's own reason, as a tool error.</summary>
+    [Test]
+    [Arguments("update_plan_task", """{"session_id":"s1","plan_id":"p1","ordinal":1,"status":"blocked","note":"waits on the vendor key"}""")]
+    [Arguments("set_plan_tasks", """{"session_id":"s1","plan_id":"p1","tasks":[{"title":"One","status":"blocked"}]}""")]
+    public async Task A_server_that_refuses_blocked_answers_a_tool_error_carrying_its_reason(string tool, string args) {
+        const string refusal = """{"error":"invalid_request","message":"Unknown task status 'blocked'."}""";
+
+        var (h, response) = await DispatchAsync(tool, args, new ScriptedHandler(writeBody: refusal, writeStatus: 400));
+
+        await Assert.That(h.Calls.Single().Body!).Contains("\"status\":\"blocked\"");
+        await Assert.That(IsError(response)).IsTrue();
+        await Assert.That(ResultText(response)).IsEqualTo($"Error: HTTP 400 — {refusal}");
     }
 
     [Test]

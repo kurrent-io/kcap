@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace Capacitor.Cli.Core.Plans;
 
-/// One declared task. `Status` is pending|in_progress|completed|skipped and `Source` is `mcp`,
+/// One declared task. `Status` is pending|in_progress|completed|skipped|blocked and `Source` is `mcp`,
 /// `user` or `adapter:&lt;name&gt;`. The server may widen either, so a reader that branches on one
 /// needs an arm for a value it does not know.
 /// `StatusPartial` marks a status whose latest change came from a session the viewer cannot see.

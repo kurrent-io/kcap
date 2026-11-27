@@ -29,9 +29,11 @@ through the `kcap-plans` MCP tools; nothing infers it. Three rules:
    Call `set_plan_tasks` with the whole ordered list (`title`, optional
    `task_id`, `status`, `note`); re-send the whole list when the steps change,
    carrying the `task_id`s you were given. Call `update_plan_task` every time a
-   task starts, finishes or is skipped, by `task_id` or 1-based `ordinal`, with
-   `status` `pending`, `in_progress`, `completed` or `skipped` and a `note`
-   when the reason matters. After compaction, `get_plan` returns the list.
+   task starts, finishes, is skipped or becomes blocked, by `task_id` or 1-based
+   `ordinal`, with `status` `pending`, `in_progress`, `completed`, `skipped` or
+   `blocked` and a `note` when the reason matters. `skipped` is a task dropped on
+   purpose; `blocked` is one waiting on something outside the plan, and its note
+   names what it waits on. After compaction, `get_plan` returns the list.
    While a plan's `is_complete` is `false`, never call `set_plan_tasks`
    on it for any reason — the list would be rebuilt from a view that is
    missing tasks.

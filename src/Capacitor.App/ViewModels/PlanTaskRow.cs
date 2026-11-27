@@ -18,12 +18,15 @@ public sealed class PlanTaskRow(string taskId) : ReactiveObject {
             this.RaiseAndSetIfChanged(ref field, value);
             this.RaisePropertyChanged(nameof(IsInProgress));
             this.RaisePropertyChanged(nameof(IsCompleted));
+            this.RaisePropertyChanged(nameof(IsBlocked));
             this.RaisePropertyChanged(nameof(IsSettled));
         }
     }
 
     public bool IsInProgress => State == PlanTaskState.InProgress;
     public bool IsCompleted  => State == PlanTaskState.Completed;
+    /// Waiting on something outside the plan: open, but not something anyone can take up now.
+    public bool IsBlocked    => State == PlanTaskState.Blocked;
     /// The server's own rule for progress: a skipped task is as settled as a completed one.
     public bool IsSettled    => State is PlanTaskState.Completed or PlanTaskState.Skipped;
 
@@ -42,6 +45,7 @@ public sealed class PlanTaskRow(string taskId) : ReactiveObject {
     static PlanTaskState StateOf(string status) => status switch {
         "in_progress" => PlanTaskState.InProgress,
         "completed"   => PlanTaskState.Completed,
+        "blocked"     => PlanTaskState.Blocked,
         "skipped"     => PlanTaskState.Skipped,
         _             => PlanTaskState.Pending,
     };

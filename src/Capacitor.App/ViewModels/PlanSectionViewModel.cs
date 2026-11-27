@@ -45,10 +45,13 @@ public sealed class PlanSectionViewModel : ReactiveObject {
     /// Whether the section has task rows to show: every task expanded, only the in-progress ones collapsed.
     public bool ShowsBody => IsExpanded ? HasPlan : HasInProgress;
     public int DoneCount => _tasks.Count(task => task.IsSettled);
+    public int BlockedCount => _tasks.Count(task => task.IsBlocked);
     /// What the expanded header says; collapsed, the header shows Counts.
-    public string HeaderText => $"{DoneCount} of {_tasks.Count} done";
-    /// Pending, in progress, done: one entry per state something is in, so the numbers add up
-    /// to the list.
+    public string HeaderText => BlockedCount is > 0 and var blocked
+        ? $"{DoneCount} of {_tasks.Count} done · {blocked} blocked"
+        : $"{DoneCount} of {_tasks.Count} done";
+    /// Pending, in progress, blocked, done: one entry per state something is in, so the numbers
+    /// add up to the list.
     public IReadOnlyList<PlanTaskCount> Counts { get; private set; } = [];
 
     public bool IsExpanded {
@@ -172,6 +175,7 @@ public sealed class PlanSectionViewModel : ReactiveObject {
         this.RaisePropertyChanged(nameof(HasInProgress));
         this.RaisePropertyChanged(nameof(ShowsBody));
         this.RaisePropertyChanged(nameof(DoneCount));
+        this.RaisePropertyChanged(nameof(BlockedCount));
         this.RaisePropertyChanged(nameof(HeaderText));
     }
 
@@ -191,9 +195,11 @@ public sealed class PlanSectionViewModel : ReactiveObject {
 
     PlanTaskCount[] CountStates() {
         var done = DoneCount;
+        var blocked = BlockedCount;
         PlanTaskCount[] states = [
-            new(PlanTaskState.Pending, _tasks.Count - _inProgress.Count - done),
+            new(PlanTaskState.Pending, _tasks.Count - _inProgress.Count - blocked - done),
             new(PlanTaskState.InProgress, _inProgress.Count, _inProgress.Count > 0 && !_activity.SessionOver),
+            new(PlanTaskState.Blocked, blocked),
             new(PlanTaskState.Completed, done),
         ];
         return [.. states.Where(state => state.Count > 0)];

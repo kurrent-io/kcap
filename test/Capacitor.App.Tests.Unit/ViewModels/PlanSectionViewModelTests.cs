@@ -228,6 +228,52 @@ public class PlanSectionViewModelTests {
         });
     }
 
+    /// A blocked task is open but not pending: it has its own state and its own count, and neither
+    /// the done nor the pending number absorbs it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_blocked_task_has_its_own_state_and_is_counted_apart_from_pending_and_done() {
+        await RunOnUiAsync(async () => {
+            var h = new Harness();
+            h.Source.Enqueue(
+                Ready(Plan("p1", tasks: [
+                    Todo("t1", 1, "completed"), Todo("t2", 2, "blocked", "waits on the vendor key"), Todo("t3", 3, "pending"),
+                    Todo("t4", 4, "skipped"), Todo("t5", 5, "blocked"),
+                ])),
+                Ready(Plan("p1", tasks: [
+                    Todo("t1", 1, "completed"), Todo("t2", 2, "in_progress"), Todo("t3", 3, "pending"),
+                    Todo("t4", 4, "skipped"), Todo("t5", 5, "completed"),
+                ])));
+            await h.SwitchAsync(SessionA);
+
+            var blocked = h.Vm.Tasks[1];
+            await Assert.That(blocked.State).IsEqualTo(PlanTaskState.Blocked);
+            await Assert.That(blocked.IsBlocked).IsTrue();
+            await Assert.That(blocked.IsSettled).IsFalse();
+            await Assert.That(blocked.IsActive).IsFalse();
+            await Assert.That(blocked.Note).IsEqualTo("waits on the vendor key");
+            await Assert.That(h.Vm.DoneCount).IsEqualTo(2);
+            await Assert.That(h.Vm.HeaderText).IsEqualTo("2 of 5 done · 2 blocked");
+            await Assert.That(h.Vm.Counts).IsEquivalentTo(new PlanTaskCount[] {
+                new(PlanTaskState.Pending, 1), new(PlanTaskState.Blocked, 2), new(PlanTaskState.Completed, 2),
+            }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            await Assert.That(h.Vm.Counts.Select(c => c.Label))
+                .IsEquivalentTo(new[] { "1 pending", "2 blocked", "2 done" }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+
+            var changed = new List<string?>();
+            h.Vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+            await h.RefreshAsync();
+
+            await Assert.That(blocked.IsBlocked).IsFalse();
+            await Assert.That(h.Vm.HeaderText).IsEqualTo("3 of 5 done");
+            await Assert.That(changed).Contains(nameof(PlanSectionViewModel.HeaderText));
+            await Assert.That(h.Vm.Counts).IsEquivalentTo(new PlanTaskCount[] {
+                new(PlanTaskState.Pending, 1), new(PlanTaskState.InProgress, 1, true), new(PlanTaskState.Completed, 3),
+            }, TUnit.Assertions.Enums.CollectionOrdering.Matching);
+            await h.Vm.TeardownAsync();
+        });
+    }
+
     [Test]
     [NotInParallel("AvaloniaSession")]
     public async Task A_status_the_app_does_not_know_presents_as_pending_and_counts_as_pending() {

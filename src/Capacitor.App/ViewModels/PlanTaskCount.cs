@@ -7,6 +7,7 @@ public sealed record PlanTaskCount(PlanTaskState State, int Count, bool IsActive
     public string Label => State switch {
         PlanTaskState.InProgress => $"{Count} in progress",
         PlanTaskState.Completed  => $"{Count} done",
+        PlanTaskState.Blocked    => $"{Count} blocked",
         _                        => $"{Count} pending",
     };
 }

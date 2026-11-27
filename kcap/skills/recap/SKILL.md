@@ -148,7 +148,7 @@ A session that works from a plan declares it to kcap: the documents, an ordered 
 **Judging whether a plan is done.** Read `progress` and two flags, in this order:
 
 1. `progress.finished` is `true` — the plan is done.
-2. `progress.completed` is less than `progress.total` — the plan is open. What remains is every entry of `tasks` whose status is neither `completed` nor `skipped`; a `list_repo_plans` row has no `tasks`, and gives the first of them as `next_task`.
+2. `progress.completed` is less than `progress.total` — the plan is open. What remains is every entry of `tasks` whose status is neither `completed` nor `skipped`. A `blocked` task remains too, but waits on something outside the plan, which its note names: `progress.blocked` counts them, and a server that predates the status omits the field, which reads as zero. A `list_repo_plans` row has no `tasks`, and gives as `next_task` the first task that is neither `completed`, `skipped` nor `blocked`, else the first `blocked` one.
 3. `is_complete` is `false` — nothing visible remains — possibly nothing visible was declared — but the view is partial; say so and do not call the plan complete.
 4. Otherwise `progress.total_known` is `false` — the session declared documents but never a task list, so completion is unknown. That is not withheld data; do not report it as a partial view. If instead `total_known` is `true`, the server itself reports the plan unfinished — treat it as open and do not infer completion from the totals.
 

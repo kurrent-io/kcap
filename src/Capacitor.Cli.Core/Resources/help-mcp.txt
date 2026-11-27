@@ -254,7 +254,10 @@ mcp plans:
                                 snapshot; entries with a known task_id keep it.
       update_plan_task         Record one status transition by task_id or
                                 1-based ordinal (pending, in_progress,
-                                completed, skipped), with an optional note.
+                                completed, skipped, blocked), with an
+                                optional note. skipped is dropped on purpose;
+                                blocked waits on something outside the plan,
+                                the note naming what.
       get_plan                 Read the plan back — documents, tasks with
                                 status and source, progress.
 
