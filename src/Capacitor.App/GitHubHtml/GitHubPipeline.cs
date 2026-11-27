@@ -10,5 +10,5 @@ public static class GitHubPipeline {
 
     /// What GitHub-flavoured markdown parses as before the HTML pass runs.
     public static MarkdownPipelineBuilder Configure(MarkdownPipelineBuilder builder) =>
-        builder.UseSupportedExtensions().Use<AlertExtension>();
+        builder.UseSupportedExtensions().UseGitHubTables().Use<AlertExtension>();
 }

@@ -18,7 +18,7 @@ namespace Capacitor.App.Services;
 /// the rendered HTML that rich editors such as Slack paste with its formatting.
 public static class MarkdownClipboard {
     // Raw HTML in a message shows as text in the chat, so the copy escapes it rather than passing markup on.
-    static readonly MarkdownPipeline ChatHtml = new MarkdownPipelineBuilder().UseSupportedExtensions().DisableHtml().Build();
+    static readonly MarkdownPipeline ChatHtml = new MarkdownPipelineBuilder().UseSupportedExtensions().UseGitHubTables().DisableHtml().Build();
 
     /// Each platform names HTML differently, and Windows alone wraps it in a byte-offset envelope.
     public static DataFormat HtmlFormat { get; } =

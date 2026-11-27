@@ -26,6 +26,14 @@ public class MarkdownClipboardTests {
     }
 
     [Test]
+    public async Task Html_carries_a_table_with_text_on_the_line_after_it() {
+        var html = Html("| a | b |\n|---|---|\n| 1 | 2 |\nafter");
+
+        await Assert.That(html).Contains("<table>");
+        await Assert.That(html).Contains("<td>after</td>");
+    }
+
+    [Test]
     public async Task Text_is_the_markdown_source() {
         const string markdown = "1. one\n2. **two**\n\nAfter.";
 
