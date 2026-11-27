@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Capacitor.App.Services;
 using Capacitor.Cli.Core;
 using Microsoft.Extensions.Time.Testing;
@@ -49,6 +50,30 @@ public class AppStderrLogTests {
         }
         await Assert.That(File.GetUnixFileMode(Folder)).IsEqualTo(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         await Assert.That(File.GetUnixFileMode(LogPath)).IsEqualTo(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+    }
+
+    [Test]
+    public async Task On_macos_an_acl_inherited_from_the_config_root_is_dropped() {
+        if (!OperatingSystem.IsMacOS()) return;
+        var config = Tmp.PathTo("config");
+        Directory.CreateDirectory(config);
+        await Run("chmod", "+a", "everyone allow list,search,readattr,read,file_inherit,directory_inherit", config);
+        var (log, _) = Make();
+        using (log) log.WriteLine("x");
+
+        await Assert.That(await Run("ls", "-led", config)).Contains("everyone allow");
+        await Assert.That(await Run("ls", "-led", Folder)).DoesNotContain("allow");
+        await Assert.That(await Run("ls", "-le", LogPath)).DoesNotContain("allow");
+    }
+
+    static async Task<string> Run(string command, params string[] arguments) {
+        var start = new ProcessStartInfo(command) { RedirectStandardOutput = true };
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        using var process = Process.Start(start)!;
+        var output = await process.StandardOutput.ReadToEndAsync();
+        await process.WaitForExitAsync();
+        if (process.ExitCode != 0) throw new InvalidOperationException($"{command} exited {process.ExitCode}");
+        return output;
     }
 
     [Test]

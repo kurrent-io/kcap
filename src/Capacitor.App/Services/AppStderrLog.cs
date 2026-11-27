@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text;
 using Capacitor.Cli.Core;
 
@@ -11,7 +13,7 @@ namespace Capacitor.App.Services;
 /// the log or put anything in its place. One process writes it at a time, holding a lock file for as long as it does,
 /// and rotates it once past <see cref="MaxBytes"/>. Never throws: a log that cannot be written leaves stderr as it was.
 /// </summary>
-public sealed class AppStderrLog : TextWriter {
+public sealed partial class AppStderrLog : TextWriter {
     /// Not the CLI's <c>logs</c>, which holds watcher logs and is not owner-only.
     public const string FolderName = "desktop-logs";
     public const string FileName = "app.log";
@@ -163,6 +165,7 @@ public sealed class AppStderrLog : TextWriter {
         _nextAttempt = now + RetryAfter;
         try {
             OwnerOnlyDirectory.CreateVerified(_folder);
+            if (OperatingSystem.IsMacOS()) DropExtendedAcl(_folder);
             _writerLock = new FileStream(System.IO.Path.Combine(_folder, FileName + ".lock"), Options(FileMode.OpenOrCreate, FileShare.None));
             _headerWritten = false;
             return true;
@@ -176,6 +179,29 @@ public sealed class AppStderrLog : TextWriter {
         if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(file.SafeFileHandle, OwnerOnly);
         return file;
     }
+
+    /// The mode bits pass for owner-only while an entry inherited from the config root still lets others in.
+    [SupportedOSPlatform("macos")]
+    static void DropExtendedAcl(string folder) {
+        var empty = acl_init(0);
+        if (empty == 0) throw new IOException("acl_init failed");
+        try {
+            if (acl_set_file(folder, AclTypeExtended, empty) != 0) throw new IOException($"cannot clear the ACL on {folder}");
+        } finally {
+            _ = acl_free(empty);
+        }
+    }
+
+    const int AclTypeExtended = 0x100;
+
+    [LibraryImport("libc", EntryPoint = "acl_init")]
+    private static partial nint acl_init(int count);
+
+    [LibraryImport("libc", EntryPoint = "acl_set_file", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial int acl_set_file(string path, int type, nint acl);
+
+    [LibraryImport("libc", EntryPoint = "acl_free")]
+    private static partial int acl_free(nint obj);
 
     static FileStreamOptions Options(FileMode mode, FileShare share) {
         var options = new FileStreamOptions { Mode = mode, Access = FileAccess.Write, Share = share };
