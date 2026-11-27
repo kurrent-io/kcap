@@ -1,4 +1,5 @@
 using Capacitor.Cli.Core;
+using TUnit.Assertions.Enums;
 
 namespace Capacitor.Cli.Tests.Unit;
 
@@ -39,7 +40,7 @@ public class WatcherSpawnArgsTests {
 
         await spawner.SpawnAsync(new WatcherSpawnRequest("abc", transcript, null, Vendor: vendor) { Stderr = TextWriter.Null });
 
-        await Assert.That(starter.Seen!.Arguments.Contains("--parent-pid")).IsEqualTo(followsParent);
+        await Assert.That(starter.Seen!.ArgumentList.Contains("--parent-pid")).IsEqualTo(followsParent);
     }
 
     /// <summary>Every spawn names its vendor, including the one `kcap watch` would have defaulted
@@ -52,8 +53,8 @@ public class WatcherSpawnArgsTests {
             cwd: null, skipTitle: false, parentPid: null, vendor: "claude"
         );
 
-        await Assert.That(args).Contains("watch abc \"/tmp/t.jsonl\"");
-        await Assert.That(args).Contains("--vendor \"claude\"");
+        await Assert.That(args.Take(3)).IsEquivalentTo(["watch", "abc", "/tmp/t.jsonl"], CollectionOrdering.Matching);
+        await Assert.That(args.TakeLast(2)).IsEquivalentTo(["--vendor", "claude"], CollectionOrdering.Matching);
     }
 
     [Test]
@@ -64,7 +65,7 @@ public class WatcherSpawnArgsTests {
             cwd: null, skipTitle: false, parentPid: null, vendor: "codex"
         );
 
-        await Assert.That(args).Contains("--vendor \"codex\"");
+        await Assert.That(args.TakeLast(2)).IsEquivalentTo(["--vendor", "codex"], CollectionOrdering.Matching);
     }
 
     [Test]
@@ -75,7 +76,7 @@ public class WatcherSpawnArgsTests {
             cwd: null, skipTitle: false, parentPid: null, vendor: "my vendor"
         );
 
-        await Assert.That(args).Contains("--vendor \"my vendor\"");
+        await Assert.That(args.TakeLast(2)).IsEquivalentTo(["--vendor", "my vendor"], CollectionOrdering.Matching);
     }
 
     [Test]
@@ -86,9 +87,20 @@ public class WatcherSpawnArgsTests {
             cwd: "/repo", skipTitle: true, parentPid: 4242, vendor: "claude"
         );
 
-        await Assert.That(args).Contains("watch sess \"/tmp/t.jsonl\" --agent-id agent1");
-        await Assert.That(args).Contains("--cwd \"/repo\"");
-        await Assert.That(args).Contains("--skip-title");
-        await Assert.That(args).Contains("--parent-pid 4242");
+        await Assert.That(args).IsEquivalentTo(
+            ["watch", "sess", "/tmp/t.jsonl", "--agent-id", "agent1", "--cwd", "/repo", "--skip-title", "--parent-pid", "4242", "--vendor", "claude"],
+            CollectionOrdering.Matching);
+    }
+
+    /// <summary>A Windows drive root ends in a backslash; as its own argument it cannot escape a quote and swallow the
+    /// flags after it, so the watcher still learns its vendor.</summary>
+    [Test]
+    public async Task A_cwd_ending_in_a_backslash_leaves_the_flags_after_it_whole() {
+        var args = ProcessWatcherSpawner.BuildSpawnArgs(
+            key: "abc", transcriptPath: @"C:\r.jsonl", agentId: null, sessionIdOverride: null,
+            cwd: @"C:\", skipTitle: true, parentPid: null, vendor: "codex"
+        );
+
+        await Assert.That(args).IsEquivalentTo(["watch", "abc", @"C:\r.jsonl", "--cwd", @"C:\", "--skip-title", "--vendor", "codex"], CollectionOrdering.Matching);
     }
 }

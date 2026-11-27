@@ -83,6 +83,37 @@ public class HandedSessionEndRequestTests {
         await Assert.That(HandedSessionEndRequest.Exists(paths, "swept")).IsFalse();
     }
 
+    /// <summary>A file that ends like a request but names no session is no request, and listing goes on past it.</summary>
+    [Test]
+    public async Task A_request_name_without_a_session_is_skipped() {
+        var paths = new WatcherPaths(Tmp.PathTo("watchers"));
+        HandedSessionEndRequest.Write(paths, SessionId, """{"reason":"other"}""", vendor: "codex");
+        File.WriteAllText(Path.Combine(paths.Directory, "codex-end-requested"), "");
+
+        await Assert.That(HandedSessionEndRequest.SessionsWithPending(paths)).IsEquivalentTo([SessionId]);
+    }
+
+    /// <summary>A resume on one server cancels only the ends owed to it: one still owed to another server is posted there.</summary>
+    [Test]
+    public async Task A_resume_discards_only_the_ends_owed_to_its_server() {
+        var paths = new WatcherPaths(Tmp.PathTo("watchers"));
+        HandedSessionEndRequest.Write(paths, SessionId, """{"reason":"other","agent_host_id":"a","daemon_epoch":"1"}""", "https://a.example", vendor: "codex");
+        HandedSessionEndRequest.Write(paths, SessionId, """{"reason":"other","agent_host_id":"b","daemon_epoch":"1"}""", "https://b.example", vendor: "codex");
+        foreach (var file in Directory.GetFiles(paths.Directory)) File.SetLastWriteTimeUtc(file, DateTime.UtcNow.AddMinutes(-2));
+
+        HandedSessionEndRequest.DiscardForResume(paths, SessionId, "https://b.example");
+
+        var left = HandedSessionEndRequest.TryClaim(paths, SessionId, "check");
+        await Assert.That(left!.Server).IsEqualTo("https://a.example");
+        await Assert.That(HandedSessionEndRequest.ResumedSince(paths, SessionId, left.HandedAt, left.Server)).IsFalse();
+        await Assert.That(HandedSessionEndRequest.TryClaim(paths, SessionId, "check")).IsNull();
+    }
+
+    /// <summary>The sweep and a resume claim as their process too, so a claim either dies holding goes back.</summary>
+    [Test]
+    public async Task Every_claim_names_the_claiming_process() =>
+        await Assert.That(HandedSessionEndRequest.OwnClaim).IsEqualTo(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
     /// <summary>A request written before requests recorded a vendor is Muse's, the only vendor that handed ends over then.</summary>
     [Test]
     public async Task A_request_with_no_vendor_is_muses() {

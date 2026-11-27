@@ -31,12 +31,12 @@ public static class HandedSessionEndSweep {
                 var early  = new List<HandedSessionEndRequest>();
                 var failed = new List<HandedSessionEndRequest>();
 
-                while (HandedSessionEndRequest.TryClaim(paths, session, "sweep", time, recorded => recorded is null || ServerIdentity.SameServer(recorded, server)) is { } handed) {
+                while (HandedSessionEndRequest.TryClaim(paths, session, HandedSessionEndRequest.OwnClaim, time, recorded => recorded is null || ServerIdentity.SameServer(recorded, server)) is { } handed) {
                     if (lifecycle.IsDisabledByPerson(session)) {
                         HandedSessionEndRequest.Release(handed.ClaimedPath);
                     } else if (time.GetUtcNow() - handed.HandedAt < Unattended) {
                         early.Add(handed);
-                    } else if (HandedSessionEndRequest.ResumedSince(paths, session, handed.HandedAt) || HeldForResume(handed.Payload, session, daemons, time)) {
+                    } else if (HandedSessionEndRequest.ResumedSince(paths, session, handed.HandedAt, handed.Server) || HeldForResume(handed.Payload, session, daemons, time)) {
                         HandedSessionEndRequest.Release(handed.ClaimedPath);
                     } else if (lifecycle.Append(session, handed.Route, Spoolable(handed.Payload, session))) {
                         HandedSessionEndRequest.Release(handed.ClaimedPath);

@@ -63,6 +63,9 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
         }
     }
 
+    /// <summary>What a claim by this process is named for: its pid, so a claim it dies holding is recovered.</summary>
+    public static string OwnClaim => Environment.ProcessId.ToString(CultureInfo.InvariantCulture);
+
     static readonly TimeSpan FirstRetryDelay = TimeSpan.FromSeconds(30);
     static readonly TimeSpan MaxRetryDelay   = TimeSpan.FromMinutes(30);
 
@@ -76,8 +79,9 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
             if (!Directory.Exists(paths.Directory)) return [];
 
             return Directory.EnumerateFiles(paths.Directory, "*" + RequestedSuffix)
-                .Where(f => IsRequest(Path.GetFileName(f)))
-                .Select(f => Path.GetFileName(f)[..Path.GetFileName(f).IndexOf('.')])
+                .Select(f => Path.GetFileName(f))
+                .Where(name => IsRequest(name) && name.IndexOf('.') > 0)
+                .Select(name => name[..name.IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
@@ -180,7 +184,7 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
     /// <summary>Only a request handed over for <paramref name="serverUrl"/>, or one that recorded none: a recorder posts
     /// to its own server, and one for another is left to that server's drain.</summary>
     public static HandedSessionEndRequest? ClaimHandedEnd(WatcherPaths paths, string sessionId, string serverUrl, TimeProvider time) =>
-        TryClaim(paths, sessionId, Environment.ProcessId.ToString(CultureInfo.InvariantCulture), time,
+        TryClaim(paths, sessionId, OwnClaim, time,
             recorded => recorded is null || ServerIdentity.SameServer(recorded, serverUrl));
 
     static HandedSessionEndRequest? TryClaimAt(string source, string owner) {
@@ -221,21 +225,25 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
     }
 
     /// <summary>Records that the session carried on, so an end handed over before this moment is posted no
-    /// more, whoever holds it: it is older than the session's new life.</summary>
-    public static void MarkResumed(WatcherPaths paths, string sessionId) {
+    /// more, whoever holds it: it is older than the session's new life. The session carries on on
+    /// <paramref name="server"/>, when known; an end owed to another server is still that server's.</summary>
+    public static void MarkResumed(WatcherPaths paths, string sessionId, string? server = null) {
         try {
             Directory.CreateDirectory(paths.Directory);
-            File.WriteAllText(ResumedPathFor(paths, sessionId), "");
+            File.WriteAllText(ResumedPathFor(paths, sessionId), server ?? "");
         } catch (IOException) {
         } catch (UnauthorizedAccessException) {
         }
     }
 
-    /// <summary>Whether the session was marked resumed at or after <paramref name="handedAt"/>.</summary>
-    public static bool ResumedSince(WatcherPaths paths, string sessionId, DateTimeOffset handedAt) {
+    /// <summary>Whether the session was marked resumed at or after <paramref name="handedAt"/>, on
+    /// <paramref name="server"/> when both the mark and the end know theirs.</summary>
+    public static bool ResumedSince(WatcherPaths paths, string sessionId, DateTimeOffset handedAt, string? server = null) {
         try {
             var marker = ResumedPathFor(paths, sessionId);
-            return File.Exists(marker) && File.GetLastWriteTimeUtc(marker) >= handedAt.UtcDateTime;
+            if (!File.Exists(marker) || File.GetLastWriteTimeUtc(marker) < handedAt.UtcDateTime) return false;
+
+            return server is null || File.ReadAllText(marker) is not { Length: > 0 } resumedOn || ServerIdentity.SameServer(resumedOn, server);
         } catch (IOException) {
             return false;
         } catch (UnauthorizedAccessException) {
@@ -287,9 +295,9 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
         try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
-    /// <summary>Puts back every request a watcher claimed and then died holding, before it could send or return it, so
-    /// the next taker sends it. Only a watcher's claim names its process; a newer request of the same run supersedes the
-    /// one put back. A pid that was reused leaves the claim for a later pass.</summary>
+    /// <summary>Puts back every request a process claimed and then died holding, before it could send or return it, so
+    /// the next taker sends it. A claim names its process (<see cref="OwnClaim"/>); a newer request of the same run
+    /// supersedes the one put back. A pid that was reused leaves the claim for a later pass.</summary>
     public static void RecoverAbandoned(WatcherPaths paths) {
         try {
             if (!Directory.Exists(paths.Directory)) return;
@@ -310,12 +318,14 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
     /// already holds, which it drops before posting and arms a successor; the claim here takes an end nobody has, so it
     /// cannot end the watcher armed next. An end handed over after the mark is the resumed run's own and goes back for
     /// that watcher.</summary>
-    public static void DiscardForResume(WatcherPaths paths, string sessionId) {
-        MarkResumed(paths, sessionId);
+    /// <param name="server">The server the session carries on on: an end owed to another is left to it.</param>
+    public static void DiscardForResume(WatcherPaths paths, string sessionId, string? server) {
+        MarkResumed(paths, sessionId, server);
 
         var kept = new List<HandedSessionEndRequest>();
-        while (TryClaim(paths, sessionId, "rearm") is { } handed) {
-            if (ResumedSince(paths, sessionId, handed.HandedAt)) Release(handed.ClaimedPath);
+        while (TryClaim(paths, sessionId, OwnClaim, time: null,
+                   recorded => recorded is null || server is null || ServerIdentity.SameServer(recorded, server)) is { } handed) {
+            if (ResumedSince(paths, sessionId, handed.HandedAt, handed.Server)) Release(handed.ClaimedPath);
             else kept.Add(handed);
         }
 

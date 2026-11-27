@@ -453,6 +453,43 @@ public class WatcherParentExitPostTests : IDisposable {
         await Assert.That(spawner.Spawned.Count).IsEqualTo(1);
     }
 
+    /// <summary>A person who disabled the session gets neither its children's stops nor its end: the claim just goes.</summary>
+    [Test]
+    public async Task A_handed_end_of_a_disabled_session_is_dropped_unsent() {
+        var sessionId = Guid.NewGuid().ToString("N");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        Core.Harness.HandedSessionEndRequest.Write(paths, sessionId, """{"hook_event_name":"SessionEnd","reason":"other"}""", vendor: "codex");
+        var handed = Core.Harness.HandedSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+        DisabledSessions.Mark(sessionId, Config.Root);
+
+        await Watch().SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "codex", repository: null, run: null, handed);
+
+        await Assert.That(_server.LogEntries.Where(e => e.RequestMessage.Method == "POST")).IsEmpty();
+        await Assert.That(File.Exists(handed.ClaimedPath)).IsFalse();
+    }
+
+    /// <summary>An end lost on its first attempt and rejected on its retry is dropped, not put back to be rejected again.</summary>
+    [Test]
+    public async Task A_handed_end_rejected_on_its_retry_is_not_put_back() {
+        _server.Given(Request.Create().WithPath("/auth/config").UsingGet())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"provider":"None"}"""));
+        _server.Given(Request.Create().WithPath("/hooks/session-end/muse").UsingPost()).InScenario("retry").WillSetStateTo("rejecting")
+            .RespondWith(Response.Create().WithStatusCode(503));
+        _server.Given(Request.Create().WithPath("/hooks/session-end/muse").UsingPost()).InScenario("retry").WhenStateIs("rejecting")
+            .RespondWith(Response.Create().WithStatusCode(400));
+        File.WriteAllText(Config.Root.Path(HookSpool.DirectoryName), "");
+
+        var sessionId = Guid.NewGuid().ToString("N");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        Core.Harness.HandedSessionEndRequest.Write(paths, sessionId, """{"hook_event_name":"SessionEnd","reason":"exit"}""");
+        var handed = Core.Harness.HandedSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+
+        await Watch().SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, run: null, handed);
+
+        await Assert.That(Core.Harness.HandedSessionEndRequest.Exists(paths, sessionId)).IsFalse();
+        await Assert.That(File.Exists(handed.ClaimedPath)).IsFalse();
+    }
+
     /// <summary>A handed end the server rejects is dropped, as every rejected hook payload is: it is not put back, and no
     /// watcher is armed to send it again, which would re-arm against a rejection that never clears.</summary>
     [Test]

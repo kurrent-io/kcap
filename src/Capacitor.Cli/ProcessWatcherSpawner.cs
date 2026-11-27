@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Harness.Copilot;
@@ -40,6 +41,8 @@ public sealed class ProcessWatcherSpawner(
                                  :                                                        ProcessHelpers.GetCopilotHostPid());
             var arguments     = BuildSpawnArgs(key, transcriptPath, agentId, sessionIdOverride, cwd, skipTitle, parentPid, vendor);
 
+            // One argument each, so the runtime quotes them for the platform: a Windows path ending in a backslash would
+            // otherwise escape its closing quote and swallow every flag after it.
             var psi = new ProcessStartInfo(kcapPath, arguments) {
                 RedirectStandardOutput = true,
                 RedirectStandardInput  = true,
@@ -84,7 +87,7 @@ public sealed class ProcessWatcherSpawner(
         }
     }
 
-    internal static string BuildSpawnArgs(
+    internal static IReadOnlyList<string> BuildSpawnArgs(
             string  key,
             string  transcriptPath,
             string? agentId,
@@ -94,25 +97,15 @@ public sealed class ProcessWatcherSpawner(
             int?    parentPid,
             string  vendor
         ) {
-        var sessionId = sessionIdOverride ?? key;
+        List<string> arguments = agentId is not null
+            ? ["watch", sessionIdOverride ?? key, transcriptPath, "--agent-id", agentId]
+            : ["watch", key, transcriptPath];
 
-        var arguments = agentId is not null
-            ? $"watch {sessionId} \"{transcriptPath}\" --agent-id {agentId}"
-            : $"watch {key} \"{transcriptPath}\"";
+        if (cwd is not null) arguments.AddRange(["--cwd", cwd]);
+        if (skipTitle) arguments.Add("--skip-title");
+        if (parentPid is { } ppid and > 1) arguments.AddRange(["--parent-pid", ppid.ToString(CultureInfo.InvariantCulture)]);
 
-        if (cwd is not null) {
-            arguments += $" --cwd \"{cwd}\"";
-        }
-
-        if (skipTitle) {
-            arguments += " --skip-title";
-        }
-
-        if (parentPid is { } ppid and > 1) {
-            arguments += $" --parent-pid {ppid}";
-        }
-
-        arguments += $" --vendor \"{vendor}\"";
+        arguments.AddRange(["--vendor", vendor]);
 
         return arguments;
     }

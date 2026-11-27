@@ -207,7 +207,7 @@ sealed class MuseHookCommand(
             agentId: null, sessionIdOverride: null, cwd: cwd, skipTitle: true, vendor: Vendor);
     }
 
-    void DiscardHandedEnd(string sessionId) => HandedSessionEndRequest.DiscardForResume(WatcherPaths.FromEnvironment(config), sessionId);
+    void DiscardHandedEnd(string sessionId) => HandedSessionEndRequest.DiscardForResume(WatcherPaths.FromEnvironment(config), sessionId, Url);
 
     /// <summary>An out-of-scope repository disables the session, so its later hooks stop at the
     /// disabled check.</summary>

@@ -18,14 +18,15 @@ public class WatcherMuseEndHandoffTests {
         await Assert.That(WatchCommand.TakesHandedEnd(vendor, agentId)).IsEqualTo(expected);
 
     /// <summary>A live process claimed for the session means its exit is not the session's; without one, or
-    /// for any other vendor, the watcher's exit ends the session as before.</summary>
+    /// for a vendor whose hooks do not claim a resumed process, the watcher's exit ends the session as before.</summary>
     [Test]
     [Arguments("muse", null, 4242, true)]
     [Arguments("muse", null, null, false)]
     [Arguments("muse", "agent-1", 4242, false)]
     [Arguments("claude", null, 4242, false)]
-    [Arguments("codex", null, 4242, false)]
-    public async Task A_muse_session_claimed_by_a_live_process_runs_on(string vendor, string? agentId, int? claimant, bool expected) =>
+    [Arguments("codex", null, 4242, true)]
+    [Arguments("codex", "agent-1", 4242, false)]
+    public async Task A_session_claimed_by_a_live_process_runs_on(string vendor, string? agentId, int? claimant, bool expected) =>
         await Assert.That(WatchCommand.SessionRunsOnElsewhere(vendor, agentId, claimant)).IsEqualTo(expected);
 
     /// <summary>A handed end a resume holds is not posted, and its claim goes so a later end is not blocked;

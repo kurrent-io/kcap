@@ -496,6 +496,23 @@ public class CodexHookCommandTests : IDisposable {
         await Assert.That(HandedSessionEndRequest.Exists(paths, EndingDashless)).IsFalse();
     }
 
+    /// <summary>A Codex session id is a UUID; a resume naming anything else touches no session's ends, as a glob in
+    /// the id would reach other sessions' files.</summary>
+    [Test]
+    public async Task A_resumed_SessionStart_with_an_id_that_is_no_uuid_touches_no_ends() {
+        StubNoAuthRequired();
+        _server.Given(Request.Create().WithPath("/hooks/session-start/codex").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        HandedSessionEndRequest.Write(paths, EndingDashless, """{"reason":"other"}""", vendor: "codex");
+        File.SetLastWriteTimeUtc(HandedSessionEndRequest.PathFor(paths, EndingDashless, """{"reason":"other"}""", "codex"), DateTime.UtcNow.AddMinutes(-2));
+
+        await RunAsync("""{"hook_event_name":"SessionStart","session_id":"019e*","source":"resume","transcript_path":"/tmp/r.jsonl","cwd":"/tmp"}""",
+            spawner: new FakeWatcherSpawner());
+
+        await Assert.That(HandedSessionEndRequest.Exists(paths, EndingDashless)).IsTrue();
+    }
+
     /// <summary>Codex can keep running after an idle detach or an archive, so an end that cannot be handed over is spooled
     /// rather than left to a process exit that may never come.</summary>
     [Test]

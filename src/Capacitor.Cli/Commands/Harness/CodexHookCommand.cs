@@ -370,14 +370,6 @@ sealed class CodexHookCommand(
     }
 
     async Task<int> HandleSessionStart(JsonNode node, Profile? activeProfile, HookBudget budget, CodexHookEnvironment env) {
-        // A resumed session carries on past any end handed over before now, so the watcher drops it rather than closing
-        // the session it just reopened. The new process is claimed first, before the start post or any drain can reap
-        // the old one and end the session it no longer runs.
-        if (TryGetString(node, "source") == "resume" && SessionId.Parse(TryGetString(node, "session_id")) is { } resumed && !env.HostedAppServer) {
-            watchers.ClaimAgentProcess(resumed.Value, "codex", TryGetString(node, "transcript_path"), TryGetString(node, "cwd"));
-            HandedSessionEndRequest.DiscardForResume(WatcherPaths.FromEnvironment(config), resumed.Value);
-        }
-
         // Stamp the user's configured default visibility onto the payload
         // BEFORE git enrichment so it survives the JsonString round-trip.
         // /hooks/session-start/codex shares SessionStartHook with the Claude
@@ -413,6 +405,14 @@ sealed class CodexHookCommand(
 
             WriteSessionScopedOutput(env.Stdout);
             return 0;
+        }
+
+        // A resumed session carries on past any end handed over before now, so the watcher drops it rather than closing
+        // the session it just reopened. The new process is claimed first, before the start post or any drain can reap
+        // the old one and end the session it no longer runs; after the exclusion, so an excluded session records nothing.
+        if (TryGetString(node, "source") == "resume" && CodexSessionKey(TryGetString(node, "session_id")) is { } resumed && !env.HostedAppServer) {
+            watchers.ClaimAgentProcess(resumed, "codex", TryGetString(node, "transcript_path"), TryGetString(node, "cwd"));
+            HandedSessionEndRequest.DiscardForResume(WatcherPaths.FromEnvironment(config), resumed, Url);
         }
 
         var enrichedNode = JsonNode.Parse(enriched);
@@ -530,9 +530,7 @@ sealed class CodexHookCommand(
     /// makes sure one is running to drain the rollout and post it. A session with no rollout has nothing to drain, so its
     /// end is spooled for the drain to post. An envelope-sourced hosted session's end belongs to the daemon that hosts it.</summary>
     async Task<int> HandleSessionEnd(JsonNode node, CodexHookEnvironment env) {
-        if (env.HostedAppServer || SubagentIdOf(node) is not null || SessionId.Parse(TryGetString(node, "session_id")) is not { } parsed) return 0;
-
-        var sessionId = parsed.Value;
+        if (env.HostedAppServer || SubagentIdOf(node) is not null || CodexSessionKey(TryGetString(node, "session_id")) is not { } sessionId) return 0;
 
         var transcript = TryGetString(node, "transcript_path");
         var cwd        = TryGetString(node, "cwd");
@@ -563,7 +561,7 @@ sealed class CodexHookCommand(
         // an earlier run's, and posted with no identity it would close the resumed run.
         var held = hosted.AgentId is not null
             ? SessionEndFence.ShouldHold(hosted, sessionId)
-            : SessionEndFence.ShouldHold(new ExitedSession(parsed, null));
+            : SessionId.Parse(sessionId) is { } placed && SessionEndFence.ShouldHold(new ExitedSession(placed, null));
 
         if (!held) {
             forwarded["transcript_path"] = transcript ?? "";
@@ -587,6 +585,9 @@ sealed class CodexHookCommand(
             }
         }
     }
+
+    /// <summary>A Codex session id is a UUID; its dashless form names the session's files, and nothing else may.</summary>
+    static string? CodexSessionKey(string? raw) => Guid.TryParse(raw, out var id) ? id.ToString("N") : null;
 
     /// <summary>Freezes the session's approval policy at its start, so an edit landing before its first tool call
     /// cannot change what governs it.</summary>

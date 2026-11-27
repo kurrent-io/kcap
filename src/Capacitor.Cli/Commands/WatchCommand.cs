@@ -824,16 +824,16 @@ class WatchCommand(
     /// watcher's lifecycle belongs to its parent.</summary>
     internal static bool TakesHandedEnd(string vendor, string? agentId) => agentId is null && HandedSessionEndRequest.HandedOverBy(vendor);
 
-    /// <summary>A Muse session watcher whose exit is not the session's: a live process is claimed for the
+    /// <summary>A Muse or Codex session watcher whose exit is not the session's: a live process is claimed for the
     /// session, so a resumed run owns it now. Other vendors keep ending on their own exit, as their hooks
-    /// do not re-arm a watcher across a resume.</summary>
+    /// do not claim the process that resumes a session.</summary>
     internal static bool SessionRunsOnElsewhere(string vendor, string? agentId, int? liveClaimant) =>
-        vendor == "muse" && agentId is null && liveClaimant is not null;
+        vendor is "muse" or "codex" && agentId is null && liveClaimant is not null;
 
     int? LiveClaimant(string sessionId) =>
         SessionId.Parse(sessionId) is { } session ? AgentSessions.OnThisMachine(config).LiveClaimant(session) : null;
 
-    internal enum HandedEndOutcome { Posted, Dropped, Failed }
+    internal enum HandedEndOutcome { Posted, Rejected, Dropped, Failed }
 
     /// <summary>Settles the handed end this watcher took, then every other one handed over before it exits, oldest
     /// first, each once: another run's end handed over while this one was claimed would otherwise wait for a watcher
@@ -848,16 +848,25 @@ class WatchCommand(
         var children = false;
 
         for (HandedSessionEndRequest? handed = first; handed is not null; handed = HandedSessionEndRequest.ClaimHandedEnd(_paths, sessionId, Url, time)) {
+            // Neither the children's stops nor the end may bring back a session a person disabled.
+            if (new HookSpool(config, time, Url).IsDisabledByPerson(sessionId)) {
+                Log(time, "Handed session-end dropped: the session was disabled");
+                HandedSessionEndRequest.Release(handed.ClaimedPath);
+                continue;
+            }
+
             // Before the fence: a stale end must not stamp the entry of the run that resumed past it.
-            if (HandedSessionEndRequest.ResumedSince(_paths, sessionId, handed.HandedAt)) {
+            if (HandedSessionEndRequest.ResumedSince(_paths, sessionId, handed.HandedAt, handed.Server)) {
                 Log(time, "Handed session-end dropped: the session was resumed after its end was handed over");
                 HandedSessionEndRequest.Release(handed.ClaimedPath);
                 await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, LiveClaimant(sessionId));
                 continue;
             }
 
+            // An earlier run's end, held for the resume: the session runs on, so the live run keeps a watcher.
             if (HoldHandedEndForResume(handed, AgentHoldingEndForResume(handed, sessionId)) is { } resumingId) {
                 Log(time, $"session end suppressed: agent {resumingId} is resuming");
+                if (LiveClaimant(sessionId) is { } claimant) await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, claimant);
                 continue;
             }
 
@@ -875,9 +884,16 @@ class WatchCommand(
                     await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, LiveClaimant(sessionId));
                     break;
 
+                // A resume that landed while the first attempt failed makes the end stale before it is tried again.
+                case HandedEndOutcome.Failed when HandedSessionEndRequest.ResumedSince(_paths, sessionId, handed.HandedAt, handed.Server):
+                    Log(time, "Handed session-end dropped: the session was resumed while it was being sent");
+                    HandedSessionEndRequest.Release(handed.ClaimedPath);
+                    await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, LiveClaimant(sessionId));
+                    break;
+
                 case HandedEndOutcome.Failed:
-                    if (await RetryHandedEndAsync(sessionId, transcriptPath, vendor, repository, handed)) outcome = HandedEndOutcome.Posted;
-                    else failed.Add(handed);
+                    outcome = await RetryHandedEndAsync(sessionId, transcriptPath, vendor, repository, handed);
+                    if (outcome == HandedEndOutcome.Failed) failed.Add(handed);
                     break;
             }
 
@@ -892,19 +908,28 @@ class WatchCommand(
         if (failed.Count > 0) Log(time, $"{failed.Count} handed session-end(s) could not be sent; left for the spool drain to retry");
     }
 
-    /// <summary>Posts a handed end once more directly: true, with the claim released, when the server took it or it
-    /// went into the spool; false leaves the claim held. The retry sends the handed end itself: one rebuilt from this
-    /// watcher would name the watcher's run, which can be an earlier one. Not while the session still has spooled
-    /// hooks: a direct post would overtake them, ending the session before its start replays.</summary>
-    async Task<bool> RetryHandedEndAsync(
+    /// <summary>Posts a handed end once more directly, releasing the claim unless it is Failed: neither sent nor kept.
+    /// The retry sends the handed end itself: one rebuilt from this watcher would name the watcher's run, which can be
+    /// an earlier one. Not while the session still has spooled hooks: a direct post would overtake them, ending the
+    /// session before its start replays.</summary>
+    async Task<HandedEndOutcome> RetryHandedEndAsync(
             string sessionId, string transcriptPath, string vendor, RepositoryPayload? repository, HandedSessionEndRequest handed) {
-        if (new HookSpool(config, time, Url).HasBacklog(sessionId) || !KnownVendors.Contains(vendor)
-         || !await PostSessionEndPayloadAsync(sessionId, vendor, HandedEndBody(handed.Payload, sessionId, transcriptPath, time.GetUtcNow(), out _), repository, "Handed"))
-            return false;
+        if (new HookSpool(config, time, Url).HasBacklog(sessionId) || !KnownVendors.Contains(vendor)) return HandedEndOutcome.Failed;
+
+        var delivery = await EndPoster().PostAsync(
+            sessionId, vendor, HandedEndBody(handed.Payload, sessionId, transcriptPath, time.GetUtcNow(), out _), repository, "Handed");
+
+        return Settled(delivery, handed);
+    }
+
+    /// <summary>The handed end's outcome once <paramref name="delivery"/> is known, releasing its claim unless the end was
+    /// neither sent nor kept. A rejected payload drops, as every hook post's does.</summary>
+    static HandedEndOutcome Settled(SessionEndDelivery delivery, HandedSessionEndRequest handed) {
+        if (delivery == SessionEndDelivery.Lost) return HandedEndOutcome.Failed;
 
         HandedSessionEndRequest.Release(handed.ClaimedPath);
 
-        return true;
+        return delivery == SessionEndDelivery.Delivered ? HandedEndOutcome.Posted : HandedEndOutcome.Rejected;
     }
 
     /// <summary>The run a successor watcher follows: the one the daemon's marker records, when the marker names the
@@ -914,13 +939,25 @@ class WatchCommand(
             ? new(marker.AgentId, marker.DaemonEpoch)
             : new(null, null);
 
+    /// <summary>The run the hook that claimed <paramref name="followedPid"/> for the session recorded, for a vendor whose
+    /// hosted run has no marker: a successor that lost it would end a resuming run on its own parent exit.</summary>
+    WatcherRun ClaimedRun(string sessionId, int? followedPid) {
+        if (followedPid is null || SessionId.Parse(sessionId) is not { } session) return new(null, null);
+
+        var claimed = AgentSessions.OnThisMachine(config).LiveClaimantOrigin(session);
+
+        return claimed is { Pid: var pid, Origin.AgentId: { Length: > 0 } agentId } && pid == followedPid
+            ? new(agentId, claimed.Value.Origin!.DaemonEpoch)
+            : new(null, null);
+    }
+
     /// <summary>Spawns the watcher a resumed session is left without once this one exits; this watcher's
     /// pid file is already retired, so the spawn sees no live watcher. The successor follows the resumed
     /// process when one is claimed; a watcher cannot resolve it from its own ancestry.</summary>
     async Task ArmSuccessorAsync(string sessionId, string transcriptPath, string? cwd, string vendor, int? parentPid) {
         try {
             await watchers.EnsureWatcherRunning(sessionId, transcriptPath, agentId: null, sessionIdOverride: null, cwd: cwd, skipTitle: true, vendor: vendor, parentPid: parentPid,
-                runsAs: SuccessorRun(home, sessionId, parentPid));
+                runsAs: SuccessorRun(home, sessionId, parentPid) is { AgentId: not null } marked ? marked : ClaimedRun(sessionId, parentPid));
             Log(time, $"Armed a successor watcher for the resumed session{(parentPid is { } p ? $" following pid {p}" : "")}");
         } catch (Exception ex) {
             Log(time, $"Arming a successor watcher failed: {ex.Message}");
@@ -938,7 +975,7 @@ class WatchCommand(
             RepositoryPayload?    repository,
             HandedSessionEndRequest request
         ) {
-        if (HandedSessionEndRequest.ResumedSince(_paths, sessionId, request.HandedAt)) {
+        if (HandedSessionEndRequest.ResumedSince(_paths, sessionId, request.HandedAt, request.Server)) {
             Log(time, "Handed session-end dropped: the session was resumed after its end was handed over");
             HandedSessionEndRequest.Release(request.ClaimedPath);
 
@@ -949,13 +986,7 @@ class WatchCommand(
         if (notJson is not null) Log(time, $"Handed session-end request is not JSON ({notJson}); posting a plain end instead");
 
         // Behind any spooled backlog and into the spool on a failure, reading the answer as the watcher's own end does.
-        var delivery = await EndPoster().PostAsync(sessionId, vendor, endHook, repository, "Handed");
-
-        // A rejected payload drops, as every hook post's does; only an end neither sent nor kept is tried again.
-        if (delivery == SessionEndDelivery.Lost) return HandedEndOutcome.Failed;
-
-        HandedSessionEndRequest.Release(request.ClaimedPath);
-        return HandedEndOutcome.Posted;
+        return Settled(await EndPoster().PostAsync(sessionId, vendor, endHook, repository, "Handed"), request);
     }
 
     async Task<bool> PostSessionEndPayloadAsync(string sessionId, string vendor, JsonObject endHook, RepositoryPayload? repository, string what) =>

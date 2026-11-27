@@ -221,6 +221,10 @@ sealed class AgentSessions(ConfigRoot config, Func<int, int?> parentOf, TimeProv
     /// </summary>
     public int? LiveClaimant(SessionId session) => _notes.LiveClaimant(session, HolderIsGone)?.Pid;
 
+    /// <summary>The live claimant of <paramref name="session"/> and what its claim recorded, or null.</summary>
+    public (int Pid, ClaimOrigin? Origin)? LiveClaimantOrigin(SessionId session) =>
+        _notes.LiveClaimant(session, HolderIsGone) is { } claimant ? (claimant.Pid, ReadOrigin(claimant.Pid, claimant.StartToken)) : null;
+
     /// <summary>
     /// The session of the nearest agent process at or above <paramref name="pid"/>.
     /// </summary>
