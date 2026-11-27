@@ -67,3 +67,20 @@ git push origin vX.Y.Z
 Only `v*` tags trigger a release. The tag's SemVer shape alone decides the dist-tag —
 a hyphenated prerelease (`-beta.N`, `-rc.N`, …) → `beta`; a bare `vX.Y.Z` → `latest` —
 via `scripts/npm-dist-tag.sh`. No manual dist-tag step is needed.
+
+## macOS provisioning profile
+
+The desktop app asks macOS to show permission requests, questions and usage limits as time-sensitive, so they
+still appear during a Focus. That needs the `com.apple.developer.usernotifications.time-sensitive` entitlement, and
+on a Developer ID app only an embedded provisioning profile can grant it. Without the
+`APPLE_APP_PROVISIONING_PROFILE` secret the release warns and ships without it, and notifications behave as before.
+
+To set it up or renew it:
+
+1. In the Apple Developer portal, give the `io.kurrent.kcap` App ID the Time Sensitive Notifications capability.
+2. Create a Developer ID provisioning profile for that App ID and the signing certificate the release uses.
+3. Store it base64-encoded as the repository secret: `base64 -i kcap.provisionprofile | gh secret set APPLE_APP_PROVISIONING_PROFILE`.
+
+The desktop build refuses a profile for another App ID, one without the capability, or one that has expired, and
+the packed-bundle smoke check fails if the signed app does not start. Renew the profile before it expires: the
+release fails until it is replaced.

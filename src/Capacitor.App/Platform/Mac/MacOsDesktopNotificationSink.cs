@@ -62,16 +62,23 @@ internal sealed class MacOsDesktopNotificationSink : IDesktopNotificationSink, I
             Post(() => {
                 if (!IsCurrent(pending)) return;
                 _badge.Authorize(settings.Badge);
-                if (settings.Access != DesktopNotificationAccess.Allowed) { Close(pending.Source.Id); return; }
+                if (settings.Access != DesktopNotificationAccess.Allowed) {
+                    DesktopNotifications.Report($"not posting \"{pending.Source.Title}\": notification access is {settings.Access}");
+                    Close(pending.Source.Id);
+                    return;
+                }
                 pending.Published = true;
+                var timeSensitive = pending.Source.TimeSensitive && settings.TimeSensitive;
                 try {
                     _center.Publish(pending.Source, pending.NativeId, pending.Category, settings.Badge ? _badge.Count + 1 : null,
+                        timeSensitive,
                         failure => Post(() => {
                             // An asynchronous add may finish after withdrawal or app activation.
                             if (!IsCurrent(pending)) { _center.Withdraw(pending.NativeId); _badge.Refresh(); return; }
                             if (failure is null) {
                                 pending.Accepted = _time.GetUtcNow();
                                 _badge.Delivered(pending.NativeId);
+                                DesktopNotifications.Report($"posted \"{pending.Source.Title}\" ({pending.NativeId}){(timeSensitive ? ", time-sensitive" : "")}");
                             }
                             else { Close(pending.Source.Id); DesktopNotifications.Report(failure); }
                         }));
@@ -91,6 +98,12 @@ internal sealed class MacOsDesktopNotificationSink : IDesktopNotificationSink, I
         var settings = await _center.SettingsAsync();
         Post(() => { if (!_disposed) _badge.Authorize(settings.Badge); });
         return settings.Access;
+    }
+
+    public async Task<bool?> TimeSensitiveAsync() {
+        if (_disposed || !_center.Available) return null;
+        var settings = await _center.SettingsAsync();
+        return settings.TimeSensitive;
     }
 
     public async Task<bool> NeedsRequestAsync() {
@@ -166,7 +179,10 @@ internal sealed class MacOsDesktopNotificationSink : IDesktopNotificationSink, I
                 foreach (var pending in snapshot.Where(IsCurrent)) {
                     if (delivered.Contains(pending.NativeId)) pending.Observed = true;
                     // Delivery can follow the asynchronous add's completion.
-                    else if (pending.Observed || _time.GetUtcNow() - pending.Accepted >= DeliveryGrace) Close(pending.Source.Id);
+                    else if (pending.Observed || _time.GetUtcNow() - pending.Accepted >= DeliveryGrace) {
+                        if (!pending.Observed) DesktopNotifications.Report($"withdrew {pending.NativeId}: never listed as delivered");
+                        Close(pending.Source.Id);
+                    }
                 }
                 if (settings.Badge) _badge.Refresh();
             });

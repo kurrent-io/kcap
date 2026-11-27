@@ -125,6 +125,7 @@ public sealed class DesktopNotificationCoordinator : IDisposable {
             var known = aliases.Any(_seenRequests.Contains) ||
                 _notices.Values.Any(n => n.Request is not null && SameRequest(request, n.Request));
             if (!Enabled(request) || _isForeground()) {
+                if (!known) DesktopNotifications.Report($"not notifying about {request.Key}: {(Enabled(request) ? "kcap is in front" : "turned off in settings")}");
                 foreach (var alias in aliases) _seenRequests.Add(alias);
                 continue;
             }
@@ -191,11 +192,11 @@ public sealed class DesktopNotificationCoordinator : IDisposable {
         if (body.Length > 300) body = body[..299] + "…";
         _notices.Add(notice.Id, notice);
         try {
-            _sink.Show(new DesktopNotification(notice.Id, "Usage limit reached", body, [new("open", "Choose in app")]),
+            _sink.Show(new DesktopNotification(notice.Id, "Usage limit reached", body, [new("open", "Choose in app")], TimeSensitive: true),
                 action => _scheduler.Schedule(() => { _ = ActivateAsync(notice.Id, action); }));
         } catch (Exception ex) {
             Close(notice.Id);
-            Console.Error.WriteLine($"kcap: could not show desktop notification: {ex.Message}");
+            DesktopNotifications.Report($"could not show a notification: {ex.Message}");
         }
     }
 
@@ -221,11 +222,12 @@ public sealed class DesktopNotificationCoordinator : IDisposable {
         if (body.Length > 300) body = body[..299] + "…";
         _notices.Add(notice.Id, notice);
         try {
-            _sink.Show(new DesktopNotification(notice.Id, title, body, Actions(request, notice.Row)),
+            // An agent blocked on an answer is worth interrupting a Focus for; one that finished a turn is not.
+            _sink.Show(new DesktopNotification(notice.Id, title, body, Actions(request, notice.Row), TimeSensitive: request is not null),
                 action => _scheduler.Schedule(() => { _ = ActivateAsync(notice.Id, action); }));
         } catch (Exception ex) {
             Close(notice.Id);
-            Console.Error.WriteLine($"kcap: could not show desktop notification: {ex.Message}");
+            DesktopNotifications.Report($"could not show a notification: {ex.Message}");
         }
     }
 
@@ -296,7 +298,7 @@ public sealed class DesktopNotificationCoordinator : IDisposable {
     void Close(string id) {
         if (!_notices.Remove(id)) return;
         try { _sink.Close(id); }
-        catch (Exception ex) { Console.Error.WriteLine($"kcap: could not withdraw desktop notification: {ex.Message}"); }
+        catch (Exception ex) { DesktopNotifications.Report($"could not withdraw a notification: {ex.Message}"); }
     }
 
     public void Dispose() {

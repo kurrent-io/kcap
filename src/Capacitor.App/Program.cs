@@ -23,8 +23,12 @@ internal static class Program
     internal static bool FirstRunAfterInstall { get; private set; }
 
     static AppCrashLog? _crashLog;
+    static AppStderrLog? _stderrLog;
 
-    internal static void StopCrashLoggingForUninstall() => _crashLog = null;
+    internal static void StopCrashLoggingForUninstall() {
+        _crashLog = null;
+        _stderrLog?.Stop();
+    }
     internal static void RecordStartupFailure(Exception ex) => _crashLog?.Record("startup", ex);
     internal static string? StartupCrashLogPath => _crashLog?.Path;
 
@@ -52,6 +56,7 @@ internal static class Program
         // The uninstall deletes the config directory, which a crash log would recreate.
         if (Uninstall is null) {
             _crashLog = new AppCrashLog(ConfigRoot.FromEnvironment(), TimeProvider.System);
+            _stderrLog = AppStderrLog.Install(ConfigRoot.FromEnvironment(), TimeProvider.System);
             AppDomain.CurrentDomain.UnhandledException += (_, e) => {
                 if (e.ExceptionObject is Exception ex) _crashLog?.Record("unhandled", ex);
             };

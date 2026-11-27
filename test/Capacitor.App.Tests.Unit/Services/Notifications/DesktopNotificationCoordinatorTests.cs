@@ -4,6 +4,7 @@ using Capacitor.App.Services;
 using Capacitor.App.Services.Notifications;
 using Capacitor.Cli.Core.LocalIpc;
 using DynamicData;
+using TUnit.Assertions.Enums;
 
 namespace Capacitor.App.Tests.Unit.Services.Notifications;
 
@@ -454,6 +455,25 @@ public class DesktopNotificationCoordinatorTests {
         h.Directory.Rows.AddOrUpdate(Row(false));
         h.Directory.Rows.AddOrUpdate(Row(true));
         await Assert.That(h.Sink.Shown.Count).IsEqualTo(2);
+    }
+
+    [Test]
+    public async Task Requests_and_usage_limits_are_time_sensitive_and_idle_is_not() {
+        using var requests = new Harness();
+        requests.Permissions.Add(PermissionEntries.Entry());
+        requests.Permissions.Add(PermissionEntries.Question());
+        using var rows = new Harness();
+        rows.Directory.Rows.AddOrUpdate(Row(true));
+        rows.Directory.Rows.AddOrUpdate(Row(true) with {
+            UsageLimit = new UsageLimitNoticeDto(UsageLimitKinds.Blocked, "Session limit reached", "What do you want to do?", [new(1, "Wait")]),
+        });
+
+        await Assert.That(requests.Sink.Shown.Concat(rows.Sink.Shown).Select(n => (n.Title, n.TimeSensitive))).IsEquivalentTo([
+            ("Permission requested", true),
+            ("Agent has a question", true),
+            ("Agent is idle", false),
+            ("Usage limit reached", true),
+        ], CollectionOrdering.Matching);
     }
 
     [Test]

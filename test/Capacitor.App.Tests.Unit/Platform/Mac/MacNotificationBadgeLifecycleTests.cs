@@ -36,6 +36,19 @@ public class MacNotificationBadgeLifecycleTests {
         await Assert.That(native.Badges.Last().Count).IsEqualTo(0);
     }
 
+    /// Without the entitlement macOS reads time-sensitive as unsupported, and the request must then ask for nothing beyond today's level.
+    [Test]
+    [Arguments(true, true, true)]
+    [Arguments(true, false, false)]
+    [Arguments(false, true, false)]
+    public async Task Only_a_time_sensitive_notice_the_system_allows_is_published_time_sensitive(bool notice, bool allowed, bool expected) {
+        var native = new FakeMacNotificationCenter { Settings = (DesktopNotificationAccess.Allowed, true, allowed) };
+        using var sink = new MacOsDesktopNotificationSink(native, action => action(), new FakeTimeProvider());
+        sink.Show(Notice("a") with { TimeSensitive = notice }, _ => { });
+        await Assert.That(native.Published.Single().TimeSensitive).IsEqualTo(expected);
+        await Assert.That(await sink.TimeSensitiveAsync()).IsEqualTo(allowed);
+    }
+
     [Test]
     public async Task Replacing_an_id_does_not_count_twice_or_let_an_old_native_response_open_it() {
         var native = new FakeMacNotificationCenter();
@@ -96,7 +109,7 @@ public class MacNotificationBadgeLifecycleTests {
 
     [Test]
     public async Task Denied_badges_keep_alerts_without_retaining_a_Dock_count() {
-        var native = new FakeMacNotificationCenter { Settings = (DesktopNotificationAccess.Allowed, false) };
+        var native = new FakeMacNotificationCenter { Settings = (DesktopNotificationAccess.Allowed, false, false) };
         using var sink = new MacOsDesktopNotificationSink(native, action => action(), new FakeTimeProvider());
         var count = 0;
         using var watch = sink.BadgeCounts.Subscribe(value => count = value);
@@ -104,10 +117,10 @@ public class MacNotificationBadgeLifecycleTests {
         await Assert.That(native.Published.Single().Badge).IsNull();
         await Assert.That(count).IsEqualTo(0);
         await Assert.That(await sink.NeedsRequestAsync()).IsTrue();
-        native.Request = () => { native.Settings = (DesktopNotificationAccess.Allowed, true); return Task.CompletedTask; };
+        native.Request = () => { native.Settings = (DesktopNotificationAccess.Allowed, true, false); return Task.CompletedTask; };
         await sink.RequestAsync();
         await Assert.That(count).IsEqualTo(1);
-        native.Settings = (DesktopNotificationAccess.Denied, false);
+        native.Settings = (DesktopNotificationAccess.Denied, false, false);
         native.Request = null;
         await sink.GetAsync();
         await Assert.That(count).IsEqualTo(0);
@@ -201,7 +214,7 @@ public class MacNotificationBadgeLifecycleTests {
         native.ReadDelivered = null;
         sink.Show(Notice("b"), _ => { });
         await Assert.That(count).IsEqualTo(1);
-        native.Settings = (DesktopNotificationAccess.Allowed, false);
+        native.Settings = (DesktopNotificationAccess.Allowed, false, false);
         await sink.ReconcileAsync();
         await Assert.That(count).IsEqualTo(0);
     }

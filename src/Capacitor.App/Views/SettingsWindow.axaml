@@ -378,6 +378,9 @@
                             </Border>
                             <TextBlock Classes="settingsFootnote"
                                        Text="Changes save automatically. Your operating system must allow notifications from kcap." />
+                            <TextBlock x:Name="NotificationFocusText" Classes="settingsFootnote" TextWrapping="Wrap"
+                                       Text="{Binding NotificationFocusText}"
+                                       IsVisible="{Binding NotificationFocusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                         </StackPanel>
 
                         <TextBlock x:Name="NotificationMessageText" Classes="kcapHint"

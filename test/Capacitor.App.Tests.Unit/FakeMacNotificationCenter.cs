@@ -5,7 +5,7 @@ namespace Capacitor.App.Tests.Unit;
 
 internal sealed class FakeMacNotificationCenter : IMacNotificationCenter {
     public bool Available { get; set; } = true;
-    public (DesktopNotificationAccess Access, bool Badge) Settings { get; set; } = (DesktopNotificationAccess.Allowed, true);
+    public (DesktopNotificationAccess Access, bool Badge, bool TimeSensitive) Settings { get; set; } = (DesktopNotificationAccess.Allowed, true, false);
     public Func<Task>? Request { get; set; }
     public Func<Task<IReadOnlySet<string>?>>? ReadDelivered { get; set; }
     public int Requests { get; private set; }
@@ -15,14 +15,14 @@ internal sealed class FakeMacNotificationCenter : IMacNotificationCenter {
     public Exception? WithdrawFailure { get; set; }
     public bool CompleteBadges { get; set; } = true;
     public Queue<bool> BadgeResults { get; } = new();
-    public List<(DesktopNotification Source, string NativeId, string Category, int? Badge, Action<string?> Complete)> Published { get; } = [];
+    public List<(DesktopNotification Source, string NativeId, string Category, int? Badge, bool TimeSensitive, Action<string?> Complete)> Published { get; } = [];
     public List<(int Count, Action<bool> Complete)> Badges { get; } = [];
     public List<string> Withdrawn { get; } = [];
     public List<string> Released { get; } = [];
     public event Action<string, string?>? Responded;
     public event Action<string>? Suppressed;
 
-    public Task<(DesktopNotificationAccess Access, bool Badge)> SettingsAsync() => Task.FromResult(Settings);
+    public Task<(DesktopNotificationAccess Access, bool Badge, bool TimeSensitive)> SettingsAsync() => Task.FromResult(Settings);
     public Task<IReadOnlySet<string>?> DeliveredAsync() {
         DeliveredReads++;
         return ReadDelivered?.Invoke()
@@ -31,9 +31,9 @@ internal sealed class FakeMacNotificationCenter : IMacNotificationCenter {
     public Task RequestAsync() { Requests++; return Request?.Invoke() ?? Task.CompletedTask; }
     public string AcquireCategory(IReadOnlyList<DesktopNotificationAction> actions) => "category";
     public void ReleaseCategory(string category) => Released.Add(category);
-    public void Publish(DesktopNotification source, string nativeId, string category, int? badge, Action<string?> completed) {
+    public void Publish(DesktopNotification source, string nativeId, string category, int? badge, bool timeSensitive, Action<string?> completed) {
         if (PublishFailure is { } error) throw error;
-        Published.Add((source, nativeId, category, badge, completed));
+        Published.Add((source, nativeId, category, badge, timeSensitive, completed));
         if (CompleteAdds) completed(null);
     }
     public void Withdraw(string nativeId) {

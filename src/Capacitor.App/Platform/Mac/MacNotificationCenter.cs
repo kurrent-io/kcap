@@ -18,6 +18,8 @@ namespace Capacitor.App.Platform.Mac;
 internal sealed class MacNotificationCenter : IMacNotificationCenter {
     static readonly ConcurrentDictionary<nint, WeakReference<MacNotificationCenter>> Delegates = new();
     internal const nint AuthorizationOptions = 5; // UNAuthorizationOptionAlert | UNAuthorizationOptionBadge
+    const nint Enabled = 2; // UNNotificationSettingEnabled
+    const nint TimeSensitiveLevel = 2; // UNNotificationInterruptionLevelTimeSensitive
     static nint _delegateClass;
     readonly MacNotificationCategories _categories;
     readonly nint _center;
@@ -52,27 +54,31 @@ internal sealed class MacNotificationCenter : IMacNotificationCenter {
         } catch (Exception error) { DesktopNotifications.Report(error); }
     }
 
-    public Task<(DesktopNotificationAccess Access, bool Badge)> SettingsAsync() {
-        if (_disposed || _center == 0) return Task.FromResult((DesktopNotificationAccess.Unknown, false));
-        var result = new TaskCompletionSource<(DesktopNotificationAccess Access, bool Badge)>(TaskCreationOptions.RunContinuationsAsynchronously);
+    public Task<(DesktopNotificationAccess Access, bool Badge, bool TimeSensitive)> SettingsAsync() {
+        if (_disposed || _center == 0) return Task.FromResult((DesktopNotificationAccess.Unknown, false, false));
+        var result = new TaskCompletionSource<(DesktopNotificationAccess Access, bool Badge, bool TimeSensitive)>(TaskCreationOptions.RunContinuationsAsynchronously);
         try {
             using var pool = new Pool();
             // The settings object is only ours for the duration of the callback: read it there.
             using var block = MacNotificationBlock.Completion(settings => {
                 try {
                     var access = settings == 0 ? DesktopNotificationAccess.Unknown : MacOsDesktopNotificationSink.Access(Send(settings, Selector("authorizationStatus")));
-                    result.TrySetResult((access, settings != 0 && access == DesktopNotificationAccess.Allowed
-                        && Send(settings, Selector("badgeSetting")) == 2 && OperatingSystem.IsMacOSVersionAtLeast(13)));
+                    var allowed = settings != 0 && access == DesktopNotificationAccess.Allowed;
+                    // Enabled only with the time-sensitive entitlement and the user's consent; without it
+                    // the setting reads unsupported, so nothing asks for a level the app cannot have.
+                    result.TrySetResult((access,
+                        allowed && Send(settings, Selector("badgeSetting")) == Enabled && OperatingSystem.IsMacOSVersionAtLeast(13),
+                        allowed && OperatingSystem.IsMacOSVersionAtLeast(12) && Send(settings, Selector("timeSensitiveSetting")) == Enabled));
                 } catch (Exception error) {
                     // The block swallows what escapes it, which would leave the caller waiting forever.
                     DesktopNotifications.Report(error);
-                    result.TrySetResult((DesktopNotificationAccess.Unknown, false));
+                    result.TrySetResult((DesktopNotificationAccess.Unknown, false, false));
                 }
             });
             SendVoid(_center, Selector("getNotificationSettingsWithCompletionHandler:"), block.Handle);
         } catch (Exception error) {
             DesktopNotifications.Report(error);
-            result.TrySetResult((DesktopNotificationAccess.Unknown, false));
+            result.TrySetResult((DesktopNotificationAccess.Unknown, false, false));
         }
         return result.Task;
     }
@@ -142,13 +148,15 @@ internal sealed class MacNotificationCenter : IMacNotificationCenter {
         _categories.Release(category);
     }
 
-    public void Publish(DesktopNotification source, string nativeId, string category, int? badge, Action<string?> completed) {
+    public void Publish(DesktopNotification source, string nativeId, string category, int? badge, bool timeSensitive, Action<string?> completed) {
         using var pool = new Pool();
         var content = Send(GetClass("UNMutableNotificationContent"), Selector("new"));
         try {
             SendVoid(content, Selector("setTitle:"), String(source.Title));
             SendVoid(content, Selector("setBody:"), String(source.Body));
             SendVoid(content, Selector("setCategoryIdentifier:"), String(category));
+            if (timeSensitive && OperatingSystem.IsMacOSVersionAtLeast(12))
+                SendVoid(content, Selector("setInterruptionLevel:"), TimeSensitiveLevel);
             if (badge is { } count) SendVoid(content, Selector("setBadge:"),
                 Send(GetClass("NSNumber"), Selector("numberWithInteger:"), count));
             var request = Send(GetClass("UNNotificationRequest"), Selector("requestWithIdentifier:content:trigger:"), String(nativeId), content, 0);

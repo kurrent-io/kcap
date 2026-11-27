@@ -510,6 +510,32 @@ public class SettingsViewModelTests {
     });
 
     [Test]
+    [Arguments(true, "still come through")]
+    [Arguments(false, "holds back")]
+    public Task Allowed_access_says_how_notifications_fare_in_a_focus(bool timeSensitive, string expected) => AvaloniaSession.RunOnUiAsync(async () => {
+        using var notifications = new NotificationSettingsService(Config.PathTo("notifications.json"));
+        var access = new FakeDesktopNotificationAccess(DesktopNotificationAccess.Allowed) { TimeSensitive = timeSensitive };
+        using var vm = Make(Seed(), Connected(), notificationSettings: notifications, notificationAccess: access);
+
+        await WaitUntilAsync(() => vm.NotificationFocusText is not null);
+        await Assert.That(vm.NotificationFocusText!).Contains(expected);
+        await Assert.That(vm.NotificationAccessText).IsNull();
+    });
+
+    [Test]
+    public Task No_focus_note_where_the_platform_has_no_focus_or_access_is_off() => AvaloniaSession.RunOnUiAsync(async () => {
+        using var notifications = new NotificationSettingsService(Config.PathTo("notifications.json"));
+        var denied = new FakeDesktopNotificationAccess(DesktopNotificationAccess.Denied) { TimeSensitive = false };
+        using var off = Make(Seed(), Connected(), notificationSettings: notifications, notificationAccess: denied);
+        var plain = new FakeDesktopNotificationAccess(DesktopNotificationAccess.Allowed);
+        using var noFocus = Make(Seed(), Connected(), notificationSettings: notifications, notificationAccess: plain);
+
+        await WaitUntilAsync(() => off.NotificationAccessText is not null && plain.Reads > 0);
+        await Assert.That(off.NotificationFocusText).IsNull();
+        await Assert.That(noFocus.NotificationFocusText).IsNull();
+    });
+
+    [Test]
     public Task Undetermined_access_is_requested_from_settings_and_the_notice_clears() => AvaloniaSession.RunOnUiAsync(async () => {
         using var notifications = new NotificationSettingsService(Config.PathTo("notifications.json"));
         var access = new FakeDesktopNotificationAccess(DesktopNotificationAccess.NotDetermined);

@@ -42,6 +42,7 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
     bool _autoResume;
     readonly SemaphoreSlim _autoResumeSaves = new(1, 1);
     DesktopNotificationAccess _access;
+    bool? _timeSensitive;
     int _accessReads;
     int _accessShown;
 
@@ -221,6 +222,14 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
         DesktopNotificationAccess.NotDetermined =>
             "kcap has not been allowed to send notifications yet.",
         _ => null,
+    };
+
+    /// A Focus mode drops notifications without a trace, so the one place a user looks is told how kcap fares in one.
+    public string? NotificationFocusText => _access != DesktopNotificationAccess.Allowed ? null : _timeSensitive switch {
+        true => "During a Focus, permission requests, questions and usage limits still come through. " +
+            "Waiting-for-you notices appear only if the Focus allows kcap.",
+        false => "A Focus holds back kcap's notifications unless it allows kcap.",
+        null => null,
     };
 
     public string? NotificationAccessAction => _access switch {
@@ -486,17 +495,21 @@ public sealed class SettingsViewModel : ReactiveObject, IDisposable {
         if (_notificationAccess is null) return;
         var read = ++_accessReads;
         DesktopNotificationAccess access;
+        bool? timeSensitive;
         try {
             access = await _notificationAccess.GetAsync();
+            timeSensitive = await _notificationAccess.TimeSensitiveAsync();
         } catch {
             return;
         }
         if (_lifetime.IsCancellationRequested || read < _accessShown) return;
         _accessShown = read;
-        if (access == _access) return;
+        if (access == _access && timeSensitive == _timeSensitive) return;
         _access = access;
+        _timeSensitive = timeSensitive;
         this.RaisePropertyChanged(nameof(NotificationAccessText));
         this.RaisePropertyChanged(nameof(NotificationAccessAction));
+        this.RaisePropertyChanged(nameof(NotificationFocusText));
     }
 
     void ApplyNotificationPreferences(NotificationPreferences preferences) {
