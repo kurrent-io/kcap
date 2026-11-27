@@ -1,3 +1,4 @@
+using Capacitor.App.GitHubHtml;
 using Markdig;
 using Markdig.Extensions.Tables;
 using Markdig.Renderers;
@@ -22,7 +23,7 @@ public sealed class ProgressiveDisclosureMarks : IMarkdownExtension {
 
     public static bool HasMarks(string? text) => text is not null && text.AsSpan().IndexOfAny(Open, Close) >= 0;
 
-    static readonly MarkdownPipeline Plain = new MarkdownPipelineBuilder().UseSupportedExtensions().Build();
+    static readonly MarkdownPipeline Plain = new MarkdownPipelineBuilder().UseSupportedExtensions().UseGitHubTables().Build();
 
     /// Whether the text grades anything: a mark outside code, which only a parse can tell. Text nested past
     /// Markdig's depth limit shows as plain source, so it grades nothing.
