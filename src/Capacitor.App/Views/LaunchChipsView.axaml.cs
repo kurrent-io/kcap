@@ -139,6 +139,9 @@ public partial class LaunchChipsView : UserControl {
         };
     }
 
+    // Search row (46) + underline (1) + the model list's default 380.
+    const double DefaultPanelHeight = 427;
+
     // The combined harness+model picker: a vendor icon rail on the left, an underlined
     // search over the model rows on the right. No search term = the active vendor tab's models;
     // typing searches ACROSS vendors and always offers the term verbatim as a custom model id, so
@@ -183,11 +186,17 @@ public partial class LaunchChipsView : UserControl {
         var right = new DockPanel();
         DockPanel.SetDock(header, Dock.Top);
         right.Children.Add(header);
-        right.Children.Add(new ScrollViewer { Height = 380, Content = rows });
+        // No height of its own: the list fills the column, so a vendor rail taller than the
+        // default panel (a daemon advertising more harnesses) leaves no dead band under it.
+        right.Children.Add(new ScrollViewer { Content = rows });
 
         var rail = new Border { BorderThickness = new Thickness(0, 0, 1, 0), BorderBrush = border, Child = tabs };
 
         var root = new Grid { ColumnDefinitions = new ColumnDefinitions("52,*"), Width = 440 };
+        void FitRail() {
+            tabs.Measure(Size.Infinity);
+            root.Height = Math.Max(DefaultPanelHeight, tabs.DesiredSize.Height);
+        }
         root.Children.Add(rail);
         Grid.SetColumn(right, 1);
         root.Children.Add(right);
@@ -477,6 +486,7 @@ public partial class LaunchChipsView : UserControl {
 
         searchBox.TextChanged += (_, _) => RebuildRows();
         RebuildTabs();
+        FitRail();
         RebuildRows();
         ShowMenu(flyout, anchor);
         searchBox.Focus();

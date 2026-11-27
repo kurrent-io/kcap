@@ -1170,7 +1170,42 @@ public class LauncherPaneViewSmokeTests {
         });
     }
 
-    static readonly AccountViewDto HomeAccount = new("a1", "claude", "/u/.claude", "/u/.claude", "home", "recording");
+    /// A daemon advertising more harnesses than the default panel fits grows the vendor rail; the
+    /// model list grows with it to the panel's bottom edge instead of stopping short above it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_model_list_reaches_the_panel_bottom_when_the_vendor_rail_is_tall() {
+        await AvaloniaSession.RunOnUiAsync(async () => {
+            var (vm, service, _, tmp) = Build();
+            using var _tmp = tmp;
+            string[] vendors = [
+                .. Capacitor.Cli.Core.Harness.HarnessRegistry.Identities.Select(h => h.VendorId),
+                "extra-one", "extra-two", "extra-three", "extra-four",
+            ];
+            service.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap(supportedVendors: vendors));
+            var view = new LauncherPaneView { DataContext = vm };
+            var window = new Window { Content = view, Width = 900, Height = 1000 };
+            window.Show();
+            Settle(window);
+
+            var (agent, _) = await OpenMenuAsync(window, view, "AgentChip");
+            var panel = (Control)agent.Content!;
+            var tiles = panel.GetVisualDescendants().OfType<Button>().Where(b => b.Width == 34).ToList();
+            var list = panel.GetVisualDescendants().OfType<ScrollViewer>().Single(s => s.FindAncestorOfType<TextBox>() is null);
+            var lastTile = tiles[^1].TranslatePoint(new Point(0, tiles[^1].Bounds.Height), panel)!.Value.Y;
+            var listBottom = list.TranslatePoint(new Point(0, list.Bounds.Height), panel)!.Value.Y;
+
+            await Assert.That(lastTile).IsLessThanOrEqualTo(panel.Bounds.Height);
+            await Assert.That(listBottom).IsEqualTo(panel.Bounds.Height).Within(0.5);
+            agent.Hide();
+
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+            vm.Dispose();
+        });
+    }
+
+    static readonly AccountViewDto HomeAccount =new("a1", "claude", "/u/.claude", "/u/.claude", "home", "recording");
     static readonly AccountViewDto WorkAccount = new("a2", "claude", "/u/.claude-work", "/u/.claude-work", "work", "broken");
 
     static readonly DateTimeOffset UsageNow = new(2026, 10, 27, 12, 0, 0, TimeSpan.Zero);
