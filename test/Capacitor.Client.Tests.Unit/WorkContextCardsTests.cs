@@ -117,6 +117,18 @@ public class WorkContextCardsTests {
         await Assert.That(card.Issues.Select(i => i.Title)).IsEquivalentTo(new[] { "First" });
     }
 
+    /// The state is the server's word, carried as sent; a later read replaces it.
+    [Test]
+    public async Task Each_issue_carries_the_state_its_latest_read_served() {
+        var first = Issue("#42", "https://example.test/o/r/issues/42", "First", "github:o/r#42");
+        var second = Issue("#43", "https://example.test/o/r/issues/43", "Second", "github:o/r#43");
+        var card = Apply(Loading,
+            ReadyWith(Row("w1", "t"), Item() with { Links = [first with { State = "In Progress" }, second] }),
+            ReadyWith(Row("w1", "t"), Item() with { Links = [first with { State = "Done" }, second] }));
+
+        await Assert.That(card.Issues.Select(i => i.State)).IsEquivalentTo(new[] { "Done", null }, CollectionOrdering.Matching);
+    }
+
     /// The `github` provider numbers issues and pull requests in one sequence, so its seed `!N` is the issue `#N`.
     [Test]
     public async Task A_seed_spelled_as_a_pull_request_folds_its_issue_into_the_title() {
