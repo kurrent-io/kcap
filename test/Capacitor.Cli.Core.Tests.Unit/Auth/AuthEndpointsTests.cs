@@ -55,4 +55,21 @@ public class AuthEndpointsTests {
     [Arguments("http://127.0.0.1:9", "https://proxy.example", "http://127.0.0.1:9")]
     public async Task A_server_scoped_call_prefers_the_override_then_the_server(string? overridden, string? server, string expected) =>
         await Assert.That(new AuthEndpoints(overridden, null).ProxyUrlFor(server)).IsEqualTo(expected);
+
+    /// <summary>A proxy the server names receives the operator's bearer, so a plaintext one off the
+    /// machine is refused, never swapped for the default; the override is the operator's own choice.</summary>
+    [Test]
+    [Arguments(null, "https://proxy.example", "https://proxy.example")]
+    [Arguments(null, "http://127.0.0.1:9", "http://127.0.0.1:9")]
+    [Arguments(null, "http://proxy.example", null)]
+    [Arguments(null, "ftp://localhost", null)]
+    [Arguments(null, "not a url", null)]
+    [Arguments(null, null, AuthEndpoints.DefaultProxyUrl)]
+    [Arguments("http://127.0.0.1:9", "http://proxy.example", "http://127.0.0.1:9")]
+    public async Task A_server_named_proxy_must_be_https_or_loopback(string? overridden, string? server, string? expected) {
+        var resolved = new AuthEndpoints(overridden, null).TryResolveProxyUrlFor(server, out var problem);
+
+        await Assert.That(resolved).IsEqualTo(expected);
+        await Assert.That(problem is null).IsEqualTo(expected is not null);
+    }
 }

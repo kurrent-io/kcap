@@ -88,9 +88,15 @@ public sealed class MachineCommand(
             return 1;
         }
 
-        var serverProxy  = server.Usable ? await discovery.AuthProxyUrlAsync(server.Url, server.Config) : null;
-        var provisioning = await proxy.CreateMachineApplicationAsync(
-            endpoints.ProxyUrlFor(serverProxy), tokens.AccessToken, name);
+        var serverProxy = server.Usable ? await discovery.AuthProxyUrlAsync(server.Url, server.Config) : null;
+
+        if (endpoints.TryResolveProxyUrlFor(serverProxy, out var proxyProblem) is not { } proxyUrl) {
+            await Console.Error.WriteLineAsync(proxyProblem);
+
+            return 1;
+        }
+
+        var provisioning = await proxy.CreateMachineApplicationAsync(proxyUrl, tokens.AccessToken, name);
 
         if (provisioning.Error is MachineProvisioningError.Unauthorized) {
             await Console.Error.WriteLineAsync(

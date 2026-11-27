@@ -33,6 +33,25 @@ public sealed record AuthEndpoints(string? ProxyOverride, string? SignupOverride
     public string ProxyUrlFor(string? serverProxyUrl) =>
         Resolve(ProxyOverride ?? (string.IsNullOrWhiteSpace(serverProxyUrl) ? null : serverProxyUrl.Trim()), DefaultProxyUrl);
 
+    /// <summary><see cref="ProxyUrlFor"/>, refusing a server-named proxy the operator's bearer could
+    /// leak to: it must be https, or http on loopback. Refused rather than replaced by the default, so
+    /// the token never goes to a proxy the server did not name.</summary>
+    public string? TryResolveProxyUrlFor(string? serverProxyUrl, out string? problem) {
+        problem = null;
+
+        if (ProxyOverride is not null || string.IsNullOrWhiteSpace(serverProxyUrl)) return ProxyUrlFor(serverProxyUrl);
+
+        var named = serverProxyUrl.Trim();
+
+        if (Uri.TryCreate(named, UriKind.Absolute, out var uri)
+         && (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback)))
+            return ProxyUrlFor(named);
+
+        problem = $"The server's auth_proxy_url must be https (or http on loopback) — refusing to send your sign-in to {named}.";
+
+        return null;
+    }
+
     /// <summary><c>KCAP_SIGNUP_URL</c> is an internal dev/preview override; not documented for end
     /// users.</summary>
     public string SignupUrl => Resolve(SignupOverride, DefaultSignupUrl);
