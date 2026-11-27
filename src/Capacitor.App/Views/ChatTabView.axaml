@@ -150,6 +150,11 @@
             <Setter Property="Padding" Value="5" />
             <Setter Property="Margin" Value="-5,0" />
         </Style>
+        <!-- A card whose header can't fold keeps the same header height as one that can, so its
+             title sits at the same depth and the cards read as one family. -->
+        <Style Selector="Border.chatSystemCard > StackPanel > views|ChatKindHeader">
+            <Setter Property="MinHeight" Value="28" />
+        </Style>
         <!-- Fluent shrinks a pressed button, which on a row this wide pulls its edge several pixels
              inward, so a click near the edge (a topic's chevron) is released outside it and never fires. -->
         <Style Selector="Button.toolSummary:pressed">
