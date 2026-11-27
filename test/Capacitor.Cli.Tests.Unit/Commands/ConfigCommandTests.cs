@@ -202,6 +202,16 @@ public class ConfigCommandTests {
     }
 
     [Test]
+    [Arguments("true", true)]
+    [Arguments("false", false)]
+    public async Task ApplySet_DisableRepoInstructionsUpload_SetsTheFlag(string value, bool expected) {
+        var updated = ConfigCommand.ApplySet(new Profile(), "disable_repo_instructions_upload", value);
+
+        await Assert.That(updated.DisableRepoInstructionsUpload).IsEqualTo(expected);
+        await Assert.That(() => ConfigCommand.ApplySet(new Profile(), "disable_repo_instructions_upload", "nope")).Throws<ArgumentException>();
+    }
+
+    [Test]
     public async Task ApplySet_DisableNextWorkNudge_True_UpdatesProfile() {
         var updated = ConfigCommand.ApplySet(new Profile(), "disable_nextwork_nudge", "true");
 

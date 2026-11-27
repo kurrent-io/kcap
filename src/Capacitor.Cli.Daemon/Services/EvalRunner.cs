@@ -3,6 +3,7 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.Eval;
 using Capacitor.Cli.Core.Eval.Contracts;
 using Capacitor.Cli.Core.Eval.Evidence;
+using Capacitor.Cli.Core.Eval.RepoContext;
 using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Http;
 using Microsoft.Extensions.Hosting;
@@ -24,6 +25,7 @@ internal sealed class EvalRunner {
     readonly ProfileContext       _profiles;
     readonly ICapacitorHttpClient _http;
     readonly AdmissionFence       _admission;
+    readonly RepoEvalContextSource _repoContext;
 
     // Each evidence phase bounds itself one RPC margin inside the server's route-keyed deadline; settable so tests can shorten it.
     internal TimeSpan PreparePhaseBudget  { get; init; } = EvidencePhaseTimeouts.DaemonPrepare;
@@ -51,6 +53,7 @@ internal sealed class EvalRunner {
         _http          = http;
         _logger        = logger;
         _baseUrl       = config.ServerUrl.TrimEnd('/');
+        _repoContext   = RepoEvalContextSource.For(config.ConfigRoot, time);
         _shutdownToken = lifetime.ApplicationStopping;
 
         // A question or finalize can outlive its run's cache entry (a cancel removes it first), so each
@@ -99,7 +102,7 @@ internal sealed class EvalRunner {
 
             if (catalog.EvidenceRetrieval is not null && !cmd.Chain) {
                 var setup = await EvalService.PrepareEvidenceAsync(_baseUrl, httpClient, _profiles.Resolution.Profile, _harnesses, cmd.SessionId, cmd.Questions,
-                    catalog, cmd.Model, observer, _time, phase.Token, cmd.EvalRunId, TempRoot);
+                    catalog, cmd.Model, observer, _time, phase.Token, cmd.EvalRunId, TempRoot, _repoContext);
                 if (setup is null) return new(false, "evidence scope preparation failed", null, 0, 0, 0, 0, 0);
                 if (budget.IsCancellationRequested) {
                     // The setup announced its start; the run it started ends here.
@@ -130,7 +133,8 @@ internal sealed class EvalRunner {
                 _time,
                 _shutdownToken,
                 cmd.Model,
-                cmd.EvalRunId
+                cmd.EvalRunId,
+                _repoContext
             );
 
             if (ctx is null) return new(false, "context load failed", null, 0, 0, 0, 0, 0);
