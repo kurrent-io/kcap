@@ -23,11 +23,13 @@ public interface ILifecycleSurface {
 /// <param name="Disclosure">Replacement/recapture text.</param>
 /// <param name="Warning">A distinct data-loss line shown beneath the disclosure.</param>
 /// <param name="Choice">Only a caller that shows the dialog itself can read the answer to it.</param>
+/// <param name="VersionMove">The daemon versions a replace moves between, shown as a version change.</param>
 public sealed record LifecyclePrompt(
     string Kind, string? DaemonVersion, string? CliVersion, bool PathDegraded, string Disclosure, string? Warning = null,
-    LifecycleChoice? Choice = null) {
+    LifecycleChoice? Choice = null, (string From, string To)? VersionMove = null) {
     public const string KindTakeover      = "takeover";
     public const string KindRepair        = "repair";
+    public const string KindReplaceDaemon = "replace-daemon";
     public const string KindShim          = "shim";
     public const string KindQuarantine    = "quarantine";
     public const string KindUpdateReady   = "update-ready";

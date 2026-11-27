@@ -516,6 +516,9 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
     /// Only while the banner shows the very line the repair answers, never beside another notice.
     public bool DaemonRepairVisible => _daemonRepairVisible?.Value ?? false;
     public ReactiveCommand<Unit, Unit>? RepairDaemonCommand { get; private set; }
+    ObservableAsPropertyHelper<string>? _daemonRepairLabel;
+    /// What the repair does to the line it answers: a reinstall, or a replacement of the daemon outside the service.
+    public string DaemonRepairLabel => _daemonRepairLabel?.Value ?? DaemonLifecycleController.RepairActionLabel;
 
     // Null until AttachServerRetry.
     readonly BehaviorSubject<Func<Task>?> _retryServer = new(null);
@@ -1204,16 +1207,21 @@ public sealed partial class HomeViewModel : ReactiveObject, IDisposable, ICompos
             .DisposeWith(_disposables);
     }
 
-    /// The banner's Repair button, offered beside the lifecycle line <paramref name="offer"/> names.
-    public void AttachServiceRepair(Func<CancellationToken, Task> repair, IObservable<string?> offer, CancellationToken ct) {
+    /// The banner's repair button, offered beside the lifecycle line <paramref name="offer"/> names.
+    public void AttachServiceRepair(Func<CancellationToken, Task> repair, IObservable<DaemonRepairOffer?> offer, CancellationToken ct) {
         RepairDaemonCommand = ReactiveCommand.CreateFromTask(() => repair(ct));
         this.RaisePropertyChanged(nameof(RepairDaemonCommand));
 
-        var repairVisible = offer
-            .ObserveOn(RxSchedulers.MainThreadScheduler)
+        var offered = offer.ObserveOn(RxSchedulers.MainThreadScheduler);
+        _daemonRepairLabel = offered
+            .Where(o => o is not null)
+            .Select(o => o!.Action)
+            .ToProperty(this, x => x.DaemonRepairLabel, initialValue: DaemonLifecycleController.RepairActionLabel)
+            .DisposeWith(_disposables);
+        var repairVisible = offered
             .CombineLatest(this.WhenAnyValue(x => x.BannerMessage, x => x.BannerDetail, (message, detail) => (message, detail)),
-                (offered, shown) => offered is not null
-                    && (shown.message == offered || NoticeText.Commands(offered).Prose == shown.detail));
+                (o, shown) => o is not null
+                    && (shown.message == o.Line || NoticeText.Commands(o.Line).Prose == shown.detail));
         _daemonRepairVisible = repairVisible
             .ToProperty(this, x => x.DaemonRepairVisible, initialValue: false)
             .DisposeWith(_disposables);

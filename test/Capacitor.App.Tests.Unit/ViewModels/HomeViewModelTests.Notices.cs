@@ -112,6 +112,42 @@ public partial class HomeViewModelTests {
         });
     }
 
+    /// The banner's repair button answers only the line its offer names, and says what it will do to it.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task The_repair_button_offers_replacing_a_daemon_outside_the_service_beside_its_line() {
+        await AvaloniaSession.WithImmediateRxScheduler(async () => {
+            using var tmp = TempDir.WithPathTo("app-state.json", out var path);
+            var daemon = new FakeDaemonClientService();
+            using var vm = new HomeViewModel(daemon, new AppStateStore(path), new RecordingLaunchClient(), Known(), TimeProvider.System);
+            Connect(daemon);
+            daemon.SnapshotsSubject.OnNext(FakeDaemonClientService.Snap(supportedVendors: ["codex"]));
+
+            using var lifecycle = new BehaviorSubject<string?>(null);
+            vm.AttachDaemonRecovery(ReactiveCommand.Create(() => { }), ReactiveCommand.Create(() => { }),
+                Observable.Return(false), Observable.Return(false), lifecycle);
+            using var offer = new BehaviorSubject<DaemonRepairOffer?>(null);
+            var repairs = 0;
+            vm.AttachServiceRepair(_ => { repairs++; return Task.CompletedTask; }, offer, CancellationToken.None);
+
+            var line = DaemonLifecycleController.OutsideServiceMessage(9196);
+            offer.OnNext(new DaemonRepairOffer(line, DaemonLifecycleController.ReplaceActionLabel));
+            lifecycle.OnNext("Some other daemon notice.");
+            await Assert.That(vm.DaemonRepairVisible).IsFalse();
+
+            lifecycle.OnNext(line);
+            await Assert.That(vm.BannerMessage).IsEqualTo(line);
+            await Assert.That(vm.BannerTitle).IsEqualTo("Background service isn't running");
+            await Assert.That(vm.DaemonRepairVisible).IsTrue();
+            await Assert.That(vm.DaemonRepairLabel).IsEqualTo("Replace daemon");
+            await vm.RepairDaemonCommand!.Execute();
+            await Assert.That(repairs).IsEqualTo(1);
+
+            offer.OnNext(null);
+            await Assert.That(vm.DaemonRepairVisible).IsFalse();
+        });
+    }
+
     /// This machine's no-agent banner opens Settings → Harnesses, but only while it is the banner's line and
     /// the app can open Settings. A remote machine's banner never offers it: local settings cannot configure it.
     [Test]
