@@ -9,7 +9,7 @@ namespace Capacitor.App.Services;
 /// Settings or by the CLI applies at the next ask. An unchanged file costs one stat.
 public sealed class ExperimentalSwitch(ExperimentalSettingsStore store, string? profile, ExperimentalFeature feature) {
     readonly Lock _lock = new();
-    (bool Exists, DateTime Written, long Length)? _fingerprint;
+    ExperimentalSettingsFingerprint? _fingerprint;
 
     /// Signals each <paramref name="mayChange"/> on which <paramref name="read"/> differs from
     /// <paramref name="shown"/>, the switch as its consumer last applied it. Comparing with an earlier
@@ -25,8 +25,7 @@ public sealed class ExperimentalSwitch(ExperimentalSettingsStore store, string? 
     public bool IsOn {
         get {
             if (string.IsNullOrEmpty(profile)) return false;
-            var file = new FileInfo(store.Path);
-            var fingerprint = file.Exists ? (true, file.LastWriteTimeUtc, file.Length) : (false, default(DateTime), 0L);
+            var fingerprint = store.Fingerprint();
             lock (_lock) {
                 if (fingerprint == _fingerprint) return field;
                 var settings = store.Load(profile);

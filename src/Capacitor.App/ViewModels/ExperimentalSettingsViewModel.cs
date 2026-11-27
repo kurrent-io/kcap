@@ -21,7 +21,7 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
     string? _saveProblem;
     readonly HashSet<string> _saving = new(StringComparer.Ordinal);
     readonly Lock _fingerprintLock = new();
-    (bool Exists, DateTime Written, long Length)? _fingerprint;
+    ExperimentalSettingsFingerprint? _fingerprint;
     long _saveEpoch;
     long _readSequence;
     long _appliedSequence;
@@ -74,7 +74,7 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
     // The sequence is taken with the fingerprint, so it orders reads by the file state each one recorded.
     (ExperimentalSettingsRead Settings, long Epoch, long Sequence)? Read(bool onlyIfChanged) {
         var epoch = Interlocked.Read(ref _saveEpoch);
-        var fingerprint = Fingerprint(_store.Path);
+        var fingerprint = _store.Fingerprint();
         long sequence;
         lock (_fingerprintLock) {
             if (onlyIfChanged && fingerprint == _fingerprint) return null;
@@ -114,11 +114,6 @@ public sealed class ExperimentalSettingsViewModel : ReactiveObject, IDisposable 
         var read = await Task.Run(() => Read(onlyIfChanged: false))
             .ConfigureAwait(ConfigureAwaitOptions.ContinueOnCapturedContext | ConfigureAwaitOptions.ForceYielding);
         Apply(read!.Value);
-    }
-
-    static (bool, DateTime, long) Fingerprint(string path) {
-        var file = new FileInfo(path);
-        return file.Exists ? (true, file.LastWriteTimeUtc, file.Length) : (false, default, 0);
     }
 
     // Connecting, and a connection that has not yet sent a snapshot, say nothing rather than guess.
