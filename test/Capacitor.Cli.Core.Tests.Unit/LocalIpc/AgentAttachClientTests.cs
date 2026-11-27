@@ -35,12 +35,19 @@ public class AgentAttachClientTests {
         var deadline = DateTime.UtcNow + BoundedWait.Deadline;
 
         while (true) {
-            // Bounded: a peer that holds the descriptor without reading can fill the buffer and park the write.
-            await client.SendInputAsync([9]).WithinDeadlineAsync("an input write to return");
-            if (failed()) return;
+            var left = deadline - DateTime.UtcNow;
 
-            if (DateTime.UtcNow > deadline)
+            // The send is bounded too: a peer that holds the descriptor without reading can fill the
+            // buffer and park the write.
+            try {
+                if (left <= TimeSpan.Zero) throw new TimeoutException();
+
+                await client.SendInputAsync([9]).WaitAsync(left);
+            } catch (TimeoutException) {
                 throw new TimeoutException($"No input write failed within {BoundedWait.DeadlineSeconds}s of the server closing the connection.");
+            }
+
+            if (failed()) return;
 
             await Task.Delay(5);
         }
