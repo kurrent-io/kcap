@@ -70,13 +70,13 @@ public partial class ChatTabViewModelTests {
         });
     }
 
-    /// A notification with only a summary has nothing behind it to fold, so it stays open.
+    /// A notification with only a summary has nothing behind it to fold, so its line is the header.
     [Test]
-    public async Task A_one_line_note_stays_open_and_a_longer_report_folds_under_its_first_line() {
+    public async Task A_one_line_note_reads_as_its_header_and_a_longer_report_folds_under_its_first_line() {
         var bare = new SystemNoteItem("**MCP task done.**", SystemNoteItem.TaskNotificationLabel);
         await Assert.That(bare.IsCollapsible).IsFalse();
-        await Assert.That(bare.IsExpanded).IsTrue();
-        await Assert.That(bare.HeaderLabel).IsEqualTo(SystemNoteItem.TaskNotificationLabel);
+        await Assert.That(bare.HeaderLabel).IsEqualTo("Background task · MCP task done.");
+        await Assert.That(bare.ShowsBody).IsFalse();
 
         var report = new SystemNoteItem("\n## Findings for `Auth`\n\nNone.", SystemNoteItem.AgentReportLabel);
         await Assert.That(report.IsCollapsible).IsTrue();
