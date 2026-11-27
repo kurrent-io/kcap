@@ -19,8 +19,8 @@
                          views|MarkdownView.monospaceReading mv|MarkdownViewer :is(TextBlock).markdown-h6">
             <Setter Property="FontFamily" Value="{DynamicResource KcapReadingFamily}" />
         </Style>
-        <Style Selector="views|MarkdownView:not(.thinking) mv|MarkdownViewer :is(TextBlock).markdown-paragraph,
-                         views|MarkdownView:not(.thinking) mv|MarkdownViewer :is(TextBlock).markdown-list-marker">
+        <Style Selector="views|MarkdownView:not(.thinking):not(.note) mv|MarkdownViewer :is(TextBlock).markdown-paragraph,
+                         views|MarkdownView:not(.thinking):not(.note) mv|MarkdownViewer :is(TextBlock).markdown-list-marker">
             <Setter Property="LineHeight" Value="{DynamicResource KcapProseLineHeight}" />
         </Style>
         <!-- The composer already uses the normal ghost hover fill. Step up one surface
