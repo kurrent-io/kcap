@@ -456,7 +456,10 @@ public partial class ChatTabView : UserControl {
         if (sender is Control { DataContext: ToolCallItem item }) item.CancelOpenFile();
     }
 
-    void OnToolSummaryClick(object? sender, RoutedEventArgs e) {
+    void OnToolSummaryClick(object? sender, RoutedEventArgs e) => KeepToggleInPlace(sender);
+
+    /// Holds a fold or topic toggle under the pointer while the rows above it change.
+    internal void KeepToggleInPlace(object? sender) {
         EnsureChatScroll();
         // A topic unfolding at the bottom of the chat keeps the chat at the bottom, as new rows would.
         if (sender is Control { DataContext: ChatTopicItem } && _scroll is { } scroll
@@ -609,7 +612,10 @@ public partial class ChatTabView : UserControl {
     Button? ToolSummaryFor(object item) {
         if (_anchorSummary is { } cached && ReferenceEquals(cached.DataContext, item)
             && cached.GetVisualAncestors().Any(ancestor => ReferenceEquals(ancestor, ChatItems))) return cached;
-        _anchorSummary = ChatItems.ContainerFromItem(item)?.GetVisualDescendants().OfType<Button>()
+        // A reply's topic toggle marks its first message but sits after its last row.
+        var own = ChatItems.ContainerFromItem(item);
+        _anchorSummary = (own is null ? [] : new[] { own }).Concat(ChatItems.GetRealizedContainers())
+            .SelectMany(container => container.GetVisualDescendants().OfType<Button>())
             .FirstOrDefault(button => KeepsPlace(button) && ReferenceEquals(button.DataContext, item));
         return _anchorSummary;
     }

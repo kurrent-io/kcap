@@ -48,20 +48,23 @@ public class AssistantRepliesTests {
     }
 
     [Test]
-    public async Task A_note_the_agent_answers_on_its_own_starts_a_new_reply_and_a_compaction_does_not() {
+    public async Task Notes_between_prompts_stay_in_the_reply_and_only_a_prompt_starts_another() {
         var items = Feed();
         var first = new AssistantTextItem("First.");
         var answer = new AssistantTextItem("The task finished.");
         var resumed = new AssistantTextItem("Picking up.");
+        var next = new AssistantTextItem("Next.");
         items.AddRange([
             new UserTurnItem("go"), first,
-            new SystemNoteItem("done", SystemNoteItem.TaskNotificationLabel) { StartsTurn = true }, answer,
+            new SystemNoteItem("done", SystemNoteItem.TaskNotificationLabel), answer,
             new SystemNoteItem("summary", SystemNoteItem.CompactSummaryLabel), resumed,
+            new UserTurnItem("again"), next,
         ]);
 
-        await Assert.That(Ends(items)).IsEquivalentTo(new ChatItemViewModel[] { first, resumed }, CollectionOrdering.Matching);
-        await Assert.That(first.Reply!.Text).IsEqualTo("First.");
-        await Assert.That(resumed.Reply!.Text).IsEqualTo("The task finished.\n\nPicking up.");
+        await Assert.That(Ends(items)).IsEquivalentTo(new ChatItemViewModel[] { resumed, next }, CollectionOrdering.Matching);
+        await Assert.That(resumed.Reply!.Text).IsEqualTo("First.\n\nThe task finished.\n\nPicking up.");
+        await Assert.That(resumed.Reply!.First).IsSameReferenceAs(first);
+        await Assert.That(next.Reply).IsNotSameReferenceAs(resumed.Reply);
     }
 
     [Test]

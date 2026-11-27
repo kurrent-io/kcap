@@ -60,7 +60,7 @@ public class TextContextMenuTests {
                 view.SelectAll();
                 var presenter = RightClick(window, Paragraphs(view).Single(), view);
                 await Assert.That(presenter.Classes).Contains("kcapPanel");
-                var copy = Row(presenter, "Copy");
+                var copy = Row(presenter, "Copy selection");
                 await Assert.That(copy.IsEnabled).IsTrue();
                 copy.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
                 Dispatcher.UIThread.RunJobs();
@@ -126,7 +126,7 @@ public class TextContextMenuTests {
             var (window, view, _) = Show("Some chat text.");
             try {
                 var presenter = RightClick(window, Paragraphs(view).Single(), view);
-                await Assert.That(Row(presenter, "Copy").IsEnabled).IsFalse();
+                await Assert.That(Row(presenter, "Copy selection").IsEnabled).IsFalse();
                 await Assert.That(Row(presenter, "Select all").IsEnabled).IsTrue();
             } finally { window.Close(); }
         });

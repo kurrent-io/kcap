@@ -1662,7 +1662,13 @@ public class ChatTabViewSmokeTests {
                 await Assert.That(host.Chat.Bookmarks.All).DoesNotContain(message);
                 await Assert.That(toggle.Classes.Contains("on")).IsFalse();
 
-                Invoke(MenuRow(OpenContextMenu(host, reply, item), "Bookmark message"));
+                // Copying comes first, then a rule, then bookmarking.
+                var menu = OpenContextMenu(host, reply, item);
+                var shown = ((StackPanel)menu.Content!).Children.Where(static child => child.IsVisible)
+                    .Select(static child => child is Button { Content: string label } ? label : "—").ToArray();
+                await Assert.That(shown).IsEquivalentTo(["Copy selection", "Copy message", "Select all", "—",
+                    "Bookmark selection", "Bookmark each list item", "Bookmark message"], CollectionOrdering.Matching);
+                Invoke(MenuRow(menu, "Bookmark message"));
                 host.Settle();
                 await Assert.That(toggle.Classes.Contains("on")).IsTrue();
             } finally { await host.CloseAsync(); }
@@ -1693,6 +1699,7 @@ public class ChatTabViewSmokeTests {
                 await Assert.That(menu.GetVisualDescendants().OfType<Button>()
                     .Any(b => b is { IsEffectivelyVisible: true, Content: string text } && text.StartsWith("Bookmark", StringComparison.Ordinal))).IsFalse();
                 await Assert.That(MenuRow(menu, "Select all").IsEffectivelyVisible).IsTrue();
+                await Assert.That(((StackPanel)menu.Content!).Children.OfType<Border>().Any(static rule => rule.IsVisible)).IsFalse();
             } finally { await host.CloseAsync(); }
         });
     }
@@ -2777,7 +2784,7 @@ public class ChatTabViewSmokeTests {
                 await host.LoadAsync(path);
                 var list = host.View.FindControl<ItemsControl>("ChatItems")!;
                 var user = host.View.GetVisualDescendants().OfType<ChatMessageRow>().First();
-                await Assert.That(MessageAuthor(user).IsEffectivelyVisible).IsFalse();
+                await Assert.That(MessageAuthor(user)!.IsEffectivelyVisible).IsFalse();
                 await Assert.That(MessageTime(user).Opacity).IsEqualTo(0);
 
                 palette.TryApply(DesktopTheme.Light);
@@ -2800,15 +2807,15 @@ public class ChatTabViewSmokeTests {
                 host.Window.MouseMove(new Point(4, 4));
                 host.Settle();
                 var messageRows = host.View.GetVisualDescendants().OfType<ChatMessageRow>().ToArray();
-                // The background task's note starts a reply of its own; the tool call inside the second does not split it.
+                // Neither the background task's note nor the tool call splits the agent's reply to the prompt.
                 var chatItems = host.Chat.Items;
-                await Assert.That(chatItems.Where(static item => item.EndsReply)).IsEquivalentTo(new[] { chatItems[1], chatItems[^1] }, CollectionOrdering.Matching);
+                await Assert.That(chatItems.Where(static item => item.EndsReply)).IsEquivalentTo(new[] { chatItems[^1] }, CollectionOrdering.Matching);
                 foreach (var row in messageRows) {
                     var prose = row.GetVisualDescendants().OfType<MarkdownView>().Single();
                     var time = MessageTime(row);
                     var copy = Copy(row)!;
                     var button = copy.FindControl<Button>("CopyButton")!;
-                    await Assert.That(MessageAuthor(row).IsEffectivelyVisible).IsFalse();
+                    await Assert.That(MessageAuthor(row)?.IsEffectivelyVisible ?? false).IsFalse();
                     await Assert.That(time.Opacity).IsEqualTo(0);
                     await Assert.That(copy.Opacity).IsEqualTo(0);
                     host.Window.MouseMove(PresentAndLocate(host, prose));
@@ -2831,7 +2838,7 @@ public class ChatTabViewSmokeTests {
                 Click(host, replyCopy.FindControl<Button>("CopyButton")!);
                 await replyCopy.PendingCopyForTesting!;
                 const string replyText = "Open [docs](https://example.com/docs) and run `resume`.";
-                await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo($"{replyText}\n\n{replyText}");
+                await Assert.That(await host.Window.Clipboard!.TryGetTextAsync()).IsEqualTo($"{replyText}\n\n{replyText}\n\n{replyText}");
                 // The context menu's Copy message copies the message it opened on, not the reply that message ends.
                 var inner = messageRows[^1].GetVisualDescendants().OfType<MarkdownView>().Single();
                 var innerParagraph = inner.GetVisualDescendants().OfType<TextBlock>().First(t => t.Classes.Contains("markdown-paragraph"));
@@ -2975,6 +2982,8 @@ public class ChatTabViewSmokeTests {
             } finally { await host.CloseAsync(); }
         });
 
+    /// A prompt's marks share the hidden row under its bubble with its time and Copy, read from Copy at the
+    /// outer edge inwards, and the pointer reveals them there without first crossing the bubble.
     [Test]
     [NotInParallel("AvaloniaSession")]
     public Task Inactive_marks_reveal_with_time_and_copy() =>
@@ -2987,28 +2996,28 @@ public class ChatTabViewSmokeTests {
                     """{"type":"user","timestamp":"2026-11-02T09:04:00Z","message":{"role":"user","content":"ok"}}""",
                 ]));
                 var row = host.View.GetVisualDescendants().OfType<ChatMessageRow>().Single();
-                var body = row.GetVisualDescendants().OfType<MarkdownView>().Single();
                 var markButtons = row.GetVisualDescendants().OfType<Button>().ToArray();
                 var topic = markButtons.Single(b => b.Classes.Contains("topicHere"));
                 var bookmark = markButtons.Single(b => b.Classes.Contains("bookmarkHere"));
                 var time = MessageTime(row);
                 var copy = Copy(row)!;
+                var body = row.GetVisualDescendants().OfType<MarkdownView>().Single();
+                var bodyBottom = body.TranslatePoint(new Point(0, body.Bounds.Height), row)!.Value.Y;
+                var parts = new (string Name, Control Part)[] { ("Time", time), ("Topic", topic), ("Bookmark", bookmark), ("Copy", copy) };
+                await Assert.That(parts.OrderByDescending(p => p.Part.TranslatePoint(default, row)!.Value.X).Select(p => p.Name))
+                    .IsEquivalentTo(["Copy", "Bookmark", "Topic", "Time"], CollectionOrdering.Matching);
+                await Assert.That(new Control[] { copy, bookmark, topic, time }.All(part => part.TranslatePoint(default, row)!.Value.Y >= bodyBottom)).IsTrue();
 
                 var blank = row.TranslatePoint(new Point(2, row.Bounds.Height / 2), host.Window)!.Value;
                 host.Window.MouseMove(blank);
                 host.Settle();
                 await Assert.That(new[] { time.Opacity, copy.Opacity, topic.Opacity, bookmark.Opacity }).IsEquivalentTo([0d, 0d, 0d, 0d]);
-                host.Window.MouseMove(PresentAndLocate(host, bookmark));
-                Click(host, bookmark);
-                await Assert.That(host.Chat.Bookmarks.All).IsEmpty();
 
-                host.Window.MouseMove(PresentAndLocate(host, body));
-                var bookmarkPoint = PresentAndLocate(host, bookmark);
-                host.Window.MouseMove(bookmarkPoint);
+                host.Window.MouseMove(PresentAndLocate(host, bookmark));
                 host.Settle();
                 await Assert.That(new[] { time.Opacity, copy.Opacity, topic.Opacity, bookmark.Opacity }).IsEquivalentTo([1d, 1d, 1d, 1d]);
                 Click(host, bookmark);
-                await Assert.That(host.Chat.Bookmarks.All).Count().IsEqualTo(1);
+                await Assert.That(host.Chat.Items.OfType<UserTurnItem>().Single().Bookmark).IsSameReferenceAs(host.Chat.Bookmarks.All.Single());
 
                 host.Composer.Focus();
                 host.Window.MouseMove(blank);
@@ -3019,6 +3028,53 @@ public class ChatTabViewSmokeTests {
                 host.Settle();
                 await Assert.That(topic.IsFocused).IsTrue();
                 await Assert.That(new[] { time.Opacity, copy.Opacity, topic.Opacity, bookmark.Opacity }).IsEquivalentTo([1d, 1d, 1d, 1d]);
+            } finally {
+                await host.CloseAsync();
+                AppearanceScope.ResetReading(reading);
+            }
+        });
+
+    /// A reply's marks sit once with its time and Copy, after its last row, read from Copy at the outer
+    /// edge inwards, and mark the reply's first message, so a topic or bookmark starts where the reply does.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public Task A_replys_marks_follow_its_copy_and_mark_its_first_message() =>
+        RunOnUiAsync(async () => {
+            var reading = new DesktopReadingResources(Application.Current!);
+            reading.Apply(new DesktopAppearancePreferences());
+            var host = new Host();
+            try {
+                const string prompt = """{"type":"user","timestamp":"2026-11-02T09:04:00Z","message":{"role":"user","content":"review it"}}""";
+                const string first = """{"type":"assistant","timestamp":"2026-11-02T09:05:00Z","message":{"content":[{"type":"text","text":"Checking the bounds."}]}}""";
+                const string last = """{"type":"assistant","timestamp":"2026-11-02T09:06:00Z","message":{"content":[{"type":"text","text":"The boundary checks match."}]}}""";
+                await host.LoadAsync(Tmp.CreateFile("reply-marks.jsonl", [prompt, first, ToolCallLine, ToolResultLine, last]));
+                var messages = host.Chat.Items.OfType<AssistantTextItem>().ToArray();
+                var footer = host.View.GetVisualDescendants().OfType<ReplyFooter>().Single(f => f.IsEffectivelyVisible);
+                await Assert.That(footer.FindAncestorOfType<ChatRowContainer>()!.DataContext).IsSameReferenceAs(messages[^1]);
+                var topic = footer.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("topicHere"));
+                var bookmark = footer.GetVisualDescendants().OfType<Button>().Single(b => b.Classes.Contains("bookmarkHere"));
+                var copy = footer.GetVisualDescendants().OfType<MessageCopyButton>().Single();
+                var time = footer.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Classes.Contains("messageTime"));
+                var parts = new (string Name, Control Part)[] { ("Time", time), ("Topic", topic), ("Bookmark", bookmark), ("Copy", copy) };
+                await Assert.That(parts.OrderBy(p => p.Part.TranslatePoint(default, footer)!.Value.X).Select(p => p.Name))
+                    .IsEquivalentTo(["Copy", "Bookmark", "Topic", "Time"], CollectionOrdering.Matching);
+                // Neither message row keeps marks of its own.
+                await Assert.That(host.View.GetVisualDescendants().OfType<ChatMessageRow>().Where(row => row.DataContext is AssistantTextItem)
+                    .SelectMany(row => row.GetVisualDescendants().OfType<Button>())
+                    .Any(b => b.Classes.Contains("topicHere") || b.Classes.Contains("bookmarkHere"))).IsFalse();
+
+                host.Window.MouseMove(PresentAndLocate(host, bookmark));
+                host.Settle();
+                await Assert.That(new[] { time.Opacity, copy.Opacity, topic.Opacity, bookmark.Opacity }).IsEquivalentTo([1d, 1d, 1d, 1d]);
+                Click(host, bookmark);
+                await Assert.That(messages[0].Bookmark).IsSameReferenceAs(host.Chat.Bookmarks.All.Single());
+                await Assert.That(messages[^1].Bookmark).IsNull();
+
+                Click(host, topic);
+                await Assert.That(messages[0].StartsTopic).IsTrue();
+                await Assert.That(messages[^1].StartsTopic).IsFalse();
+                var topicAt = host.Chat.Items.IndexOf(host.Chat.Items.OfType<ChatTopicItem>().Single());
+                await Assert.That(host.Chat.Items[topicAt + 1]).IsSameReferenceAs(messages[0]);
             } finally {
                 await host.CloseAsync();
                 AppearanceScope.ResetReading(reading);
@@ -3044,7 +3100,7 @@ public class ChatTabViewSmokeTests {
                 host.Settle();
                 await Assert.That(MessageTime(rows[0]).Opacity).IsEqualTo(1);
                 await Assert.That(prompt.Opacity).IsEqualTo(1);
-                await Assert.That(ControlAutomationPeer.CreatePeerForElement(MessageAuthor(rows[0])).GetName()).IsEqualTo("You");
+                await Assert.That(ControlAutomationPeer.CreatePeerForElement(MessageAuthor(rows[0])!).GetName()).IsEqualTo("You");
                 await Assert.That(ControlAutomationPeer.CreatePeerForElement(MessageTime(rows[0])).GetHelpText()).IsEqualTo(rows[0].Timestamp!.Tip);
                 await Assert.That(ControlAutomationPeer.CreatePeerForElement(copyButton).GetHelpText()).IsEqualTo(rows[0].AccessibleMetadata);
                 PaneCycle.Attach(host.Window);
@@ -3075,8 +3131,8 @@ public class ChatTabViewSmokeTests {
                 var menu = (Flyout)prose.ContextFlyout!;
                 await Assert.That(menu.IsOpen).IsTrue();
                 var panel = (StackPanel)menu.Content!;
-                await Assert.That(panel.Children.OfType<TextBlock>().Single().Text).IsEqualTo($"{host.Chat.AssistantTitle} · {assistant.Timestamp!.Tip}");
-                await Assert.That(panel.Children.OfType<Button>().Single(b => Equals(b.Content, "Copy")).IsEnabled).IsTrue();
+                await Assert.That(panel.Children.OfType<TextBlock>()).IsEmpty();
+                await Assert.That(panel.Children.OfType<Button>().Single(b => Equals(b.Content, "Copy selection")).IsEnabled).IsTrue();
                 var whole = panel.Children.OfType<Button>().Single(b => Equals(b.Content, "Copy message"));
                 await Assert.That(whole.IsVisible).IsTrue();
                 whole.Focus(NavigationMethod.Tab);
@@ -3110,7 +3166,7 @@ public class ChatTabViewSmokeTests {
                 host.Window.KeyReleaseQwerty(PhysicalKey.F10, RawInputModifiers.Shift);
                 host.Settle();
                 await Assert.That(messageMenu.IsOpen).IsTrue();
-                await Assert.That(((StackPanel)messageMenu.Content!).Children.OfType<TextBlock>().Single().Text).IsEqualTo(assistant.AccessibleMetadata);
+                await Assert.That(((StackPanel)messageMenu.Content!).Children.OfType<Button>().Single(b => Equals(b.Content, "Copy message")).IsVisible).IsTrue();
                 host.Press(PhysicalKey.Escape);
                 host.Settle();
                 await Assert.That(messageMenu.IsOpen).IsFalse();
@@ -3168,7 +3224,7 @@ public class ChatTabViewSmokeTests {
                 host.Settle();
                 await Assert.That(rowMenu.IsOpen).IsTrue();
                 await Assert.That(MessageTime(rows[0]).Opacity).IsEqualTo(1);
-                await Assert.That(MessageAuthor(assistant).IsEffectivelyVisible).IsFalse();
+                await Assert.That(MessageAuthor(assistant)).IsNull();
             } finally {
                 await host.CloseAsync();
                 AppearanceScope.ResetReading(reading);
@@ -3177,7 +3233,7 @@ public class ChatTabViewSmokeTests {
 
     [Test]
     [NotInParallel("AvaloniaSession")]
-    public Task Attachment_only_metadata_survives_touch_and_container_reuse() =>
+    public Task Attachment_only_metadata_survives_container_reuse() =>
         RunOnUiAsync(async () => {
             var reading = new DesktopReadingResources(Application.Current!);
             reading.Apply(new DesktopAppearancePreferences());
@@ -3191,19 +3247,10 @@ public class ChatTabViewSmokeTests {
                 var list = host.View.FindControl<ItemsControl>("ChatItems")!;
                 var firstContainer = list.ContainerFromIndex(0)!;
                 var first = host.View.GetVisualDescendants().OfType<ChatMessageRow>().Single();
-                var attachmentLabel = first.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Text == "synthetic.png");
-                var point = PresentAndLocate(host, attachmentLabel);
-                var menu = (Flyout)first.ContextFlyout!;
-                using (var touch = host.Window.TouchBegin(point, RawInputModifiers.None)) {
-                    for (var tries = 0; !menu.IsOpen && tries < 30; tries++) await Task.Delay(50);
-                    host.Window.TouchEnd(touch, point, RawInputModifiers.None);
-                }
-                host.Settle();
-                await Assert.That(menu.IsOpen).IsTrue();
-                await Assert.That(MessageTime(first).Opacity).IsEqualTo(1);
+                // Nothing in it can be copied as a message, so the row offers no menu of its own.
+                await Assert.That(first.ContextFlyout).IsNull();
                 await Assert.That(Copy(first)).IsNull();
-                await Assert.That(((StackPanel)menu.Content!).Children.OfType<TextBlock>().Single().Text).IsEqualTo($"You · {time.Tip}");
-                menu.Hide();
+                await Assert.That(first.AccessibleMetadata).IsEqualTo($"You · {time.Tip}");
 
                 host.Composer.Focus();
                 first.Focus(NavigationMethod.Tab);
@@ -3349,7 +3396,7 @@ public class ChatTabViewSmokeTests {
                 await Assert.That(attachment.CanCopyImage).IsFalse();
                 await Assert.That(MessageTime(Message(160)).Text).IsEqualTo("11:00");
                 sender.Title = "Former participant";
-                await Assert.That(MessageAuthor(Message(160)).Text).IsEqualTo("You");
+                await Assert.That(MessageAuthor(Message(160))!.Text).IsEqualTo("You");
                 var copy = Copy(Message(161))!;
                 copy.FindControl<Button>("CopyButton")!.Focus(NavigationMethod.Tab);
                 host.Window.KeyPressQwerty(PhysicalKey.Space, RawInputModifiers.None);
@@ -3417,8 +3464,9 @@ public class ChatTabViewSmokeTests {
         RowAndFooter(row).SelectMany(static part => part.GetVisualDescendants()).OfType<MessageCopyButton>()
             .FirstOrDefault(copy => copy is { IsEffectivelyVisible: true, Text.Length: > 0 });
 
-    static TextBlock MessageAuthor(ChatMessageRow row) =>
-        row.GetVisualDescendants().OfType<TextBlock>().Single(t => t.Classes.Contains("messageAuthor"));
+    // Only a prompt can come from another participant, so only a prompt has a place for a name.
+    static TextBlock? MessageAuthor(ChatMessageRow row) =>
+        row.GetVisualDescendants().OfType<TextBlock>().SingleOrDefault(t => t.Classes.Contains("messageAuthor"));
 
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -3437,9 +3485,9 @@ public class ChatTabViewSmokeTests {
                 var messages = host.View.GetVisualDescendants().OfType<ChatMessageRow>().ToArray();
                 var user = messages[0];
                 var assistant = messages[1];
-                var author = MessageAuthor(user);
+                var author = MessageAuthor(user)!;
                 await Assert.That(author.IsEffectivelyVisible).IsFalse();
-                await Assert.That(MessageAuthor(assistant).IsEffectivelyVisible).IsFalse();
+                await Assert.That(MessageAuthor(assistant)).IsNull();
                 other.Title = "Riley";
                 other.IsOtherParticipant = true;
                 host.Settle();

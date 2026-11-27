@@ -1,0 +1,26 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:Capacitor.App.Views"
+             xmlns:vm="clr-namespace:Capacitor.App.ViewModels"
+             x:Class="Capacitor.App.Views.MessageMarks"
+             x:DataType="vm:ChatItemViewModel"
+             VerticalAlignment="Center"
+             IsVisible="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ShowsMarks, FallbackValue=False}">
+    <StackPanel x:Name="Toggles" Orientation="Horizontal" Spacing="2">
+        <Button x:Name="BookmarkButton" Classes="kcapGhost kcapIcon bookmarkHere"
+                Classes.on="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
+                Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Bookmarks.ToggleMessageCommand}"
+                CommandParameter="{Binding}">
+            <Panel>
+                <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNull}}" />
+                <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
+                               Foreground="{Binding Bookmark.Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}, FallbackValue={x:Null}}" />
+            </Panel>
+        </Button>
+        <Button x:Name="TopicButton" Classes="kcapGhost kcapIcon topicHere" Classes.on="{Binding StartsTopic}" Click="OnTopicClick"
+                Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.ToggleChangeCommand}"
+                CommandParameter="{Binding}">
+            <views:AppIcon Kind="Signpost" Size="12" />
+        </Button>
+    </StackPanel>
+</UserControl>

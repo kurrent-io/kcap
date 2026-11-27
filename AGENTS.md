@@ -326,6 +326,10 @@ Description: **before writing it, open [.github/PULL_REQUEST_TEMPLATE.md](.githu
   geometry, text/emoji stand-ins, or additional icon families. Existing vendor/product
   branding, native control glyphs, and activity dots are exceptions. Size and semantic
   conventions are in `src/Capacitor.App/AGENTS.md`.
+- Cursors: buttons, toggles and other controls keep the default arrow; the hand is for links that
+  open something, such as a URL, a file or a linked image. Actions of equal rank that sit together in
+  one row, such as a message's Copy and marks, share one variant, so their size, padding and hover
+  match; actions of different ranks keep the variant their rank gives them.
 - Status tokens: `KcapSuccess*` (green) and `KcapWarning*` (orange/yellow) only on badges, pills, and
   glyphs that mean outcome or attention. Never on keys, titles, vendor/model chips, or "you are here".
 - In-flight vs. selection: `KcapActivity*` is active execution (running session indicator, `InProgress`

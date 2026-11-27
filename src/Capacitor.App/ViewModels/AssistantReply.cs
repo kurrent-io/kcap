@@ -2,7 +2,7 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// One turn of the agent's answer, shared by every row in it. Its time and Copy sit after its last row.
+/// One turn of the agent's answer, shared by every row in it. Its time, Copy and marks sit after its last row.
 public sealed class AssistantReply : ReactiveObject {
     int _hovers;
 
@@ -10,6 +10,10 @@ public sealed class AssistantReply : ReactiveObject {
     public string Text { get; internal set => this.RaiseAndSetIfChanged(ref field, value); } = "";
 
     public ChatTimestamp? Time { get; internal set => this.RaiseAndSetIfChanged(ref field, value); }
+
+    /// The reply's first message, which its bookmark and topic toggles mark, so a topic or bookmark
+    /// taken from after the reply starts where the reply does.
+    public AssistantTextItem? First { get; internal set => this.RaiseAndSetIfChanged(ref field, value); }
 
     /// Whether the pointer, or keyboard focus, is on any row of the reply.
     public bool IsActive => _hovers > 0;

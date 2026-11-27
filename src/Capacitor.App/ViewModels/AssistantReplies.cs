@@ -2,9 +2,9 @@ using System.Collections.Specialized;
 
 namespace Capacitor.App.ViewModels;
 
-/// Groups the rows of one agent turn into a reply. A turn starts at a prompt or at a note the agent
-/// answers on its own and runs to the next one; its tool calls, thinking and other notes belong to it,
-/// but only its messages are copied. A folded topic's rows still belong to their replies, so folding
+/// Groups the agent's rows between one prompt and the next into a reply. Its tool calls, thinking and
+/// notes belong to it, including notes the agent answers on its own, such as a finished background
+/// task, but only its messages are copied. A folded topic's rows still belong to their replies, so folding
 /// never changes what a reply copies, though the reply then ends at its last row still shown.
 static class AssistantReplies {
     public static void Refresh(IReadOnlyList<ChatItemViewModel> items, NotifyCollectionChangedEventArgs change) {
@@ -50,7 +50,7 @@ static class AssistantReplies {
         }
     }
 
-    static bool StartsReply(ChatItemViewModel row) => row is UserTurnItem or SystemNoteItem { StartsTurn: true };
+    static bool StartsReply(ChatItemViewModel row) => row is UserTurnItem;
 
     // Its time and Copy follow a row that reads as part of the turn, not a question waiting on the user
     // or a topic's header or end.
@@ -69,6 +69,7 @@ static class AssistantReplies {
         used.Add(reply);
         reply.Text = string.Join("\n\n", messages.Select(static message => message.Text));
         reply.Time = messages[^1].Time;
+        reply.First = messages[0];
         for (var i = 0; i < rows.Count; i++) {
             rows[i].Row.Reply = reply;
             rows[i].Row.EndsReply = i == last;

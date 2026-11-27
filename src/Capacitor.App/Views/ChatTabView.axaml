@@ -68,17 +68,9 @@
         </Style>
         <Style Selector="Button.topicHere">
             <Setter Property="Opacity" Value="0" />
-            <Setter Property="Height" Value="18" />
-            <Setter Property="Padding" Value="4,0" />
-            <Setter Property="Cursor" Value="Hand" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="ToolTip.Tip" Value="Start a new topic at this message" />
             <Setter Property="AutomationProperties.Name" Value="Change of topic" />
-            <Setter Property="Content">
-                <Template>
-                    <views:AppIcon Kind="Signpost" Size="12" />
-                </Template>
-            </Setter>
         </Style>
         <Style Selector="Button.topicEndRemove">
             <Setter Property="Opacity" Value="0" />
@@ -90,9 +82,6 @@
         <!-- A message's bookmark toggle shows on hover like the topic toggle, and stays once taken. -->
         <Style Selector="Button.bookmarkHere">
             <Setter Property="Opacity" Value="0" />
-            <Setter Property="Height" Value="18" />
-            <Setter Property="Padding" Value="4,0" />
-            <Setter Property="Cursor" Value="Hand" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Setter Property="ToolTip.Tip" Value="Bookmark this message" />
             <Setter Property="AutomationProperties.Name" Value="Bookmark message" />
@@ -414,22 +403,11 @@
                                 <views:ChatMessageHeader Orientation="Horizontal" Spacing="8">
                                     <TextBlock Classes="toolKindChip messageAuthor"
                                                Text="{Binding $parent[views:ChatMessageRow].Author}" />
-                                    <Button Classes="kcapGhost topicHere" IsVisible="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ShowsMarks}" Classes.on="{Binding StartsTopic}" Click="OnToolSummaryClick"
-                                            Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.ToggleChangeCommand}"
-                                            CommandParameter="{Binding}" />
-                                    <Button Classes="kcapGhost bookmarkHere" IsVisible="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ShowsMarks}" Classes.on="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                            Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Bookmarks.ToggleMessageCommand}"
-                                            CommandParameter="{Binding}">
-                                        <Panel>
-                                            <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNull}}" />
-                                            <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                                           Foreground="{Binding Bookmark.Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}, FallbackValue={x:Null}}" />
-                                        </Panel>
-                                    </Button>
                                 </views:ChatMessageHeader>
-                                <StackPanel Classes="messageFooter" Orientation="Horizontal" Spacing="4">
+                                <StackPanel Classes="messageFooter" Orientation="Horizontal" Spacing="2">
                                     <TextBlock Classes="chatTime messageTime" Text="{Binding Time.Label}" AutomationProperties.HelpText="{Binding Time.Tip}"
                                                IsVisible="{Binding Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                                    <views:MessageMarks ReadsFromRight="True" />
                                     <views:MessageCopyButton Text="{Binding Text}" Flavor="Prompt" IsVisible="{Binding HasText}" />
                                 </StackPanel>
                                 <Border Classes="userMessageBody">
@@ -482,28 +460,10 @@
                 <DataTemplate x:DataType="vm:AssistantTextItem">
                     <views:ChatMessageRow Background="Transparent" Margin="{DynamicResource KcapTranscriptGap}"
                                           Author="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).AssistantTitle}" Timestamp="{Binding Time}">
-                        <DockPanel Classes="messageLayout">
-                            <views:ChatMessageHeader Orientation="Horizontal" Spacing="8">
-                                <TextBlock Classes="toolKindChip messageAuthor"
-                                           Text="{Binding $parent[views:ChatMessageRow].Author}" />
-                                <Button Classes="kcapGhost topicHere" IsVisible="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ShowsMarks}" Classes.on="{Binding StartsTopic}" Click="OnToolSummaryClick"
-                                        Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Topics.ToggleChangeCommand}"
-                                        CommandParameter="{Binding}" />
-                                <Button Classes="kcapGhost bookmarkHere" IsVisible="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).ShowsMarks}" Classes.on="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                        Command="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Bookmarks.ToggleMessageCommand}"
-                                        CommandParameter="{Binding}">
-                                    <Panel>
-                                        <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNull}}" />
-                                        <views:AppIcon Kind="Bookmark" Size="12" IsVisible="{Binding Bookmark, Converter={x:Static ObjectConverters.IsNotNull}}"
-                                                       Foreground="{Binding Bookmark.Color, Converter={x:Static views:BookmarkColorBrushConverter.Instance}, FallbackValue={x:Null}}" />
-                                    </Panel>
-                                </Button>
-                            </views:ChatMessageHeader>
-                            <views:MarkdownView Text="{Binding Text}"
-                                                FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
-                                                OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
-                                                RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
-                        </DockPanel>
+                        <views:MarkdownView Text="{Binding Text}"
+                                            FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
+                                            OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
+                                            RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
                     </views:ChatMessageRow>
                 </DataTemplate>
                 <DataTemplate x:DataType="vm:AssistantThinkingItem">

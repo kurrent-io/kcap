@@ -11,11 +11,13 @@
             <Binding Path="Reply.Time.Tip" />
         </MultiBinding>
     </views:ReplyFooter.Metadata>
-    <StackPanel Orientation="Horizontal" Spacing="4">
+    <!-- Copy keeps the outer edge, then the marks of the reply's first message, then the time. -->
+    <StackPanel Orientation="Horizontal" Spacing="2">
+        <views:MessageCopyButton Text="{Binding Reply.Text}" AutomationProperties.HelpText="{Binding $parent[views:ReplyFooter].Metadata}" />
+        <views:MessageMarks DataContext="{Binding Reply.First}" />
         <TextBlock Classes="chatTime messageTime" Text="{Binding Reply.Time.Label}"
                    ToolTip.Tip="{Binding $parent[views:ReplyFooter].Metadata}"
                    AutomationProperties.HelpText="{Binding $parent[views:ReplyFooter].Metadata}"
                    IsVisible="{Binding Reply.Time, Converter={x:Static ObjectConverters.IsNotNull}}" />
-        <views:MessageCopyButton Text="{Binding Reply.Text}" AutomationProperties.HelpText="{Binding $parent[views:ReplyFooter].Metadata}" />
     </StackPanel>
 </UserControl>
