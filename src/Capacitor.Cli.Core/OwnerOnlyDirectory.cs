@@ -122,18 +122,6 @@ public static class OwnerOnlyDirectory {
         new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null).Value
     ];
 
-    /// <summary>A protected DACL for one file that grants only the current user and SYSTEM.</summary>
-    [SupportedOSPlatform("windows")]
-    public static FileSecurity OwnerOnlyFileSecurity() {
-        var security = new FileSecurity();
-        security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-
-        foreach (var sid in OwnerSids())
-            security.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(sid), FileSystemRights.FullControl, AccessControlType.Allow));
-
-        return security;
-    }
-
     [SupportedOSPlatform("windows")]
     static DirectorySecurity OwnerOnlySecurity() {
         var security = new DirectorySecurity();

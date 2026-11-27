@@ -1,47 +1,52 @@
 using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Runtime.Versioning;
 using System.Text;
 using Capacitor.Cli.Core;
-using Microsoft.Win32.SafeHandles;
 
 namespace Capacitor.App.Services;
 
 /// <summary>
-/// Copies what the app writes to stderr into <c>app.log</c> under the config root, one timestamped line at a time,
-/// and still passes it to the original stderr. Launched from Finder, launchd or the Start menu, the app's stderr goes
-/// nowhere, and most handled failures report only there. Owner-only, one writer at a time, anything but a regular
-/// file is refused, and the file is rotated once past <see cref="MaxBytes"/>. Never throws: a log that cannot be
-/// written leaves stderr as it was.
+/// Copies what the app writes to stderr into <c>logs/app.log</c> under the config root, one timestamped line at a
+/// time, and still passes it to the original stderr. Launched from Finder, launchd or the Start menu, the app's stderr
+/// goes nowhere, and most handled failures report only there. The folder is owner-only, so no other account can read
+/// the log or put anything in its place. One process writes it at a time, holding a lock file for as long as it does,
+/// and rotates it once past <see cref="MaxBytes"/>. Never throws: a log that cannot be written leaves stderr as it was.
 /// </summary>
-public sealed partial class AppStderrLog : TextWriter {
+public sealed class AppStderrLog : TextWriter {
+    public const string FolderName = "logs";
     public const string FileName = "app.log";
     internal const long MaxBytes = 2 * 1024 * 1024;
     internal const int MaxLine = 8 * 1024;
+    internal static readonly TimeSpan RetryAfter = TimeSpan.FromSeconds(5);
     const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
 
     static readonly string Version =
         typeof(AppStderrLog).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "?";
 
     readonly TextWriter _inner;
+    readonly string _folder;
     readonly string _path;
     readonly TimeProvider _time;
     readonly Lock _gate = new();
     readonly StringBuilder _line = new();
+    FileStream? _writerLock;
     FileStream? _file;
+    DateTimeOffset _nextAttempt = DateTimeOffset.MinValue;
+    bool _headerWritten;
     bool _closed;
     bool _lineFull;
 
-    public AppStderrLog(TextWriter inner, string path, TimeProvider time) {
+    /// <param name="folder">Made owner-only, or refused when it cannot be.</param>
+    public AppStderrLog(TextWriter inner, string folder, TimeProvider time) {
         _inner = inner;
-        _path = path;
+        _folder = folder;
+        _path = System.IO.Path.Combine(folder, FileName);
         _time = time;
-        lock (_gate) Append($"--- started pid={Environment.ProcessId} version={Version}");
+        lock (_gate) Append(null);
     }
 
     /// Routes <see cref="Console.Error"/> through a new log; the caller keeps it to <see cref="Stop"/> it.
     public static AppStderrLog Install(ConfigRoot config, TimeProvider time) {
-        var log = new AppStderrLog(Console.Error, config.Path(FileName), time);
+        var log = new AppStderrLog(Console.Error, config.Path(FolderName), time);
         Console.SetError(log);
         return log;
     }
@@ -81,7 +86,7 @@ public sealed partial class AppStderrLog : TextWriter {
         lock (_gate) {
             _closed = true;
             _line.Clear();
-            CloseFile();
+            Release();
         }
     }
 
@@ -119,80 +124,67 @@ public sealed partial class AppStderrLog : TextWriter {
         return line[..end];
     }
 
-    void Append(string line) {
-        if (_closed) return;
+    /// Appends one line, or this run's header when <paramref name="line"/> is null, which it also writes first
+    /// whenever it takes over the file from another process.
+    void Append(string? line) {
+        if (_closed || !Own()) return;
         try {
-            var bytes = Encoding.UTF8.GetBytes($"{_time.GetUtcNow().UtcDateTime:yyyy-MM-ddTHH:mm:ss.fffZ} {Capped(line)}\n");
-            if (_file is null && !Open()) return;
-            if (_file!.Length + bytes.Length > MaxBytes) {
-                CloseFile();
-                File.Move(_path, _path + ".1", overwrite: true);
-                if (!Open()) return;
+            if (!_headerWritten) {
+                AppendToFile($"--- started pid={Environment.ProcessId} version={Version}");
+                _headerWritten = true;
             }
-            _file!.Write(bytes);
-            _file.Flush();
+            if (line is not null) AppendToFile(Capped(line));
         } catch (Exception) {
-            CloseFile();
+            Release();
         }
     }
 
-    /// Opens the file for this process alone, or refuses it for good: when another process writes it, or when the
-    /// path is a link or anything but a regular file, which would send what the app reports elsewhere or block.
-    bool Open() {
-        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(_path)!);
-        var file = OperatingSystem.IsWindows() ? OpenOnWindows() : OpenOnUnix();
-        if (file is null) {
-            _closed = true;
+    void AppendToFile(string line) {
+        var bytes = Encoding.UTF8.GetBytes($"{_time.GetUtcNow().UtcDateTime:yyyy-MM-ddTHH:mm:ss.fffZ} {line}\n");
+        _file ??= OpenFile();
+        if (_file.Length + bytes.Length > MaxBytes) {
+            CloseFile();
+            File.Move(_path, _path + ".1", overwrite: true);
+            _file = OpenFile();
+        }
+        _file.Write(bytes);
+        _file.Flush();
+    }
+
+    /// Takes the lock file another process may hold, retrying no more often than <see cref="RetryAfter"/>: a copy
+    /// started to replace this one overlaps it for a moment, and takes the log over once it has gone.
+    bool Own() {
+        if (_writerLock is not null) return true;
+        var now = _time.GetUtcNow();
+        if (now < _nextAttempt) return false;
+        _nextAttempt = now + RetryAfter;
+        try {
+            OwnerOnlyDirectory.CreateVerified(_folder);
+            _writerLock = new FileStream(System.IO.Path.Combine(_folder, FileName + ".lock"), Options(FileMode.OpenOrCreate, FileShare.None));
+            _headerWritten = false;
+            return true;
+        } catch (Exception) {
             return false;
         }
-        _file = file;
-        return true;
     }
 
-    [UnsupportedOSPlatform("windows")]
-    FileStream? OpenOnUnix() {
-        try {
-            using (new FileStream(_path, new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, UnixCreateMode = OwnerOnly })) { }
-        } catch (IOException) { /* it exists, and is checked below */ }
-
-        var fd = open(_path, UnixOpenFlags);
-        if (fd < 0) return null;
-        var file = new FileStream(new SafeFileHandle(fd, ownsHandle: true), FileAccess.Write, bufferSize: 0);
-        if (!file.CanSeek || flock(fd, LockExclusive | LockNonBlocking) != 0) {
-            file.Dispose();
-            return null;
-        }
-        File.SetUnixFileMode(file.SafeFileHandle, OwnerOnly);
-        file.Seek(0, SeekOrigin.End);
+    FileStream OpenFile() {
+        var file = new FileStream(_path, Options(FileMode.Append, FileShare.Read));
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(file.SafeFileHandle, OwnerOnly);
         return file;
     }
 
-    [SupportedOSPlatform("windows")]
-    FileStream? OpenOnWindows() {
-        if (new FileInfo(_path).LinkTarget is not null) return null;
-        FileStream file;
-        try {
-            file = new FileStream(_path, new FileStreamOptions { Mode = FileMode.Append, Access = FileAccess.Write, Share = FileShare.Read });
-        } catch (IOException) {
-            return null;
-        }
-        file.SetAccessControl(OwnerOnlyDirectory.OwnerOnlyFileSecurity());
-        return file;
+    static FileStreamOptions Options(FileMode mode, FileShare share) {
+        var options = new FileStreamOptions { Mode = mode, Access = FileAccess.Write, Share = share };
+        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = OwnerOnly;
+        return options;
     }
 
-    const int LockExclusive = 2;
-    const int LockNonBlocking = 4;
-
-    /// <c>O_WRONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC</c>: a FIFO with no reader fails at once instead of blocking.
-    static readonly int UnixOpenFlags = OperatingSystem.IsMacOS()
-        ? 0x1 | 0x4 | 0x100 | 0x1000000
-        : 0x1 | 0x800 | (RuntimeInformation.ProcessArchitecture is Architecture.Arm64 or Architecture.Arm ? 0x8000 : 0x20000) | 0x80000;
-
-    [LibraryImport("libc", EntryPoint = "open", StringMarshalling = StringMarshalling.Utf8)]
-    private static partial int open(string path, int flags);
-
-    [LibraryImport("libc", EntryPoint = "flock")]
-    private static partial int flock(int fd, int operation);
+    void Release() {
+        CloseFile();
+        try { _writerLock?.Dispose(); } catch (Exception) { /* nothing left to report to */ }
+        _writerLock = null;
+    }
 
     void CloseFile() {
         try { _file?.Dispose(); } catch (Exception) { /* nothing left to report to */ }

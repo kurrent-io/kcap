@@ -133,17 +133,14 @@ jobs:
         if: inputs.release && runner.os == 'macOS'
         env:
           APPLE_APP_PROVISIONING_PROFILE: ${{ secrets.APPLE_APP_PROVISIONING_PROFILE }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
           profile=()
           if [ -n "$APPLE_APP_PROVISIONING_PROFILE" ]; then
             printf '%s' "$APPLE_APP_PROVISIONING_PROFILE" | base64 --decode > "$RUNNER_TEMP/kcap.provisionprofile"
-            # The identity is a certificate's name or its SHA-1; the profile is matched against the SHA-1.
-            certificate="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk -v id="$APPLE_SIGNING_IDENTITY" '
-              $1 ~ /\)$/ { name = $0; sub(/^[^"]*"/, "", name); sub(/"[^"]*$/, "", name)
-                            if (toupper($2) == toupper(id) || name == id) { print $2; exit } }')"
-            [ -n "$certificate" ] || { echo "::error::the signing identity is not in the keychain"; exit 1; }
+            # The profile must name the certificate the binaries were just signed with.
+            codesign -d --extract-certificates="$RUNNER_TEMP/signer." publish/app/kcap-desktop
+            certificate="$(shasum -a 1 "$RUNNER_TEMP/signer.0" | cut -c1-40)"
             profile=("$RUNNER_TEMP/kcap.provisionprofile" "$certificate")
           else
             echo "::warning::secrets.APPLE_APP_PROVISIONING_PROFILE is not set; the app ships without time-sensitive notifications"
