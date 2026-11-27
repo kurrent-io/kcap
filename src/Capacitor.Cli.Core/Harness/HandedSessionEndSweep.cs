@@ -3,16 +3,15 @@ using System.Text.Json.Nodes;
 using Capacitor.Cli.Core.Auth;
 using Capacitor.Cli.Core.Resume;
 
-namespace Capacitor.Cli.Core.Harness.Muse;
+namespace Capacitor.Cli.Core.Harness;
 
 /// <summary>
-/// Sends the handed Muse ends no watcher took: a run that ended with nothing left to arm a watcher, or whose watcher
+/// Sends the handed ends no watcher took, on each request's own vendor route: a run that ended with nothing left to arm a watcher, or whose watcher
 /// could send its end neither way, would otherwise keep its session open for good. Each is moved into the lifecycle
-/// spool, whose drain sends it behind whatever transcript the session still has spooled.
+/// spool, whose drain sends it behind whatever transcript the session still has spooled. A request a watcher died
+/// holding is put back first, so it is swept like one never taken.
 /// </summary>
-public static class MuseHandedEndSweep {
-    public const string Route = "session-end/muse";
-
+public static class HandedSessionEndSweep {
     /// <summary>A live watcher takes a handed end within a tick and drains the log before sending it; one still waiting
     /// this long has no watcher, and sending it sooner could overtake lines a watcher is still draining.</summary>
     public static readonly TimeSpan Unattended = TimeSpan.FromMinutes(5);
@@ -22,31 +21,37 @@ public static class MuseHandedEndSweep {
     /// left to that server's drain; one written before requests recorded a server is taken by whichever drain sweeps
     /// it. A request a resume holds, as the watcher would have held it, is dropped, and so is one for a session a person
     /// disabled. Never throws.</summary>
-    public static int SpoolDue(WatcherPaths paths, HookSpool lifecycle, string? server, DaemonStore daemons, TimeProvider time) {
+    /// <param name="notes">Which processes run which session, so an end of a process the session moved on from is dropped.</param>
+    public static int SpoolDue(WatcherPaths paths, HookSpool lifecycle, string? server, DaemonStore daemons, TimeProvider time, AgentSessionNotes? notes = null) {
         var spooled = 0;
 
         try {
-            foreach (var session in MuseSessionEndRequest.SessionsWithPending(paths)) {
-                var early  = new List<MuseSessionEndRequest>();
-                var failed = new List<MuseSessionEndRequest>();
+            HandedSessionEndRequest.RecoverAbandoned(paths);
 
-                while (MuseSessionEndRequest.TryClaim(paths, session, "sweep", time, recorded => recorded is null || ServerIdentity.SameServer(recorded, server)) is { } handed) {
+            foreach (var session in HandedSessionEndRequest.SessionsWithPending(paths)) {
+                var early  = new List<HandedSessionEndRequest>();
+                var failed = new List<HandedSessionEndRequest>();
+
+                // A fresh request is left untouched, never claimed and put back: a watcher's last look must find it.
+                while (HandedSessionEndRequest.TryClaim(paths, session, HandedSessionEndRequest.OwnClaim, time,
+                           recorded => recorded is null || ServerIdentity.SameServer(recorded, server), handedBefore: time.GetUtcNow() - Unattended) is { } handed) {
                     if (lifecycle.IsDisabledByPerson(session)) {
-                        MuseSessionEndRequest.Release(handed.ClaimedPath);
+                        HandedSessionEndRequest.Release(handed.ClaimedPath);
                     } else if (time.GetUtcNow() - handed.HandedAt < Unattended) {
                         early.Add(handed);
-                    } else if (MuseSessionEndRequest.ResumedSince(paths, session, handed.HandedAt) || HeldForResume(handed.Payload, session, daemons, time)) {
-                        MuseSessionEndRequest.Release(handed.ClaimedPath);
-                    } else if (lifecycle.Append(session, Route, Spoolable(handed.Payload, session))) {
-                        MuseSessionEndRequest.Release(handed.ClaimedPath);
+                    } else if (HandedSessionEndRequest.ResumedSince(paths, session, handed.HandedAt, handed.Server)
+                            || (notes is not null && handed.SupersededOn(notes, session)) || HeldForResume(handed.Payload, session, daemons, time)) {
+                        HandedSessionEndRequest.Release(handed.ClaimedPath);
+                    } else if (lifecycle.Append(session, handed.Route, Spoolable(handed.Payload, session))) {
+                        HandedSessionEndRequest.Release(handed.ClaimedPath);
                         spooled++;
                     } else {
                         failed.Add(handed);
                     }
                 }
 
-                foreach (var handed in early) MuseSessionEndRequest.Unclaim(handed);
-                foreach (var handed in failed) MuseSessionEndRequest.Defer(handed, time);
+                foreach (var handed in early) HandedSessionEndRequest.Unclaim(handed);
+                foreach (var handed in failed) HandedSessionEndRequest.Defer(handed, time);
             }
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
             // The next pass tries again.

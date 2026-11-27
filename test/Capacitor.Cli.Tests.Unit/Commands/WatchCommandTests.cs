@@ -51,7 +51,7 @@ public class WatchCommandTests {
             LaunchEpoch = "epoch-2", RunEpoch = "epoch-2", SessionId = session
         });
         using var dir = EnvScope.Exclusive("KCAP_DAEMONS_DIR", daemons.Directory);
-        var handed = new Capacitor.Cli.Core.Harness.Muse.MuseSessionEndRequest(
+        var handed = new Capacitor.Cli.Core.Harness.HandedSessionEndRequest(
             """{"reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""", "claimed", DateTimeOffset.UtcNow, "source");
 
         await Assert.That(WatchCommand.AgentHoldingEndForResume(handed, session)).IsNull();

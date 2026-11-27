@@ -290,6 +290,7 @@ sealed class CodexHookCommand(
                 "PermissionRequest" => await HandlePermissionRequest(node, env),
                 "PreToolUse"        => await HandlePreToolUse(node, env),
                 "UserPromptSubmit"  => await OpenSpanAsync(node),
+                "SessionEnd"        => await HandleSessionEnd(node, env),
                 "PostToolUse"       => 0,
                 _                   => 0
             };
@@ -409,6 +410,14 @@ sealed class CodexHookCommand(
             return 0;
         }
 
+        // A resumed session carries on past any end handed over before now, so the watcher drops it rather than closing
+        // the session it just reopened. The new process is claimed first, before the start post or any drain can reap
+        // the old one and end the session it no longer runs; after the exclusion, so an excluded session records nothing.
+        if (TryGetString(node, "source") == "resume" && CodexSessionKey(TryGetString(node, "session_id")) is { } resumed && !env.HostedAppServer) {
+            watchers.ClaimAgentProcess(resumed, "codex", TryGetString(node, "transcript_path"), TryGetString(node, "cwd"));
+            HandedSessionEndRequest.DiscardForResume(WatcherPaths.FromEnvironment(config), resumed, Url);
+        }
+
         var enrichedNode = JsonNode.Parse(enriched);
         var sessionId    = TryGetString(enrichedNode, "session_id");
 
@@ -517,6 +526,75 @@ sealed class CodexHookCommand(
         WriteSessionScopedOutput(env.Stdout);
         return 0;
     }
+
+    /// <summary>Codex runs SessionEnd synchronously and kills it at its timeout (3 s at most), on a normal close, an archive or
+    /// delete, or a conversation left idle with no client attached; never for a subagent. The end is therefore not posted
+    /// from here when the session has a rollout: the hook hands the end it would have posted to the session's watcher and
+    /// makes sure one is running to drain the rollout and post it. A session with no rollout has nothing to drain, so its
+    /// end is spooled for the drain to post. An envelope-sourced hosted session's end belongs to the daemon that hosts it.</summary>
+    async Task<int> HandleSessionEnd(JsonNode node, CodexHookEnvironment env) {
+        if (env.HostedAppServer || SubagentIdOf(node) is not null || CodexSessionKey(TryGetString(node, "session_id")) is not { } sessionId) return 0;
+
+        var transcript = TryGetString(node, "transcript_path");
+        var cwd        = TryGetString(node, "cwd");
+
+        var forwarded = new JsonObject {
+            ["hook_event_name"] = "SessionEnd",
+            ["session_id"]      = sessionId,
+            ["reason"]          = TryGetString(node, "reason") is { Length: > 0 } reason ? reason : "other",
+            ["home_dir"]        = home.Path,
+            ["ended_at"]        = clock.Time.GetUtcNow().ToString("O"),
+        };
+
+        if (cwd is not null) forwarded["cwd"] = cwd;
+        if (hosted.AgentId is not null) SessionEndIncarnation.Stamp(forwarded, hosted);
+
+        // A process the session has moved on from ends only itself, not the session.
+        var agentPid = ProcessHelpers.GetCodingAgentPid("codex", allowFallback: false);
+        if (agentPid is { } me && SessionId.Parse(sessionId) is { } own && new AgentSessionNotes(config).LiveClaimantOtherThan(own, me) is not null) return 0;
+
+        if (transcript is not null && File.Exists(transcript) && HookHttp.IsPostable(Url)) {
+            if (await TryHandOffAsync()) {
+                // A watcher alive here takes the request on its next tick or on its last look, which it makes only after
+                // retiring its pid file; one that has gone is replaced by a watcher armed for it.
+                await watchers.EnsureWatcherRunning(sessionId, transcript,
+                    agentId: null, sessionIdOverride: null, cwd: cwd, skipTitle: true, vendor: "codex", stderr: env.Stderr);
+
+                return 0;
+            }
+        }
+
+        // An end that names no run is placed by its session, as the watcher places a handed one: after a resume it may be
+        // an earlier run's, and posted with no identity it would close the resumed run.
+        var held = hosted.AgentId is not null
+            ? SessionEndFence.ShouldHold(hosted, sessionId)
+            : SessionId.Parse(sessionId) is { } placed && SessionEndFence.ShouldHold(new ExitedSession(placed, null));
+
+        if (!held) {
+            forwarded["transcript_path"] = transcript ?? "";
+            forwarded["cwd"]           ??= "";
+
+            if (!new HookSpool(config, clock.Time, Url).Append(sessionId, "session-end/codex", forwarded.ToJsonString()))
+                await env.Stderr.WriteLineAsync($"[kcap] codex session-end could not be spooled ({sessionId})");
+        }
+
+        return 0;
+
+        // Codex may keep running after an idle detach or an archive, so no process exit would end the session: an end that
+        // cannot be handed over goes to the spool, which keeps its own directory.
+        async Task<bool> TryHandOffAsync() {
+            try {
+                HandedSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString(), Url, vendor: "codex", agentPid: agentPid);
+                return true;
+            } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+                await env.Stderr.WriteLineAsync($"[kcap] codex session-end handoff failed ({sessionId}): {ex.Message}");
+                return false;
+            }
+        }
+    }
+
+    /// <summary>A Codex session id is a UUID; its dashless form names the session's files, and nothing else may.</summary>
+    static string? CodexSessionKey(string? raw) => Guid.TryParse(raw, out var id) ? id.ToString("N") : null;
 
     /// <summary>Freezes the session's approval policy at its start, so an edit landing before its first tool call
     /// cannot change what governs it.</summary>

@@ -8,6 +8,9 @@ public static class CodexHooksWriter {
     static readonly int PermissionRequestTimeout = (int)PermissionRequestHook.Timeout.TotalSeconds;
     const int DefaultHookTimeout = 30;
 
+    /// <summary>Codex caps a SessionEnd hook at 3 s and runs it synchronously; its handler only hands the end over.</summary>
+    const int SessionEndHookTimeout = 3;
+
     public static SettingsEdit Install(string hooksPath) {
         // Rewriting drops the mark, which Codex would otherwise reject the file for.
         var rewrite = CodexHooksInstaller.StartsWithByteOrderMark(hooksPath);
@@ -22,7 +25,11 @@ public static class CodexHooksWriter {
                     ["hooks"] = new JsonArray(new JsonObject {
                         ["type"]    = "command",
                         ["command"] = HookCommand,
-                        ["timeout"] = evt == "PermissionRequest" ? PermissionRequestTimeout : DefaultHookTimeout,
+                        ["timeout"] = evt switch {
+                            "PermissionRequest" => PermissionRequestTimeout,
+                            "SessionEnd"        => SessionEndHookTimeout,
+                            _                   => DefaultHookTimeout,
+                        },
                     })
                 };
 

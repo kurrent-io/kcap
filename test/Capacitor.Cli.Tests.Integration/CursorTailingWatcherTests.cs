@@ -125,7 +125,7 @@ public class CursorTailingWatcherTests {
     /// <summary>
     /// Combines the two decisions <c>RunWatch</c> makes back to back at its idle-ceiling exit:
     /// <see cref="IdleEnd.ShouldEndOnIdle"/> (should the watcher exit?) and
-    /// <see cref="WatchCommand.CursorSuppressesEndPost"/> (should it also POST session-end on the
+    /// <see cref="WatchCommand.IdleExitSuppressesEndPost"/> (should it also POST session-end on the
     /// way out?). For Cursor these must diverge from every other idle-ceiling vendor: the watcher
     /// exits, but it must NOT be the one to synthesize session-end (that stays owned by the
     /// sessionEnd hook / the server-side lease sweep — see the class doc for where "sweep closes"
@@ -142,20 +142,22 @@ public class CursorTailingWatcherTests {
             lastActivityAt: idle, now: now, idleTimeout: idleTimeout);
         await Assert.That(cursorShouldExit).IsTrue();
 
-        var cursorSuppresses = WatchCommand.CursorSuppressesEndPost(vendor: "cursor", idleExit: cursorShouldExit);
+        var cursorSuppresses = WatchCommand.IdleExitSuppressesEndPost(vendor: "cursor", idleExit: cursorShouldExit);
         await Assert.That(cursorSuppresses).IsTrue();
 
-        // Contrast: Codex hits the SAME idle-ceiling exit condition but must NOT suppress —
-        // the suppression is Cursor-specific, not "every idle-ceiling vendor".
+        // Codex hits the SAME idle-ceiling exit and suppresses too: its SessionEnd hook owns the end.
         var codexShouldExit = IdleEnd.ShouldEndOnIdle(
             vendor: "codex", isSessionWatcher: true, thresholdReached: true,
             lastActivityAt: idle, now: now, idleTimeout: idleTimeout);
         await Assert.That(codexShouldExit).IsTrue();
-        await Assert.That(WatchCommand.CursorSuppressesEndPost(vendor: "codex", idleExit: codexShouldExit)).IsFalse();
+        await Assert.That(WatchCommand.IdleExitSuppressesEndPost(vendor: "codex", idleExit: codexShouldExit)).IsTrue();
+
+        // Contrast: Antigravity has no SessionEnd hook, so its idle-ceiling exit still posts the end itself.
+        await Assert.That(WatchCommand.IdleExitSuppressesEndPost(vendor: "antigravity", idleExit: true)).IsFalse();
 
         // And Cursor's OTHER exit paths (not idle-ceiling) are unaffected by the suppression —
         // e.g. an explicit StopWatcher-driven exit (idleExit=false) still posts normally.
-        await Assert.That(WatchCommand.CursorSuppressesEndPost(vendor: "cursor", idleExit: false)).IsFalse();
+        await Assert.That(WatchCommand.IdleExitSuppressesEndPost(vendor: "cursor", idleExit: false)).IsFalse();
     }
 
     // ── 3. Open-but-idle past ceiling → closed, next hook reactivates (both resume shapes) ──

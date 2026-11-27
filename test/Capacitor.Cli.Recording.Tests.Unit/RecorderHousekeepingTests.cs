@@ -1,7 +1,7 @@
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Accounts;
 using Capacitor.Cli.Core.Commands;
-using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Harness.Titles;
 using Capacitor.Cli.Core.Http;
 using Capacitor.Cli.Core.RepoInstructions;
@@ -124,13 +124,39 @@ public class RecorderHousekeepingTests {
     public async Task A_handed_Muse_end_stops_the_run_on_the_calling_thread() {
         var transcript   = CreateParentLog();
         var housekeeping = MuseHousekeeping(transcript);
-        MuseSessionEndRequest.Write(WatcherPaths.FromEnvironment(Config.Root), Session, """{"reason":"other"}""");
+        HandedSessionEndRequest.Write(WatcherPaths.FromEnvironment(Config.Root), Session, """{"reason":"other"}""");
 
         var thread = Environment.CurrentManagedThreadId;
         await ScanAsync(housekeeping, transcript, times: 1);
 
         await Assert.That(_host.StopThreads).IsEquivalentTo([thread]);
-        await Assert.That(housekeeping.HandedMuseEnd).IsNotNull();
+        await Assert.That(housekeeping.HandedEnd).IsNotNull();
+    }
+
+    /// <summary>Codex's SessionEnd hook hands its end over the way Muse's does, and the session watcher takes it.</summary>
+    [Test]
+    public async Task A_handed_Codex_end_stops_the_run() {
+        var transcript   = CreateParentLog();
+        var housekeeping = MuseHousekeeping(transcript, vendor: "codex");
+        HandedSessionEndRequest.Write(WatcherPaths.FromEnvironment(Config.Root), Session, """{"reason":"other"}""", vendor: "codex");
+
+        await ScanAsync(housekeeping, transcript, times: 1);
+
+        await Assert.That(_host.StopThreads).IsNotEmpty();
+        await Assert.That(housekeeping.HandedEnd!.Vendor).IsEqualTo("codex");
+    }
+
+    /// <summary>A vendor whose hook hands nothing over leaves a request on disk alone.</summary>
+    [Test]
+    public async Task A_claude_watcher_takes_no_handed_end() {
+        var transcript   = CreateParentLog();
+        var housekeeping = MuseHousekeeping(transcript, vendor: "claude");
+        HandedSessionEndRequest.Write(WatcherPaths.FromEnvironment(Config.Root), Session, """{"reason":"other"}""");
+
+        await ScanAsync(housekeeping, transcript, times: 1);
+
+        await Assert.That(housekeeping.HandedEnd).IsNull();
+        await Assert.That(HandedSessionEndRequest.Exists(WatcherPaths.FromEnvironment(Config.Root), Session)).IsTrue();
     }
 
     /// <summary>A host guards the log in a recorder's context, and this one comes to it separately.</summary>
@@ -138,11 +164,11 @@ public class RecorderHousekeepingTests {
     public async Task A_log_that_throws_does_not_fail_housekeeping() {
         var transcript   = CreateParentLog();
         var housekeeping = MuseHousekeeping(transcript, log: _ => throw new InvalidOperationException("the log is broken"));
-        MuseSessionEndRequest.Write(WatcherPaths.FromEnvironment(Config.Root), Session, """{"reason":"other"}""");
+        HandedSessionEndRequest.Write(WatcherPaths.FromEnvironment(Config.Root), Session, """{"reason":"other"}""");
 
         await ScanAsync(housekeeping, transcript, times: 1);
 
-        await Assert.That(housekeeping.HandedMuseEnd).IsNotNull();
+        await Assert.That(housekeeping.HandedEnd).IsNotNull();
     }
 
     [Test]

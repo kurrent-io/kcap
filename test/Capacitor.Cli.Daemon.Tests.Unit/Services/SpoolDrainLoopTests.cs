@@ -30,13 +30,13 @@ public class SpoolDrainLoopTests {
         const string session = "01a13694b0ad7ae28bf52af6357a0847";
         const string payload = """{"hook_event_name":"SessionEnd","reason":"exit"}""";
         var paths = WatcherPaths.FromEnvironment(Config.Root);
-        Core.Harness.Muse.MuseSessionEndRequest.Write(paths, session, payload);
-        File.SetLastWriteTimeUtc(Core.Harness.Muse.MuseSessionEndRequest.PathFor(paths, session, payload), DateTime.UtcNow.AddMinutes(-10));
+        Core.Harness.HandedSessionEndRequest.Write(paths, session, payload);
+        File.SetLastWriteTimeUtc(Core.Harness.HandedSessionEndRequest.PathFor(paths, session, payload), DateTime.UtcNow.AddMinutes(-10));
 
         await MakeLoop(new StatusOnlyHttpClient(AuthStatus.UnusableServerUrl), new CapturingLogger<SpoolDrainLoopTests>()).TickAsync(CancellationToken.None);
 
         await Assert.That(new HookSpool(Config.PathTo("lifecycle"), time: TimeProvider.System).HasBacklog(session)).IsTrue();
-        await Assert.That(Core.Harness.Muse.MuseSessionEndRequest.Exists(paths, session)).IsFalse();
+        await Assert.That(Core.Harness.HandedSessionEndRequest.Exists(paths, session)).IsFalse();
     }
 
     /// <summary>The tick pays a span close a hook's drain owed, auth or not: the close only spools its changes.</summary>

@@ -207,23 +207,7 @@ sealed class MuseHookCommand(
             agentId: null, sessionIdOverride: null, cwd: cwd, skipTitle: true, vendor: Vendor);
     }
 
-    /// <summary>A session carrying on makes any end handed over before now stale. The mark covers a claim a
-    /// watcher already holds, which it drops before posting and arms a successor; the claim here takes an
-    /// end nobody has, so it cannot end the watcher armed next. An end handed over after the mark is the
-    /// resumed run's own and goes back for that watcher.</summary>
-    void DiscardHandedEnd(string sessionId) {
-        var paths = WatcherPaths.FromEnvironment(config);
-
-        MuseSessionEndRequest.MarkResumed(paths, sessionId);
-
-        var kept = new List<MuseSessionEndRequest>();
-        while (MuseSessionEndRequest.TryClaim(paths, sessionId, "rearm") is { } handed) {
-            if (MuseSessionEndRequest.ResumedSince(paths, sessionId, handed.HandedAt)) MuseSessionEndRequest.Release(handed.ClaimedPath);
-            else kept.Add(handed);
-        }
-
-        foreach (var handed in kept) MuseSessionEndRequest.Unclaim(handed);
-    }
+    void DiscardHandedEnd(string sessionId) => HandedSessionEndRequest.DiscardForResume(WatcherPaths.FromEnvironment(config), sessionId, Url);
 
     /// <summary>An out-of-scope repository disables the session, so its later hooks stop at the
     /// disabled check.</summary>
@@ -278,7 +262,7 @@ sealed class MuseHookCommand(
 
         if (Paths.ResolveSessionLog(session.ToString("D"), today) is { } log && HookHttp.IsPostable(Url)) {
             try {
-                MuseSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString(), Url);
+                HandedSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString(), Url, vendor: Vendor);
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
                 await Console.Error.WriteLineAsync($"[kcap] muse session-end handoff failed ({sessionId}): {ex.Message}");
                 return false;

@@ -1,13 +1,13 @@
 using System.Text.Json.Nodes;
-using Capacitor.Cli.Core.Harness.Muse;
+using Capacitor.Cli.Core.Harness;
 using Capacitor.Cli.Core.Resume;
 using Microsoft.Extensions.Time.Testing;
 
-namespace Capacitor.Cli.Core.Tests.Unit.Harness.Muse;
+namespace Capacitor.Cli.Core.Tests.Unit.Harness;
 
 /// <summary>A handed Muse end no watcher took is moved into the lifecycle spool by the drains that already run, so it
 /// is sent even when no hook for its session ever runs again.</summary>
-public class MuseHandedEndSweepTests {
+public class HandedSessionEndSweepTests {
     [TempDir] public required TempDir Tmp { get; init; }
 
     [TempDaemonPaths] public required TempDaemonStore Daemons { get; init; }
@@ -21,9 +21,9 @@ public class MuseHandedEndSweepTests {
 
     const string Server = "https://kcap.example";
 
-    void Hand(string payload, TimeSpan ago, string? server = Server) {
-        MuseSessionEndRequest.Write(Paths, Session, payload, server);
-        File.SetLastWriteTimeUtc(MuseSessionEndRequest.PathFor(Paths, Session, payload), DateTime.UtcNow - ago);
+    void Hand(string payload, TimeSpan ago, string? server = Server, string vendor = "muse") {
+        HandedSessionEndRequest.Write(Paths, Session, payload, server, vendor);
+        File.SetLastWriteTimeUtc(HandedSessionEndRequest.PathFor(Paths, Session, payload, vendor), DateTime.UtcNow - ago);
     }
 
     async Task<List<(string Route, JsonNode Body)>> Spooled() {
@@ -37,14 +37,49 @@ public class MuseHandedEndSweepTests {
     public async Task An_unattended_request_is_spooled_as_the_sessions_end_and_released() {
         Hand(Named, TimeSpan.FromMinutes(10));
 
-        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(1);
+        await Assert.That(HandedSessionEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(1);
 
         var (route, body) = (await Spooled()).Single();
-        await Assert.That(route).IsEqualTo(MuseHandedEndSweep.Route);
+        await Assert.That(route).IsEqualTo("session-end/muse");
         await Assert.That(body["daemon_epoch"]!.GetValue<string>()).IsEqualTo("epoch-2");
         await Assert.That(body["session_id"]!.GetValue<string>()).IsEqualTo(Session);
         await Assert.That(body["transcript_path"]).IsNotNull();
-        await Assert.That(MuseSessionEndRequest.Exists(Paths, Session)).IsFalse();
+        await Assert.That(HandedSessionEndRequest.Exists(Paths, Session)).IsFalse();
+    }
+
+    /// <summary>A Codex request goes out on Codex's route.</summary>
+    [Test]
+    public async Task A_codex_request_is_spooled_on_the_codex_route() {
+        Hand(Named, TimeSpan.FromMinutes(10), vendor: "codex");
+
+        await Assert.That(HandedSessionEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(1);
+
+        var (route, _) = (await Spooled()).Single();
+        await Assert.That(route).IsEqualTo("session-end/codex");
+    }
+
+    /// <summary>An unattended end of a process the session has moved on from is dropped, as its watcher would drop it.</summary>
+    [Test]
+    public async Task An_end_of_a_process_the_session_moved_on_from_is_dropped() {
+        using var config = new TempConfigRoot();
+        File.WriteAllText(Path.Combine(Directory.CreateDirectory(config.Root.Path("agent-sessions")).FullName,
+            Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture)), $"{Session}\n");
+        HandedSessionEndRequest.Write(Paths, Session, Unnamed, Server, "codex", agentPid: 1);
+        File.SetLastWriteTimeUtc(HandedSessionEndRequest.PathFor(Paths, Session, Unnamed, "codex"), DateTime.UtcNow.AddMinutes(-10));
+
+        await Assert.That(HandedSessionEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System, new AgentSessionNotes(config.Root))).IsEqualTo(0);
+        await Assert.That(HandedSessionEndRequest.Outstanding(Paths, Session)).IsFalse();
+    }
+
+    /// <summary>A fresh request is never claimed by the sweep, so a watcher's last look at it never comes up empty.</summary>
+    [Test]
+    public async Task A_fresh_request_is_left_unclaimed() {
+        Hand(Named, TimeSpan.FromMinutes(1));
+        var before = Directory.GetFiles(Paths.Directory);
+
+        HandedSessionEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System);
+
+        await Assert.That(Directory.GetFiles(Paths.Directory)).IsEquivalentTo(before);
     }
 
     /// <summary>The end would bring back a deleted stream, so it goes unsent, and nothing keeps asking for it.</summary>
@@ -56,10 +91,10 @@ public class MuseHandedEndSweepTests {
             DisabledSessions.Mark(Session, config.Root);
             Hand(Named, TimeSpan.FromMinutes(10));
 
-            await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(0);
+            await Assert.That(HandedSessionEndSweep.SpoolDue(Paths, spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(0);
 
             await Assert.That(spool.HasBacklog(Session)).IsFalse();
-            await Assert.That(MuseSessionEndRequest.Exists(Paths, Session)).IsFalse();
+            await Assert.That(HandedSessionEndRequest.Exists(Paths, Session)).IsFalse();
         }
     }
 
@@ -72,8 +107,8 @@ public class MuseHandedEndSweepTests {
     public async Task A_request_is_spooled_only_for_the_server_it_was_handed_over_for(string? server, int spooled) {
         Hand(Named, TimeSpan.FromMinutes(10), server);
 
-        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(spooled);
-        await Assert.That(MuseSessionEndRequest.Exists(Paths, Session)).IsEqualTo(spooled == 0);
+        await Assert.That(HandedSessionEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(spooled);
+        await Assert.That(HandedSessionEndRequest.Exists(Paths, Session)).IsEqualTo(spooled == 0);
     }
 
     /// <summary>A resume that has started but not yet moved the run to its new epoch holds an end that names no run, as
@@ -85,7 +120,7 @@ public class MuseHandedEndSweepTests {
         });
         Hand(Unnamed, TimeSpan.FromMinutes(10));
 
-        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(0);
+        await Assert.That(HandedSessionEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(0);
         await Assert.That(await Spooled()).IsEmpty();
     }
 
@@ -94,13 +129,13 @@ public class MuseHandedEndSweepTests {
     public async Task A_fresh_or_backing_off_request_is_left_alone() {
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
         Hand(Named, TimeSpan.FromMinutes(1));
-        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, time)).IsEqualTo(0);
-        await Assert.That(MuseSessionEndRequest.Exists(Paths, Session)).IsTrue();
+        await Assert.That(HandedSessionEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, time)).IsEqualTo(0);
+        await Assert.That(HandedSessionEndRequest.Exists(Paths, Session)).IsTrue();
 
-        File.SetLastWriteTimeUtc(MuseSessionEndRequest.PathFor(Paths, Session, Named), DateTime.UtcNow.AddMinutes(-10));
-        MuseSessionEndRequest.Defer(MuseSessionEndRequest.TryClaim(Paths, Session, "watcher", time)!, time);
-        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, time)).IsEqualTo(0);
-        await Assert.That(MuseSessionEndRequest.Exists(Paths, Session)).IsTrue();
+        File.SetLastWriteTimeUtc(HandedSessionEndRequest.PathFor(Paths, Session, Named), DateTime.UtcNow.AddMinutes(-10));
+        HandedSessionEndRequest.Defer(HandedSessionEndRequest.TryClaim(Paths, Session, "watcher", time)!, time);
+        await Assert.That(HandedSessionEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, time)).IsEqualTo(0);
+        await Assert.That(HandedSessionEndRequest.Exists(Paths, Session)).IsTrue();
     }
 
     /// <summary>An end that names no run is placed by its session: after its agent was resumed it may be an earlier
@@ -114,7 +149,7 @@ public class MuseHandedEndSweepTests {
         });
         Hand(Unnamed, TimeSpan.FromMinutes(10));
 
-        await Assert.That(MuseHandedEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(spooled);
-        await Assert.That(MuseSessionEndRequest.Exists(Paths, Session)).IsFalse();
+        await Assert.That(HandedSessionEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System)).IsEqualTo(spooled);
+        await Assert.That(HandedSessionEndRequest.Exists(Paths, Session)).IsFalse();
     }
 }

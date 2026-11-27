@@ -26,6 +26,23 @@ public sealed class AgentSessionNotes(ConfigRoot config) {
         return null;
     }
 
+    /// <summary>A process other than <paramref name="pid"/> running <paramref name="session"/> that is not provably gone, or
+    /// null: the one a session moved on to from <paramref name="pid"/>, whatever order the notes are listed in.</summary>
+    public ProcessIncarnation? LiveClaimantOtherThan(SessionId session, int pid, Func<int, string, bool>? holderIsGone = null) {
+        holderIsGone ??= WatcherLiveness.IsGone;
+
+        foreach (var claimant in Claimants().Where(c => c != pid)) {
+            try {
+                if (File.ReadAllText(Note(claimant)).Split('\n') is [var named, var token]
+                 && string.Equals(SessionId.Parse(named)?.Value, session.Value, StringComparison.OrdinalIgnoreCase)
+                 && !holderIsGone(claimant, token))
+                    return new ProcessIncarnation(claimant, token);
+            } catch { /* ignored */ }
+        }
+
+        return null;
+    }
+
     public int[] Claimants() {
         try {
             return [

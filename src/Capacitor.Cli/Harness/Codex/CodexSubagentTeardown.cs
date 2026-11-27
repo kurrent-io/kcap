@@ -36,11 +36,14 @@ sealed class CodexSubagentTeardown(ProfileContext profiles, ICapacitorHttpClient
     /// </summary>
     internal static readonly TimeSpan DrainCap = TimeSpan.FromSeconds(8);
 
-    internal async Task DrainAsync(string sessionId, string transcriptPath) {
+    /// <param name="stopped">Checked before each child and before its stop is posted: once true, nothing more is sent.</param>
+    internal async Task DrainAsync(string sessionId, string transcriptPath, Func<bool>? stopped = null) {
         var subs = CodexSubagentDiscovery.EnumerateSubagentRollouts(transcriptPath, sessionId);
         if (subs.Count == 0) return;
 
         foreach (var sub in subs) {
+            if (stopped?.Invoke() == true) return;
+
             var agentId   = sub.ChildDashlessId;
             var agentType = CodexSubagentDiscovery.AgentTypeFrom(sub.AgentPath, sub.AgentNickname);
 
@@ -48,6 +51,7 @@ sealed class CodexSubagentTeardown(ProfileContext profiles, ICapacitorHttpClient
             // always attempted even if the kill or drain hiccups; re-import recovers the rest.
             await SafeAsync(() => watchers.KillWatcher($"{sessionId}-{agentId}"));
             await SafeAsync(() => watchers.InlineDrainAsync(sessionId, sub.FilePath, agentId, vendor: "codex"));
+            if (stopped?.Invoke() == true) return;
             await SafeAsync(() => SubagentLifecycleHooks.PostStopAsync(profiles, http, time, sessionId, agentId, agentType, sub.FilePath));
         }
     }

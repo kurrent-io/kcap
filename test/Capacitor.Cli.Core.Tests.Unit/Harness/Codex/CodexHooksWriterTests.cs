@@ -38,6 +38,18 @@ public class CodexHooksWriterTests {
         await Assert.That(stop[1]!["hooks"]![0]!["timeout"]!.GetValue<int>()).IsEqualTo(30);
     }
 
+    /// Codex caps a SessionEnd hook at 3 s; the entry asks for exactly that, its handler only handing the end over.
+    [Test]
+    public async Task Install_registers_SessionEnd_at_codexs_cap() {
+        var hooks = Tmp.CreateFile("hooks.json", "{}");
+
+        CodexHooksWriter.Install(hooks);
+
+        var end = JsonNode.Parse(File.ReadAllText(hooks))!["hooks"]!["SessionEnd"]!.AsArray().Single()!;
+        await Assert.That(end["hooks"]![0]!["command"]!.GetValue<string>()).IsEqualTo(CodexHooksWriter.HookCommand);
+        await Assert.That(end["hooks"]![0]!["timeout"]!.GetValue<int>()).IsEqualTo(3);
+    }
+
     /// A byte-order mark makes Codex refuse the whole file, so an install that would otherwise leave
     /// the entries as they are still rewrites it without one.
     [Test]

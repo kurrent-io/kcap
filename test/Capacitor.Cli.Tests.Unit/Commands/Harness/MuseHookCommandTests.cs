@@ -730,7 +730,7 @@ public class MuseHookCommandTests : IDisposable {
         await Assert.That(File.Exists(paths.PidFile(ParentDashless))).IsTrue();
         await Assert.That(_spawner.Spawned.Count).IsEqualTo(0);
 
-        var request = MuseSessionEndRequest.TryClaim(paths, ParentDashless, "test");
+        var request = HandedSessionEndRequest.TryClaim(paths, ParentDashless, "test");
         await Assert.That(request).IsNotNull();
         var body = JsonElement.Parse(request!.Payload);
         await Assert.That(body.GetProperty("session_id").GetString()).IsEqualTo(ParentDashless);
@@ -759,7 +759,7 @@ public class MuseHookCommandTests : IDisposable {
             $$"""{"hook_event_name":"SessionEnd","reason":"exit","session_id":"{{ParentId}}","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
             new StringWriter(), ParentEnv, Today);
 
-        var handed = File.GetLastWriteTimeUtc(MuseSessionEndRequest.PathFor(WatcherPaths.FromEnvironment(Config.Root), ParentDashless));
+        var handed = File.GetLastWriteTimeUtc(HandedSessionEndRequest.PathFor(WatcherPaths.FromEnvironment(Config.Root), ParentDashless));
         var posted = _server.LogEntries.Single(e => e.RequestMessage.Path == "/hooks/workspace-changes").RequestMessage.DateTime.ToUniversalTime();
         await Assert.That(handed).IsLessThanOrEqualTo(posted);
     }
@@ -832,7 +832,7 @@ public class MuseHookCommandTests : IDisposable {
         await Assert.That(_spawner.Spawned[0].TranscriptPath).IsEqualTo(log);
         await Assert.That(_spawner.Spawned[0].Vendor).IsEqualTo("muse");
 
-        var request = MuseSessionEndRequest.TryClaim(WatcherPaths.FromEnvironment(Config.Root), ParentDashless, "test");
+        var request = HandedSessionEndRequest.TryClaim(WatcherPaths.FromEnvironment(Config.Root), ParentDashless, "test");
         await Assert.That(request).IsNotNull();
         await Assert.That(JsonElement.Parse(request!.Payload).GetProperty("reason").GetString()).IsEqualTo("exit");
     }
@@ -844,14 +844,14 @@ public class MuseHookCommandTests : IDisposable {
         StubHooks();
         StageParentLog();
         var paths = WatcherPaths.FromEnvironment(Config.Root);
-        MuseSessionEndRequest.Write(paths, ParentDashless, """{"reason":"stale"}""");
+        HandedSessionEndRequest.Write(paths, ParentDashless, """{"reason":"stale"}""");
 
         await Command().Handle(new StringReader(
             $$"""{"hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"done","session_id":"{{ParentId}}","turn_id":"3a75e7fd-2b07-401b-9446-6af740e7933d","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
             new StringWriter(), ParentEnv, Today);
 
-        await Assert.That(MuseSessionEndRequest.Exists(paths, ParentDashless)).IsFalse();
-        await Assert.That(MuseSessionEndRequest.ResumedSince(paths, ParentDashless, DateTimeOffset.UtcNow.AddMinutes(-1))).IsTrue();
+        await Assert.That(HandedSessionEndRequest.Exists(paths, ParentDashless)).IsFalse();
+        await Assert.That(HandedSessionEndRequest.ResumedSince(paths, ParentDashless, DateTimeOffset.UtcNow.AddMinutes(-1))).IsTrue();
         await Assert.That(_spawner.Spawned.Count).IsEqualTo(1);
     }
 
@@ -862,15 +862,15 @@ public class MuseHookCommandTests : IDisposable {
         StubHooks();
         StageParentLog();
         var paths = WatcherPaths.FromEnvironment(Config.Root);
-        MuseSessionEndRequest.Write(paths, ParentDashless, """{"reason":"fresh"}""");
-        File.SetLastWriteTimeUtc(MuseSessionEndRequest.PathFor(paths, ParentDashless), DateTime.UtcNow.AddMinutes(2));
+        HandedSessionEndRequest.Write(paths, ParentDashless, """{"reason":"fresh"}""");
+        File.SetLastWriteTimeUtc(HandedSessionEndRequest.PathFor(paths, ParentDashless), DateTime.UtcNow.AddMinutes(2));
 
         await Command().Handle(new StringReader(
             $$"""{"hook_event_name":"Stop","stop_hook_active":false,"last_assistant_message":"done","session_id":"{{ParentId}}","turn_id":"3a75e7fd-2b07-401b-9446-6af740e7933d","cwd":"{{AbsentCwd()}}","transcript_path":null}"""),
             new StringWriter(), ParentEnv, Today);
 
-        await Assert.That(MuseSessionEndRequest.Exists(paths, ParentDashless)).IsTrue();
-        await Assert.That(MuseSessionEndRequest.TryClaim(paths, ParentDashless, "test")?.Payload).IsEqualTo("""{"reason":"fresh"}""");
+        await Assert.That(HandedSessionEndRequest.Exists(paths, ParentDashless)).IsTrue();
+        await Assert.That(HandedSessionEndRequest.TryClaim(paths, ParentDashless, "test")?.Payload).IsEqualTo("""{"reason":"fresh"}""");
         await Assert.That(_spawner.Spawned.Count).IsEqualTo(1);
     }
 
