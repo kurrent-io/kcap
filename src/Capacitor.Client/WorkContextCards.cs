@@ -95,7 +95,8 @@ public static class WorkContextCards {
         : WorkContextPartMark.Unknown;
 
     /// ShortKey is display text only: two null-URL issues from different repos can share `#42`.
-    /// Prefer URL when both have one; otherwise the server's kind/provider/value tuple.
+    /// Two links are one issue when their URLs match or when the server's kind/provider/value
+    /// tuple does: the tuple names the issue, so URLs that differ only in spelling still collapse.
     static WorkContextIssue[] Issues(IEnumerable<WorkItemLinkDto> links) {
         var issues = new List<WorkContextIssue>();
         foreach (var link in links) {
