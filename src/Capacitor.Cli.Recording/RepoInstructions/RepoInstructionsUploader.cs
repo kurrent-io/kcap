@@ -28,10 +28,8 @@ public sealed class RepoInstructionsUploader(
 
     internal static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(1);
 
-    // Settable so a test can run the real clock through a retry.
     internal TimeSpan FirstBackoff { get; init; } = TimeSpan.FromSeconds(10);
 
-    // Half the watcher's heartbeat threshold: the post runs inline in the watch loop.
     internal static readonly TimeSpan PostBudget = TimeSpan.FromSeconds(10);
 
     static readonly TimeSpan DefaultRetryAfter = TimeSpan.FromMinutes(1);
