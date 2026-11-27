@@ -117,10 +117,13 @@ public sealed partial class SystemNoteItem : ChatItemViewModel, IExpandableItem 
         Label = label;
         _icon = icon;
         // A compaction summary restates the whole conversation above it, and a subagent's report
-        // can run to pages, so both start folded. A report of one line has nothing to fold.
+        // can run to pages, so both start folded.
         if (label is AgentReportLabel or TaskNotificationLabel) {
+            // Even a note of one line folds under it, so its header carries the line rather than a
+            // bare label over a body, while the body keeps what the header can't: a line too long
+            // for it, a link, markdown the peek strips.
             var lead = LeadLine(text);
-            IsCollapsible = lead is { HasMore: true };
+            IsCollapsible = lead is not null;
             if (IsCollapsible) _peek = TextElision.End(lead!.Value.Clean, PeekLength);
         } else {
             IsCollapsible = label == CompactSummaryLabel;

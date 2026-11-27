@@ -70,13 +70,16 @@ public partial class ChatTabViewModelTests {
         });
     }
 
-    /// A notification with only a summary has nothing behind it to fold, so it stays open.
+    /// A notification with only a summary folds under it too: the header carries the line, and the
+    /// body still has what the header can't, such as a line too long for it or a link.
     [Test]
-    public async Task A_one_line_note_stays_open_and_a_longer_report_folds_under_its_first_line() {
+    public async Task A_one_line_note_and_a_longer_report_both_fold_under_their_first_line() {
         var bare = new SystemNoteItem("**MCP task done.**", SystemNoteItem.TaskNotificationLabel);
-        await Assert.That(bare.IsCollapsible).IsFalse();
-        await Assert.That(bare.IsExpanded).IsTrue();
-        await Assert.That(bare.HeaderLabel).IsEqualTo(SystemNoteItem.TaskNotificationLabel);
+        await Assert.That(bare.IsCollapsible).IsTrue();
+        await Assert.That(bare.HeaderLabel).IsEqualTo("Background task · MCP task done.");
+        await Assert.That(bare.ShowsBody).IsFalse();
+        bare.Toggle();
+        await Assert.That(bare.ShowsBody).IsTrue();
 
         var report = new SystemNoteItem("\n## Findings for `Auth`\n\nNone.", SystemNoteItem.AgentReportLabel);
         await Assert.That(report.IsCollapsible).IsTrue();
@@ -110,8 +113,8 @@ public partial class ChatTabViewModelTests {
                 .IsEqualTo("Subagent report · Findings");
         }
 
-        foreach (var lone in new[] { "---\n\n**Done.**", "---\n```text\n\nFindings\n```", "Findings\n~~~\n---" })
-            await Assert.That(new SystemNoteItem(lone, SystemNoteItem.AgentReportLabel).IsCollapsible).IsFalse();
+        foreach (var (lone, peek) in new[] { ("---\n\n**Done.**", "Done."), ("---\n```text\n\nFindings\n```", "Findings"), ("Findings\n~~~\n---", "Findings") })
+            await Assert.That(new SystemNoteItem(lone, SystemNoteItem.AgentReportLabel).HeaderLabel).IsEqualTo($"Subagent report · {peek}");
 
         var other = new SystemNoteItem("Reconnected.\nResumed the session.");
         await Assert.That(other.IsCollapsible).IsFalse();
@@ -183,7 +186,8 @@ public partial class ChatTabViewModelTests {
             await Assert.That(note.Label).IsEqualTo(SystemNoteItem.AgentReportLabel);
             await Assert.That(note.IconKind).IsEqualTo(LucideIconKind.BotMessageSquare);
             await Assert.That(note.Text).IsEqualTo("**Done.**");
-            await Assert.That(note.IsExpanded).IsTrue();
+            await Assert.That(note.IsExpanded).IsFalse();
+            await Assert.That(note.HeaderLabel).IsEqualTo("Subagent report · Done.");
             note.Toggle();
             await Assert.That(note.IsExpanded).IsTrue();
             await h.TeardownAsync();

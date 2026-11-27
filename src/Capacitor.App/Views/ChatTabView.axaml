@@ -19,8 +19,8 @@
                          views|MarkdownView.monospaceReading mv|MarkdownViewer :is(TextBlock).markdown-h6">
             <Setter Property="FontFamily" Value="{DynamicResource KcapReadingFamily}" />
         </Style>
-        <Style Selector="views|MarkdownView:not(.thinking) mv|MarkdownViewer :is(TextBlock).markdown-paragraph,
-                         views|MarkdownView:not(.thinking) mv|MarkdownViewer :is(TextBlock).markdown-list-marker">
+        <Style Selector="views|MarkdownView:not(.thinking):not(.note) mv|MarkdownViewer :is(TextBlock).markdown-paragraph,
+                         views|MarkdownView:not(.thinking):not(.note) mv|MarkdownViewer :is(TextBlock).markdown-list-marker">
             <Setter Property="LineHeight" Value="{DynamicResource KcapProseLineHeight}" />
         </Style>
         <!-- The composer already uses the normal ghost hover fill. Step up one surface
@@ -531,7 +531,7 @@
                     <views:ChatCardRow>
                         <Border Classes="systemNote chatSystemCard" Margin="{DynamicResource KcapTranscriptGap}">
                             <StackPanel Spacing="6">
-                                <views:ChatKindHeader Label="{Binding Label}" IconKind="{Binding IconKind}"
+                                <views:ChatKindHeader Label="{Binding HeaderLabel}" IconKind="{Binding IconKind}"
                                                       IsVisible="{Binding !IsCollapsible}" />
                                 <Button Classes="toolSummary" IsVisible="{Binding IsCollapsible}"
                                         Command="{Binding ToggleCommand}" Click="OnToolSummaryClick"
@@ -539,7 +539,7 @@
                                     <views:ChatKindHeader Label="{Binding HeaderLabel}" IconKind="{Binding IconKind}"
                                                           Status="{Binding}" StatusTemplate="{StaticResource ExpandChevron}" />
                                 </Button>
-                                <views:MarkdownView Text="{Binding Text}" IsVisible="{Binding ShowsBody}"
+                                <views:MarkdownView Classes="note" Text="{Binding Text}" IsVisible="{Binding ShowsBody}"
                                                     FindQuery="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).Find.ActiveQuery}"
                                                     OpenLink="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).OpenLinkCommand}"
                                                     RunCode="{Binding $parent[ItemsControl].((vm:ChatTabViewModel)DataContext).RunCodeCommand}" />
