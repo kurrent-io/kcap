@@ -45,6 +45,44 @@ public class HandedSessionEndRequestTests {
         await Assert.That(HandedSessionEndRequest.TryClaim(paths, SessionId, "retry", time)!.Vendor).IsEqualTo("codex");
     }
 
+    /// <summary>A kcap that predates other vendors reads every <c>.muse-end-requested</c> file as Muse's, so a Codex
+    /// request is named for Codex, and this kcap still lists, takes and deletes it.</summary>
+    [Test]
+    public async Task A_codex_request_is_named_for_codex_where_older_kcaps_never_take_it() {
+        var paths = new WatcherPaths(Tmp.PathTo("watchers"));
+
+        HandedSessionEndRequest.Write(paths, SessionId, """{"reason":"other"}""", vendor: "codex");
+
+        await Assert.That(Directory.GetFiles(paths.Directory).Select(f => Path.GetFileName(f)!).ToList()).IsEquivalentTo([$"{SessionId}.codex-end-requested"]);
+        await Assert.That(HandedSessionEndRequest.SessionsWithPending(paths)).IsEquivalentTo([SessionId]);
+        await Assert.That(HandedSessionEndRequest.Exists(paths, SessionId)).IsTrue();
+
+        HandedSessionEndRequest.DeleteAll(paths, SessionId);
+        await Assert.That(Directory.GetFiles(paths.Directory)).IsEmpty();
+    }
+
+    /// <summary>A watcher that died holding its claim never sends the end nor returns it: the next sweep puts it back.
+    /// A claim whose holder still runs, or that names no process, is left alone.</summary>
+    [Test]
+    public async Task A_claim_whose_watcher_died_goes_back_for_the_next_taker() {
+        var paths = new WatcherPaths(Tmp.PathTo("watchers"));
+        using var exited = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("dotnet", "--version") { RedirectStandardOutput = true })!;
+        await exited.WaitForExitAsync();
+
+        HandedSessionEndRequest.Write(paths, SessionId, """{"reason":"other"}""", vendor: "codex");
+        HandedSessionEndRequest.TryClaim(paths, SessionId, exited.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        HandedSessionEndRequest.Write(paths, "live", """{"reason":"other"}""");
+        HandedSessionEndRequest.TryClaim(paths, "live", Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        HandedSessionEndRequest.Write(paths, "swept", """{"reason":"other"}""");
+        HandedSessionEndRequest.TryClaim(paths, "swept", "sweep");
+
+        HandedSessionEndRequest.RecoverAbandoned(paths);
+
+        await Assert.That(HandedSessionEndRequest.TryClaim(paths, SessionId, "next")!.Vendor).IsEqualTo("codex");
+        await Assert.That(HandedSessionEndRequest.Exists(paths, "live")).IsFalse();
+        await Assert.That(HandedSessionEndRequest.Exists(paths, "swept")).IsFalse();
+    }
+
     /// <summary>A request written before requests recorded a vendor is Muse's, the only vendor that handed ends over then.</summary>
     [Test]
     public async Task A_request_with_no_vendor_is_muses() {

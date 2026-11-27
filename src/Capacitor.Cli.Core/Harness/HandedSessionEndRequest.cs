@@ -12,15 +12,20 @@ namespace Capacitor.Cli.Core.Harness;
 /// <c>/hooks/session-end/&lt;vendor&gt;</c> payload, left where the watcher looks every tick. Muse and Codex both kill
 /// the hook within seconds (under <c>muse exec</c> well inside one; Codex caps it at 3 s), before it could drain the
 /// transcript and post the end itself; the watcher is a detached process, so it posts the end after its final drain.
-/// The files keep the <c>.muse-end-requested</c> name every version has written, so a request handed over before the
-/// store served other vendors is still taken.
+/// Muse's files keep the <c>.muse-end-requested</c> name every version has written, so a request handed over before the
+/// store served other vendors is still taken; another vendor's carry its own name, which a kcap that predates it never
+/// takes for Muse's.
 /// Whoever takes it claims it first by renaming it, an atomic step only one party can win, so two
 /// watchers on the session, or a watcher and the re-arm of a resumed session, never both act on one end.
 /// Each run the request names has a file of its own, so one run's end never overwrites or supersedes another's
 /// whatever order their hooks fire in; a request naming no run keeps the name every version writes.
 /// </summary>
 public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath, DateTimeOffset HandedAt, string SourcePath) {
-    const string Suffix = ".muse-end-requested";
+    const string RequestedSuffix = "-end-requested";
+
+    static string SuffixOf(string vendor) => $".{vendor}{RequestedSuffix}";
+
+    static bool IsRequest(string name) => name.EndsWith(RequestedSuffix, StringComparison.Ordinal);
 
     /// <summary>The server the request was handed over for; null for one written before requests recorded it.</summary>
     public string? Server { get; init; }
@@ -40,13 +45,12 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
     /// <summary>How many times its end has failed to be sent or kept.</summary>
     public int Attempts { get; init; }
 
-    /// <summary>Where a request naming no run is handed over.</summary>
-    public static string PathFor(WatcherPaths paths, string sessionId) =>
-        Path.Combine(paths.Directory, sessionId + Suffix);
+    /// <summary>Where a Muse request naming no run is handed over.</summary>
+    public static string PathFor(WatcherPaths paths, string sessionId) => PathFor(paths, sessionId, payload: "", DefaultVendor);
 
-    /// <summary>Where <paramref name="payload"/>'s request is handed over: a file per run it names.</summary>
-    public static string PathFor(WatcherPaths paths, string sessionId, string payload) =>
-        RunKey(payload) is { } key ? Path.Combine(paths.Directory, $"{sessionId}.{key}{Suffix}") : PathFor(paths, sessionId);
+    /// <summary>Where <paramref name="vendor"/>'s request for <paramref name="payload"/> is handed over: a file per run it names.</summary>
+    public static string PathFor(WatcherPaths paths, string sessionId, string payload, string vendor = DefaultVendor) =>
+        Path.Combine(paths.Directory, RunKey(payload) is { } key ? $"{sessionId}.{key}{SuffixOf(vendor)}" : sessionId + SuffixOf(vendor));
 
     static string? RunKey(string payload) {
         try {
@@ -71,7 +75,8 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
         try {
             if (!Directory.Exists(paths.Directory)) return [];
 
-            return Directory.EnumerateFiles(paths.Directory, "*" + Suffix)
+            return Directory.EnumerateFiles(paths.Directory, "*" + RequestedSuffix)
+                .Where(f => IsRequest(Path.GetFileName(f)))
                 .Select(f => Path.GetFileName(f)[..Path.GetFileName(f).IndexOf('.')])
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
@@ -86,8 +91,7 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
             if (!Directory.Exists(paths.Directory)) return [];
 
             return Directory.EnumerateFiles(paths.Directory, $"{sessionId}.*")
-                .Where(f => Path.GetFileName(f) is var name && name.EndsWith(Suffix, StringComparison.Ordinal)
-                         && (name == sessionId + Suffix || name.Count(c => c == '.') == 2))
+                .Where(f => Path.GetFileName(f) is var name && IsRequest(name) && name.Count(c => c == '.') is 1 or 2)
                 .OrderBy(File.GetLastWriteTimeUtc)
                 .ToList();
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
@@ -144,7 +148,7 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
     /// server <paramref name="server"/> it is for or the <paramref name="vendor"/> whose route it is posted on.</summary>
     public static void Write(WatcherPaths paths, string sessionId, string payload, string? server = null, string vendor = DefaultVendor) {
         Directory.CreateDirectory(paths.Directory);
-        var target = PathFor(paths, sessionId, payload);
+        var target = PathFor(paths, sessionId, payload, vendor);
         var temp   = $"{target}.{Environment.ProcessId.ToString(CultureInfo.InvariantCulture)}.tmp";
 
         File.WriteAllText(temp, Render(payload, server, 0, DateTimeOffset.MinValue, vendor));
@@ -283,6 +287,41 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
         try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
+    /// <summary>Puts back every request a watcher claimed and then died holding, before it could send or return it, so
+    /// the next taker sends it. Only a watcher's claim names its process; a newer request of the same run supersedes the
+    /// one put back. A pid that was reused leaves the claim for a later pass.</summary>
+    public static void RecoverAbandoned(WatcherPaths paths) {
+        try {
+            if (!Directory.Exists(paths.Directory)) return;
+
+            foreach (var claimed in Directory.EnumerateFiles(paths.Directory, $"*{RequestedSuffix}.*.claimed").ToList()) {
+                var withoutClaim = claimed[..^".claimed".Length];
+                var dot          = withoutClaim.LastIndexOf('.');
+
+                if (!int.TryParse(withoutClaim[(dot + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out var pid)
+                 || !WatcherLiveness.IsGone(pid, "")) continue;
+
+                Unclaim(new HandedSessionEndRequest("", claimed, default, withoutClaim[..dot]));
+            }
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
+    /// <summary>A session carrying on makes any end handed over before now stale. The mark covers a claim a watcher
+    /// already holds, which it drops before posting and arms a successor; the claim here takes an end nobody has, so it
+    /// cannot end the watcher armed next. An end handed over after the mark is the resumed run's own and goes back for
+    /// that watcher.</summary>
+    public static void DiscardForResume(WatcherPaths paths, string sessionId) {
+        MarkResumed(paths, sessionId);
+
+        var kept = new List<HandedSessionEndRequest>();
+        while (TryClaim(paths, sessionId, "rearm") is { } handed) {
+            if (ResumedSince(paths, sessionId, handed.HandedAt)) Release(handed.ClaimedPath);
+            else kept.Add(handed);
+        }
+
+        foreach (var handed in kept) Unclaim(handed);
+    }
+
     /// <summary>Removes a claimed request once its end is posted or durably spooled.</summary>
     public static void Release(string claimedPath) => TryDelete(claimedPath);
 
@@ -292,7 +331,7 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
         try {
             if (!Directory.Exists(paths.Directory)) return;
 
-            foreach (var file in Directory.EnumerateFiles(paths.Directory, $"{sessionId}.*").Where(f => f.Contains(Suffix, StringComparison.Ordinal)))
+            foreach (var file in Directory.EnumerateFiles(paths.Directory, $"{sessionId}.*").Where(f => f.Contains(RequestedSuffix, StringComparison.Ordinal)))
                 File.Delete(file);
         } catch (IOException) {
         } catch (UnauthorizedAccessException) {

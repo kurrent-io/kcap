@@ -480,6 +480,54 @@ public class CodexHookCommandTests : IDisposable {
         await Assert.That(HandedSessionEndRequest.ResumedSince(WatcherPaths.FromEnvironment(Config.Root), EndingDashless, before)).IsTrue();
     }
 
+    /// <summary>An end handed over before the resume is the earlier process's, and nobody may post it now.</summary>
+    [Test]
+    public async Task A_resumed_SessionStart_discards_an_end_handed_over_before_it() {
+        StubNoAuthRequired();
+        _server.Given(Request.Create().WithPath("/hooks/session-start/codex").UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}"));
+        var paths = WatcherPaths.FromEnvironment(Config.Root);
+        HandedSessionEndRequest.Write(paths, EndingDashless, """{"reason":"other"}""", vendor: "codex");
+        File.SetLastWriteTimeUtc(HandedSessionEndRequest.PathFor(paths, EndingDashless, """{"reason":"other"}""", "codex"), DateTime.UtcNow.AddMinutes(-2));
+
+        await RunAsync($$"""{"hook_event_name":"SessionStart","session_id":"{{EndingSession}}","source":"resume","transcript_path":"/tmp/r.jsonl","cwd":"/tmp"}""",
+            spawner: new FakeWatcherSpawner());
+
+        await Assert.That(HandedSessionEndRequest.Exists(paths, EndingDashless)).IsFalse();
+    }
+
+    /// <summary>Codex can keep running after an idle detach or an archive, so an end that cannot be handed over is spooled
+    /// rather than left to a process exit that may never come.</summary>
+    [Test]
+    public async Task SessionEnd_spools_the_end_when_it_cannot_be_handed_over() {
+        var spawner = new FakeWatcherSpawner();
+        var watchersDir = WatcherPaths.FromEnvironment(Config.Root).Directory;
+        Directory.CreateDirectory(Path.GetDirectoryName(watchersDir)!);
+        File.WriteAllText(watchersDir, "");
+
+        await RunAsync(SessionEndPayload(Rollout()), spawner: spawner);
+
+        var drained = new List<string>();
+        await new HookSpool(Config.Root, TimeProvider.System, _server.Url!).DrainAllAsync(EndingDashless,
+            (route, _) => { drained.Add(route); return Task.FromResult(DrainOutcome.Delivered); },
+            TimeSpan.FromSeconds(5), CancellationToken.None);
+
+        await Assert.That(drained).IsEquivalentTo(["session-end/codex"]);
+        await Assert.That(spawner.Spawned.Count).IsEqualTo(0);
+    }
+
+    /// <summary>The session id names the request's file, so one that is no session id hands nothing over.</summary>
+    [Test]
+    public async Task SessionEnd_with_a_session_id_that_is_a_path_hands_nothing_over() {
+        var spawner = new FakeWatcherSpawner();
+
+        await RunAsync(SessionEndPayload(Rollout()).Replace(EndingSession, "../escaped"), spawner: spawner);
+
+        await Assert.That(spawner.Spawned.Count).IsEqualTo(0);
+        await Assert.That(Directory.Exists(WatcherPaths.FromEnvironment(Config.Root).Directory)
+            && Directory.EnumerateFileSystemEntries(WatcherPaths.FromEnvironment(Config.Root).Directory).Any()).IsFalse();
+    }
+
     /// <summary>A session with no rollout has nothing to drain: its end is spooled for the drain to post.</summary>
     [Test]
     public async Task SessionEnd_without_a_rollout_spools_the_end() {

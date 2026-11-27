@@ -23,7 +23,7 @@ public class HandedSessionEndSweepTests {
 
     void Hand(string payload, TimeSpan ago, string? server = Server, string vendor = "muse") {
         HandedSessionEndRequest.Write(Paths, Session, payload, server, vendor);
-        File.SetLastWriteTimeUtc(HandedSessionEndRequest.PathFor(Paths, Session, payload), DateTime.UtcNow - ago);
+        File.SetLastWriteTimeUtc(HandedSessionEndRequest.PathFor(Paths, Session, payload, vendor), DateTime.UtcNow - ago);
     }
 
     async Task<List<(string Route, JsonNode Body)>> Spooled() {

@@ -421,7 +421,7 @@ public class WatcherParentExitPostTests : IDisposable {
         Core.Harness.HandedSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""");
 
-        await Watch(spawner).SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, first);
+        await Watch(spawner).SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, run: null, first);
 
         var epochs = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
             .Select(e => JsonElement.Parse(e.RequestMessage.Body!).TryGetProperty("daemon_epoch", out var epoch) ? epoch.GetString() : null)
@@ -432,6 +432,25 @@ public class WatcherParentExitPostTests : IDisposable {
         await Assert.That(Core.Harness.HandedSessionEndRequest.Exists(paths, sessionId)).IsTrue();
         await Assert.That(Core.Harness.HandedSessionEndRequest.TryClaim(paths, sessionId, "check")).IsNull();
         await Assert.That(spawner.Spawned).IsEmpty();
+    }
+
+    /// <summary>An end the session was resumed past is dropped before anything else judges it, and the resumed run gets
+    /// a watcher: this one is leaving.</summary>
+    [Test]
+    public async Task A_handed_end_resumed_past_is_dropped_and_a_successor_armed() {
+        var sessionId = Guid.NewGuid().ToString("N");
+        var paths     = WatcherPaths.FromEnvironment(Config.Root);
+        var spawner   = new FakeWatcherSpawner();
+        Core.Harness.HandedSessionEndRequest.Write(paths, sessionId,
+            """{"hook_event_name":"SessionEnd","reason":"other","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""", vendor: "codex");
+        var handed = Core.Harness.HandedSessionEndRequest.TryClaim(paths, sessionId, "test")!;
+        Core.Harness.HandedSessionEndRequest.MarkResumed(paths, sessionId);
+
+        await Watch(spawner).SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "codex", repository: null, run: null, handed);
+
+        await Assert.That(_server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/codex").UsingPost())).IsEmpty();
+        await Assert.That(File.Exists(handed.ClaimedPath)).IsFalse();
+        await Assert.That(spawner.Spawned.Count).IsEqualTo(1);
     }
 
     /// <summary>A handed end the server rejects is dropped, as every rejected hook payload is: it is not put back, and no
@@ -450,7 +469,7 @@ public class WatcherParentExitPostTests : IDisposable {
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-1"}""");
         var handed = Core.Harness.HandedSessionEndRequest.TryClaim(paths, sessionId, "test")!;
 
-        await Watch(spawner).SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, handed);
+        await Watch(spawner).SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, run: null, handed);
 
         await Assert.That(_server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost()).Count).IsEqualTo(1);
         await Assert.That(Core.Harness.HandedSessionEndRequest.Exists(paths, sessionId)).IsFalse();
@@ -475,7 +494,7 @@ public class WatcherParentExitPostTests : IDisposable {
         Core.Harness.HandedSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""", "https://other.example");
 
-        await Watch().SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, own);
+        await Watch().SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, run: null, own);
 
         var epochs = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
             .Select(e => JsonElement.Parse(e.RequestMessage.Body!).GetProperty("daemon_epoch").GetString())
@@ -501,7 +520,7 @@ public class WatcherParentExitPostTests : IDisposable {
         Core.Harness.HandedSessionEndRequest.Write(paths, sessionId,
             """{"hook_event_name":"SessionEnd","reason":"exit","agent_host_id":"agent-1","daemon_epoch":"epoch-2"}""");
 
-        await Watch().SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, claimed);
+        await Watch().SettleHandedEndsAsync(sessionId, "/tmp/fake.jsonl", cwd: null, "muse", repository: null, run: null, claimed);
 
         var epochs = _server.FindLogEntries(Request.Create().WithPath("/hooks/session-end/muse").UsingPost())
             .Select(e => JsonElement.Parse(e.RequestMessage.Body!).GetProperty("daemon_epoch").GetString())

@@ -8,7 +8,8 @@ namespace Capacitor.Cli.Core.Harness;
 /// <summary>
 /// Sends the handed ends no watcher took, on each request's own vendor route: a run that ended with nothing left to arm a watcher, or whose watcher
 /// could send its end neither way, would otherwise keep its session open for good. Each is moved into the lifecycle
-/// spool, whose drain sends it behind whatever transcript the session still has spooled.
+/// spool, whose drain sends it behind whatever transcript the session still has spooled. A request a watcher died
+/// holding is put back first, so it is swept like one never taken.
 /// </summary>
 public static class HandedSessionEndSweep {
     /// <summary>A live watcher takes a handed end within a tick and drains the log before sending it; one still waiting
@@ -24,6 +25,8 @@ public static class HandedSessionEndSweep {
         var spooled = 0;
 
         try {
+            HandedSessionEndRequest.RecoverAbandoned(paths);
+
             foreach (var session in HandedSessionEndRequest.SessionsWithPending(paths)) {
                 var early  = new List<HandedSessionEndRequest>();
                 var failed = new List<HandedSessionEndRequest>();

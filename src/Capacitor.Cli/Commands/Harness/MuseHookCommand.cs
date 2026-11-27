@@ -207,23 +207,7 @@ sealed class MuseHookCommand(
             agentId: null, sessionIdOverride: null, cwd: cwd, skipTitle: true, vendor: Vendor);
     }
 
-    /// <summary>A session carrying on makes any end handed over before now stale. The mark covers a claim a
-    /// watcher already holds, which it drops before posting and arms a successor; the claim here takes an
-    /// end nobody has, so it cannot end the watcher armed next. An end handed over after the mark is the
-    /// resumed run's own and goes back for that watcher.</summary>
-    void DiscardHandedEnd(string sessionId) {
-        var paths = WatcherPaths.FromEnvironment(config);
-
-        HandedSessionEndRequest.MarkResumed(paths, sessionId);
-
-        var kept = new List<HandedSessionEndRequest>();
-        while (HandedSessionEndRequest.TryClaim(paths, sessionId, "rearm") is { } handed) {
-            if (HandedSessionEndRequest.ResumedSince(paths, sessionId, handed.HandedAt)) HandedSessionEndRequest.Release(handed.ClaimedPath);
-            else kept.Add(handed);
-        }
-
-        foreach (var handed in kept) HandedSessionEndRequest.Unclaim(handed);
-    }
+    void DiscardHandedEnd(string sessionId) => HandedSessionEndRequest.DiscardForResume(WatcherPaths.FromEnvironment(config), sessionId);
 
     /// <summary>An out-of-scope repository disables the session, so its later hooks stop at the
     /// disabled check.</summary>
