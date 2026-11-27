@@ -64,6 +64,19 @@ public class AppStderrLogTests {
     }
 
     [Test]
+    public async Task The_clis_shared_logs_folder_does_not_stop_the_app_logging() {
+        var config = new ConfigRoot(Tmp.PathTo("config"));
+        var cliLogs = config.Path("logs");
+        Directory.CreateDirectory(cliLogs);
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(cliLogs, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.GroupRead | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        var folder = AppStderrLog.FolderIn(config);
+        using (var log = new AppStderrLog(new StringWriter(), folder, new FakeTimeProvider(Now))) log.WriteLine("logged");
+
+        await Assert.That(await File.ReadAllTextAsync(Path.Combine(folder, AppStderrLog.FileName))).Contains("logged");
+    }
+
+    [Test]
     public async Task A_second_process_leaves_the_file_to_the_first() {
         var (first, _) = Make();
         var (second, secondInner) = Make();

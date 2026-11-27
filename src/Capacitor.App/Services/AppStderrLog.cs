@@ -5,14 +5,15 @@ using Capacitor.Cli.Core;
 namespace Capacitor.App.Services;
 
 /// <summary>
-/// Copies what the app writes to stderr into <c>logs/app.log</c> under the config root, one timestamped line at a
+/// Copies what the app writes to stderr into <c>desktop-logs/app.log</c> under the config root, one timestamped line at a
 /// time, and still passes it to the original stderr. Launched from Finder, launchd or the Start menu, the app's stderr
 /// goes nowhere, and most handled failures report only there. The folder is owner-only, so no other account can read
 /// the log or put anything in its place. One process writes it at a time, holding a lock file for as long as it does,
 /// and rotates it once past <see cref="MaxBytes"/>. Never throws: a log that cannot be written leaves stderr as it was.
 /// </summary>
 public sealed class AppStderrLog : TextWriter {
-    public const string FolderName = "logs";
+    /// Not the CLI's <c>logs</c>, which holds watcher logs and is not owner-only.
+    public const string FolderName = "desktop-logs";
     public const string FileName = "app.log";
     internal const long MaxBytes = 2 * 1024 * 1024;
     internal const int MaxLine = 8 * 1024;
@@ -46,10 +47,12 @@ public sealed class AppStderrLog : TextWriter {
 
     /// Routes <see cref="Console.Error"/> through a new log; the caller keeps it to <see cref="Stop"/> it.
     public static AppStderrLog Install(ConfigRoot config, TimeProvider time) {
-        var log = new AppStderrLog(Console.Error, config.Path(FolderName), time);
+        var log = new AppStderrLog(Console.Error, FolderIn(config), time);
         Console.SetError(log);
         return log;
     }
+
+    internal static string FolderIn(ConfigRoot config) => config.Path(FolderName);
 
     public string Path => _path;
 
