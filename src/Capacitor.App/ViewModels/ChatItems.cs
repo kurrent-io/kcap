@@ -109,7 +109,6 @@ public sealed partial class SystemNoteItem : ChatItemViewModel, IExpandableItem 
     const int PeekLength = 80;
 
     readonly string? _peek;
-    readonly string? _line;
     readonly LucideIconKind? _icon;
     bool _isExpanded;
 
@@ -118,13 +117,14 @@ public sealed partial class SystemNoteItem : ChatItemViewModel, IExpandableItem 
         Label = label;
         _icon = icon;
         // A compaction summary restates the whole conversation above it, and a subagent's report
-        // can run to pages, so both start folded. A report of one line has nothing to fold.
+        // can run to pages, so both start folded.
         if (label is AgentReportLabel or TaskNotificationLabel) {
+            // Even a note of one line folds under it, so its header carries the line rather than a
+            // bare label over a body, while the body keeps what the header can't: a line too long
+            // for it, a link, markdown the peek strips.
             var lead = LeadLine(text);
-            IsCollapsible = lead is { HasMore: true };
+            IsCollapsible = lead is not null;
             if (IsCollapsible) _peek = TextElision.End(lead!.Value.Clean, PeekLength);
-            // A note of one line says it all in its header, rather than as a body under a bare label.
-            else if (lead is { } only) _line = only.Clean;
         } else {
             IsCollapsible = label == CompactSummaryLabel;
         }
@@ -135,13 +135,10 @@ public sealed partial class SystemNoteItem : ChatItemViewModel, IExpandableItem 
     public string Text { get; }
     public string Label { get; }
 
-    /// A note that is only its label, such as an interrupt, has no body to show, and a one-line
-    /// report or task note shows its line in the header instead.
-    public bool ShowsBody => _isExpanded && _line is null && !string.IsNullOrWhiteSpace(Text);
+    /// A note that is only its label, such as an interrupt, has no body to show.
+    public bool ShowsBody => _isExpanded && !string.IsNullOrWhiteSpace(Text);
 
-    public string HeaderLabel =>
-        _line is not null ? $"{Label} · {_line}"
-        : _isExpanded || string.IsNullOrEmpty(_peek) ? Label : $"{Label} · {_peek}";
+    public string HeaderLabel => _isExpanded || string.IsNullOrEmpty(_peek) ? Label : $"{Label} · {_peek}";
     public LucideIconKind IconKind => _icon ?? ToolCategoryIcons.ForFixedLabel(Label) ?? ToolCategoryIcons.NoteIcon;
     public bool IsCollapsible { get; }
 
