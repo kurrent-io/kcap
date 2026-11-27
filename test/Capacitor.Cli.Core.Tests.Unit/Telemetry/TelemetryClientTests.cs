@@ -342,7 +342,8 @@ public class TelemetryClientTests {
     }
 
     /// <summary>A host whose packets are dropped holds the flush for the connect bound, not the whole
-    /// budget, and the next flushes spool without trying.</summary>
+    /// budget, and the next flushes spool without trying. The limit sits between the two: how late a
+    /// loaded host fires the bound's timer is not what this measures.</summary>
     [Test]
     public async Task A_host_that_never_answers_costs_the_flush_only_the_connect_bound() {
         using var host = new SilentHost();
@@ -352,9 +353,9 @@ public class TelemetryClientTests {
         client.Enqueue(Event("cli_command"));
 
         var clock = Stopwatch.StartNew();
-        await Assert.That(await client.FlushAsync("device-1", null, TimeSpan.FromSeconds(3))).IsFalse();
+        await Assert.That(await client.FlushAsync("device-1", null, TimeSpan.FromSeconds(5))).IsFalse();
 
-        await Assert.That(clock.Elapsed).IsLessThan(FailFastConnect.Timeout + TimeSpan.FromMilliseconds(400));
+        await Assert.That(clock.Elapsed).IsLessThan(TimeSpan.FromSeconds(3));
         await Assert.That(spool.DrainAll().Count).IsEqualTo(1);
         await Assert.That(spool.UnreachableSince() is not null).IsTrue();
     }

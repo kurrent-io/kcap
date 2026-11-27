@@ -158,12 +158,9 @@ public class OAuthFlowTests {
     [Test]
     public async Task RefreshWorkOSToken_returns_null_on_transport_failure() {
         // A network/timeout blip during a mid-poll refresh must degrade to null, not throw and
-        // abort provisioning. Start then stop the server so the connection is refused.
-        var server = WireMockServer.Start();
-        var url = server.Urls[0];
-        server.Stop();
-
-        using var stub = new StubHost(url);
+        // abort provisioning.
+        using var down = new RefusingPort();
+        using var stub = new StubHost(down.Url);
 
         var client = new WorkOSClient(new PlainHttpClientFactory(stub), TimeProvider.System,
             refreshTimeout: TimeSpan.FromMilliseconds(100),

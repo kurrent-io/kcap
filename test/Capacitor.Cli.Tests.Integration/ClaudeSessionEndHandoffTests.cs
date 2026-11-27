@@ -8,8 +8,8 @@ using WireMock.Server;
 namespace Capacitor.Cli.Tests.Integration;
 
 /// <summary>
-/// Real-binary proof that the Claude SessionEnd hook returns inside Claude Code's 1.5 s grace
-/// while the session-end still reaches the server. The server holds <c>/hooks/session-end</c>
+/// Real-binary proof that the Claude SessionEnd hook does not wait for the session-end it hands
+/// off, while the session-end still reaches the server. The server holds <c>/hooks/session-end</c>
 /// until the hook has exited, so the only way the POST can be answered is in a process that
 /// outlived the hook.
 /// </summary>
@@ -18,10 +18,10 @@ public class ClaudeSessionEndHandoffTests : IDisposable {
     /// hook which waited for it could not be mistaken for a slow one, as the bound below sits halfway.</summary>
     static readonly TimeSpan ServerStall = TimeSpan.FromSeconds(6);
 
-    /// <summary>What a hook that detached looks like, with room for a loaded runner's process start.
-    /// Claude Code's own grace is 1.5 s, which this stands in for — an AOT spawn on a contended CI
-    /// box spends most of that budget before the hook's first instruction runs, so measuring the
-    /// product bar here would be measuring the runner.</summary>
+    /// <summary>How long after the POST reached the server a detached hook may still be running. Counted
+    /// from the POST's arrival rather than from the spawn, so the runner's process start is not in it:
+    /// a hook that waited is still there when the stall ends, and one that detached has usually exited
+    /// before its continuation has started.</summary>
     static readonly TimeSpan ReturnsWithout = TimeSpan.FromSeconds(3);
 
     [TempDir]         public required TempDir         Tmp     { get; init; }
@@ -37,9 +37,13 @@ public class ClaudeSessionEndHandoffTests : IDisposable {
         var sid        = Guid.NewGuid().ToString("N");
         var transcript = Tmp.CreateFile("t.jsonl", """{"type":"user","uuid":"u1","message":{"role":"user","content":"hi"}}""" + "\n");
 
+        var clock = Stopwatch.StartNew();
+        var postArrivedTicks = 0L;
+
         using var hookExited = new ManualResetEventSlim();
         _server.Given(Request.Create().WithPath("/hooks/session-end").UsingPost())
             .RespondWith(Response.Create().WithCallback(_ => {
+                Interlocked.CompareExchange(ref postArrivedTicks, clock.Elapsed.Ticks, 0);
                 hookExited.Wait(ServerStall);
 
                 return new WireMock.ResponseMessage {
@@ -62,21 +66,24 @@ public class ClaudeSessionEndHandoffTests : IDisposable {
             ["reason"]          = "exit",
         }.ToJsonString();
 
-        var clock = Stopwatch.StartNew();
         using var hook = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start kcap");
         await hook.StandardInput.WriteAsync(payload);
         hook.StandardInput.Close();
         var stdout = hook.StandardOutput.ReadToEndAsync();
         var stderr = hook.StandardError.ReadToEndAsync();
         await hook.WaitForExitAsync();
-        clock.Stop();
+        var exited = clock.Elapsed;
         hookExited.Set();
+
+        // Read after the exit: a POST that had not arrived by then was not waited for at all.
+        var postArrived     = Interlocked.Read(ref postArrivedTicks) is var ticks and > 0 ? TimeSpan.FromTicks(ticks) : exited;
+        var outlivedThePost = exited - postArrived;
 
         await Assert.That(hook.ExitCode).IsEqualTo(0).Because(await stderr);
         await Assert.That(await stdout).IsEmpty();
-        // The hook returned before the stalled POST could have completed, so it cannot have waited
+        // The hook was gone before the stalled POST could have completed, so it cannot have waited
         // for it — which is the whole property, on a session with a transcript to drain.
-        await Assert.That(clock.Elapsed).IsLessThan(ReturnsWithout).Because($"stderr: {await stderr}");
+        await Assert.That(outlivedThePost).IsLessThan(ReturnsWithout).Because($"stderr: {await stderr}");
 
         // The hook is gone; the continuation's POST is answered from here on.
         var posted = await WaitForSessionEndAsync(TimeSpan.FromSeconds(20));

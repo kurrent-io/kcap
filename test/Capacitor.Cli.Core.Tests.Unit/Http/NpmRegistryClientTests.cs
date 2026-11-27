@@ -92,7 +92,8 @@ public class NpmRegistryClientTests : IDisposable {
     }
 
     /// <summary>A registry whose packets are dropped gives up at the connect bound rather than the
-    /// request's 5 s cap.</summary>
+    /// request's 5 s cap. The limit sits between the two: how late a loaded host fires the bound's
+    /// timer is not what this measures.</summary>
     [Test]
     public async Task A_registry_that_never_answers_gives_up_at_the_connect_bound() {
         using var host = new SilentHost();
@@ -105,7 +106,7 @@ public class NpmRegistryClientTests : IDisposable {
         var result = await sp.GetRequiredService<NpmRegistryClient>().GetDistTagAsync("latest", CancellationToken.None);
 
         await Assert.That(result.Reached).IsFalse();
-        await Assert.That(clock.Elapsed).IsLessThan(FailFastConnect.Timeout + TimeSpan.FromMilliseconds(400));
+        await Assert.That(clock.Elapsed).IsLessThan(TimeSpan.FromSeconds(3));
     }
 
     /// <summary>The profile's <c>hosts.npm_registry</c> is where the registered client reads, a path

@@ -1,6 +1,7 @@
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Auth;
+using Capacitor.Cli.Core.Http;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -27,8 +28,10 @@ public sealed class StatusServerProbeTests : IDisposable {
                 .WithHeader("Content-Type", "application/json")
                 .WithBody(body));
 
-    Task<StatusCommand.ServerReach> ProbeAsync(string? url) =>
-        StatusCommand.ProbeServerAsync(new FixedCapacitorHttpClient(), url, Config.Root, TimeProvider.System);
+    Task<StatusCommand.ServerReach> ProbeAsync(string? url) => ProbeAsync(new FixedCapacitorHttpClient(), url);
+
+    Task<StatusCommand.ServerReach> ProbeAsync(ICapacitorHttpClient http, string? url) =>
+        StatusCommand.ProbeServerAsync(http, url, Config.Root, TimeProvider.System);
 
     [Test]
     [Arguments(AuthProvider.None)]
@@ -81,10 +84,10 @@ public sealed class StatusServerProbeTests : IDisposable {
 
     [Test]
     public async Task An_unreachable_server_is_described_by_its_last_answer_on_disk() {
-        AuthProviderCache.Set(Url, AuthProvider.None, Config.Root, TimeProvider.System);
-        _server.Stop();
+        using var down = new RefusingPort();
+        AuthProviderCache.Set(down.Url, AuthProvider.None, Config.Root, TimeProvider.System);
 
-        var reach = await ProbeAsync(Url);
+        var reach = await ProbeAsync(down.Url);
 
         await Assert.That(reach.Reachable).IsFalse();
         await Assert.That(reach.Provider).IsEqualTo(AuthProvider.None);
@@ -94,11 +97,16 @@ public sealed class StatusServerProbeTests : IDisposable {
     // later failed probe falls back on: nothing about setup changed in between.
     [Test]
     public async Task An_answer_is_remembered_for_a_later_outage() {
+        // One address, answered and then refused: the outage is the same server going away, and the
+        // port it listened on is not this test's to keep once it stops.
+        const string address = "http://kcap.test";
+        using var down = new RefusingPort();
+        using var up   = new StubHost(Url);
+        using var gone = new StubHost(down.Url);
         StubAuthConfig(200, $$"""{"provider":"{{AuthProvider.None}}"}""");
-        await ProbeAsync(Url);
-        _server.Stop();
+        await ProbeAsync(new FixedCapacitorHttpClient(up), address);
 
-        var reach = await ProbeAsync(Url);
+        var reach = await ProbeAsync(new FixedCapacitorHttpClient(gone), address);
 
         await Assert.That(reach.Reachable).IsFalse();
         await Assert.That(reach.Provider).IsEqualTo(AuthProvider.None);
@@ -119,9 +127,9 @@ public sealed class StatusServerProbeTests : IDisposable {
 
     [Test]
     public async Task An_unreachable_server_nobody_ever_asked_has_no_known_provider() {
-        _server.Stop();
+        using var down = new RefusingPort();
 
-        var reach = await ProbeAsync(Url);
+        var reach = await ProbeAsync(down.Url);
 
         await Assert.That(reach.Reachable).IsFalse();
         await Assert.That(reach.Provider).IsNull();

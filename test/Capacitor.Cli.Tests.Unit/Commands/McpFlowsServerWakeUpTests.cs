@@ -218,11 +218,9 @@ public class McpFlowsServerWakeUpTests {
     /// than told to schedule again.</summary>
     [Test]
     public async Task A_schedule_with_no_answer_says_it_may_have_been_recorded() {
-        using var dead = WireMockServer.Start();
-        var url = dead.Url!;
-        dead.Stop();
+        using var dead = new RefusingPort();
 
-        var call = await CallAsync("schedule_wakeup", """{"delay_minutes":5,"prompt":"p"}""", url: url);
+        var call = await CallAsync("schedule_wakeup", """{"delay_minutes":5,"prompt":"p"}""", url: dead.Url);
 
         await Assert.That(call.IsError).IsTrue();
         await Assert.That(call.Text).Contains("may or may not have been scheduled");
