@@ -28,7 +28,8 @@ public sealed class RepoInstructionsUploader(
 
     internal static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(1);
 
-    static readonly TimeSpan FirstBackoff = TimeSpan.FromSeconds(10);
+    // Settable so a test can run the real clock through a retry.
+    internal TimeSpan FirstBackoff { get; init; } = TimeSpan.FromSeconds(10);
 
     // Half the watcher's heartbeat threshold: the post runs inline in the watch loop.
     internal static readonly TimeSpan PostBudget = TimeSpan.FromSeconds(10);
@@ -46,9 +47,18 @@ public sealed class RepoInstructionsUploader(
 
     public bool Done { get; private set; }
 
+    /// <summary>Every attempt for <paramref name="repository"/>, waiting out each retry, until one ends it or
+    /// <paramref name="ct"/> does. Meant to run beside the watch loop, never in it.</summary>
+    public async Task RunAsync(RepositoryPayload repository, string? root, CancellationToken ct) {
+        while (!Done) {
+            if (_nextAttempt - time.GetUtcNow() is var wait && wait > TimeSpan.Zero) await Task.Delay(wait, time, ct);
+            await TickAsync(repository, root, () => { }, ct);
+        }
+    }
+
     /// <param name="repository">The session's primary repository; nothing happens until it is detected.</param>
     /// <param name="root">The checkout it was detected in.</param>
-    public async Task TickAsync(RepositoryPayload? repository, string? root, Action beat, CancellationToken ct) {
+    internal async Task TickAsync(RepositoryPayload? repository, string? root, Action beat, CancellationToken ct) {
         if (Done || time.GetUtcNow() < _nextAttempt || repository is not { Owner: { } owner, RepoName: { } name }) return;
 
         try {
@@ -142,7 +152,7 @@ public sealed class RepoInstructionsUploader(
         return delay > TimeSpan.Zero ? delay.Value : DefaultRetryAfter;
     }
 
-    internal static TimeSpan Backoff(int attempt) {
+    TimeSpan Backoff(int attempt) {
         var delay = FirstBackoff * Math.Pow(2, Math.Min(attempt, 10));
         return delay < MaxBackoff ? delay : MaxBackoff;
     }

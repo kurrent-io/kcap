@@ -143,6 +143,19 @@ public class RepoInstructionsReaderTests {
     }
 
     [Test]
+    public async Task A_file_holding_a_NUL_is_skipped_as_not_text_and_the_rest_kept() {
+        var clone = CloneOf(up => {
+            Blob(up, "AGENTS.md", "binary\0data");
+            Write(up, "CLAUDE.md", "text\n");
+        });
+
+        var set = await ReadAsync(clone);
+
+        await Assert.That(set.Files.Select(f => f.Path)).IsEquivalentTo(new[] { "CLAUDE.md" });
+        await Assert.That(set.Skipped).IsEquivalentTo(new[] { "AGENTS.md: not text" });
+    }
+
+    [Test]
     public async Task Imports_past_the_file_count_are_not_read() {
         var names = Enumerable.Range(1, RepoInstructionsReader.MaxFiles + 2).Select(i => $"docs/{i:00}.md").ToList();
         var clone = CloneOf(up => {

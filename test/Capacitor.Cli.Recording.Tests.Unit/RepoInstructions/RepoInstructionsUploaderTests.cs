@@ -120,6 +120,38 @@ public class RepoInstructionsUploaderTests : IDisposable {
     }
 
     [Test]
+    public async Task A_server_error_other_than_503_ends_the_attempt() {
+        Answer(500);
+        var uploader = Uploader();
+
+        await TickAsync(uploader);
+        _time.Advance(RepoInstructionsUploader.MaxBackoff);
+        await TickAsync(uploader);
+
+        await Assert.That(uploader.Done).IsTrue();
+        await Assert.That(Posts).IsEqualTo(1);
+        await Assert.That(_log.Single()).Contains("HTTP 500");
+    }
+
+    /// <summary>Run beside the watch loop, an upload waits out its own retries and ends once the server takes it.</summary>
+    [Test]
+    public async Task A_run_waits_out_an_unknown_repository_until_the_server_takes_the_upload() {
+        _server.Given(Request.Create().WithPath("/api/repos/instructions").UsingPost()).InScenario("projected").WillSetStateTo("known")
+            .RespondWith(Response.Create().WithStatusCode(503));
+        _server.Given(Request.Create().WithPath("/api/repos/instructions").UsingPost()).InScenario("projected").WhenStateIs("known")
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("""{"status":"stored"}"""));
+        var uploader = new RepoInstructionsUploader(Session, _server.Url!, Config.Root, () => null, new FixedCapacitorHttpClient(), Cache, TimeProvider.System,
+            _log.Add, read: (_, _, _) => Task.FromResult(RepoInstructionsRead.Of(Set))) { FirstBackoff = TimeSpan.FromMilliseconds(50) };
+
+        var run = uploader.RunAsync(Repo, Tmp.Path, CancellationToken.None);
+        await run.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System);
+
+        await Assert.That(run.IsCompletedSuccessfully).IsTrue();
+        await Assert.That(Posts).IsEqualTo(2);
+        await Assert.That(Cache.Read(_server.Url!, Hash)).IsEqualTo(Set.Digest);
+    }
+
+    [Test]
     public async Task The_profile_opt_out_reads_and_sends_nothing() {
         Answer(200);
         var uploader = Uploader(new Profile { DisableRepoInstructionsUpload = true });

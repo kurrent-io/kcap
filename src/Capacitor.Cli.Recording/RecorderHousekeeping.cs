@@ -12,6 +12,7 @@ using Capacitor.Cli.Core.Harness.Grok;
 using Capacitor.Cli.Core.Harness.Muse;
 using Capacitor.Cli.Core.Harness.Titles;
 using Capacitor.Cli.Core.Http;
+using Capacitor.Cli.Core.RepoInstructions;
 using Capacitor.Cli.Core.RepoEvidence;
 using Capacitor.Cli.Core.Workspace;
 using Capacitor.Cli.Recording.Harness.Antigravity;
@@ -44,7 +45,13 @@ public sealed class RecorderHousekeeping(
 
     IHarnessTitleStore? _titleStore;
 
-    RepoInstructionsUploader? _repoInstructions;
+    // The session's one upload, beside the watch loop: its git reads and retries must never hold up a drain.
+    Task? _repoInstructionsRun;
+
+    /// <summary>Reads the instruction files in place of the checkout, for a test.</summary>
+    internal Func<string, Action, CancellationToken, Task<RepoInstructionsRead>>? ReadRepoInstructions { get; init; }
+
+    internal Task? RepoInstructionsRun => _repoInstructionsRun;
 
     readonly List<MistralVibeSubagent> _vibeSubagents = [];
     readonly GrokSubagentTracker       _grokSubagents = new();
@@ -107,11 +114,6 @@ public sealed class RecorderHousekeeping(
 
         if (skipTitle) {
             state.TitleGenerated = true;
-        }
-
-        if (agentId is null) {
-            _repoInstructions = new RepoInstructionsUploader(sessionId, Url, config, () => profiles.Effective, http,
-                RepoInstructionsDigestCache.Default(config), time, _log, carry: post => CarriedAsync(post));
         }
 
         // Detect repository info upfront if cwd is provided (session watchers only, not agents)
@@ -182,7 +184,8 @@ public sealed class RecorderHousekeeping(
             state.LastRepoDetection = time.GetUtcNow();
         }
 
-        if (_repoInstructions is { Done: false } uploader) await uploader.TickAsync(state.Repository, PrimaryRoot(state, cwd), _beat, ct);
+        if (agentId is null && _repoInstructionsRun is null && state.Repository is { Owner: not null, RepoName: not null } repository)
+            _repoInstructionsRun = StartRepoInstructionsUpload(sessionId, repository, PrimaryRoot(state, cwd), ct);
 
         if (state.Commits is not CommitObservation.Uncovered && time.GetUtcNow() - state.LastCoverageCheck > TimeSpan.FromSeconds(60)) {
             state.Commits           = state.Commits.Rechecked(await host.CoversCommitsAsync(sessionId, cwd));
@@ -336,6 +339,21 @@ public sealed class RecorderHousekeeping(
         var knownRoots = secondaryRoots.Roots.Count;
         subagentCheckouts.FeedInto(secondaryRoots, final);
         if (secondaryRoots.Roots.Count > knownRoots) log($"Probing secondary checkouts for a PR: {string.Join(", ", secondaryRoots.Roots)}");
+    }
+
+    Task StartRepoInstructionsUpload(string sessionId, RepositoryPayload repository, string? root, CancellationToken ct) {
+        var uploader = new RepoInstructionsUploader(sessionId, Url, config, () => profiles.Effective, http,
+            RepoInstructionsDigestCache.Default(config), time, _log, carry: post => CarriedAsync(post), read: ReadRepoInstructions);
+
+        return Task.Run(async () => {
+            try {
+                await uploader.RunAsync(repository, root, ct);
+            } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+                // The recorder is stopping; nothing was cached, so the next session tries again.
+            } catch (Exception ex) {
+                _log($"Repo instructions not uploaded: {ex.Message}");
+            }
+        }, CancellationToken.None);
     }
 
     internal static string? PrimaryRoot(WatchState state, string? cwd) =>
