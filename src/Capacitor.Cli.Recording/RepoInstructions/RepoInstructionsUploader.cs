@@ -75,6 +75,9 @@ public sealed class RepoInstructionsUploader(
 
         if (current?.DisableRepoInstructionsUpload is true) return Finish("Repo instructions not uploaded: disable_repo_instructions_upload is set");
         if (root is null) return Finish($"Repo instructions not uploaded for {label}: no checkout to read them from");
+        // The server files the upload under the session's repository, so files from another checkout must not be sent.
+        if (!GitRepoKey.ScopeKeys(root, config, serverUrl).Contains($"{owner}/{name}", StringComparer.OrdinalIgnoreCase))
+            return Finish($"Repo instructions not uploaded for {label}: {root} is not a checkout of it");
         if (RepoScope.IsOutOfScope(GitRepoKey.ScopeKeys(root, config, serverUrl), GitRepoKey.ExclusionKeys(root, config), current?.AllowedRepos, current?.ExcludedRepos))
             return Finish($"Repo instructions not uploaded for {label}: the repository is outside allowed_repos or in excluded_repos");
 

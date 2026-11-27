@@ -14,7 +14,7 @@ public static partial class RepoInstructionImports {
         foreach (var line in content.Split('\n')) {
             if (FenceMarker(line) is var (marker, length)) {
                 if (fence is null) (fence, fenceLength) = (marker, length);
-                else if (marker == fence && length >= fenceLength) fence = null;
+                else if (marker == fence && length >= fenceLength && line.TrimStart(' ')[length..].Trim(' ', '\t', '\r').Length == 0) fence = null;
                 continue;
             }
             if (fence is not null) continue;

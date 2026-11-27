@@ -34,6 +34,15 @@ public class RepoInstructionsUploaderTests : IDisposable {
 
     RepoInstructionsDigestCache Cache => RepoInstructionsDigestCache.Default(Config.Root);
 
+    // A checkout of acme/widgets; the read is faked, so nothing is committed.
+    string Checkout => field ??= CheckoutOf("https://github.com/acme/widgets.git", "widgets");
+
+    string CheckoutOf(string origin, string name) {
+        var repo = GitRepo.InitIn(Tmp.CreateDir(name));
+        repo.AddRemote(origin);
+        return repo.Path;
+    }
+
     void Answer(int status, string body = "{}", string? retryAfter = null) {
         var response = Response.Create().WithStatusCode(status).WithBody(body);
         if (retryAfter is not null) response = response.WithHeader("Retry-After", retryAfter);
@@ -48,7 +57,7 @@ public class RepoInstructionsUploaderTests : IDisposable {
             return Task.FromResult(RepoInstructionsRead.Of(Set));
         });
 
-    Task TickAsync(RepoInstructionsUploader uploader, RepositoryPayload? repo = null) => uploader.TickAsync(repo ?? Repo, Tmp.Path, () => { }, CancellationToken.None);
+    Task TickAsync(RepoInstructionsUploader uploader, RepositoryPayload? repo = null) => uploader.TickAsync(repo ?? Repo, Checkout, () => { }, CancellationToken.None);
 
     [Test]
     public async Task A_stored_upload_is_cached_so_the_next_session_sends_nothing() {
@@ -143,12 +152,33 @@ public class RepoInstructionsUploaderTests : IDisposable {
         var uploader = new RepoInstructionsUploader(Session, _server.Url!, Config.Root, () => null, new FixedCapacitorHttpClient(), Cache, TimeProvider.System,
             _log.Add, read: (_, _, _) => Task.FromResult(RepoInstructionsRead.Of(Set))) { FirstBackoff = TimeSpan.FromMilliseconds(50) };
 
-        var run = uploader.RunAsync(Repo, Tmp.Path, CancellationToken.None);
+        var run = uploader.RunAsync(Repo, Checkout, CancellationToken.None);
         await run.WaitAsync(TimeSpan.FromSeconds(30), TimeProvider.System);
 
         await Assert.That(run.IsCompletedSuccessfully).IsTrue();
         await Assert.That(Posts).IsEqualTo(2);
         await Assert.That(Cache.Read(_server.Url!, Hash)).IsEqualTo(Set.Digest);
+    }
+
+    /// <summary>The server files an upload under the session's repository, so another checkout's files are never sent.</summary>
+    [Test]
+    public async Task A_root_that_is_not_a_checkout_of_the_repository_sends_nothing() {
+        Answer(200);
+        var uploader = Uploader();
+
+        await uploader.TickAsync(Repo, CheckoutOf("https://github.com/acme/other.git", "other"), () => { }, CancellationToken.None);
+
+        await Assert.That(uploader.Done).IsTrue();
+        await Assert.That(_reads).IsEqualTo(0);
+        await Assert.That(Posts).IsEqualTo(0);
+    }
+
+    [Test]
+    public async Task The_cache_folds_scheme_and_host_case_but_keeps_the_paths() {
+        Cache.Write("https://kcap.example/Team", Hash, "d1");
+
+        await Assert.That(Cache.Read("HTTPS://KCAP.example/Team/", Hash)).IsEqualTo("d1");
+        await Assert.That(Cache.Read("https://kcap.example/team", Hash)).IsNull();
     }
 
     [Test]
@@ -168,7 +198,7 @@ public class RepoInstructionsUploaderTests : IDisposable {
         Answer(200);
         var uploader = Uploader();
 
-        await uploader.TickAsync(null, Tmp.Path, () => { }, CancellationToken.None);
+        await uploader.TickAsync(null, Checkout, () => { }, CancellationToken.None);
 
         await Assert.That(uploader.Done).IsFalse();
         await Assert.That(_reads).IsEqualTo(0);

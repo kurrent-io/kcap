@@ -78,7 +78,9 @@ public class RepoInstructionsReaderTests {
             Write(up, "CLAUDE.md", "claude\n");
         });
         var blob = clone.RevParse("origin/HEAD:CLAUDE.md");
-        File.Delete(Path.Combine(clone.Path, ".git", "objects", blob[..2], blob[2..]));
+        var loose = Path.Combine(clone.Path, ".git", "objects", blob[..2], blob[2..]);
+        File.SetAttributes(loose, FileAttributes.Normal);
+        File.Delete(loose);
 
         var read = await RepoInstructionsReader.ReadAsync(clone, TimeProvider.System, CancellationToken.None);
 
@@ -177,6 +179,14 @@ public class RepoInstructionsReaderTests {
         });
 
         await Assert.That((await ReadAsync(clone)).OverLimits).IsTrue();
+    }
+
+    /// <summary>A closing fence carries nothing but whitespace after its marker, so a fence line with a label stays inside.</summary>
+    [Test]
+    public async Task A_fence_line_with_a_label_does_not_close_the_fence() {
+        var imports = RepoInstructionImports.Of("```text\n```example\n@docs/inside.md\n``` \t\n@docs/outside.md\n");
+
+        await Assert.That(imports).IsEquivalentTo(new[] { "docs/outside.md" });
     }
 
     [Test]

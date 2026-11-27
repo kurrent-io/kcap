@@ -9,9 +9,11 @@ public sealed class LocalRepoCheckouts(Func<Task<string[]>> knownRepos, Func<str
     readonly Func<string, string?> _readOriginUrl = readOriginUrl ?? GitRemoteReader.ReadOriginUrl;
     readonly ConcurrentDictionary<string, string?> _hashes = new(StringComparer.Ordinal);
 
-    public async Task<string?> FindAsync(string repoHash) {
-        var paths = await knownRepos().ConfigureAwait(false);
-        return await Task.Run(() => paths.FirstOrDefault(path => _hashes.GetOrAdd(path, HashOf) == repoHash)).ConfigureAwait(false);
+    public Task<string?> FindAsync(string repoHash) => FindAsync(repoHash, CancellationToken.None);
+
+    public async Task<string?> FindAsync(string repoHash, CancellationToken ct) {
+        var paths = await knownRepos().WaitAsync(ct).ConfigureAwait(false);
+        return await Task.Run(() => paths.FirstOrDefault(path => _hashes.GetOrAdd(path, HashOf) == repoHash), ct).WaitAsync(ct).ConfigureAwait(false);
     }
 
     string? HashOf(string path) {

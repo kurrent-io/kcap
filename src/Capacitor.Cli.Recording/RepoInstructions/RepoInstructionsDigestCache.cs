@@ -39,8 +39,14 @@ public sealed class RepoInstructionsDigestCache(string root) {
         }
     }
 
+    // Scheme and host fold case; a base path is kept as given, since two paths differing in case can be two servers.
+    internal static string ServerKey(string serverUrl) =>
+        Uri.TryCreate(serverUrl.TrimEnd('/'), UriKind.Absolute, out var uri)
+            ? $"{uri.Scheme}://{uri.Authority.ToLowerInvariant()}{uri.AbsolutePath.TrimEnd('/')}"
+            : serverUrl.TrimEnd('/');
+
     string PathFor(string serverUrl, string repoHash) {
-        var key = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{serverUrl.TrimEnd('/').ToLowerInvariant()}\n{repoHash}")))[..32];
+        var key = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes($"{ServerKey(serverUrl)}\n{repoHash}")))[..32];
         return Path.Combine(root, key);
     }
 }

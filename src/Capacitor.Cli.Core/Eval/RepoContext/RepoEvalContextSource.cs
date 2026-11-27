@@ -22,7 +22,7 @@ public sealed class RepoEvalContextSource(LocalRepoCheckouts checkouts, TimeProv
             CancellationToken ct) {
         try {
             if (await RepoHashAsync(client, baseUrl, sessionId, ct) is not { } hash) return [];
-            if (await checkouts.FindAsync(hash) is not { } root) {
+            if (await checkouts.FindAsync(hash, ct) is not { } root) {
                 observer.OnInfo("no local checkout of the session's repository; judging without its instructions");
                 return [];
             }

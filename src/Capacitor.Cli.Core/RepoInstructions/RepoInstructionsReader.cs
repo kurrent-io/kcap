@@ -47,7 +47,11 @@ public static class RepoInstructionsReader {
         string? failure = null;
 
         if (await GitAsync("symbolic-ref", "--quiet", "refs/remotes/origin/HEAD") is null) return RepoInstructionsRead.Not("origin/HEAD is not set");
-        if (await GitAsync("ls-tree", "-z", "-l", DefaultBranch) is not { } listing) return RepoInstructionsRead.Not("origin/HEAD could not be listed");
+        // One commit for every later call, so a fetch during the read cannot mix files from two.
+        if (await GitAsync("rev-parse", "--verify", "--end-of-options", $"{DefaultBranch}^{{commit}}") is not { } head)
+            return RepoInstructionsRead.Not("origin/HEAD could not be resolved");
+        var commit = Utf8.GetString(head).Trim();
+        if (await GitAsync("ls-tree", "-z", "-l", commit) is not { } listing) return RepoInstructionsRead.Not("origin/HEAD could not be listed");
 
         var blobs   = new HashSet<string>(StringComparer.Ordinal);
         var skipped = new List<string>();
@@ -62,7 +66,7 @@ public static class RepoInstructionsReader {
         var wanted = named.Take(MaxImportCandidates).ToList();
         var listed = new Dictionary<string, TreeEntry>(StringComparer.Ordinal);
         foreach (var chunk in wanted.Chunk(ListChunk))
-            if (await MustAsync(["--literal-pathspecs", "ls-tree", "-z", "-l", DefaultBranch, "--", ..chunk]) is { } found)
+            if (await MustAsync(["--literal-pathspecs", "ls-tree", "-z", "-l", commit, "--", ..chunk]) is { } found)
                 foreach (var entry in ParseTree(found)) listed[entry.Path] = entry;
             else return RepoInstructionsRead.Not(failure!);
 
@@ -93,11 +97,11 @@ public static class RepoInstructionsReader {
         async Task<RepoInstructionFile?> ReadEntryAsync(TreeEntry entry, string path) {
             var target = entry;
             if (entry.IsSymlink) {
-                if (await MustAsync("show", $"{DefaultBranch}:{entry.Path}") is not { } link) return null;
+                if (await MustAsync("show", $"{commit}:{entry.Path}") is not { } link) return null;
                 var parent = entry.Path.LastIndexOf('/') is var slash and > 0 ? entry.Path[..slash] + "/" : "";
                 var linked = Utf8.GetString(link).TrimEnd('\n');
                 if (linked.StartsWith('/') || RepoInstructionImports.Normalize(parent + linked) is not { } targetPath) return null;
-                if (await MustAsync("--literal-pathspecs", "ls-tree", "-z", "-l", DefaultBranch, "--", targetPath) is not { } found || ParseTree(found) is not [var resolved]) return null;
+                if (await MustAsync("--literal-pathspecs", "ls-tree", "-z", "-l", commit, "--", targetPath) is not { } found || ParseTree(found) is not [var resolved]) return null;
                 target = resolved;
             }
             if (!target.IsFile || !blobs.Add(target.Sha)) return null;
@@ -105,7 +109,7 @@ public static class RepoInstructionsReader {
                 skipped.Add($"{path}: larger than {MaxFileBytes} bytes");
                 return null;
             }
-            if (await MustAsync("show", $"{DefaultBranch}:{target.Path}") is not { } bytes) return null;
+            if (await MustAsync("show", $"{commit}:{target.Path}") is not { } bytes) return null;
 
             if (Array.IndexOf(bytes, (byte)0) >= 0) {
                 skipped.Add($"{path}: not text");
