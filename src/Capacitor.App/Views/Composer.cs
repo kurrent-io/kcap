@@ -12,12 +12,13 @@ public sealed class Composer {
 
     internal Task? PendingIntakeForTesting => _attachments?.PendingIntakeForTesting;
 
-    /// Call before the host adds its own KeyDown handlers to the input: the picker must take Enter first.
-    /// Attachments follow the card's visual tree, so a view swapped out and back comes back with them.
+    /// <paramref name="card"/> must contain <paramref name="input"/>: the picker takes its keys there, ahead of the
+    /// host's own handlers on the input. Attachments follow the card's visual tree, so a view swapped out and back
+    /// comes back with them.
     public static Composer Attach(Control card, TextBox input, Button? pick) {
         var composer = new Composer();
         IComposer? Current() => input.DataContext as IComposer;
-        ComposerPickerPopup.Attach(input, () => Current()?.Picker);
+        ComposerPickerPopup.Attach(card, input, () => Current()?.Picker);
         card.AttachedToVisualTree += (_, _) =>
             composer._attachments ??= AttachmentDropPaste.Attach(card, input, pick, Current, TimeProvider.System);
         card.DetachedFromVisualTree += (_, _) => {
