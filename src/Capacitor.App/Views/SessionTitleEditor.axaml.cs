@@ -8,8 +8,9 @@ using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
 
-/// A session header's title and its in-place rename. The field marks its own presses handled so
-/// a header that drags the window on a blank press never starts a drag from inside it.
+/// A session header's title and its in-place rename. A click on a renamable title opens the field, as
+/// the pencil does. The title and the field mark their presses handled so a header that drags the
+/// window on a blank press never starts a drag from inside them; a title that can't be renamed still drags.
 public partial class SessionTitleEditor : UserControl {
     SessionTitleEditorViewModel? _model;
 
@@ -17,6 +18,7 @@ public partial class SessionTitleEditor : UserControl {
         InitializeComponent();
         TitleInput.AddHandler(KeyDownEvent, OnInputKeyDown, RoutingStrategies.Tunnel);
         TitleInput.AddHandler(PointerPressedEvent, (_, e) => e.Handled = true, RoutingStrategies.Bubble, handledEventsToo: true);
+        TitleText.PointerPressed += OnTitlePressed;
         DataContextChanged += (_, _) => {
             if (_model is not null) _model.PropertyChanged -= OnModelChanged;
             _model = DataContext as SessionTitleEditorViewModel;
@@ -34,6 +36,14 @@ public partial class SessionTitleEditor : UserControl {
             TitleInput.Focus();
             if (entering) TitleInput.SelectAll();
         }, DispatcherPriority.Loaded);
+    }
+
+    void OnTitlePressed(object? sender, PointerPressedEventArgs e) {
+        if (_model is not { ShowsPencil: true }) return;
+        if (e.GetCurrentPoint(TitleText).Properties.PointerUpdateKind != PointerUpdateKind.LeftButtonPressed) return;
+        e.Handled = true;
+        ICommand command = _model.BeginEditCommand;
+        if (command.CanExecute(null)) command.Execute(null);
     }
 
     void OnInputKeyDown(object? sender, KeyEventArgs e) {

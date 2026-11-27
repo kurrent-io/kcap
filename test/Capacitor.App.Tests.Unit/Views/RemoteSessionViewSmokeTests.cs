@@ -730,18 +730,25 @@ public class RemoteSessionViewSmokeTests {
                     await Assert.That(host.View.GetVisualDescendants().OfType<WorkContextView>().Single().DataContext)
                     .IsSameReferenceAs(host.Vm.WorkContext);
 
-                    // Blank padding needs a hit-testable background; title text must bubble too.
-                    var title = host.View.FindControl<SessionTitleEditor>("RemoteTitle")!.FindControl<TextBlock>("TitleText")!;
-                    var titlePoint = title.TranslatePoint(new Point(4, title.Bounds.Height / 2), host.Window)!.Value;
-                    foreach (var point in new[] { new Point(200, 8), titlePoint }) {
-                        platformWindow.MouseDown(point, MouseButton.Left);
-                        platformWindow.MouseUp(point, MouseButton.Left);
-                    }
-                    await Assert.That(recorder.Moves).IsEqualTo(2);
+                    // Blank padding needs a hit-testable background.
+                    platformWindow.MouseDown(new Point(200, 8), MouseButton.Left);
+                    platformWindow.MouseUp(new Point(200, 8), MouseButton.Left);
+                    await Assert.That(recorder.Moves).IsEqualTo(1);
 
                     platformWindow.MouseDown(new Point(200, 8), MouseButton.Right);
                     platformWindow.MouseUp(new Point(200, 8), MouseButton.Right);
-                    await Assert.That(recorder.Moves).IsEqualTo(2);
+                    await Assert.That(recorder.Moves).IsEqualTo(1);
+
+                    // The owner's title is a rename target, so a press on it opens the field rather than dragging.
+                    var editor = host.View.FindControl<SessionTitleEditor>("RemoteTitle")!;
+                    var title = editor.FindControl<TextBlock>("TitleText")!;
+                    var titlePoint = title.TranslatePoint(new Point(4, title.Bounds.Height / 2), host.Window)!.Value;
+                    platformWindow.MouseDown(titlePoint, MouseButton.Left);
+                    platformWindow.MouseUp(titlePoint, MouseButton.Left);
+                    await Assert.That(recorder.Moves).IsEqualTo(1);
+                    await host.SettleUntilAsync(() => editor.FindControl<TextBox>("TitleInput")!.IsEffectivelyVisible, "the field");
+                    await host.Vm.TitleEditor.CancelCommand.Execute();
+                    host.Settle();
 
                     var terminal = host.View.FindControl<Button>("TerminalTabButton")!;
                     var buttonPoint = terminal.TranslatePoint(new Point(terminal.Bounds.Width / 2, terminal.Bounds.Height / 2), host.Window)!.Value;
@@ -749,7 +756,7 @@ public class RemoteSessionViewSmokeTests {
                     platformWindow.MouseUp(buttonPoint, MouseButton.Left);
                     host.Settle();
                     await Assert.That(host.Vm.IsTerminalActive).IsTrue();
-                    await Assert.That(recorder.Moves).IsEqualTo(2);
+                    await Assert.That(recorder.Moves).IsEqualTo(1);
                 } finally {
                     await host.Vm.TeardownAsync();
                 }

@@ -866,6 +866,51 @@ public class WorkspaceViewSmokeTests {
         });
     }
 
+    /// A click on the title itself opens the field with the whole title selected, as the pencil does.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Clicking_the_title_opens_the_editor() {
+        await RunOnUiAsync(async () => {
+            var (window, vm, _) = await ShowRenamableAsync();
+            var title = Find<TextBlock>(window, "TitleText")!;
+
+            window.MouseDown(CenterOf(title, window), MouseButton.Left);
+            window.MouseUp(CenterOf(title, window), MouseButton.Left);
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            Dispatcher.UIThread.RunJobs();
+
+            var input = Find<TextBox>(window, "TitleInput")!;
+            await Assert.That(input.IsEffectivelyVisible).IsTrue();
+            await Assert.That(input.IsFocused).IsTrue();
+            await Assert.That(input.SelectedText).IsEqualTo("Old name");
+
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+            await vm.TeardownAsync();
+        });
+    }
+
+    /// A right click on the title leaves it read-only.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task A_right_click_on_the_title_does_not_open_the_editor() {
+        await RunOnUiAsync(async () => {
+            var (window, vm, _) = await ShowRenamableAsync();
+            var title = Find<TextBlock>(window, "TitleText")!;
+
+            window.MouseDown(CenterOf(title, window), MouseButton.Right);
+            window.MouseUp(CenterOf(title, window), MouseButton.Right);
+            Dispatcher.UIThread.RunJobs();
+
+            await Assert.That(vm.TitleEditor.IsEditing).IsFalse();
+
+            window.Close();
+            Dispatcher.UIThread.RunJobs();
+            await vm.TeardownAsync();
+        });
+    }
+
     /// Escape leaves the field without a call, and the title is what it was.
     [Test]
     [NotInParallel("AvaloniaSession")]
@@ -904,19 +949,21 @@ public class WorkspaceViewSmokeTests {
             var view = (WorkspaceView)window.Content!;
             view.AddHandler(InputElement.PointerPressedEvent, (_, e) => reached.Add((e.Source as Control)?.Name ?? "?"));
 
-            // The probe is live: a press on the read-only title is a header press.
-            var title = Find<TextBlock>(window, "TitleText")!;
-            window.MouseDown(CenterOf(title, window), MouseButton.Left);
-            window.MouseUp(CenterOf(title, window), MouseButton.Left);
+            // The probe is live: a press on blank header space is a header press.
+            var header = Find<Border>(window, "SessionHeader")!;
+            var blank = header.TranslatePoint(new Point(header.Bounds.Width / 2, 4), window)!.Value;
+            window.MouseDown(blank, MouseButton.Left);
+            window.MouseUp(blank, MouseButton.Left);
             await Assert.That(reached).IsNotEmpty();
             reached.Clear();
 
-            var pencil = Find<Button>(window, "RenameButton")!;
-            window.MouseDown(CenterOf(pencil, window), MouseButton.Left);
-            window.MouseUp(CenterOf(pencil, window), MouseButton.Left);
+            var title = Find<TextBlock>(window, "TitleText")!;
+            window.MouseDown(CenterOf(title, window), MouseButton.Left);
+            window.MouseUp(CenterOf(title, window), MouseButton.Left);
             Dispatcher.UIThread.RunJobs();
             window.UpdateLayout();
             Dispatcher.UIThread.RunJobs();
+            await Assert.That(vm.TitleEditor.IsEditing).IsTrue();
 
             foreach (var name in new[] { "TitleInput", "CancelRenameButton" }) {
                 var target = Find<Control>(window, name)!;
