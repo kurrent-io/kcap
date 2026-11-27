@@ -162,6 +162,7 @@ public class RecorderHousekeepingTests {
     public async Task A_repo_instructions_read_that_has_not_finished_holds_up_no_drain() {
         using var server  = Answering("/hooks/harness-title", 400);
         using var repo    = GitRepo.CreateWithCommit();
+        repo.AddRemote("https://github.com/acme/widgets.git");
         var       reading = new TaskCompletionSource<RepoInstructionsRead>(TaskCreationOptions.RunContinuationsAsynchronously);
         var housekeeping = new RecorderHousekeeping(
             new RecordingSource(Session, null, CreateParentLog(), "claude", repo.Path), skipTitle: false, parentPid: null, _host,
