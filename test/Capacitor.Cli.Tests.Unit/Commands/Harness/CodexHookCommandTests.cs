@@ -409,7 +409,7 @@ public class CodexHookCommandTests : IDisposable {
     const string EndingDashless = "019e032205fc7570be6575719c3ea861";
 
     static string SessionEndPayload(string? transcript, string extra = "") =>
-        $$"""{"hook_event_name":"SessionEnd","session_id":"{{EndingSession}}","transcript_path":{{(transcript is null ? "null" : $"\"{transcript}\"")}},"cwd":"/tmp","reason":"other"{{extra}}}""";
+        $$"""{"hook_event_name":"SessionEnd","session_id":"{{EndingSession}}","transcript_path":{{JsonSerializer.Serialize(transcript)}},"cwd":"/tmp","reason":"other"{{extra}}}""";
 
     string Rollout() => Config.CreateFile("rollout.jsonl", "{}\n");
 
