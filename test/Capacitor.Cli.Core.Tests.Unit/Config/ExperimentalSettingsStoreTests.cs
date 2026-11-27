@@ -85,6 +85,42 @@ public class ExperimentalSettingsStoreTests {
     }
 
     [Test]
+    public async Task Fingerprint_without_a_write_is_stable() {
+        await Store.SetAsync("default", "codex-app-server", true, CancellationToken.None);
+
+        await Assert.That(Store.Fingerprint()).IsEqualTo(Store.Fingerprint());
+    }
+
+    [Test]
+    public async Task Fingerprint_changes_when_the_file_is_created() {
+        var missing = Store.Fingerprint();
+
+        await Store.SetAsync("default", "codex-app-server", true, CancellationToken.None);
+
+        await Assert.That(Store.Fingerprint()).IsNotEqualTo(missing);
+    }
+
+    [Test]
+    public async Task Fingerprint_changes_when_the_file_is_deleted() {
+        await Store.SetAsync("default", "codex-app-server", true, CancellationToken.None);
+        var present = Store.Fingerprint();
+
+        File.Delete(FilePath);
+
+        await Assert.That(Store.Fingerprint()).IsNotEqualTo(present);
+    }
+
+    [Test]
+    public async Task Fingerprint_changes_when_a_save_rewrites_the_file() {
+        await Store.SetAsync("default", "codex-app-server", false, CancellationToken.None);
+        var before = Store.Fingerprint();
+
+        await Store.SetAsync("work", "codex-app-server", true, CancellationToken.None);
+
+        await Assert.That(Store.Fingerprint()).IsNotEqualTo(before);
+    }
+
+    [Test]
     public async Task Non_boolean_value_reads_as_off() {
         await File.WriteAllTextAsync(FilePath, """{"default":{"codex-app-server":"yes"}}""");
 

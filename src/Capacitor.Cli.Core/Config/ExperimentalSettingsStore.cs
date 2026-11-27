@@ -13,6 +13,13 @@ public sealed class ExperimentalSettingsStore(ConfigRoot root) {
 
     public string Path { get; } = root.Path(FileName);
 
+    /// <summary>The one definition of whether the file changed since an earlier read: compare this with
+    /// the fingerprint taken before that read. Costs one stat and never reads the file.</summary>
+    public ExperimentalSettingsFingerprint Fingerprint() {
+        var file = new FileInfo(Path);
+        return file.Exists ? new(true, file.LastWriteTimeUtc, file.Length) : new(false, default, 0);
+    }
+
     public ExperimentalSettingsRead Load(string profile) {
         var (document, problem) = ReadDocument();
         if (problem is not null) return new(false, ExperimentalSettingsRead.Empty.Features, problem);
