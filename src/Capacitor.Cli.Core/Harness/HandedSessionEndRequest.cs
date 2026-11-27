@@ -49,6 +49,11 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
     /// session has since moved on from is not the session's.</summary>
     public int? AgentPid { get; init; }
 
+    /// <summary>Whether the session has moved on from the process that handed this end over: another process runs it now,
+    /// so the end is that earlier process's, not the session's. False when the request names no process.</summary>
+    public bool SupersededOn(AgentSessionNotes notes, string sessionId) =>
+        AgentPid is { } origin && SessionId.Parse(sessionId) is { } session && notes.LiveClaimantOtherThan(session, origin) is not null;
+
     /// <summary>How many times its end has failed to be sent or kept.</summary>
     public int Attempts { get; init; }
 
@@ -191,11 +196,14 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
 
     /// <summary><see cref="TryClaim(WatcherPaths,string,string,TimeProvider?)"/>, taking only a request whose recorded
     /// server <paramref name="forServer"/> accepts; it is passed null for a request that recorded none.</summary>
+    /// <param name="handedBefore">Takes only a request handed over before this moment, when given.</param>
     public static HandedSessionEndRequest? TryClaim(
-            WatcherPaths paths, string sessionId, string owner, TimeProvider? time, Func<string?, bool> forServer) {
+            WatcherPaths paths, string sessionId, string owner, TimeProvider? time, Func<string?, bool> forServer, DateTimeOffset? handedBefore = null) {
         var now = (time ?? TimeProvider.System).GetUtcNow();
 
         foreach (var source in Pending(paths, sessionId)) {
+            if (handedBefore is { } cutoff && (HandedAtOf(source) is not { } handed || handed >= cutoff)) continue;
+
             if (Peek(source) is { } stored && stored.NotBefore <= now && forServer(stored.Server) && TryClaimAt(source, owner) is { } request)
                 return request;
         }
@@ -208,6 +216,14 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
     public static HandedSessionEndRequest? ClaimHandedEnd(WatcherPaths paths, string sessionId, string serverUrl, TimeProvider time) =>
         TryClaim(paths, sessionId, OwnClaim, time,
             recorded => recorded is null || ServerIdentity.SameServer(recorded, serverUrl));
+
+    static DateTimeOffset? HandedAtOf(string source) {
+        try {
+            return File.Exists(source) ? new DateTimeOffset(File.GetLastWriteTimeUtc(source), TimeSpan.Zero) : null;
+        } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+            return null;
+        }
+    }
 
     static HandedSessionEndRequest? TryClaimAt(string source, string owner) {
         var claimed = $"{source}.{owner}.claimed";

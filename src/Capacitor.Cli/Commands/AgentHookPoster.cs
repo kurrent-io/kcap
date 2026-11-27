@@ -269,7 +269,7 @@ internal sealed class AgentHookPoster(
         var handoffs = WatcherPaths.FromEnvironment(config);
         SpoolEnds([..AgentSessions.OnThisMachine(config).ReapExited(Url).Where(e => !HandedSessionEndRequest.Outstanding(handoffs, e.Session.Value))],
             Url, lifecycle, time);
-        HandedSessionEndSweep.SpoolDue(handoffs, lifecycle, Url, DaemonStore.FromEnvironment(), time);
+        HandedSessionEndSweep.SpoolDue(handoffs, lifecycle, Url, DaemonStore.FromEnvironment(), time, new AgentSessionNotes(config));
         // No record is waited for, and the sweep stops early. The daemon, the Copilot finalizer and the next drain take what
         // is left.
         if (sweepPendingEnds)

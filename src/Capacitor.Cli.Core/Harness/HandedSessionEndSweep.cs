@@ -21,7 +21,8 @@ public static class HandedSessionEndSweep {
     /// left to that server's drain; one written before requests recorded a server is taken by whichever drain sweeps
     /// it. A request a resume holds, as the watcher would have held it, is dropped, and so is one for a session a person
     /// disabled. Never throws.</summary>
-    public static int SpoolDue(WatcherPaths paths, HookSpool lifecycle, string? server, DaemonStore daemons, TimeProvider time) {
+    /// <param name="notes">Which processes run which session, so an end of a process the session moved on from is dropped.</param>
+    public static int SpoolDue(WatcherPaths paths, HookSpool lifecycle, string? server, DaemonStore daemons, TimeProvider time, AgentSessionNotes? notes = null) {
         var spooled = 0;
 
         try {
@@ -31,12 +32,15 @@ public static class HandedSessionEndSweep {
                 var early  = new List<HandedSessionEndRequest>();
                 var failed = new List<HandedSessionEndRequest>();
 
-                while (HandedSessionEndRequest.TryClaim(paths, session, HandedSessionEndRequest.OwnClaim, time, recorded => recorded is null || ServerIdentity.SameServer(recorded, server)) is { } handed) {
+                // A fresh request is left untouched, never claimed and put back: a watcher's last look must find it.
+                while (HandedSessionEndRequest.TryClaim(paths, session, HandedSessionEndRequest.OwnClaim, time,
+                           recorded => recorded is null || ServerIdentity.SameServer(recorded, server), handedBefore: time.GetUtcNow() - Unattended) is { } handed) {
                     if (lifecycle.IsDisabledByPerson(session)) {
                         HandedSessionEndRequest.Release(handed.ClaimedPath);
                     } else if (time.GetUtcNow() - handed.HandedAt < Unattended) {
                         early.Add(handed);
-                    } else if (HandedSessionEndRequest.ResumedSince(paths, session, handed.HandedAt, handed.Server) || HeldForResume(handed.Payload, session, daemons, time)) {
+                    } else if (HandedSessionEndRequest.ResumedSince(paths, session, handed.HandedAt, handed.Server)
+                            || (notes is not null && handed.SupersededOn(notes, session)) || HeldForResume(handed.Payload, session, daemons, time)) {
                         HandedSessionEndRequest.Release(handed.ClaimedPath);
                     } else if (lifecycle.Append(session, handed.Route, Spoolable(handed.Payload, session))) {
                         HandedSessionEndRequest.Release(handed.ClaimedPath);

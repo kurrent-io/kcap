@@ -624,6 +624,9 @@ class WatchCommand(
 
         if (handedEnd is { } handedOver) {
             await SettleHandedEndsAsync(sessionId, transcriptPath, cwd, vendor, state.Repository, run, handedOver);
+        } else if (TakesHandedEnd(vendor, agentId) && HandedSessionEndRequest.Outstanding(_paths, sessionId)) {
+            // Another taker holds the session's handed end: it is a better end than this watcher's exit.
+            Log(time, "Not posting a session-end of its own: a handed end is held elsewhere");
         } else if (SessionEnd.PostsOwnSessionEnd(endReason, agentId, cursorSuppressesEndPost)) {
             // A resumed session's hooks claim its new process; the end of the one this watcher followed
             // is then not the session's end, and the new process is left without a watcher.
@@ -860,11 +863,10 @@ class WatchCommand(
 
             // Before the fence: a stale end must not stamp the entry of the run that resumed past it. A process the session
             // has moved on from is stale too, even when its hook wrote the end after the resume was marked.
-            if (HandedSessionEndRequest.ResumedSince(_paths, sessionId, handed.HandedAt, handed.Server)
-             || (handed.AgentPid is { } origin && LiveClaimant(sessionId) is { } live && live != origin)) {
+            if (HandedSessionEndRequest.ResumedSince(_paths, sessionId, handed.HandedAt, handed.Server) || handed.SupersededOn(new AgentSessionNotes(config), sessionId)) {
                 Log(time, "Handed session-end dropped: the session was resumed after its end was handed over");
                 HandedSessionEndRequest.Release(handed.ClaimedPath);
-                await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, LiveClaimant(sessionId));
+                await ArmSuccessorAsync(sessionId, transcriptPath, cwd, vendor, SuccessorOf(sessionId, handed));
                 continue;
             }
 
@@ -929,6 +931,13 @@ class WatchCommand(
 
         return Settled(delivery, handed);
     }
+
+    /// <summary>The process a successor follows: the one the session moved on to from the process that handed the end
+    /// over, when the request names it, whatever order the claims are listed in.</summary>
+    int? SuccessorOf(string sessionId, HandedSessionEndRequest handed) =>
+        handed.AgentPid is { } origin && SessionId.Parse(sessionId) is { } session
+            ? new AgentSessionNotes(config).LiveClaimantOtherThan(session, origin)?.Pid ?? LiveClaimant(sessionId)
+            : LiveClaimant(sessionId);
 
     /// <summary>Whether a person disabled the session, releasing the handed end unsent when they did.</summary>
     bool DisabledByPerson(string sessionId, HandedSessionEndRequest handed) {

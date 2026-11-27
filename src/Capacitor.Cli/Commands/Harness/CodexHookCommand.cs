@@ -546,6 +546,10 @@ sealed class CodexHookCommand(
         if (cwd is not null) forwarded["cwd"] = cwd;
         if (hosted.AgentId is not null) SessionEndIncarnation.Stamp(forwarded, hosted);
 
+        // A process the session has moved on from ends only itself, not the session.
+        var agentPid = ProcessHelpers.GetCodingAgentPid("codex", allowFallback: false);
+        if (agentPid is { } me && SessionId.Parse(sessionId) is { } own && new AgentSessionNotes(config).LiveClaimantOtherThan(own, me) is not null) return 0;
+
         if (transcript is not null && File.Exists(transcript) && HookHttp.IsPostable(Url)) {
             if (await TryHandOffAsync()) {
                 // A watcher alive here takes the request on its next tick or on its last look, which it makes only after
@@ -577,8 +581,7 @@ sealed class CodexHookCommand(
         // cannot be handed over goes to the spool, which keeps its own directory.
         async Task<bool> TryHandOffAsync() {
             try {
-                HandedSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString(), Url, vendor: "codex",
-                    agentPid: ProcessHelpers.GetCodingAgentPid("codex", allowFallback: false));
+                HandedSessionEndRequest.Write(WatcherPaths.FromEnvironment(config), sessionId, forwarded.ToJsonString(), Url, vendor: "codex", agentPid: agentPid);
                 return true;
             } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
                 await env.Stderr.WriteLineAsync($"[kcap] codex session-end handoff failed ({sessionId}): {ex.Message}");

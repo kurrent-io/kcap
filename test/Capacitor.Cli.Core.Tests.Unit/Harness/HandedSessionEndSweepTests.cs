@@ -58,6 +58,30 @@ public class HandedSessionEndSweepTests {
         await Assert.That(route).IsEqualTo("session-end/codex");
     }
 
+    /// <summary>An unattended end of a process the session has moved on from is dropped, as its watcher would drop it.</summary>
+    [Test]
+    public async Task An_end_of_a_process_the_session_moved_on_from_is_dropped() {
+        using var config = new TempConfigRoot();
+        File.WriteAllText(Path.Combine(Directory.CreateDirectory(config.Root.Path("agent-sessions")).FullName,
+            Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture)), $"{Session}\n");
+        HandedSessionEndRequest.Write(Paths, Session, Unnamed, Server, "codex", agentPid: 1);
+        File.SetLastWriteTimeUtc(HandedSessionEndRequest.PathFor(Paths, Session, Unnamed, "codex"), DateTime.UtcNow.AddMinutes(-10));
+
+        await Assert.That(HandedSessionEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System, new AgentSessionNotes(config.Root))).IsEqualTo(0);
+        await Assert.That(HandedSessionEndRequest.Outstanding(Paths, Session)).IsFalse();
+    }
+
+    /// <summary>A fresh request is never claimed by the sweep, so a watcher's last look at it never comes up empty.</summary>
+    [Test]
+    public async Task A_fresh_request_is_left_unclaimed() {
+        Hand(Named, TimeSpan.FromMinutes(1));
+        var before = Directory.GetFiles(Paths.Directory);
+
+        HandedSessionEndSweep.SpoolDue(Paths, Spool, Server, Daemons.Store, TimeProvider.System);
+
+        await Assert.That(Directory.GetFiles(Paths.Directory)).IsEquivalentTo(before);
+    }
+
     /// <summary>The end would bring back a deleted stream, so it goes unsent, and nothing keeps asking for it.</summary>
     [Test]
     public async Task A_disabled_sessions_request_is_dropped_unsent() {

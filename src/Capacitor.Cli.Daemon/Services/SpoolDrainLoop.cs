@@ -78,7 +78,8 @@ internal sealed class SpoolDrainLoop {
         try {
             _lifecycle.DeleteExpired();
             _transcript.DeleteExpired();
-            HandedSessionEndSweep.SpoolDue(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, DaemonStore.FromEnvironment(), _time);
+            HandedSessionEndSweep.SpoolDue(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, DaemonStore.FromEnvironment(), _time,
+                new AgentSessionNotes(_configRoot));
 
             // Spools only, so it needs no credential; the workspace drain posts what it closed.
             await CopilotSpanClose.CloseDueAsync(WatcherPaths.FromEnvironment(_configRoot), _lifecycle, _baseUrl, _time, async (owed, run) => {
