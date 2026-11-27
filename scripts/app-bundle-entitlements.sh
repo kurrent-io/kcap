@@ -3,10 +3,12 @@
 # profile, it embeds the profile in the bundle and adds the time-sensitive notification entitlement the profile
 # grants, so permission requests and questions come through a Focus. Without one the base entitlements are used
 # unchanged: a restricted entitlement no embedded profile backs stops the app launching at all.
-# Usage: app-bundle-entitlements.sh <base.entitlements> <bundle.app> <out.entitlements> [profile.provisionprofile]
+# The profile must be a Developer ID one that names the certificate the bundle is signed with, given by its SHA-1.
+# Usage: app-bundle-entitlements.sh <base.entitlements> <bundle.app> <out.entitlements> [profile.provisionprofile certificate-sha1]
 set -euo pipefail
-usage="usage: app-bundle-entitlements.sh <base.entitlements> <bundle.app> <out.entitlements> [profile.provisionprofile]"
+usage="usage: app-bundle-entitlements.sh <base.entitlements> <bundle.app> <out.entitlements> [profile.provisionprofile certificate-sha1]"
 base="${1:?$usage}"; bundle="${2:?$usage}"; out="${3:?$usage}"; profile="${4:-}"
+[ -z "$profile" ] || certificate="$(tr a-f A-F <<<"${5:?$usage}")"
 buddy=/usr/libexec/PlistBuddy
 time_sensitive=com.apple.developer.usernotifications.time-sensitive
 
@@ -26,6 +28,14 @@ app_id="$("$buddy" -c 'Print :Entitlements:com.apple.application-identifier' "$d
 [ "$app_id" = "$team.$bundle_id" ] || { echo "the profile is for $app_id, not $team.$bundle_id" >&2; exit 1; }
 [ "$("$buddy" -c "Print :Entitlements:$time_sensitive" "$decoded" 2>/dev/null)" = true ] \
   || { echo "the profile does not grant $time_sensitive" >&2; exit 1; }
+[ "$("$buddy" -c 'Print :ProvisionsAllDevices' "$decoded" 2>/dev/null)" = true ] \
+  || { echo "the profile is not a Developer ID profile" >&2; exit 1; }
+signed_by=
+for i in $(seq 0 $(( $(plutil -extract DeveloperCertificates raw -o - "$decoded") - 1 ))); do
+  sha="$(plutil -extract "DeveloperCertificates.$i" raw -o - "$decoded" | base64 -D | shasum -a 1 | cut -c1-40 | tr a-f A-F)"
+  [ "$sha" != "$certificate" ] || signed_by=yes
+done
+[ -n "$signed_by" ] || { echo "the profile does not name the signing certificate $certificate" >&2; exit 1; }
 expires="$(plutil -extract ExpirationDate raw -o - "$decoded")"
 [[ "$expires" > "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ]] || { echo "the profile expired at $expires" >&2; exit 1; }
 

@@ -81,6 +81,7 @@ To set it up or renew it:
 2. Create a Developer ID provisioning profile for that App ID and the signing certificate the release uses.
 3. Store it base64-encoded as the repository secret: `base64 -i kcap.provisionprofile | gh secret set APPLE_APP_PROVISIONING_PROFILE`.
 
-The desktop build refuses a profile for another App ID, one without the capability, or one that has expired, and
-the packed-bundle smoke check fails if the signed app does not start. Renew the profile before it expires: the
-release fails until it is replaced.
+The desktop build refuses a profile for another App ID, a development profile, one without the capability, one
+that does not name the certificate in `APPLE_CERTIFICATE_P12`, or one that has expired. The packed-bundle smoke
+check fails if the signed app lacks the entitlement or does not start. Make a new profile when it expires or when
+the signing certificate is replaced: the release fails until the secret holds one that matches.

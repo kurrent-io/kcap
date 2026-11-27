@@ -1,16 +1,20 @@
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text;
 using Capacitor.Cli.Core;
+using Microsoft.Win32.SafeHandles;
 
 namespace Capacitor.App.Services;
 
 /// <summary>
 /// Copies what the app writes to stderr into <c>app.log</c> under the config root, one timestamped line at a time,
 /// and still passes it to the original stderr. Launched from Finder, launchd or the Start menu, the app's stderr goes
-/// nowhere, and most handled failures report only there. Owner-only, a link is refused, and the file is rotated once
-/// past <see cref="MaxBytes"/>. Never throws: a log that cannot be written leaves stderr as it was.
+/// nowhere, and most handled failures report only there. Owner-only, one writer at a time, anything but a regular
+/// file is refused, and the file is rotated once past <see cref="MaxBytes"/>. Never throws: a log that cannot be
+/// written leaves stderr as it was.
 /// </summary>
-public sealed class AppStderrLog : TextWriter {
+public sealed partial class AppStderrLog : TextWriter {
     public const string FileName = "app.log";
     internal const long MaxBytes = 2 * 1024 * 1024;
     internal const int MaxLine = 8 * 1024;
@@ -26,6 +30,7 @@ public sealed class AppStderrLog : TextWriter {
     readonly StringBuilder _line = new();
     FileStream? _file;
     bool _closed;
+    bool _lineFull;
 
     public AppStderrLog(TextWriter inner, string path, TimeProvider time) {
         _inner = inner;
@@ -94,15 +99,30 @@ public sealed class AppStderrLog : TextWriter {
         if (c == '\n') {
             Append(_line.ToString());
             _line.Clear();
-        } else if (c != '\r' && _line.Length < MaxLine) {
-            _line.Append(c);
+            _lineFull = false;
+        } else if (c != '\r' && !_lineFull) {
+            // A character past the cap, or a surrogate pair it would split, ends what the line keeps.
+            _lineFull = _line.Length >= MaxLine || (char.IsHighSurrogate(c) && _line.Length == MaxLine - 1);
+            if (!_lineFull) _line.Append(c);
         }
+    }
+
+    /// The longest prefix of <paramref name="line"/> that is at most <see cref="MaxLine"/> bytes of UTF-8.
+    internal static string Capped(string line) {
+        var bytes = 0;
+        var end = 0;
+        foreach (var rune in line.EnumerateRunes()) {
+            if (bytes + rune.Utf8SequenceLength > MaxLine) break;
+            bytes += rune.Utf8SequenceLength;
+            end += rune.Utf16SequenceLength;
+        }
+        return line[..end];
     }
 
     void Append(string line) {
         if (_closed) return;
         try {
-            var bytes = Encoding.UTF8.GetBytes($"{_time.GetUtcNow().UtcDateTime:yyyy-MM-ddTHH:mm:ss.fffZ} {line}\n");
+            var bytes = Encoding.UTF8.GetBytes($"{_time.GetUtcNow().UtcDateTime:yyyy-MM-ddTHH:mm:ss.fffZ} {Capped(line)}\n");
             if (_file is null && !Open()) return;
             if (_file!.Length + bytes.Length > MaxBytes) {
                 CloseFile();
@@ -116,19 +136,63 @@ public sealed class AppStderrLog : TextWriter {
         }
     }
 
+    /// Opens the file for this process alone, or refuses it for good: when another process writes it, or when the
+    /// path is a link or anything but a regular file, which would send what the app reports elsewhere or block.
     bool Open() {
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(_path)!);
-        // A link here would send everything the app reports to whatever file it names.
-        if (new FileInfo(_path).LinkTarget is not null) {
+        var file = OperatingSystem.IsWindows() ? OpenOnWindows() : OpenOnUnix();
+        if (file is null) {
             _closed = true;
             return false;
         }
-        var options = new FileStreamOptions { Mode = FileMode.Append, Access = FileAccess.Write, Share = FileShare.ReadWrite };
-        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = OwnerOnly;
-        _file = new FileStream(_path, options);
-        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(_file.SafeFileHandle, OwnerOnly);
+        _file = file;
         return true;
     }
+
+    [UnsupportedOSPlatform("windows")]
+    FileStream? OpenOnUnix() {
+        try {
+            using (new FileStream(_path, new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, UnixCreateMode = OwnerOnly })) { }
+        } catch (IOException) { /* it exists, and is checked below */ }
+
+        var fd = open(_path, UnixOpenFlags);
+        if (fd < 0) return null;
+        var file = new FileStream(new SafeFileHandle(fd, ownsHandle: true), FileAccess.Write, bufferSize: 0);
+        if (!file.CanSeek || flock(fd, LockExclusive | LockNonBlocking) != 0) {
+            file.Dispose();
+            return null;
+        }
+        File.SetUnixFileMode(file.SafeFileHandle, OwnerOnly);
+        file.Seek(0, SeekOrigin.End);
+        return file;
+    }
+
+    [SupportedOSPlatform("windows")]
+    FileStream? OpenOnWindows() {
+        if (new FileInfo(_path).LinkTarget is not null) return null;
+        FileStream file;
+        try {
+            file = new FileStream(_path, new FileStreamOptions { Mode = FileMode.Append, Access = FileAccess.Write, Share = FileShare.Read });
+        } catch (IOException) {
+            return null;
+        }
+        file.SetAccessControl(OwnerOnlyDirectory.OwnerOnlyFileSecurity());
+        return file;
+    }
+
+    const int LockExclusive = 2;
+    const int LockNonBlocking = 4;
+
+    /// <c>O_WRONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC</c>: a FIFO with no reader fails at once instead of blocking.
+    static readonly int UnixOpenFlags = OperatingSystem.IsMacOS()
+        ? 0x1 | 0x4 | 0x100 | 0x1000000
+        : 0x1 | 0x800 | (RuntimeInformation.ProcessArchitecture is Architecture.Arm64 or Architecture.Arm ? 0x8000 : 0x20000) | 0x80000;
+
+    [LibraryImport("libc", EntryPoint = "open", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial int open(string path, int flags);
+
+    [LibraryImport("libc", EntryPoint = "flock")]
+    private static partial int flock(int fd, int operation);
 
     void CloseFile() {
         try { _file?.Dispose(); } catch (Exception) { /* nothing left to report to */ }

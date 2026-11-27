@@ -133,17 +133,23 @@ jobs:
         if: inputs.release && runner.os == 'macOS'
         env:
           APPLE_APP_PROVISIONING_PROFILE: ${{ secrets.APPLE_APP_PROVISIONING_PROFILE }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
-          profile=
+          profile=()
           if [ -n "$APPLE_APP_PROVISIONING_PROFILE" ]; then
-            profile="$RUNNER_TEMP/kcap.provisionprofile"
-            printf '%s' "$APPLE_APP_PROVISIONING_PROFILE" | base64 --decode > "$profile"
+            printf '%s' "$APPLE_APP_PROVISIONING_PROFILE" | base64 --decode > "$RUNNER_TEMP/kcap.provisionprofile"
+            # The identity is a certificate's name or its SHA-1; the profile is matched against the SHA-1.
+            certificate="$(security find-identity -v -p codesigning "$KEYCHAIN" | awk -v id="$APPLE_SIGNING_IDENTITY" '
+              $1 ~ /\)$/ { name = $0; sub(/^[^"]*"/, "", name); sub(/"[^"]*$/, "", name)
+                            if (toupper($2) == toupper(id) || name == id) { print $2; exit } }')"
+            [ -n "$certificate" ] || { echo "::error::the signing identity is not in the keychain"; exit 1; }
+            profile=("$RUNNER_TEMP/kcap.provisionprofile" "$certificate")
           else
             echo "::warning::secrets.APPLE_APP_PROVISIONING_PROFILE is not set; the app ships without time-sensitive notifications"
           fi
           bash scripts/app-bundle-entitlements.sh src/Capacitor.App/Packaging/app.entitlements publish/kcap.app \
-            "$RUNNER_TEMP/kcap-app.entitlements" ${profile:+"$profile"}
+            "$RUNNER_TEMP/kcap-app.entitlements" ${profile[@]+"${profile[@]}"}
 
       - name: Fetch the delta baseline
         if: inputs.release
@@ -226,10 +232,12 @@ jobs:
           if [ -n "$not_code" ]; then
             echo "::error::Contents/MacOS holds files codesign cannot sign:"; echo "$not_code"; exit 1
           fi
-          if [ -f "$APP/Contents/embedded.provisionprofile" ]; then
-            signed="$(codesign -d --entitlements - --xml "$APP" 2>/dev/null)"
-            grep -q usernotifications.time-sensitive <<<"$signed" \
-              || { echo "::error::the bundle embeds a profile but lacks the time-sensitive entitlement"; exit 1; }
+          if [ -f "$RUNNER_TEMP/kcap.provisionprofile" ]; then
+            cmp "$RUNNER_TEMP/kcap.provisionprofile" "$APP/Contents/embedded.provisionprofile" \
+              || { echo "::error::the bundle does not embed the provisioning profile it was given"; exit 1; }
+            codesign -d --entitlements - --xml "$APP" > "$RUNNER_TEMP/signed.entitlements"
+            granted="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.developer.usernotifications.time-sensitive' "$RUNNER_TEMP/signed.entitlements" 2>/dev/null || true)"
+            [ "$granted" = true ] || { echo "::error::the bundle is not signed with the time-sensitive entitlement"; exit 1; }
           fi
           # Signed, this is also JIT under the hardened runtime, and a restricted entitlement its profile does
           # not back stops it outright: the app must still be alive after 15 s.

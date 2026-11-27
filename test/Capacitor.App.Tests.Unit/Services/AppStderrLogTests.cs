@@ -1,4 +1,9 @@
+using System.Diagnostics;
+using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using Capacitor.App.Services;
+using Capacitor.Cli.Core;
 using Microsoft.Extensions.Time.Testing;
 
 namespace Capacitor.App.Tests.Unit.Services;
@@ -40,6 +45,57 @@ public class AppStderrLogTests {
         using (log) log.WriteLine("x");
 
         await Assert.That(File.GetUnixFileMode(path)).IsEqualTo(UnixFileMode.UserRead | UnixFileMode.UserWrite);
+    }
+
+    [Test]
+    public async Task On_windows_only_the_user_and_system_may_open_the_file() {
+        if (!OperatingSystem.IsWindows()) return;
+        var path = Tmp.CreateFile($"config/{AppStderrLog.FileName}", "");
+        using (var log = new AppStderrLog(new StringWriter(), path, new FakeTimeProvider(Now))) log.WriteLine("x");
+
+        await Assert.That(AclViolation(path)).IsNull();
+    }
+
+    [SupportedOSPlatform("windows")]
+    static string? AclViolation(string path) {
+        var acl = new FileInfo(path).GetAccessControl(AccessControlSections.Access | AccessControlSections.Owner);
+        var entries = acl.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier))
+            .Cast<FileSystemAccessRule>()
+            .Select(rule => (rule.IdentityReference.Value, rule.AccessControlType == AccessControlType.Allow))
+            .ToList();
+        return OwnerOnlyDirectory.AclViolation(
+            acl.GetOwner(typeof(SecurityIdentifier))?.Value, acl.AreAccessRulesProtected, entries, OwnerOnlyDirectory.OwnerSids());
+    }
+
+    [Test]
+    public async Task A_second_process_leaves_the_file_to_the_first() {
+        var (first, _, path) = Make();
+        var secondInner = new StringWriter();
+        using (first) {
+            first.WriteLine("one");
+            using (var second = new AppStderrLog(secondInner, path, new FakeTimeProvider(Now))) second.WriteLine("from the second");
+            first.WriteLine("two");
+        }
+
+        var lines = await File.ReadAllLinesAsync(path);
+        await Assert.That(lines.Skip(1)).IsEquivalentTo(["2026-11-26T18:30:00.000Z one", "2026-11-26T18:30:00.000Z two"]);
+        await Assert.That(secondInner.ToString()).Contains("from the second");
+    }
+
+    [Test]
+    public async Task A_fifo_in_place_of_the_file_is_refused_without_waiting_for_a_reader() {
+        if (OperatingSystem.IsWindows()) return;
+        var path = Tmp.PathTo($"config/{AppStderrLog.FileName}");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        using (var mkfifo = Process.Start("mkfifo", path)) await mkfifo.WaitForExitAsync();
+        var inner = new StringWriter();
+
+        await Task.Run(() => {
+            using var log = new AppStderrLog(inner, path, new FakeTimeProvider(Now));
+            log.WriteLine("still on stderr");
+        }).WaitAsync(TimeSpan.FromSeconds(10));
+
+        await Assert.That(inner.ToString()).Contains("still on stderr");
     }
 
     [Test]
@@ -85,5 +141,16 @@ public class AppStderrLogTests {
 
         var line = (await File.ReadAllLinesAsync(path)).Last();
         await Assert.That(line.Count(c => c == 'y')).IsEqualTo(AppStderrLog.MaxLine);
+    }
+
+    [Test]
+    [Arguments("é", 2)]
+    [Arguments("😀", 4)]
+    public async Task The_limit_counts_utf8_bytes_and_never_splits_a_character(string character, int bytes) {
+        var (log, _, path) = Make();
+        using (log) log.WriteLine("y" + string.Concat(Enumerable.Repeat(character, AppStderrLog.MaxLine)));
+
+        var payload = (await File.ReadAllLinesAsync(path)).Last().Split(' ', 2)[1];
+        await Assert.That(payload).IsEqualTo("y" + string.Concat(Enumerable.Repeat(character, (AppStderrLog.MaxLine - 1) / bytes)));
     }
 }

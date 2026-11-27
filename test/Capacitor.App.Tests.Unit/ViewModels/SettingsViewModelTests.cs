@@ -510,7 +510,7 @@ public class SettingsViewModelTests {
     });
 
     [Test]
-    [Arguments(true, "still come through")]
+    [Arguments(true, "if the Focus allows time-sensitive notifications")]
     [Arguments(false, "holds back")]
     public Task Allowed_access_says_how_notifications_fare_in_a_focus(bool timeSensitive, string expected) => AvaloniaSession.RunOnUiAsync(async () => {
         using var notifications = new NotificationSettingsService(Config.PathTo("notifications.json"));
