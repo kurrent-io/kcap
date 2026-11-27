@@ -58,11 +58,12 @@
         <Style Selector="Border.toolGroup.packsWithCard">
             <Setter Property="Margin" Value="0,4,0,4" />
         </Style>
-        <!-- Send splits off its mode arrow only where topics can be made. -->
-        <Style Selector="Button#SendButton">
+        <!-- Send splits off its mode arrow only where topics can be made. Naming kcapPrimary keeps these
+             ahead of its own corner radius. -->
+        <Style Selector="Button.kcapPrimary#SendButton">
             <Setter Property="CornerRadius" Value="7,0,0,7" />
         </Style>
-        <Style Selector="Button#SendButton.alone">
+        <Style Selector="Button.kcapPrimary#SendButton.alone">
             <Setter Property="CornerRadius" Value="7" />
         </Style>
         <Style Selector="Button.topicHere">

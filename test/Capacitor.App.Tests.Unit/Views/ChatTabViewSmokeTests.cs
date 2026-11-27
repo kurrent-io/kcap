@@ -1378,6 +1378,22 @@ public class ChatTabViewSmokeTests {
         });
     }
 
+    /// Where topics can be made, Send squares off the side it shares with its mode caret.
+    [Test]
+    [NotInParallel("AvaloniaSession")]
+    public async Task Send_and_its_mode_caret_join_as_one_button() {
+        await RunOnUiAsync(async () => {
+            var host = new Host();
+            try {
+                var path = Tmp.CreateFile("send-split.jsonl", Enumerable.Repeat(UserLine, 3).ToArray());
+                await host.AttachAsync(path);
+                var buttons = host.View.GetVisualDescendants().OfType<Button>().ToList();
+                await Assert.That(buttons.Single(b => b.Name == "SendButton").CornerRadius).IsEqualTo(new CornerRadius(7, 0, 0, 7));
+                await Assert.That(buttons.Single(b => b.Name == "SendModeButton").CornerRadius).IsEqualTo(new CornerRadius(0, 7, 7, 0));
+            } finally { await host.CloseAsync(); }
+        });
+    }
+
     /// A marked message keeps its toggle, lit, and that toggle takes the topic away again; a click
     /// just past the chevron, or at the header's very edge, folds.
     [Test]
