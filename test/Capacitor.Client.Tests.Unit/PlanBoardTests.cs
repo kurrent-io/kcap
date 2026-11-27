@@ -54,8 +54,16 @@ public class PlanBoardTests {
     }
 
     [Test]
+    public async Task A_blocked_task_has_its_own_state_and_is_not_done() {
+        var board = PlanBoard.From(Ready(new SessionPlanDto { Tasks = [Task(1, "completed"), Task(2, "blocked")] }));
+
+        await Assert.That(board!.Tasks[1].State).IsEqualTo(PlanTaskState.Blocked);
+        await Assert.That(board.DoneCount).IsEqualTo(1);
+    }
+
+    [Test]
     public async Task An_unknown_status_reads_as_pending() {
-        var board = PlanBoard.From(Ready(new SessionPlanDto { Tasks = [Task(1, "blocked")] }));
+        var board = PlanBoard.From(Ready(new SessionPlanDto { Tasks = [Task(1, "parked")] }));
 
         await Assert.That(board!.Tasks[0].State).IsEqualTo(PlanTaskState.Pending);
     }

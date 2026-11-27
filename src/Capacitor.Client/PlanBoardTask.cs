@@ -13,6 +13,7 @@ public sealed record PlanBoardTask(string TaskId, string Title, string? Note, Pl
     static PlanTaskState StateOf(string status) => status switch {
         "in_progress" => PlanTaskState.InProgress,
         "completed"   => PlanTaskState.Completed,
+        "blocked"     => PlanTaskState.Blocked,
         "skipped"     => PlanTaskState.Skipped,
         _             => PlanTaskState.Pending,
     };

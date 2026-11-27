@@ -63,6 +63,7 @@ internal static class ContextMapping {
         PlanTaskState.Pending    => "pending",
         PlanTaskState.InProgress => "in_progress",
         PlanTaskState.Completed  => "completed",
+        PlanTaskState.Blocked    => "blocked",
         PlanTaskState.Skipped    => "skipped",
         _                        => state.ToString().ToLowerInvariant(),
     };

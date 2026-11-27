@@ -490,7 +490,7 @@ public class ContextHostTests {
     public async Task No_work_item_and_a_plan_sends_phase_no_work_item_and_a_ready_plan() {
         using var host = new Host();
         host.Work.Default  = NoWorkItem;
-        host.Plans.Default = Plan(("Write the test", "completed"), ("Drop the flag", "skipped"), ("Make it pass", "in_progress"), ("Document it", "pending"));
+        host.Plans.Default = Plan(("Write the test", "completed"), ("Drop the flag", "skipped"), ("Make it pass", "in_progress"), ("Document it", "pending"), ("Wire the key", "blocked"));
         await host.InitializeAsync();
         var snapshot = await host.SubscribeAsync("sub-1", Session);
         await host.IdleAsync("sub-1");
@@ -501,8 +501,9 @@ public class ContextHostTests {
         await Assert.That(Latest(snapshot, changes, "plan").ToJsonString()).IsEqualTo(
             """{"state":"ready","tasks":[""" +
             """{"id":"t1","title":"Write the test","status":"completed"},{"id":"t2","title":"Drop the flag","status":"skipped"},""" +
-            """{"id":"t3","title":"Make it pass","status":"in_progress"},{"id":"t4","title":"Document it","status":"pending"}""" +
-            """],"done":2,"total":4}""");
+            """{"id":"t3","title":"Make it pass","status":"in_progress"},{"id":"t4","title":"Document it","status":"pending"},""" +
+            """{"id":"t5","title":"Wire the key","status":"blocked"}""" +
+            """],"done":2,"total":5}""");
     }
 
     [Test]

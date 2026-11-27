@@ -44,17 +44,19 @@ public sealed class PlanSectionViewModel : ReactiveObject {
     /// Completed or skipped: the server's rule for whether the plan's work is finished.
     public int SettledCount => _tasks.Count(task => task.IsSettled);
     public int CompletedCount => _tasks.Count(task => task.IsCompleted);
+    public int BlockedCount => _tasks.Count(task => task.IsBlocked);
     public int SkippedCount => _tasks.Count(task => task.State == PlanTaskState.Skipped);
     /// What the expanded header says; collapsed, the header shows Counts. A skipped task is
-    /// settled but not done, so it is named apart rather than counted as done.
+    /// settled but not done, and a blocked one is open but not pending, so each is named apart.
     public string HeaderText {
         get {
-            var done = $"{CompletedCount} of {_tasks.Count} done";
-            var skipped = SkippedCount;
-            return skipped > 0 ? $"{done} · {skipped} skipped" : done;
+            var text = $"{CompletedCount} of {_tasks.Count} done";
+            if (BlockedCount is > 0 and var blocked) text += $" · {blocked} blocked";
+            if (SkippedCount is > 0 and var skipped) text += $" · {skipped} skipped";
+            return text;
         }
     }
-    /// Pending, in progress, done, skipped: one entry per state something is in, so the numbers
+    /// Pending, in progress, blocked, done, skipped: one entry per state something is in, so the numbers
     /// add up to the list.
     public IReadOnlyList<PlanTaskCount> Counts { get; private set; } = [];
 
@@ -177,6 +179,7 @@ public sealed class PlanSectionViewModel : ReactiveObject {
         this.RaisePropertyChanged(nameof(ShowsBody));
         this.RaisePropertyChanged(nameof(SettledCount));
         this.RaisePropertyChanged(nameof(CompletedCount));
+        this.RaisePropertyChanged(nameof(BlockedCount));
         this.RaisePropertyChanged(nameof(SkippedCount));
         this.RaisePropertyChanged(nameof(HeaderText));
     }
@@ -196,9 +199,11 @@ public sealed class PlanSectionViewModel : ReactiveObject {
     }
 
     PlanTaskCount[] CountStates() {
+        var blocked = BlockedCount;
         PlanTaskCount[] states = [
-            new(PlanTaskState.Pending, _tasks.Count - _inProgress.Count - SettledCount),
+            new(PlanTaskState.Pending, _tasks.Count - _inProgress.Count - blocked - SettledCount),
             new(PlanTaskState.InProgress, _inProgress.Count, _inProgress.Count > 0 && !_activity.SessionOver),
+            new(PlanTaskState.Blocked, blocked),
             new(PlanTaskState.Completed, CompletedCount),
             new(PlanTaskState.Skipped, SkippedCount),
         ];

@@ -236,6 +236,9 @@
                 <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static client:PlanTaskState.Completed}}">
                     <views:AppIcon Kind="CircleCheck" Size="12" Foreground="{StaticResource KcapSuccessBrush}" />
                 </Panel>
+                <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static client:PlanTaskState.Blocked}}">
+                    <views:AppIcon Kind="CirclePause" Size="12" Foreground="{StaticResource KcapWarningBrush}" />
+                </Panel>
                 <Panel IsVisible="{Binding Converter={x:Static ObjectConverters.Equal}, ConverterParameter={x:Static client:PlanTaskState.Skipped}}">
                     <views:AppIcon Kind="CircleMinus" Size="12" Foreground="{StaticResource KcapBorderBrush}" />
                 </Panel>
