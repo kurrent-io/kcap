@@ -1,4 +1,4 @@
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 /// The last read worth showing per session, kept app-wide so a pane rebuilt for the session shows
 /// it while it reads again. Clear runs when the credential changes: a read one identity was shown

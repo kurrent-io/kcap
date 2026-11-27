@@ -4,7 +4,7 @@ using Capacitor.Cli.Core.Config;
 using Capacitor.Cli.Core.WorkItems;
 using Capacitor.Cli.Core.LocalEdition;
 
-namespace Capacitor.App.Services;
+namespace Capacitor.Client;
 
 public sealed class ServerWorkContextSource : IWorkContextSource, IAsyncDisposable {
     readonly AuthenticatedServerReads<WorkContextClient> _reads;
@@ -25,6 +25,11 @@ public sealed class ServerWorkContextSource : IWorkContextSource, IAsyncDisposab
             LocalRoot? localRoot = null) {
         _time = time ?? TimeProvider.System;
         _reads = new(config, profiles, env, machine, (http, url) => new WorkContextClient(http, url), factory, localRoot: localRoot);
+    }
+    public ServerWorkContextSource(ConfigRoot config, ProfileContext? profiles,
+            AuthenticatedServerReads<WorkContextClient>.ClientFactory factory, TimeProvider? time = null) {
+        _time = time ?? TimeProvider.System;
+        _reads = new(config, profiles, (http, url) => new WorkContextClient(http, url), factory);
     }
     public async Task<WorkContextRead> ReadAsync(string sessionId, CancellationToken ct) {
         var read = await _last.RecordAsync(sessionId, () => ReadWithViewerAsync(sessionId, ct),

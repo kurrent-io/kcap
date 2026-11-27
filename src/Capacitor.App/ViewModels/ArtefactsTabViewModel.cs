@@ -201,6 +201,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
             },
             Apply,
             "artefacts tab",
+            UiReads.Post,
             onSettled: RaiseLoading,
             cached: state => _source?.Cached(state.SessionId));
         _pageReads = new SingleFlightReader<string, SessionPagesRead>(
@@ -211,6 +212,7 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
             },
             ApplyPages,
             "artefacts tab pages",
+            UiReads.Post,
             onSettled: RaiseLoading,
             cached: sessionId => _source?.CachedPages(sessionId));
         _activity = activity;
@@ -220,7 +222,8 @@ public sealed class ArtefactsTabViewModel : ReactiveObject {
             (state, ct) => Task.Run(() => new DriftRead(Drift(state.Row, state.Root)), ct),
             _ => new DriftRead(DriftState.Unknown),
             ApplyDrift,
-            "document drift");
+            "document drift",
+            UiReads.Post);
         SelectCommand = ReactiveCommand.Create<DocumentRow>(Select);
         OpenLinkCommand = ReactiveCommand.Create<string>(OpenLink);
         _injectedViewer = pageViewer;

@@ -9,10 +9,10 @@ using ReactiveUI.Reactive;
 
 namespace Capacitor.App.ViewModels;
 
-/// The server-derived half of the pane and how one read merges into it, section by section: a
-/// failed section keeps its last projection and marks the pane stale, an authoritative empty
-/// answer clears it, and a terminal phase clears everything the server gave.
+/// The server-derived half of the pane: the card the last read left, synced into the bound lists
+/// and properties, and the session summary's link cards.
 public sealed partial class WorkContextViewModel {
+    WorkContextCard _card = WorkContextCard.Empty(WorkContextPhase.WaitingForSession);
     readonly AvaloniaList<WorkContextPartViewModel> _parts = new();
     readonly AvaloniaList<WorkContextPartViewModel> _thisSessionParts = new();
     readonly AvaloniaList<string> _blockedBy = new();
@@ -20,19 +20,7 @@ public sealed partial class WorkContextViewModel {
     readonly AvaloniaList<WorkContextLinkViewModel> _issues = new();
     readonly List<WorkContextLinkViewModel> _summaryPrs = [];
     readonly AvaloniaList<WorkContextPersonViewModel> _contributors = new();
-    IReadOnlyList<WorkItemContributorDto> _contributorRows = [];
-    // The card's identity is the id the server served, which for an absorbed item is the survivor's
-    // rather than the assignment's; the requested id stands in when a read carried no item.
-    string? _primaryId;
-    string? _requestedId;
-    string? PrimaryId {
-        get => _primaryId;
-        set {
-            _primaryId = value;
-            _canOpenWorkItem.OnNext(WorkContextIds.ValidWorkItemId(value) is not null && _openWorkItem is not null);
-            this.RaisePropertyChanged(nameof(WorkItemTip));
-        }
-    }
+    string? PrimaryId => _card.PrimaryId;
 
     public IAvaloniaReadOnlyList<WorkContextPartViewModel> Parts => _parts;
     /// What the collapsed section lists: the parts this session is attached to, in part order.
@@ -44,33 +32,20 @@ public sealed partial class WorkContextViewModel {
     public IAvaloniaReadOnlyList<WorkContextLinkViewModel> Issues => _issues;
     public IAvaloniaReadOnlyList<WorkContextPersonViewModel> Contributors => _contributors;
 
-    public string? Key {
-        get;
-        private set { this.RaiseAndSetIfChanged(ref field, value); NotifyIdentity(); }
+    public string? Key => _card.Key;
+    public string Title => _card.Title;
+    public string DisplayTitle => _card.DisplayTitle;
+    /// The primary issue folded into the work-item title, so the section leaves it out.
+    public bool HasInlineIssue => _card.SeparateIssues.Count < _card.Issues.Count;
+    /// The card's separate issues as rows; the bound list itself unless one folded into the title.
+    public IEnumerable<WorkContextLinkViewModel> SeparateIssues {
+        get {
+            var separate = _card.SeparateIssues;
+            return separate.Count < _card.Issues.Count
+                ? _issues.Where(issue => separate.Any(s => s.Identity == issue.Identity))
+                : _issues;
+        }
     }
-    public string Title {
-        get;
-        private set { this.RaiseAndSetIfChanged(ref field, value); NotifyIdentity(); }
-    } = "";
-    /// A short key carries no repository, so only this names the primary issue. GitHub numbers issues
-    /// and pull requests in one sequence, so a seed spelled `!N` can be the issue `#N` of its
-    /// repository; other providers number them apart.
-    string? _seedIssueIdentity;
-    bool HasHeaderKey(WorkContextLinkViewModel issue) => string.Equals(issue.Key, Key, StringComparison.OrdinalIgnoreCase);
-    bool IsPrimaryIssue(WorkContextLinkViewModel? issue) => issue is not null && Same(issue.Identity, _seedIssueIdentity);
-    static bool IsFallbackIssueTitle(WorkContextLinkViewModel issue) =>
-        issue.Title.Length == 0 || string.Equals(issue.Title, issue.Key, StringComparison.OrdinalIgnoreCase)
-        || string.Equals(issue.Title, $"Issue {issue.Key}", StringComparison.OrdinalIgnoreCase);
-    WorkContextLinkViewModel? PrimaryIssue =>
-        _issues.FirstOrDefault(IsPrimaryIssue) ?? _issues.FirstOrDefault();
-    public string DisplayTitle => Title.Length > 0 && !string.Equals(Title, Key, StringComparison.OrdinalIgnoreCase) ? Title
-        : PrimaryIssue is { } primary && IsPrimaryIssue(primary) && !IsFallbackIssueTitle(primary) ? primary.Title : "";
-    /// An untitled issue folds only into a header that spells its key: `!N` does not name the issue `#N`.
-    public bool HasInlineIssue => PrimaryIssue is { } primary && IsPrimaryIssue(primary)
-        && (IsFallbackIssueTitle(primary) ? HasHeaderKey(primary) : string.Equals(primary.Title, DisplayTitle, StringComparison.OrdinalIgnoreCase));
-    /// Issues the section should show: every link-class issue except a primary absorbed into the work-item title.
-    public IEnumerable<WorkContextLinkViewModel> SeparateIssues =>
-        HasInlineIssue ? _issues.Where(i => !IsPrimaryIssue(i)) : _issues;
     /// The issue the section shows when there is only one separate entry — not the raw first
     /// server seed, which may be absorbed into the work-item title.
     public WorkContextLinkViewModel? SeparateIssue => SeparateIssues.FirstOrDefault();
@@ -116,12 +91,17 @@ public sealed partial class WorkContextViewModel {
         this.RaisePropertyChanged(nameof(SeparateIssues));
         RaiseRelated();
     }
-    public string? Overview { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
-    public string? StateLabel { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
-    public bool IsShipped { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
-    public bool IsClosed { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
-    public string? PartOfTitle { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
-    public string? CycleNote { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public string? Overview => _card.Overview;
+    /// The server may add kinds; an unknown one is shown as sent, in the in-flight look.
+    public string? StateLabel => _card.StateKind?.Replace('_', ' ').Trim().ToUpperInvariant() is { Length: > 0 } text ? text : null;
+    public bool IsShipped => _card.StateKind == "shipped";
+    public bool IsClosed => _card.StateKind == "closed";
+    public string? PartOfTitle => _card.PartOfTitle;
+    public string? CycleNote => _card.Cycle switch {
+        "cyclic"        => "Dependencies form a cycle",
+        "indeterminate" => "Dependencies could not be fully resolved",
+        _               => null,
+    };
 
     public WorkContextLinkViewModel? Issue {
         get;
@@ -129,15 +109,6 @@ public sealed partial class WorkContextViewModel {
             if (ReferenceEquals(field, value)) return;
             this.RaiseAndSetIfChanged(ref field, value);
             NotifyIdentity();
-        }
-    }
-
-    int SessionCount {
-        get;
-        set {
-            if (field == value) return;
-            field = value;
-            this.RaisePropertyChanged(nameof(WhoCountText));
         }
     }
 
@@ -151,10 +122,10 @@ public sealed partial class WorkContextViewModel {
     public bool HasBlockers => _blockedBy.Count > 0;
     public bool HasTopologyNotes => HasBlockers || !string.IsNullOrEmpty(CycleNote);
     public bool HasContributors => _contributors.Count > 0;
-    public bool ShowsPeople => HasAgent && (_viewer is null
-        || (_contributorRows.Count > 0
-            ? _contributorRows.Any(c => !_viewer.Owns(c.UserId))
-            : _requesterId is not null && !_viewer.Owns(_requesterId)));
+    public bool ShowsPeople => HasAgent && (_card.Viewer is not { } viewer
+        || (_card.Contributors.Count > 0
+            ? _card.Contributors.Any(c => !viewer.Owns(c.UserId))
+            : _requesterId is not null && !viewer.Owns(_requesterId)));
     /// The card carries the PR picker and the live checks and review rows, so it stays while it
     /// has a PR to select or something to say, including the empty-list message during discovery
     /// and polling. The pane's own empty copy is a fallback when there is no card content.
@@ -173,7 +144,7 @@ public sealed partial class WorkContextViewModel {
         && !ShowsPullRequestCard;
     public const string PullRequestEmptyNote = "No pull request linked";
     public bool ShowsPullRequestSection => ShowsPullRequestCard || ShowsLegacyLinkCards || ShowsPullRequestEmpty;
-    public string WhoCountText => SessionCount switch {
+    public string WhoCountText => _card.SessionCount switch {
         0     => "",
         1     => "1 session",
         var n => $"{n} sessions",
@@ -183,15 +154,9 @@ public sealed partial class WorkContextViewModel {
     public string RequesterRole { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "";
     public string RequesterInitial { get; private set => this.RaiseAndSetIfChanged(ref field, value); } = "Y";
     string? _requesterId;
-    ViewerIdentityDto? _viewer;
-    public ViewerIdentityDto? ViewerIdentity {
-        get => _viewer;
-        private set {
-            this.RaiseAndSetIfChanged(ref _viewer, value);
-            RefreshContributors();
-        }
-    }
-    public string? RequesterAvatarUrl { get; private set => this.RaiseAndSetIfChanged(ref field, value); }
+    public ViewerIdentityDto? ViewerIdentity => _card.Viewer;
+    string? _requesterAvatarUrl;
+    public string? RequesterAvatarUrl { get => _requesterAvatarUrl; private set => this.RaiseAndSetIfChanged(ref _requesterAvatarUrl, value); }
 
     public bool PartsExpanded {
         get;
@@ -313,14 +278,13 @@ public sealed partial class WorkContextViewModel {
     /// A launch with no requester is the daemon owner's, and the viewer only sees their own daemons.
     /// Anyone else gets a picture only from a `github:` id.
     void ResolveRequesterAvatar() =>
-        RequesterAvatarUrl = _viewer is { AvatarUrl: { } own } && (_requesterId is null || _viewer.Owns(_requesterId))
+        RequesterAvatarUrl = _card.Viewer is { AvatarUrl: { } own } viewer && (_requesterId is null || viewer.Owns(_requesterId))
             ? own
             : GitHubAvatar.UrlFor(_requesterId);
 
-    void ForgetViewer() {
-        ViewerIdentity = null;
-        ResolveRequesterAvatar();
-    }
+    WorkContextRequester? SessionRequester() => _dto is null ? null : new(_dto.Requester, _dto.RequesterDisplay);
+
+    void ForgetViewer() => ShowCard(WorkContextCards.ForgetViewer(_card, SessionRequester()));
 
     static string? FirstNonBlank(params string?[] values) {
         foreach (var value in values)
@@ -328,40 +292,66 @@ public sealed partial class WorkContextViewModel {
         return null;
     }
 
-    void ClearServerProjections() {
-        ClearCard();
+    /// A session change keeps who the viewer is: only a read, a reconnect or a sign-in replaces it.
+    void ClearServerProjections(WorkContextPhase phase) {
+        ShowCard(WorkContextCard.Empty(phase) with { Viewer = _card.Viewer });
+        ClearLinks();
+    }
+
+    void ClearLinks() {
         _summaryPrs.Clear();
         _links.Clear();
         RaiseRelated();
     }
 
-    void ClearCard() {
-        PrimaryId = null;
-        _requestedId = null;
-        ClearItem();
-        ClearTopology();
-    }
+    /// `itemServed`: the read behind the card carried the work item.
+    void ShowCard(WorkContextCard card, bool itemServed = false) {
+        var was = _card;
+        _card = card;
+        if (!ReferenceEquals(was.Parts, card.Parts))
+            Replace(_parts, [.. card.Parts.Select(p => new WorkContextPartViewModel(p.Title, p.Mark))], p => (p.Title, p.Mark));
+        if (!ReferenceEquals(was.Issues, card.Issues)) {
+            Replace(_issues, [.. card.Issues.Select(i => new WorkContextLinkViewModel("ISSUE", i.Key, i.Title, i.Url, _opener, identity: i.Identity, state: i.State))],
+                i => (i.Key, i.Title, i.Url, i.Identity));
+            // A kept row still takes the issue's new state.
+            for (var i = 0; i < card.Issues.Count; i++) _issues[i].State = card.Issues[i].State;
+        }
+        if (!ReferenceEquals(was.Contributors, card.Contributors)) {
+            var now = _time.GetUtcNow();
+            Replace(_contributors, [.. card.Contributors.Select(c => new WorkContextPersonViewModel(c.Name, c.AvatarUrl, c.LastActivityAt, now, c.UserId))],
+                c => (c.UserId, c.Name, c.AvatarUrl, c.LastActivityText));
+        }
+        if (!ReferenceEquals(was.BlockedBy, card.BlockedBy)) Replace(_blockedBy, [.. card.BlockedBy], b => b);
 
-    void ClearItem() {
-        _seedIssueIdentity = null;
-        Key = null;
-        Title = "";
-        Overview = null;
-        ApplyState(null);
-        _parts.Clear();
-        _issues.Clear();
-        IssuesExpanded = false;
-        Issue = null;
-        _contributors.Clear();
-        _contributorRows = [];
-        SessionCount = 0;
-        RaiseCardCounts();
-    }
-
-    void ClearTopology() {
-        PartOfTitle = null;
-        CycleNote = null;
-        _blockedBy.Clear();
+        if (!string.Equals(was.PrimaryId, card.PrimaryId, StringComparison.Ordinal)) {
+            _canOpenWorkItem.OnNext(WorkContextIds.ValidWorkItemId(card.PrimaryId) is not null && _openWorkItem is not null);
+            // A new primary without its item drops the old item, and the issue fold with it.
+            if (card.PrimaryId is null || !itemServed) IssuesExpanded = false;
+        }
+        if (was.Phase != card.Phase) {
+            this.RaisePropertyChanged(nameof(Phase));
+            this.RaisePropertyChanged(nameof(PhaseNote));
+            this.RaisePropertyChanged(nameof(IsReady));
+            this.RaisePropertyChanged(nameof(ShowsSignIn));
+            this.RaisePropertyChanged(nameof(ShowsRetry));
+            this.RaisePropertyChanged(nameof(ShowsReadProgress));
+        }
+        if (was.IsStale != card.IsStale) this.RaisePropertyChanged(nameof(IsStale));
+        if (!Equals(was.Viewer, card.Viewer)) this.RaisePropertyChanged(nameof(ViewerIdentity));
+        if (was.Key != card.Key) this.RaisePropertyChanged(nameof(Key));
+        if (was.Title != card.Title) this.RaisePropertyChanged(nameof(Title));
+        if (was.Overview != card.Overview) this.RaisePropertyChanged(nameof(Overview));
+        if (was.StateKind != card.StateKind) {
+            this.RaisePropertyChanged(nameof(StateLabel));
+            this.RaisePropertyChanged(nameof(IsShipped));
+            this.RaisePropertyChanged(nameof(IsClosed));
+        }
+        if (was.PartOfTitle != card.PartOfTitle) this.RaisePropertyChanged(nameof(PartOfTitle));
+        if (was.Cycle != card.Cycle) this.RaisePropertyChanged(nameof(CycleNote));
+        if (was.SessionCount != card.SessionCount) this.RaisePropertyChanged(nameof(WhoCountText));
+        Issue = _issues.FirstOrDefault();
+        ResolveRequesterAvatar();
+        NotifyIdentity();
         RaiseCardCounts();
     }
 
@@ -397,42 +387,6 @@ public sealed partial class WorkContextViewModel {
         this.RaisePropertyChanged(nameof(ShowsPullRequestSection));
     }
 
-    void ApplyReady(WorkContextRead read) {
-        ViewerIdentity = read.Viewer;
-        ResolveRequesterAvatar();
-        // A failed summary keeps the last figures, marked stale with the rest of the pane.
-        if (!read.SummaryFailed) ApplySessionFacts(read.Summary);
-        if (read.Primary is null) {
-            ClearCard();
-            ApplyLinks(read);
-            Phase = WorkContextPhase.NoWorkItem;
-            IsStale = read.SummaryFailed;
-            return;
-        }
-
-        var requested = read.Primary.WorkItemId;
-        var served = read.Item?.WorkItemId;
-        var samePrimary = served is not null
-            ? Same(served, PrimaryId)
-            : Same(requested, _requestedId) || Same(requested, PrimaryId);
-        _requestedId = requested;
-        if (served is not null) PrimaryId = served;
-        else if (!samePrimary) PrimaryId = requested;
-
-        if (read.Item is { } item) ApplyItem(item, read.Assignments);
-        else if (!samePrimary) {
-            ClearItem();
-            Title = read.Primary.Label;
-        }
-
-        if (read is { TopologyFailed: false, Topology: { } topology }) ApplyTopology(topology);
-        else if (!samePrimary) ClearTopology();
-
-        ApplyLinks(read);
-        Phase = WorkContextPhase.Ready;
-        IsStale = read.ItemFailed || read.TopologyFailed || read.SummaryFailed;
-    }
-
     bool _hasSessionFacts;
 
     void ApplySessionFacts(SessionSummaryDto? summary) {
@@ -455,127 +409,6 @@ public sealed partial class WorkContextViewModel {
             if (_dto is not null) ResolveRepository(_dto.RepoPath);
         }
         this.RaisePropertyChanged(nameof(PhaseNote));
-    }
-
-    static bool Same(string a, string? b) => string.Equals(a, b, StringComparison.Ordinal);
-
-    void ApplyItem(WorkItemDto item, IReadOnlyList<SessionWorkItemAssignmentDto> assignments) {
-        _seedIssueIdentity = item.Key is { } seed
-            ? IssueIdentity("issue", seed.Provider, seed.Provider == "github" ? seed.Value.Replace('!', '#') : seed.Value)
-            : null;
-        Key = FirstNonBlank(item.Key?.ShortKey);
-        // An item with no tracker or generated title arrives with its key as the title.
-        var title = FirstNonBlank(item.EnrichedTitle, item.Title) ?? "";
-        Title = string.Equals(title, Key, StringComparison.OrdinalIgnoreCase) ? "" : title;
-        Overview = item.IsOverviewMechanical ? null : FirstNonBlank(item.Overview);
-        ApplyState(item.State?.Kind);
-
-        var attached = new HashSet<string>(assignments.Select(a => a.WorkItemId), StringComparer.Ordinal);
-        var parts = item.Parts
-            .OrderBy(p => p.Ordinal)
-            .Select(p => new WorkContextPartViewModel(p.Title, PartMark(p, attached)))
-            .ToList();
-        Replace(_parts, parts, p => (p.Title, p.Mark));
-
-        ApplyIssues(item.Links.Where(l => l is { Kind: "issue", LinkClass: "link" }));
-
-        _contributorRows = item.Contributors;
-        RefreshContributors();
-        SessionCount = item.SessionCount;
-        RaiseCardCounts();
-    }
-
-    void RefreshContributors() {
-        var now = _time.GetUtcNow();
-        var people = _contributorRows
-            .Select(c => new WorkContextPersonViewModel(PersonName(c),
-                _viewer?.Owns(c.UserId) == true ? _viewer.AvatarUrl ?? c.AvatarUrl : c.AvatarUrl,
-                c.LastActivityAt, now, c.UserId))
-            .ToList();
-        Replace(_contributors, people, c => (c.UserId, c.Name, c.AvatarUrl, c.LastActivityText));
-        RaiseCardCounts();
-    }
-
-    /// DisplayName is null for an owner with no user row; the session requester's email/name
-    /// stands in when it is the same person, else the name this pane last showed for the id.
-    string PersonName(WorkItemContributorDto contributor) {
-        if (_viewer?.Owns(contributor.UserId) == true) return "You";
-        if (HumanLabel(contributor.DisplayName) is { } display) return display;
-        if (string.Equals(contributor.UserId, _dto?.Requester, StringComparison.Ordinal)
-            && HumanLabel(FirstNonBlank(_dto?.RequesterDisplay, _dto?.Requester)) is { } mine)
-            return mine;
-        if (_contributors.FirstOrDefault(p => string.Equals(p.UserId, contributor.UserId, StringComparison.Ordinal)) is { } previous
-            && previous.Name != "You" && HumanLabel(previous.Name) is { } kept)
-            return kept;
-        return HumanLabel(contributor.UserId) ?? "Someone";
-    }
-
-    static string? HumanLabel(string? value) {
-        var label = FirstNonBlank(value);
-        if (label is null || IsOpaqueUserId(label)) return null;
-        return label;
-    }
-
-    /// A WorkOS id (`user_` + ULID) is not a name. `github:` ids stay visible: they are the
-    /// fallback for a contributor with no display name.
-    static bool IsOpaqueUserId(string value) {
-        if (!value.StartsWith("user_", StringComparison.Ordinal) || value.Length < 25) return false;
-        for (var i = 5; i < value.Length; i++)
-            if (!char.IsAsciiLetterOrDigit(value[i])) return false;
-        return true;
-    }
-
-    static WorkContextPartMark PartMark(WorkItemPartDto part, HashSet<string> attached) =>
-        part.IsSettled ? WorkContextPartMark.Settled
-        : attached.Contains(part.WorkItemId) ? WorkContextPartMark.ThisSession
-        : WorkContextPartMark.Unknown;
-
-    /// The server may add kinds; an unknown one is shown as sent, in the in-flight look.
-    void ApplyState(string? kind) {
-        var text = kind?.Replace('_', ' ').Trim().ToUpperInvariant();
-        StateLabel = string.IsNullOrEmpty(text) ? null : text;
-        IsShipped = kind == "shipped";
-        IsClosed  = kind == "closed";
-        this.RaisePropertyChanged(nameof(WorkItemTip));
-    }
-
-    void ApplyIssues(IEnumerable<WorkItemLinkDto> links) {
-        var cards = new List<WorkContextLinkViewModel>();
-        foreach (var link in links) {
-            if (IsDuplicateIssue(cards, link)) continue;
-            var title = FirstNonBlank(link.Title) ?? "";
-            cards.Add(new WorkContextLinkViewModel("ISSUE", link.ShortKey, title, link.Url, _opener,
-                identity: IssueIdentity(link), state: link.State));
-        }
-        Replace(_issues, cards, i => (i.Key, i.Title, i.Url, i.Identity));
-        for (var i = 0; i < cards.Count; i++) _issues[i].State = cards[i].State;
-        Issue = _issues.FirstOrDefault();
-        NotifyIdentity();
-    }
-
-    /// ShortKey is display text only: two null-URL issues from different repos can share `#42`.
-    /// Prefer URL when both have one; otherwise the server's kind/provider/value tuple.
-    static bool IsDuplicateIssue(List<WorkContextLinkViewModel> cards, WorkItemLinkDto link) {
-        var identity = IssueIdentity(link);
-        return cards.Exists(c =>
-            link.Url is { Length: > 0 } url && c.Url is { Length: > 0 } existing
-                && string.Equals(existing, url, StringComparison.OrdinalIgnoreCase)
-            || string.Equals(c.Identity, identity, StringComparison.Ordinal));
-    }
-
-    static string IssueIdentity(WorkItemLinkDto link) => IssueIdentity(link.Kind, link.Provider, link.Value);
-
-    static string IssueIdentity(string kind, string provider, string value) => string.Join('\u001f', kind, provider, value);
-
-    void ApplyTopology(WorkItemTopologyDto topology) {
-        PartOfTitle = topology.PartOf?.Title;
-        Replace(_blockedBy, topology.BlockedBy.Select(b => b.Title).ToList(), b => b);
-        CycleNote = topology.Cycle switch {
-            "cyclic"        => "Dependencies form a cycle",
-            "indeterminate" => "Dependencies could not be fully resolved",
-            _               => null,
-        };
-        RaiseCardCounts();
     }
 
     void ApplyLinks(WorkContextRead read) {
