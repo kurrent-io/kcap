@@ -5,8 +5,8 @@ using Capacitor.Cli.Core.RepoInstructions;
 namespace Capacitor.Cli.Core.Eval.RepoContext;
 
 /// <summary>The block a judge or retrospective prompt leads with: the repository's instruction files framed as data, cut to
-/// <see cref="InstructionsMaxChars"/>, every file in proportion to its length. Its framing and cut follow the server's own
-/// block, so a local eval reads the same reference a server eval does.</summary>
+/// <see cref="InstructionsMaxChars"/>, every file in proportion to its length, then the server's own memories section as it
+/// sent it. Its framing and cut follow the server's own block, so a local eval reads the same reference a server eval does.</summary>
 public static class RepoEvalContextBlock {
     public const int InstructionsMaxChars = 32_000;
 
@@ -28,7 +28,9 @@ public static class RepoEvalContextBlock {
                            """;
 
     /// <param name="readAt">When the files were read from the checkout's default branch.</param>
-    public static string Render(IReadOnlyList<RepoInstructionFile> files, DateTimeOffset readAt, int instructionsMaxChars = InstructionsMaxChars) {
+    /// <param name="memoriesSection">The server-rendered memories section, placed after the instructions unchanged.</param>
+    public static string Render(IReadOnlyList<RepoInstructionFile> files, DateTimeOffset readAt, string memoriesSection = "",
+            int instructionsMaxChars = InstructionsMaxChars) {
         if (instructionsMaxChars <= 0) return "";
 
         var sb = new StringBuilder(Framing).Append("\n\n").Append(InstructionsOpen).Append('\n');
@@ -41,7 +43,7 @@ public static class RepoEvalContextBlock {
                 sb.Append(file).Append('\n');
         }
 
-        return sb.Append(InstructionsClose).Append("\n\n").ToString();
+        return sb.Append(InstructionsClose).Append("\n\n").Append(memoriesSection).ToString();
     }
 
     /// <summary>Each text, heading included, cut to its share of <paramref name="budget"/> in proportion to its length, a cut one

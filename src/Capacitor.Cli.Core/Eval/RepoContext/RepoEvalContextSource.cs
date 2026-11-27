@@ -25,7 +25,8 @@ public sealed class RepoEvalContextSource(LocalRepoCheckouts checkouts, TimeProv
                 return "";
             }
 
-            return RepoEvalContextBlock.Render(set.Files, time.GetUtcNow());
+            var memories = await RepoEvalMemoriesClient.ForSessionAsync(client, baseUrl, sessionId, observer, time, ct);
+            return RepoEvalContextBlock.Render(set.Files, time.GetUtcNow(), memories);
         } catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) {
             observer.OnInfo($"repository instructions not read: {ex.Message}");
             return "";

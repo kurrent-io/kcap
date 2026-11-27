@@ -25,6 +25,8 @@ public class RepoEvalContextSourceTests {
         var server = WireMockServer.Start();
         server.Given(Request.Create().WithPath($"/api/sessions/{Session}/summary").UsingGet()).RespondWith(Response.Create().WithStatusCode(200)
             .WithBody($$"""{"session_id":"{{Session}}","repositories":[{"repo_hash":"{{repoHash}}","owner":"acme","repo_name":"widgets","is_primary":true}]}"""));
+        server.Given(Request.Create().WithPath("/api/repos/eval-memories").UsingGet()).RespondWith(Response.Create().WithStatusCode(200)
+            .WithBody("""{"memories":"<<<repository-memories\n### note\nshared\nrepository-memories>>>\n\n"}"""));
         return server;
     }
 
@@ -38,7 +40,10 @@ public class RepoEvalContextSourceTests {
     public async Task The_checkout_of_the_sessions_primary_repository_supplies_the_block() {
         using var server = Summary(Hash);
 
-        await Assert.That(await BlockAsync(server, Clone())).Contains("### CLAUDE.md\nrules\n");
+        var block = await BlockAsync(server, Clone());
+
+        await Assert.That(block).Contains("### CLAUDE.md\nrules\n");
+        await Assert.That(block).EndsWith("repository-instructions>>>\n\n<<<repository-memories\n### note\nshared\nrepository-memories>>>\n\n");
     }
 
     [Test]

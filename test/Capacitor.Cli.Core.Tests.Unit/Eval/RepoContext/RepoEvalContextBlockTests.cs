@@ -33,6 +33,15 @@ public class RepoEvalContextBlockTests {
     }
 
     [Test]
+    public async Task The_servers_memories_section_follows_the_instructions_unchanged() {
+        const string memories = "<<<repository-memories\n### note\nabout it\nrepository-memories>>>\n\n";
+
+        var block = RepoEvalContextBlock.Render([File("CLAUDE.md", "rules")], ReadAt, memories);
+
+        await Assert.That(block).EndsWith("### CLAUDE.md\nrules\nrepository-instructions>>>\n\n" + memories);
+    }
+
+    [Test]
     public async Task No_files_say_so() {
         await Assert.That(RepoEvalContextBlock.Render([], ReadAt)).Contains("<<<repository-instructions\nNo instruction files are stored for this repository.\n");
     }
