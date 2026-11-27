@@ -9,7 +9,8 @@ using Capacitor.App.ViewModels;
 
 namespace Capacitor.App.Views;
 
-/// A prompt or assistant message whose time and Copy appear while the pointer or keyboard is on it.
+/// A prompt or assistant message whose time, marks and Copy appear while the pointer or keyboard is on it,
+/// or, for a prompt, on the row they wait in under its bubble.
 public sealed class ChatMessageRow : Panel {
     public static readonly StyledProperty<string?> AuthorProperty =
         AvaloniaProperty.Register<ChatMessageRow, string?>(nameof(Author));
@@ -120,15 +121,16 @@ public sealed class ChatMessageRow : Panel {
         if (_messageBody?.TranslatePoint(default, this) is not { } bodyOrigin) return;
 
         var point = e.GetPosition(this);
-        var body = new Rect(bodyOrigin, _messageBody.Bounds.Size);
+        // The actions' row keeps its place while hidden, so the pointer finds them there before they show.
+        var target = new Rect(bodyOrigin, _messageBody.Bounds.Size);
+        if (PlaceOf(_footer) is { } footer) target = target.Union(footer);
         // Once revealed, the actions stay while the pointer crosses from the body onto them.
-        var message = body;
-        foreach (var part in new Visual?[] { _header, _footer }) {
-            if (part is { IsEffectivelyVisible: true } && part.TranslatePoint(default, this) is { } origin)
-                message = message.Union(new Rect(origin, part.Bounds.Size));
-        }
-        SetPointerOnMessage(body.Contains(point) || (ShowsDetails && message.Contains(point)));
+        var message = PlaceOf(_header) is { } header ? target.Union(header) : target;
+        SetPointerOnMessage(target.Contains(point) || (ShowsDetails && message.Contains(point)));
     }
+
+    Rect? PlaceOf(Visual? part) =>
+        part is { IsEffectivelyVisible: true } && part.TranslatePoint(default, this) is { } origin ? new Rect(origin, part.Bounds.Size) : null;
 
     void SetPointerOnMessage(bool value) {
         if (_pointerOnMessage == value) return;

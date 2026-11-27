@@ -36,10 +36,30 @@ public class ChatTimestampTests {
     }
 
     [Test]
-    public async Task An_earlier_day_shows_the_date() {
-        var stamp = ChatTimestamp.Of(Utc("2026-10-30T16:45:00Z"), At("2026-11-02T12:00:00Z", TimeZoneInfo.Utc))!;
+    public async Task The_day_before_shows_yesterday() {
+        var stamp = ChatTimestamp.Of(Utc("2026-11-01T21:34:00Z"), At("2026-11-02T08:00:00Z", TimeZoneInfo.Utc))!;
 
-        await Assert.That(stamp.Label).IsEqualTo("Oct 30, 16:45");
+        await Assert.That(stamp.Label).IsEqualTo("Yesterday 21:34");
+    }
+
+    /// 2026-11-02 is a Monday: the six days before it name their weekday, and the seventh is a date, so
+    /// a weekday never stands for two different days.
+    [Test]
+    [Arguments("2026-10-31T21:34:00Z", "Saturday 21:34")]
+    [Arguments("2026-10-27T21:34:00Z", "Tuesday 21:34")]
+    [Arguments("2026-10-26T21:34:00Z", "Oct 26, 21:34")]
+    public async Task The_past_week_shows_the_weekday_and_older_days_the_date(string at, string label) {
+        var stamp = ChatTimestamp.Of(Utc(at), At("2026-11-02T12:00:00Z", TimeZoneInfo.Utc))!;
+
+        await Assert.That(stamp.Label).IsEqualTo(label);
+    }
+
+    /// 21:34 UTC on Sunday is already Monday two hours east, so the day it reads as is decided in the viewer's zone.
+    [Test]
+    public async Task Yesterday_is_decided_in_the_viewers_time_zone() {
+        var stamp = ChatTimestamp.Of(Utc("2026-10-31T23:30:00Z"), At("2026-11-02T08:00:00Z", PlusTwo))!;
+
+        await Assert.That(stamp.Label).IsEqualTo("Yesterday 01:30");
     }
 
     [Test]

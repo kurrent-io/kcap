@@ -5,7 +5,9 @@
     <Style Selector="views|ChatMessageRow">
         <Setter Property="ContextFlyout" Value="{x:Static views:TextContextMenu.ForMessageRow}" />
     </Style>
+    <!-- A prompt of attachments alone has no text to copy, so its row has no menu; each attachment keeps its own. -->
     <Style Selector="views|ChatMessageRow.noMessageText" x:DataType="views:ChatMessageRow">
+        <Setter Property="ContextFlyout" Value="{x:Null}" />
         <Setter Property="Focusable" Value="True" />
         <Setter Property="AutomationProperties.Name" Value="{Binding $self.Author}" />
         <Setter Property="AutomationProperties.HelpText" Value="{Binding $self.Timestamp.Tip}" />
@@ -23,7 +25,7 @@
         <Setter Property="BorderThickness" Value="1" />
     </Style>
 
-    <!-- Marks sit beside the first line and reserve their space, so revealing them moves nothing. -->
+    <!-- Another participant's name sits beside the first line of their prompt. -->
     <Style Selector="views|ChatMessageHeader">
         <Setter Property="DockPanel.Dock" Value="Right" />
         <Setter Property="VerticalAlignment" Value="Top" />
@@ -41,7 +43,7 @@
         <Setter Property="ToolTip.Tip" Value="{Binding $parent[views:ChatMessageRow].AccessibleMetadata}" />
     </Style>
 
-    <!-- A prompt's time and Copy sit under its bubble. A reply's sit once, after its last row. -->
+    <!-- A prompt's time, marks and Copy sit under its bubble. A reply's sit once, after its last row. -->
     <Style Selector="views|ChatMessageRow StackPanel.messageFooter">
         <Setter Property="DockPanel.Dock" Value="Bottom" />
         <Setter Property="HorizontalAlignment" Value="Right" />
@@ -63,8 +65,23 @@
     <Style Selector="views|ChatMessageRow views|MessageCopyButton" x:DataType="views:MessageCopyButton">
         <Setter Property="AutomationProperties.HelpText" Value="{Binding $parent[views:ChatMessageRow].AccessibleMetadata}" />
     </Style>
+    <!-- Copy and the marks are one row of the same icon action: same size, padding, hover and gap. -->
     <Style Selector="views|ChatMessageRow views|MessageCopyButton, views|ReplyFooter views|MessageCopyButton">
         <Setter Property="MinimumActionHeight" Value="24" />
+    </Style>
+    <Style Selector="views|ChatMessageRow views|MessageCopyButton Button.kcapIcon,
+                     views|ReplyFooter views|MessageCopyButton Button.kcapIcon,
+                     views|MessageMarks Button.kcapIcon">
+        <Setter Property="Padding" Value="4" />
+        <Setter Property="MinWidth" Value="24" />
+        <Setter Property="MinHeight" Value="24" />
+    </Style>
+    <!-- The time stands apart from the actions it follows. -->
+    <Style Selector="views|ChatMessageRow StackPanel.messageFooter TextBlock.messageTime">
+        <Setter Property="Margin" Value="0,0,10,0" />
+    </Style>
+    <Style Selector="views|ReplyFooter TextBlock.messageTime">
+        <Setter Property="Margin" Value="10,0,0,0" />
     </Style>
 
     <Style Selector="views|ChatMessageRow TextBlock.messageTime,
@@ -75,9 +92,15 @@
         <Setter Property="IsHitTestVisible" Value="False" />
     </Style>
     <Style Selector="views|ReplyFooter.revealed TextBlock.messageTime,
-                     views|ReplyFooter.revealed views|MessageCopyButton">
+                     views|ReplyFooter.revealed views|MessageCopyButton,
+                     views|ReplyFooter.revealed Button.topicHere,
+                     views|ReplyFooter.revealed Button.bookmarkHere">
         <Setter Property="Opacity" Value="1" />
         <Setter Property="IsHitTestVisible" Value="True" />
+    </Style>
+    <Style Selector="views|ReplyFooter:not(.revealed) Button.topicHere:not(.on),
+                     views|ReplyFooter:not(.revealed) Button.bookmarkHere:not(.on)">
+        <Setter Property="IsHitTestVisible" Value="False" />
     </Style>
     <Style Selector="views|ChatMessageRow:show-details TextBlock.messageTime,
                      views|ChatMessageRow:show-details views|MessageCopyButton,
