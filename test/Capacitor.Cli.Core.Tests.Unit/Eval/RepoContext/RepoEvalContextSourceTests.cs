@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Capacitor.Cli.Core.Eval.RepoContext;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
@@ -21,12 +22,14 @@ public class RepoEvalContextSourceTests {
         return upstream.Clone(Tmp.PathTo("clone")).Path;
     }
 
-    static WireMockServer Summary(string repoHash) {
+    const string Memories = "<<<repository-memories\n### note\nshared\nrepository-memories>>>\n\n";
+
+    static WireMockServer Summary(string repoHash, string memories = Memories) {
         var server = WireMockServer.Start();
         server.Given(Request.Create().WithPath($"/api/sessions/{Session}/summary").UsingGet()).RespondWith(Response.Create().WithStatusCode(200)
             .WithBody($$"""{"session_id":"{{Session}}","repositories":[{"repo_hash":"{{repoHash}}","owner":"acme","repo_name":"widgets","is_primary":true}]}"""));
         server.Given(Request.Create().WithPath("/api/repos/eval-memories").UsingGet()).RespondWith(Response.Create().WithStatusCode(200)
-            .WithBody("""{"memories":"<<<repository-memories\n### note\nshared\nrepository-memories>>>\n\n"}"""));
+            .WithBody(JsonSerializer.Serialize(new Dictionary<string, string> { ["memories"] = memories })));
         return server;
     }
 
@@ -47,8 +50,17 @@ public class RepoEvalContextSourceTests {
     }
 
     [Test]
-    public async Task No_checkout_of_the_repository_leaves_the_block_out() {
+    public async Task Without_a_checkout_the_block_says_so_and_still_carries_the_memories() {
         using var server = Summary("0123456789abcdef");
+
+        var block = await BlockAsync(server, Clone());
+
+        await Assert.That(block).EndsWith("<<<repository-instructions\nNo instruction files are stored for this repository.\nrepository-instructions>>>\n\n" + Memories);
+    }
+
+    [Test]
+    public async Task No_instructions_and_no_memories_leave_the_block_out() {
+        using var server = Summary("0123456789abcdef", memories: "");
 
         await Assert.That(await BlockAsync(server, Clone())).IsEmpty();
     }

@@ -4,32 +4,37 @@ using Capacitor.Cli.Core.RepoInstructions;
 
 namespace Capacitor.Cli.Core.Eval.RepoContext;
 
-/// <summary>The <see cref="RepoEvalContextBlock"/> for a session's primary repository, read from this machine's checkout of
-/// it. The server never sends the instructions it stores, so an eval run here reads them itself; with no checkout, or no
-/// default branch to read them from, there is no block.</summary>
+/// <summary>The <see cref="RepoEvalContextBlock"/> for a session's primary repository: its instruction files read from this
+/// machine's checkout, since the server never sends the ones it stores, and the memories section the server renders. With
+/// neither there is no block.</summary>
 public sealed class RepoEvalContextSource(LocalRepoCheckouts checkouts, TimeProvider time) {
     public static RepoEvalContextSource For(ConfigRoot config, TimeProvider time) =>
         new(new LocalRepoCheckouts(new RepoPathStore(config, time).GetSortedPathsAsync), time);
 
     public async Task<string> ForSessionAsync(HttpClient client, string baseUrl, string sessionId, IEvalObserver observer, CancellationToken ct) {
+        var files    = await InstructionFilesAsync(client, baseUrl, sessionId, observer, ct);
+        var memories = await RepoEvalMemoriesClient.ForSessionAsync(client, baseUrl, sessionId, observer, time, ct);
+
+        return files.Count == 0 && memories.Length == 0 ? "" : RepoEvalContextBlock.Render(files, time.GetUtcNow(), memories);
+    }
+
+    async Task<IReadOnlyList<RepoInstructionFile>> InstructionFilesAsync(HttpClient client, string baseUrl, string sessionId, IEvalObserver observer,
+            CancellationToken ct) {
         try {
-            if (await RepoHashAsync(client, baseUrl, sessionId, ct) is not { } hash) return "";
+            if (await RepoHashAsync(client, baseUrl, sessionId, ct) is not { } hash) return [];
             if (await checkouts.FindAsync(hash) is not { } root) {
                 observer.OnInfo("no local checkout of the session's repository; judging without its instructions");
-                return "";
+                return [];
             }
 
             var read = await RepoInstructionsReader.ReadAsync(root, time, ct);
-            if (read.Set is not { } set) {
-                observer.OnInfo($"repository instructions not read from {root}: {read.Unavailable}");
-                return "";
-            }
+            if (read.Set is { } set) return set.Files;
 
-            var memories = await RepoEvalMemoriesClient.ForSessionAsync(client, baseUrl, sessionId, observer, time, ct);
-            return RepoEvalContextBlock.Render(set.Files, time.GetUtcNow(), memories);
+            observer.OnInfo($"repository instructions not read from {root}: {read.Unavailable}");
+            return [];
         } catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) {
             observer.OnInfo($"repository instructions not read: {ex.Message}");
-            return "";
+            return [];
         }
     }
 
