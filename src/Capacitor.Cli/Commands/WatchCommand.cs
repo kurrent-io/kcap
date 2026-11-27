@@ -830,8 +830,14 @@ class WatchCommand(
     internal static bool SessionRunsOnElsewhere(string vendor, string? agentId, int? liveClaimant) =>
         vendor is "muse" or "codex" && agentId is null && liveClaimant is not null;
 
+    /// <summary>A live process claimed for the session on this watcher's server. One claimed while recording elsewhere
+    /// does not carry this server's session on: its own hooks arm the watcher it needs once this one is gone.</summary>
     int? LiveClaimant(string sessionId) =>
-        SessionId.Parse(sessionId) is { } session ? AgentSessions.OnThisMachine(config).LiveClaimant(session) : null;
+        SessionId.Parse(sessionId) is { } session
+     && AgentSessions.OnThisMachine(config).LiveClaimantOrigin(session) is { } claimed
+     && (claimed.Origin?.Server is not { Length: > 0 } server || ServerIdentity.SameServer(server, Url))
+            ? claimed.Pid
+            : null;
 
     internal enum HandedEndOutcome { Posted, Rejected, Dropped, Failed }
 
@@ -849,11 +855,7 @@ class WatchCommand(
 
         for (HandedSessionEndRequest? handed = first; handed is not null; handed = HandedSessionEndRequest.ClaimHandedEnd(_paths, sessionId, Url, time)) {
             // Neither the children's stops nor the end may bring back a session a person disabled.
-            if (new HookSpool(config, time, Url).IsDisabledByPerson(sessionId)) {
-                Log(time, "Handed session-end dropped: the session was disabled");
-                HandedSessionEndRequest.Release(handed.ClaimedPath);
-                continue;
-            }
+            if (DisabledByPerson(sessionId, handed)) continue;
 
             // Before the fence: a stale end must not stamp the entry of the run that resumed past it.
             if (HandedSessionEndRequest.ResumedSince(_paths, sessionId, handed.HandedAt, handed.Server)) {
@@ -876,7 +878,9 @@ class WatchCommand(
                 await FinalizeCodexChildrenAsync(sessionId, transcriptPath);
             }
 
-            var outcome = await PostHandedSessionEndAsync(sessionId, transcriptPath, vendor, repository, handed);
+            // The teardown can take seconds, and this watcher's pid is gone: a disable may have landed meanwhile.
+            var outcome = DisabledByPerson(sessionId, handed) ? HandedEndOutcome.Rejected
+                        : await PostHandedSessionEndAsync(sessionId, transcriptPath, vendor, repository, handed);
 
             switch (outcome) {
                 // The session carried on, so this watcher's stop must not leave it unwatched.
@@ -914,12 +918,23 @@ class WatchCommand(
     /// session before its start replays.</summary>
     async Task<HandedEndOutcome> RetryHandedEndAsync(
             string sessionId, string transcriptPath, string vendor, RepositoryPayload? repository, HandedSessionEndRequest handed) {
+        if (DisabledByPerson(sessionId, handed)) return HandedEndOutcome.Rejected;
         if (new HookSpool(config, time, Url).HasBacklog(sessionId) || !KnownVendors.Contains(vendor)) return HandedEndOutcome.Failed;
 
         var delivery = await EndPoster().PostAsync(
             sessionId, vendor, HandedEndBody(handed.Payload, sessionId, transcriptPath, time.GetUtcNow(), out _), repository, "Handed");
 
         return Settled(delivery, handed);
+    }
+
+    /// <summary>Whether a person disabled the session, releasing the handed end unsent when they did.</summary>
+    bool DisabledByPerson(string sessionId, HandedSessionEndRequest handed) {
+        if (!new HookSpool(config, time, Url).IsDisabledByPerson(sessionId)) return false;
+
+        Log(time, "Handed session-end dropped: the session was disabled");
+        HandedSessionEndRequest.Release(handed.ClaimedPath);
+
+        return true;
     }
 
     /// <summary>The handed end's outcome once <paramref name="delivery"/> is known, releasing its claim unless the end was

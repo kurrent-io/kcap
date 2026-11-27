@@ -114,6 +114,18 @@ public class HandedSessionEndRequestTests {
     public async Task Every_claim_names_the_claiming_process() =>
         await Assert.That(HandedSessionEndRequest.OwnClaim).IsEqualTo(Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
+    /// <summary>A session id is matched literally, so one that reads as a search pattern reaches no other session's end;
+    /// and in any case, since a hook and a watcher may spell it differently.</summary>
+    [Test]
+    public async Task A_session_is_matched_literally_and_in_any_case() {
+        var paths = new WatcherPaths(Tmp.PathTo("watchers"));
+        HandedSessionEndRequest.Write(paths, SessionId, """{"reason":"other"}""", vendor: "codex");
+
+        await Assert.That(HandedSessionEndRequest.TryClaim(paths, "01a1*", "glob")).IsNull();
+        HandedSessionEndRequest.DeleteAll(paths, "*");
+        await Assert.That(HandedSessionEndRequest.TryClaim(paths, SessionId.ToUpperInvariant(), "upper")).IsNotNull();
+    }
+
     /// <summary>A request written before requests recorded a vendor is Muse's, the only vendor that handed ends over then.</summary>
     [Test]
     public async Task A_request_with_no_vendor_is_muses() {

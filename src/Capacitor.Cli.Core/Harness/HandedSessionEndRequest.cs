@@ -27,6 +27,9 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
 
     static bool IsRequest(string name) => name.EndsWith(RequestedSuffix, StringComparison.Ordinal);
 
+    /// <summary>A hook and a watcher may spell the id in different cases.</summary>
+    static bool OfSession(string name, string sessionId) => name.StartsWith(sessionId + ".", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>The server the request was handed over for; null for one written before requests recorded it.</summary>
     public string? Server { get; init; }
 
@@ -94,8 +97,9 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
         try {
             if (!Directory.Exists(paths.Directory)) return [];
 
-            return Directory.EnumerateFiles(paths.Directory, $"{sessionId}.*")
-                .Where(f => Path.GetFileName(f) is var name && IsRequest(name) && name.Count(c => c == '.') is 1 or 2)
+            // Matched literally, never as a search pattern: a session id is no glob.
+            return Directory.EnumerateFiles(paths.Directory, "*" + RequestedSuffix)
+                .Where(f => Path.GetFileName(f) is var name && OfSession(name, sessionId) && IsRequest(name) && name.Count(c => c == '.') is 1 or 2)
                 .OrderBy(File.GetLastWriteTimeUtc)
                 .ToList();
         } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
@@ -341,7 +345,8 @@ public sealed record HandedSessionEndRequest(string Payload, string ClaimedPath,
         try {
             if (!Directory.Exists(paths.Directory)) return;
 
-            foreach (var file in Directory.EnumerateFiles(paths.Directory, $"{sessionId}.*").Where(f => f.Contains(RequestedSuffix, StringComparison.Ordinal)))
+            foreach (var file in Directory.EnumerateFiles(paths.Directory)
+                         .Where(f => Path.GetFileName(f) is var name && OfSession(name, sessionId) && name.Contains(RequestedSuffix, StringComparison.Ordinal)).ToList())
                 File.Delete(file);
         } catch (IOException) {
         } catch (UnauthorizedAccessException) {
