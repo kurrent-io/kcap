@@ -18,10 +18,7 @@ public sealed class MacDesktopHost(string cliDirectory, bool updateRelaunch, Sin
         });
     }
 
-    /// Grayscale, as AppKit draws its own text. macOS has drawn no LCD text since Mojave, but
-    /// Skia's subpixel edging still turns on CoreText's font smoothing, which thickens stems and
-    /// fringes them, and offscreen layers already fall back to grayscale, so text changed weight
-    /// whenever it passed through one (a fade, a cached bitmap).
+    /// Skia's subpixel edging turns on CoreText font smoothing, which thickens and fringes stems.
     public override TextRenderingMode TextRendering => TextRenderingMode.Antialias;
 
     public override void WaitUntilReady() =>

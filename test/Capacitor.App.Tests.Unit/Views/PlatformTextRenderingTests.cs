@@ -8,7 +8,6 @@ using static Capacitor.App.Tests.Unit.AvaloniaSession;
 
 namespace Capacitor.App.Tests.Unit.Views;
 
-/// Text is antialiased the platform's way in every window and in every popup, which is a window of its own.
 public class PlatformTextRenderingTests {
     [Test]
     [NotInParallel("AvaloniaSession")]
