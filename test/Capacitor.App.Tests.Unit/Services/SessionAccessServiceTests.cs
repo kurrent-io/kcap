@@ -439,9 +439,11 @@ public class SessionAccessServiceTests {
         var callsBeforeDispose = h.Lane.Calls.Count;
         h.Service.Dispose();
 
+        // Waited for, not read: the completion is delivered by whichever thread is draining the service's
+        // states, and that can be the attempt that has just established rather than the Dispose above.
         var completed = false;
-        using (lease.State.Subscribe(_ => { }, () => completed = true)) { }
-        await Assert.That(completed).IsTrue();
+        using var completion = lease.State.Subscribe(_ => { }, () => Volatile.Write(ref completed, true));
+        await WaitUntilAsync(() => Volatile.Read(ref completed), what: "the lease to complete");
 
         h.Connect(epoch: 2);
         h.Lane.SessionAccessChangedSubject.OnNext("s1");

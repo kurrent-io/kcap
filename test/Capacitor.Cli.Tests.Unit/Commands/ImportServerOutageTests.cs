@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Sockets;
 using System.Text.Json;
 using Capacitor.Cli.Commands;
 using Capacitor.Cli.Core.Config;
@@ -63,8 +61,9 @@ public class ImportServerOutageTests {
 
     [Test]
     public async Task An_unreachable_server_is_named_and_fails_the_run_without_counting_the_ignored_session() {
+        using var down = new RefusingPort();
         var terminal = new TestImportTerminal();
-        var url      = $"http://127.0.0.1:{ClosedPort()}";
+        var url      = down.Url;
 
         // Each probe's retry budget runs out on its first refusal instead of after thirty real seconds.
         var outcome = await Import(url, new FakeTimeProvider { AutoAdvanceAmount = TimeSpan.FromMinutes(3) }, terminal);
@@ -77,8 +76,9 @@ public class ImportServerOutageTests {
 
     [Test]
     public async Task The_unreachable_message_drops_credentials_from_the_server_url() {
+        using var down = new RefusingPort();
         var terminal = new TestImportTerminal();
-        var port     = ClosedPort();
+        var port     = down.Port;
 
         await Import($"http://user:hunter2@127.0.0.1:{port}", new FakeTimeProvider { AutoAdvanceAmount = TimeSpan.FromMinutes(3) }, terminal);
 
@@ -101,14 +101,5 @@ public class ImportServerOutageTests {
         await Assert.That(terminal.Error.ToString()).DoesNotContain("Could not reach");
         await Assert.That(server.LogEntries.Where(e => e.RequestMessage.Path.StartsWith("/hooks/", StringComparison.Ordinal)))
             .IsEmpty();
-    }
-
-    static int ClosedPort() {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        listener.Stop();
-
-        return port;
     }
 }

@@ -88,8 +88,12 @@ public class UnixPtyReaderThreadTests {
         var left    = new byte[5 * 4096];
         Array.Fill(left, (byte)'x');
 
+        // The child has exited once it has written everything, not before: a reader that saw the exit
+        // while the writer below had yet to be scheduled would find the pipe idle and end the stream.
+        var allWritten = false;
+
         using var stop   = new CancellationTokenSource();
-        var       reader = new UnixPtyReaderThread(readFd, 0, () => true, TimeProvider.System, stop.Token);
+        var       reader = new UnixPtyReaderThread(readFd, 0, () => Volatile.Read(ref allWritten), TimeProvider.System, stop.Token);
 
         // Written beside the reader: a pipe smaller than the output would block a write made ahead of it.
         var writing = Task.Factory.StartNew(() => {
@@ -99,6 +103,8 @@ public class UnixPtyReaderThreadTests {
 
                 at += wrote;
             }
+
+            Volatile.Write(ref allWritten, true);
         }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
         try {

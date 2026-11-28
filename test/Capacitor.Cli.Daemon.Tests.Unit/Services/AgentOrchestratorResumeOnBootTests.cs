@@ -575,15 +575,27 @@ public class AgentOrchestratorResumeOnBootTests {
         await Assert.That(f.Server.ShutdownReports.Where(r => r.AgentId == "refused-stuck-1")).IsEmpty();
     }
 
+    /// <summary>A clock on which the wait between two lease begins is over as it starts. On the real one a loaded
+    /// host can spend the whole window on the first begin, and the retry this test counts never happens.</summary>
+    sealed class RetryElapsingTime(TimeSpan retry) : FakeTimeProvider {
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) {
+            var timer = base.CreateTimer(callback, state, dueTime, period);
+            if (dueTime == retry) Advance(retry);
+
+            return timer;
+        }
+    }
+
     /// <summary>A server that has the lease but does not answer for it leaves the session unfenced: after the retry
     /// window the entry is interrupted, neither resumed nor continued.</summary>
     [Test]
     public async Task A_lease_begin_that_never_reaches_the_server_is_interrupted_without_a_continuation() {
+        var retry  = TimeSpan.FromMilliseconds(50);
         var server = new CaptureServerConnection { BeginResume = _ => throw new InvalidOperationException("connection lost") };
-        var f = Build(new ResumableFactory { PtyStyle = true }, server: server);
+        var f = Build(new ResumableFactory { PtyStyle = true }, time: new RetryElapsingTime(retry), server: server);
         await using var _ = f.Orch;
         f.Orch.HandoffSuccessorWindow = TimeSpan.FromMilliseconds(200);
-        f.Orch.HandoffSuccessorRetry  = TimeSpan.FromMilliseconds(50);
+        f.Orch.HandoffSuccessorRetry  = retry;
         Entry(f, "unreached-1");
         var continued = 0;
         f.Orch.ContinueEntry = (_, _, _) => {

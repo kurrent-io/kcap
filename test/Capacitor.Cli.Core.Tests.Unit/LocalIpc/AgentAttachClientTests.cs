@@ -28,6 +28,31 @@ public class AgentAttachClientTests {
         public Func<byte[], CancellationToken, Task> OnOutput => (b, _) => { Output.Add(b); return Task.CompletedTask; };
     }
 
+    /// Sends input until one write fails. The server closing its end does not close the connection while a
+    /// child that a concurrent test forked still holds a copy of that descriptor, and until the child execs
+    /// a write to it succeeds. A write after the failure returns at once, so the failure is reported once.
+    static async Task SendInputUntilAWriteFailsAsync(AgentAttachClient client, Func<bool> failed) {
+        var deadline = DateTime.UtcNow + BoundedWait.Deadline;
+
+        while (true) {
+            var left = deadline - DateTime.UtcNow;
+
+            // The send is bounded too: a peer that holds the descriptor without reading can fill the
+            // buffer and park the write.
+            try {
+                if (left <= TimeSpan.Zero) throw new TimeoutException();
+
+                await client.SendInputAsync([9]).WaitAsync(left);
+            } catch (TimeoutException) {
+                throw new TimeoutException($"No input write failed within {BoundedWait.DeadlineSeconds}s of the server closing the connection.");
+            }
+
+            if (failed()) return;
+
+            await Task.Delay(5);
+        }
+    }
+
     sealed class RecordingSink {
         public readonly List<(string Context, Exception Ex)> Entries = [];
         readonly object _gate = new();
@@ -571,16 +596,19 @@ public class AgentAttachClientTests {
         var sink = new RecordingSink();
         var boom = new InvalidOperationException("render exploded");
         var disposeStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         AgentAttachClient client = null!;
         client = new AgentAttachClient(server.Path, AgentId,
             (_, _) => Task.CompletedTask,
-            async (_, _) => { await disposeStarted.Task; throw boom; },   // fault AFTER dispose claimed
+            // fault AFTER dispose claimed. Signals on ENTRY: a dispose that lands before the pump is in
+            // here cancels the read instead, and the callback never runs to fault.
+            async (_, _) => { callbackEntered.TrySetResult(); await disposeStarted.Task; throw boom; },
             sink.Callback);
         var run = client.RunAsync(80, 24, CancellationToken.None);
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedAsync(AgentId, []);
         await server.SendStdoutAsync([1]);
-        await Task.Delay(50);
+        await callbackEntered.Task.WithinDeadlineAsync("the pump to enter the output callback");
 
         var dispose = client.DisposeAsync();
         disposeStarted.SetResult();
@@ -657,7 +685,7 @@ public class AgentAttachClientTests {
         await pumpParked.Task.WithinDeadlineAsync("the pump to park in the output callback");
 
         server.CloseConnection();
-        await client.SendInputAsync([1, 2, 3]);                     // the only producer that can possibly fail right now
+        await SendInputUntilAWriteFailsAsync(client, () => Volatile.Read(ref sinkCalls) > 0);  // the only producer that can possibly fail right now
 
         await client.DisposeAsync().WithinDeadlineAsync("dispose to join the run");  // unblocks the parked callback via the internal token
         await Assert.That(await run.WithinDeadlineAsync("the run to settle")).IsEqualTo(new AttachOutcome.ConnectionLost());  // the already-claimed cause wins
@@ -692,7 +720,8 @@ public class AgentAttachClientTests {
         await pumpBlocked.Task.WithinDeadlineAsync("the pump to block in the output callback");  // inside the callback, gate not yet open
 
         server.CloseConnection();
-        await client.SendInputAsync([9]);                 // the writer claims ConnectionLost, closes the local transport
+        // the writer claims ConnectionLost, closes the local transport
+        await SendInputUntilAWriteFailsAsync(client, () => sink.Entries.Any(e => e.Context == "outbound write"));
 
         gate.SetResult();                                  // release the pump: its next read hits the disposed stream
 
@@ -781,6 +810,7 @@ public class AgentAttachClientTests {
         var firstInSink = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var attachedObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pumpBlocked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         void Sink(string c, Exception e) {
             var now = Interlocked.Increment(ref current);
             maxConcurrent = Math.Max(maxConcurrent, now);
@@ -794,17 +824,17 @@ public class AgentAttachClientTests {
 
         var client = new AgentAttachClient(server.Path, AgentId,
             (_, _) => { attachedObserved.TrySetResult(); return Task.CompletedTask; },
-            async (_, _) => { await proceed.Task; throw boom; },    // stdout callback: armed, not yet fired
+            async (_, _) => { pumpBlocked.TrySetResult(); await proceed.Task; throw boom; },    // stdout callback: armed, not yet fired
             Sink);
         var run = client.RunAsync(80, 24, CancellationToken.None);
         await server.AcceptAndPumpInboundAsync();
         await server.SendAttachedAsync(AgentId, []);
         await attachedObserved.Task.WithinDeadlineAsync("the client to observe Attached");  // Windows RST guard — see comment above
         await server.SendStdoutAsync([1]);
-        await Task.Delay(50);                                      // pump is blocked inside the callback, gated on `proceed`
+        await pumpBlocked.Task.WithinDeadlineAsync("the pump to block in the output callback");  // gated on `proceed`
 
         server.CloseConnection();                                  // break the transport under the writer
-        var writeTask = Task.Run(async () => await client.SendInputAsync([9]).ConfigureAwait(false));
+        var writeTask = Task.Run(() => SendInputUntilAWriteFailsAsync(client, () => Volatile.Read(ref sinkCallCount) > 0));
 
         await firstInSink.Task.WithinDeadlineAsync("the write's report to park in the sink");  // the write's own report has entered the sink and parked, holding _sinkLock
         proceed.SetResult();                // now let the callback fault fire — it must lose the already-claimed slot

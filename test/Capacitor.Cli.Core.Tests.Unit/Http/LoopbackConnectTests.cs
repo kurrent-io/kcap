@@ -43,15 +43,9 @@ public class LoopbackConnectTests {
 
     [Test]
     public async Task Localhost_with_nothing_listening_fails_as_a_refused_connect() {
-        int port;
+        using var down = new RefusingPort();
 
-        using (var probe = new TcpListener(IPAddress.Loopback, 0)) {
-            probe.Start();
-            port = ((IPEndPoint)probe.LocalEndpoint).Port;
-            probe.Stop();
-        }
-
-        await Assert.That(async () => await LoopbackConnect.ConnectAsync(new DnsEndPoint("localhost", port), CancellationToken.None))
+        await Assert.That(async () => await LoopbackConnect.ConnectAsync(new DnsEndPoint("localhost", down.Port), CancellationToken.None))
             .Throws<SocketException>();
     }
 

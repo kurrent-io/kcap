@@ -2140,21 +2140,22 @@ public class ClaudeHookCommandTests {
 
     /// <summary>The drain must classify a 401 as the live post does: an entry that hits one on replay
     /// stays spooled and lands once the server accepts the credential again. Otherwise spooling at
-    /// the live post only turns a visible loss into a delayed silent one.</summary>
+    /// the live post only turns a visible loss into a delayed silent one. On frozen budgets, the hook's and the
+    /// spool's, so a loaded host cannot spend them before the replay starts.</summary>
     [Test]
     public async Task spooled_entry_that_hits_a_401_on_drain_is_replayed_once_the_server_accepts() {
-        using var rejecting = new Fixture(Config.Root, HttpStatusCode.Unauthorized);
+        using var rejecting = new Fixture(Config.Root, HttpStatusCode.Unauthorized, spoolTime: new FakeTimeProvider());
         using var accepting = new Fixture(Config.Root);
         rejecting.Spool.Append(Sid, "session-end", $$"""{"session_id":"{{Sid}}"}""");
         var stdout = new StringWriter { NewLine = "\n" };
 
-        await new ClaudeHookCommand(Config.Root, rejecting.Profiles, new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, rejecting.Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None).HandleCore(
+        await new ClaudeHookCommand(Config.Root, rejecting.Profiles, Aged(TimeSpan.Zero), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, rejecting.Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None).HandleCore(
             rejecting.Client, AuthStatus.Ok, rejecting.Spool, new StringReader(
                 $$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}"""),
             stdout: stdout);
         await Assert.That(rejecting.Spool.HasBacklog(Sid)).IsTrue();
 
-        await new ClaudeHookCommand(Config.Root, accepting.Profiles, new HookClock(TimeProvider.System), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, accepting.Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None).HandleCore(
+        await new ClaudeHookCommand(Config.Root, accepting.Profiles, Aged(TimeSpan.Zero), Home, TestHarnesses.Under(Home), HostedAgent.Terminal, new FixedCapacitorHttpClient(), TestWatchers.For(Config.Root, accepting.Profiles, new FixedCapacitorHttpClient()), FakeProcessStarter.Refusing(), router: new GitProviderRouter(), workdir: new WorkingDirectory(AppContext.BaseDirectory), accounts: TestAccounts.None).HandleCore(
             accepting.Client, AuthStatus.Ok, rejecting.Spool, new StringReader(
                 $$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}"""),
             stdout: stdout);
@@ -2170,7 +2171,8 @@ public class ClaudeHookCommandTests {
         using var fx = new Fixture(Config.Root) { HoldOnPost = TimeSpan.FromSeconds(60) };
         var started = System.Diagnostics.Stopwatch.StartNew();
 
-        var exit = await fx.HandleAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""");
+        var exit = await fx.HandleAsync($$"""{"hook_event_name":"Stop","session_id":"{{Sid}}","transcript_path":"/none","cwd":"/tmp"}""",
+            clock: new HookClock(TimeProvider.System));
 
         await Assert.That(exit).IsEqualTo(0);
         await Assert.That(started.Elapsed).IsLessThan(TimeSpan.FromSeconds(5));
@@ -2373,7 +2375,8 @@ public class ClaudeHookCommandTests {
         using var fx = new Fixture(Config.Root);
         fx.HoldOnPost = TimeSpan.FromSeconds(30); // server hangs past the bounded attempt
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var exit = await fx.HandleAsync($$"""{"hook_event_name":"SubagentStop","session_id":"{{Sid}}","agent_id":"{{AgentId}}","transcript_path":"/none","cwd":"/tmp"}""");
+        var exit = await fx.HandleAsync($$"""{"hook_event_name":"SubagentStop","session_id":"{{Sid}}","agent_id":"{{AgentId}}","transcript_path":"/none","cwd":"/tmp"}""",
+            clock: new HookClock(TimeProvider.System));
         sw.Stop();
         await Assert.That(exit).IsEqualTo(0);
         // Bounded well clear of the hook's own 5s budget rather than at it: the claim is that the
@@ -2811,14 +2814,15 @@ public class ClaudeHookCommandTests {
             }));
         }
 
-        /// <summary>One hook invocation. A fresh budget runs on the real clock, so its waits are
-        /// bounded by the same clock a test measures elapsed time on; <paramref name="elapsed"/>
-        /// freezes the budget partway into its ceiling instead, for the paths that give up on the
-        /// arithmetic alone.</summary>
+        /// <summary>One hook invocation, on a budget nothing advances: on the real clock a loaded host
+        /// spends it before the POST, and the hook spools the event the test expects sent.
+        /// <paramref name="elapsed"/> starts the budget partway into its ceiling, for the paths that give
+        /// up on the arithmetic alone. A test that waits a budget out passes a <paramref name="clock"/>
+        /// that runs, since a wait bounded by a frozen one never comes due.</summary>
         public Task<int> HandleAsync(string stdin, TimeSpan elapsed = default, HookClock? clock = null, TextWriter? stdout = null) {
             StubMemoryServer();
 
-            clock ??= elapsed == TimeSpan.Zero ? new HookClock(TimeProvider.System) : Aged(elapsed);
+            clock ??= Aged(elapsed);
             _clock = clock;
 
             var watchers = Spawner is { } spawner

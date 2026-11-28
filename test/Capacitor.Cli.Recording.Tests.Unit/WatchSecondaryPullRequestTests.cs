@@ -1,6 +1,7 @@
 using Capacitor.Cli.Core;
 using Capacitor.Cli.Core.Harness.Claude;
 using Capacitor.Cli.Core.RepoEvidence;
+using Microsoft.Extensions.Time.Testing;
 using TUnit.Assertions.Enums;
 
 namespace Capacitor.Cli.Recording.Tests.Unit;
@@ -45,8 +46,12 @@ public class WatchSecondaryPullRequestTests {
     static Func<string, TimeSpan, Task<RepositoryPayload?>> Detects(RepositoryPayload? repo) => (_, _) => Task.FromResult(repo);
 
     static Task Link(WatchState state, Func<string, TimeSpan, Task<RepositoryPayload?>> detect, Func<RepositoryPayload, CancellationToken, Task<bool>> post,
-        TimeSpan? budget = null, CancellationToken ct = default, Action? beat = null) =>
-        RecorderHousekeeping.LinkSecondaryPullRequestsAsync(state, detect, post, budget ?? Budget, TimeProvider.System, ct, beat ?? (() => { }));
+        TimeSpan? budget = null, TimeProvider? time = null, Action? beat = null, CancellationToken ct = default) =>
+        RecorderHousekeeping.LinkSecondaryPullRequestsAsync(state, detect, post, budget ?? Budget, time ?? TimeProvider.System, ct, beat ?? (() => { }));
+
+    // The passes run on a clock only the probe advances: on the real one a loaded host can spend a
+    // short budget before the first probe starts, and the pass then ends having probed nothing.
+    static readonly TimeSpan ShortBudget = TimeSpan.FromSeconds(1);
 
     // A root whose probe eats the whole pass must not shadow the roots after it every time.
     [Test]
@@ -54,14 +59,18 @@ public class WatchSecondaryPullRequestTests {
         var state  = StateWithSecondaryRoot(OtherRoot);
         var probed = new List<string>();
         var never  = new TaskCompletionSource<RepositoryPayload?>();
+        var time   = new FakeTimeProvider();
 
         Task<RepositoryPayload?> Detect(string root, TimeSpan _) {
             probed.Add(root);
-            return probed.Count == 1 ? never.Task : Task.FromResult<RepositoryPayload?>(null);
+            if (probed.Count > 1) return Task.FromResult<RepositoryPayload?>(null);
+
+            time.Advance(ShortBudget);
+            return never.Task;
         }
 
-        await Link(state, Detect, (_, _) => Task.FromResult(true), budget: TimeSpan.FromMilliseconds(50));
-        await Link(state, Detect, (_, _) => Task.FromResult(true));
+        await Link(state, Detect, (_, _) => Task.FromResult(true), budget: ShortBudget, time: time);
+        await Link(state, Detect, (_, _) => Task.FromResult(true), time: time);
 
         await Assert.That(probed).IsEquivalentTo([CliRoot, OtherRoot, CliRoot], CollectionOrdering.Matching);
     }
@@ -72,15 +81,16 @@ public class WatchSecondaryPullRequestTests {
     public async Task A_pass_that_runs_out_between_probes_resumes_at_the_root_it_skipped() {
         var state  = StateWithSecondaryRoot(OtherRoot);
         var probed = new List<string>();
+        var time   = new FakeTimeProvider();
 
         Task<RepositoryPayload?> Detect(string root, TimeSpan _) {
             probed.Add(root);
-            if (probed.Count == 1) Thread.Sleep(100);
+            if (probed.Count == 1) time.Advance(ShortBudget * 2);
             return Task.FromResult<RepositoryPayload?>(null);
         }
 
-        await Link(state, Detect, (_, _) => Task.FromResult(true), budget: TimeSpan.FromMilliseconds(20));
-        await Link(state, Detect, (_, _) => Task.FromResult(true));
+        await Link(state, Detect, (_, _) => Task.FromResult(true), budget: ShortBudget, time: time);
+        await Link(state, Detect, (_, _) => Task.FromResult(true), time: time);
 
         await Assert.That(probed).IsEquivalentTo([CliRoot, OtherRoot, CliRoot], CollectionOrdering.Matching);
     }
