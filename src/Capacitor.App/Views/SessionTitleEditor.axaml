@@ -13,11 +13,14 @@
             <Setter Property="MinHeight" Value="0" />
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
+        <Style Selector="TextBlock#TitleText.renamable">
+            <Setter Property="Cursor" Value="Ibeam" />
+        </Style>
     </UserControl.Styles>
 
     <Panel>
         <Grid x:Name="TitleDisplay" ColumnDefinitions="*,Auto" HorizontalAlignment="Left" IsVisible="{Binding !IsEditing}">
-            <TextBlock x:Name="TitleText" Grid.Column="0" Text="{Binding Title}" AutomationProperties.HeadingLevel="1" FontWeight="SemiBold" FontSize="{StaticResource KcapFontSizeLarge}"
+            <TextBlock x:Name="TitleText" Grid.Column="0" Text="{Binding Title}" Classes.renamable="{Binding ShowsPencil}" Background="Transparent" AutomationProperties.HeadingLevel="1" FontWeight="SemiBold" FontSize="{StaticResource KcapFontSizeLarge}"
                        Foreground="{StaticResource KcapTextBrush}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
                        views:TrimmedTextTooltip.ShowOnlyWhenTrimmed="True" ToolTip.Tip="{Binding Title}" />
             <Button x:Name="RenameButton" Grid.Column="1" Classes="kcapGhost titleAction" Margin="4,0,0,0"
