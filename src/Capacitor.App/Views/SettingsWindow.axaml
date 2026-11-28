@@ -248,28 +248,33 @@
                             </StackPanel>
                         </Border>
 
-                        <Border Classes="settingsCard" IsVisible="{Binding Appearance.Reading, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}">
-                            <StackPanel Margin="16,14" Spacing="10">
-                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto" RowSpacing="8">
-                                    <TextBlock Classes="kcapLabel" Text="Density" VerticalAlignment="Center" />
-                                    <ComboBox x:Name="DensityPicker" Grid.Row="0" Grid.Column="1" Classes="kcapField" MinWidth="150" HorizontalAlignment="Stretch"
-                                              AutomationProperties.Name="Density"
-                                              ItemsSource="{x:Static vm:DesktopAppearanceSettings.Densities}"
-                                              SelectedItem="{Binding Appearance.Reading.Density, Mode=TwoWay}" />
-                                    <TextBlock Grid.Row="1" Classes="kcapLabel" Text="Reading font" VerticalAlignment="Center" TextWrapping="Wrap" />
-                                    <ComboBox x:Name="ReadingFontPicker" Grid.Row="1" Grid.Column="1" Classes="kcapField" HorizontalAlignment="Stretch"
-                                              AutomationProperties.Name="Reading font"
-                                              ItemsSource="{x:Static vm:DesktopAppearanceSettings.ReadingFonts}"
-                                              SelectedItem="{Binding Appearance.Reading.ReadingFont, Mode=TwoWay}" />
-                                </Grid>
-                                <CheckBox x:Name="HigherContrastToggle" Content="Use higher contrast"
-                                          IsChecked="{Binding Appearance.Reading.HighContrast, Mode=TwoWay}" />
-                                <TextBlock Foreground="{StaticResource KcapDangerBrush}" TextWrapping="Wrap"
-                                           AutomationProperties.LiveSetting="Polite"
-                                           IsVisible="{Binding Appearance.Reading.Problem, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}"
-                                           Text="{Binding Appearance.Reading.Problem, FallbackValue={x:Null}}" />
-                            </StackPanel>
-                        </Border>
+                        <StackPanel Classes="settingsGroup" IsVisible="{Binding Appearance.Reading, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}">
+                            <TextBlock Classes="settingsGroupTitle" Text="Accessibility" />
+                            <Border Classes="settingsCard">
+                                <StackPanel Margin="16,10" Spacing="8">
+                                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12" RowDefinitions="Auto,Auto" RowSpacing="6">
+                                        <TextBlock Classes="kcapLabel" Text="Density" VerticalAlignment="Center" />
+                                        <ComboBox x:Name="DensityPicker" Grid.Row="0" Grid.Column="1" Classes="kcapField" MinWidth="150" HorizontalAlignment="Stretch"
+                                                  AutomationProperties.Name="Density"
+                                                  ItemsSource="{x:Static vm:DesktopAppearanceSettings.Densities}"
+                                                  SelectedItem="{Binding Appearance.Reading.Density, Mode=TwoWay}" />
+                                        <TextBlock Grid.Row="1" Classes="kcapLabel" Text="Reading font" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                        <ComboBox x:Name="ReadingFontPicker" Grid.Row="1" Grid.Column="1" Classes="kcapField" HorizontalAlignment="Stretch"
+                                                  AutomationProperties.Name="Reading font"
+                                                  ItemsSource="{x:Static vm:DesktopAppearanceSettings.ReadingFonts}"
+                                                  SelectedItem="{Binding Appearance.Reading.ReadingFont, Mode=TwoWay}" />
+                                    </Grid>
+                                    <WrapPanel ItemSpacing="24" LineSpacing="4">
+                                        <CheckBox x:Name="HigherContrastToggle" Content="Use higher contrast"
+                                                  IsChecked="{Binding Appearance.Reading.HighContrast, Mode=TwoWay}" />
+                                    </WrapPanel>
+                                    <TextBlock Foreground="{StaticResource KcapDangerBrush}" TextWrapping="Wrap"
+                                               AutomationProperties.LiveSetting="Polite"
+                                               IsVisible="{Binding Appearance.Reading.Problem, Converter={x:Static ObjectConverters.IsNotNull}, FallbackValue=False}"
+                                               Text="{Binding Appearance.Reading.Problem, FallbackValue={x:Null}}" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
 
                         <Border Classes="settingsCard">
                             <StackPanel Margin="16,14" Spacing="10">
