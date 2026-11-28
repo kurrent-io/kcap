@@ -46,7 +46,7 @@ public class WatchSecondaryPullRequestTests {
     static Func<string, TimeSpan, Task<RepositoryPayload?>> Detects(RepositoryPayload? repo) => (_, _) => Task.FromResult(repo);
 
     static Task Link(WatchState state, Func<string, TimeSpan, Task<RepositoryPayload?>> detect, Func<RepositoryPayload, CancellationToken, Task<bool>> post,
-        TimeSpan? budget = null, CancellationToken ct = default, TimeProvider? time = null, Action? beat = null) =>
+        TimeSpan? budget = null, TimeProvider? time = null, Action? beat = null, CancellationToken ct = default) =>
         RecorderHousekeeping.LinkSecondaryPullRequestsAsync(state, detect, post, budget ?? Budget, time ?? TimeProvider.System, ct, beat ?? (() => { }));
 
     // The passes run on a clock only the probe advances: on the real one a loaded host can spend a
