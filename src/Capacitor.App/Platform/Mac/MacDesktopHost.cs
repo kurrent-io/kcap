@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media;
 using Capacitor.App.Services;
 using Capacitor.App.Services.Notifications;
 using Capacitor.Cli.Core;
@@ -16,6 +17,12 @@ public sealed class MacDesktopHost(string cliDirectory, bool updateRelaunch, Sin
             AvaloniaNativeLibraryPath = PatchedAvaloniaNative.Path,
         });
     }
+
+    /// Grayscale, as AppKit draws its own text. macOS has drawn no LCD text since Mojave, but
+    /// Skia's subpixel edging still turns on CoreText's font smoothing, which thickens stems and
+    /// fringes them, and offscreen layers already fall back to grayscale, so text changed weight
+    /// whenever it passed through one (a fade, a cached bitmap).
+    public override TextRenderingMode TextRendering => TextRenderingMode.Antialias;
 
     public override void WaitUntilReady() =>
         ActiveDisplayGate.WaitAsync(CoreVideoDisplayLink.Probe, TimeProvider.System,

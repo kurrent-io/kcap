@@ -385,6 +385,7 @@ public partial class App : Application {
         LineSelection.Install();
         ToolTipFocusGate.Install();
         FullOpacityPlaceholder.Install();
+        PlatformTextRendering.Install(Program.Host.TextRendering);
         ReducedMotion.Install();
         CaretBlink.Install();
         // Here, not later: Avalonia exports the app menu right after Initialize, substituting its own
