@@ -19,7 +19,9 @@ static class SystemdUnit {
         sb.Append("[Unit]\n");
         sb.Append($"Description=kcap daemon ({ServiceText.SystemdValue(spec.ServiceId)})\n");
         sb.Append("After=network-online.target\n");
-        sb.Append("Wants=network-online.target\n\n");
+        sb.Append("Wants=network-online.target\n");
+        sb.Append("StartLimitIntervalSec=60\n");
+        sb.Append("StartLimitBurst=5\n\n");
 
         sb.Append("[Service]\n");
         foreach (var (k, v) in spec.Environment) {
@@ -33,9 +35,7 @@ static class SystemdUnit {
             .Select(QuoteArg);
         sb.Append($"ExecStart={string.Join(' ', parts)}\n");
         sb.Append("Restart=on-failure\n");
-        sb.Append("RestartSec=5\n");
-        sb.Append("StartLimitIntervalSec=60\n");
-        sb.Append("StartLimitBurst=5\n\n");
+        sb.Append("RestartSec=5\n\n");
 
         sb.Append("[Install]\n");
         sb.Append("WantedBy=default.target\n");

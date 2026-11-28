@@ -13,6 +13,9 @@ public class SystemdUnitTests {
         var unit = SystemdUnit.Unit(Spec());
         await Assert.That(unit).Contains("ExecStart=/opt/kcap/kcap-daemon --name laptop --log-file /home/u/.config/kcap/daemon-laptop.log --max-agents 8");
         await Assert.That(unit).Contains("Restart=on-failure");
+        var unitSection = unit[..unit.IndexOf("[Service]", StringComparison.Ordinal)];
+        await Assert.That(unitSection).Contains("StartLimitIntervalSec=60");
+        await Assert.That(unitSection).Contains("StartLimitBurst=5");
         await Assert.That(unit).Contains("Environment=PATH=/usr/bin");
         await Assert.That(unit).Contains("Environment=KCAP_PROFILE=work");
         await Assert.That(unit).Contains("WantedBy=default.target");
