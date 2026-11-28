@@ -158,10 +158,11 @@ internal sealed class AgentHookPoster(
     /// as "proceed to spawn the watcher"; never <c>Spooled</c> as delivered.
     /// </summary>
     public Task<HookPostOutcome> PostOrSpoolAsync(
-            string endpoint, string body, string agentTag, HookSpool spool, string sessionId, string route) {
-        // Guard BEFORE the factory closure is constructed, so the injectable core stays untouched and
-        // its existing tests keep exercising the real post logic. An unusable URL is routed into the
-        // same "cannot post now" arm an auth lapse already uses: persist and let the caller continue.
+            string endpoint, string body, string agentTag, HookSpool spool, string sessionId, string route) =>
+        PostOrSpoolAsync(endpoint, body, agentTag, spool, sessionId, route, budget: null);
+
+    public Task<HookPostOutcome> PostOrSpoolAsync(
+            string endpoint, string body, string agentTag, HookSpool spool, string sessionId, string route, HookBudget? budget) {
         if (!HookHttp.IsPostable(Url)) {
             var spooled     = spool.Append(sessionId, route, body);
             var disposition = spooled ? $"{endpoint} spooled, not sent" : $"{endpoint} dropped (spool write failed)";
@@ -171,7 +172,7 @@ internal sealed class AgentHookPoster(
         }
 
         return PostOrSpoolAsync(() => http.ForHookAsync(),
-                                endpoint, body, agentTag, spool, sessionId, route);
+                                endpoint, body, agentTag, spool, sessionId, route, budget: budget);
     }
 
     /// <summary>
@@ -428,8 +429,14 @@ internal sealed class AgentHookPoster(
             string endpoint, string body, string agentTag,
             HookSpool spool, string sessionId, string route,
             TimeSpan? authCap = null, Action? onAuthAbandoned = null, HookBudget? budget = null) {
+        var authLimit = authCap ?? AuthCap;
+        if (budget?.Remaining is { } remaining) {
+            if (remaining <= TimeSpan.Zero) return SpoolOrSkip(spool, sessionId, route, body, agentTag);
+            if (remaining < authLimit) authLimit = remaining;
+        }
+
         var created = await BoundedAuth.CreateClientWithinAsync(
-            clientFactory, authCap ?? AuthCap, time, onAuthAbandoned ?? HandOffRefresh);
+            clientFactory, authLimit, time, onAuthAbandoned ?? HandOffRefresh);
 
         if (created is null) {
             return SpoolOrSkip(spool, sessionId, route, body, agentTag);

@@ -84,6 +84,25 @@ public class CodexHookCommandTests : IDisposable {
         await Assert.That(JsonElement.Parse(Stdout).GetProperty("continue").GetBoolean()).IsTrue();
     }
 
+    [Test]
+    public async Task SessionStart_spools_when_the_post_outlives_the_hook_budget() {
+        const string sessionId = "019e032205fc7570be6575719c3ea861";
+        const string route     = "/hooks/session-start/codex";
+        _server.Given(Request.Create().WithPath(route).UsingPost())
+            .RespondWith(Response.Create().WithStatusCode(200).WithBody("{}").WithDelay(TimeSpan.FromSeconds(8)));
+
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        var exit = await RunAsync($$"""
+            {"hook_event_name":"SessionStart","session_id":"{{sessionId}}"}
+            """);
+        elapsed.Stop();
+
+        await Assert.That(exit).IsEqualTo(0);
+        await Assert.That(elapsed.Elapsed).IsLessThan(TimeSpan.FromSeconds(5));
+        await Assert.That(JsonElement.Parse(Stdout).GetProperty("continue").GetBoolean()).IsTrue();
+        await Assert.That(new HookSpool(Config.Root, TimeProvider.System, _server.Url).HasBacklog(sessionId)).IsTrue();
+    }
+
     // Codex 'Stop' fires at turn end, not session end: the hook POSTs /hooks/stop for the idle-wait
     // marker but never session-end, which belongs to the watcher's parent-exit fallback.
     [Test]

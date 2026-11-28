@@ -56,8 +56,7 @@ sealed class CodexHookCommand(
 
     string Url => profiles.Resolution.ServerUrl!;
 
-    /// <summary>Codex blocks on this hook's stdout and sets no timeout of its own, so this ceiling is
-    /// the only thing standing between a stalled fetch and a stalled agent.</summary>
+    // Leave time to spool and acknowledge the hook before Codex's command timeout.
     static readonly TimeSpan Ceiling = TimeSpan.FromSeconds(5);
 
     // Codex's Stop and SessionStart hooks parse stdout as the
@@ -421,13 +420,7 @@ sealed class CodexHookCommand(
         var enrichedNode = JsonNode.Parse(enriched);
         var sessionId    = TryGetString(enrichedNode, "session_id");
 
-        // spawn-before-post. A lapsed-auth or transient/unreachable failure durably
-        // spools the payload instead of dropping it (Spooled) — never AuthLapsed here, unlike the
-        // legacy PostAsync path, so ShouldSpawnAfter below can safely spawn on Spooled too.
-        // Start the team-memory fetch BEFORE the lifecycle POST so the two overlap; it is awaited
-        // (budget-capped) immediately before the stdout write below, which is the only consumer.
-        // Deliberately started after the exclusion/disabled early-outs above so an excluded repo
-        // never reaches the memory subsystem at all.
+        // Fetch memory concurrently with the lifecycle POST, only after the scope checks pass.
         var memoryTask = StartMemoryIndexTask(sessionId,
             // The git root discovered above (stamped onto the node) is preferred; the payload cwd is
             // the fallback. Never a process-cwd fallback — see StartMemoryIndexTask's scope note.
@@ -444,7 +437,7 @@ sealed class CodexHookCommand(
 
         var spool = new HookSpool(config, clock.Time, Url);
         var outcome = await Poster(env).PostOrSpoolAsync("session-start/codex", enriched, "codex-hook", spool,
-            sessionId: sessionId ?? "", route: "session-start/codex");
+            sessionId: sessionId ?? "", route: "session-start/codex", budget: budget);
 
         // After the post, so a fault here cannot lose the session-start record; before the stdout handshake, because
         // Codex runs its first tool once that is written.
