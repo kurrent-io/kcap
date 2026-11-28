@@ -20,6 +20,8 @@ public sealed class AuthProviderDiscovery(IHttpClientFactory factory, TimeProvid
 
     readonly ConcurrentDictionary<string, string?> _machineTokenUrls = new(StringComparer.Ordinal);
 
+    readonly ConcurrentDictionary<string, string?> _authProxyUrls = new(StringComparer.Ordinal);
+
     public async Task<string> DiscoverAsync(
             string baseUrl, ConfigRoot config, ProfileContext profiles, TokenStore store,
             CancellationToken ct = default) {
@@ -76,6 +78,22 @@ public sealed class AuthProviderDiscovery(IHttpClientFactory factory, TimeProvid
     }
 
     /// <summary>
+    /// The server's <c>auth_proxy_url</c>, or null when it names none or cannot be asked — the caller
+    /// then falls back to the default proxy. Asked live rather than from the disk cache: only
+    /// <c>kcap machine create</c> needs it, and the operator's WorkOS token is sent there, so it is
+    /// believed under the same rule as <c>machine_token_url</c>.
+    /// </summary>
+    public async Task<string?> AuthProxyUrlAsync(string baseUrl, ConfigRoot config, CancellationToken ct = default) {
+        if (!MayNameTokenUrl(baseUrl)) return null;
+
+        if (_authProxyUrls.TryGetValue(baseUrl, out var memo)) return memo;
+
+        await FetchAsync(baseUrl, config, ct);
+
+        return _authProxyUrls.GetValueOrDefault(baseUrl);
+    }
+
+    /// <summary>
     /// The <c>machine_token_url</c> an <c>/auth/config</c> answer may record, or null. Every writer of
     /// the field goes through this: the mint sends the client secret there.
     ///
@@ -102,6 +120,7 @@ public sealed class AuthProviderDiscovery(IHttpClientFactory factory, TimeProvid
                 var tokenUrl   = TrustedTokenUrl(request, response, discovered?.MachineTokenUrl);
                 _memo[baseUrl]             = provider;
                 _machineTokenUrls[baseUrl] = tokenUrl;
+                _authProxyUrls[baseUrl]    = TrustedTokenUrl(request, response, discovered?.AuthProxyUrl);
                 AuthProviderCache.Set(baseUrl, provider, config, time, tokenUrl); // only cache successful discovery
 
                 return provider;
