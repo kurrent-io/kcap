@@ -1,6 +1,7 @@
 using System.Runtime.Versioning;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media;
 using Capacitor.App.Services;
 using Capacitor.App.Services.Notifications;
 using Capacitor.Cli.Core;
@@ -16,6 +17,9 @@ public sealed class MacDesktopHost(string cliDirectory, bool updateRelaunch, Sin
             AvaloniaNativeLibraryPath = PatchedAvaloniaNative.Path,
         });
     }
+
+    /// Skia's subpixel edging turns on CoreText font smoothing, which thickens and fringes stems.
+    public override TextRenderingMode TextRendering => TextRenderingMode.Antialias;
 
     public override void WaitUntilReady() =>
         ActiveDisplayGate.WaitAsync(CoreVideoDisplayLink.Probe, TimeProvider.System,

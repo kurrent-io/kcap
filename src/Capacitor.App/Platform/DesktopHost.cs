@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Media;
 using Capacitor.App.Platform.Linux;
 using Capacitor.App.Platform.Mac;
 using Capacitor.App.Platform.Windows;
@@ -77,6 +78,8 @@ public abstract class DesktopHost : IDisposable {
     public virtual bool CliCopyFailed => false;
 
     public virtual AppBuilder ConfigureAvalonia(AppBuilder builder) => builder;
+
+    public virtual TextRenderingMode TextRendering => TextRenderingMode.Unspecified;
 
     /// Blocks until the platform can show a window.
     public virtual void WaitUntilReady() { }
